@@ -170,6 +170,40 @@ func TestUpdateConfig(t *testing.T) {
 	}
 }
 
+func TestUpdateStoppedConfigPersistsInitialMainPace(t *testing.T) {
+	s := newTestServer(t)
+	registerAndLogin(t, s)
+	agent, err := s.store.CreateAgent(1, "paced-agent", "directive", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wakeAt := time.Date(2026, time.August, 10, 10, 0, 0, 0, time.UTC)
+	req := authedRequest(t, http.MethodPut, "/instances/1/config", "", map[string]any{
+		"main_pace": map[string]any{
+			"sleep":        "10m",
+			"next_wake_at": wakeAt.Format(time.RFC3339Nano),
+		},
+	})
+	w := httptest.NewRecorder()
+	s.handleUpdateConfig(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	data, err := os.ReadFile(filepath.Join(s.agents.instanceDir(agent.ID), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	pace, _ := cfg["main_pace"].(map[string]any)
+	if pace["sleep"] != "10m" || pace["next_wake_at"] != wakeAt.Format(time.RFC3339Nano) {
+		t.Fatalf("main_pace=%#v", pace)
+	}
+}
+
 func TestBackgroundMemoryTogglePersistsAndPreservesMemory(t *testing.T) {
 	s := newTestServer(t)
 	registerAndLogin(t, s)

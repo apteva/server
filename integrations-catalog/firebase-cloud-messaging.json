@@ -1,23 +1,64 @@
 {
   "slug": "firebase-cloud-messaging",
-  "name": "Firebase Cloud Messaging",
-  "description": "Send native Android push notifications through the Firebase Cloud Messaging HTTP v1 API using a Firebase service account.",
+  "name": "Firebase for Android & FCM",
+  "description": "Provision Firebase Android apps, download their google-services.json configuration, manage signing certificates, and send Firebase Cloud Messaging HTTP v1 messages through one Google OAuth connection.",
   "logo": "https://www.google.com/s2/favicons?domain=firebase.google.com&sz=128",
-  "categories": ["notifications", "mobile", "android", "firebase"],
-  "base_url": "https://fcm.googleapis.com",
+  "categories": ["notifications", "mobile", "android", "firebase", "google"],
+  "base_url": "https://firebase.googleapis.com",
   "auth": {
-    "types": ["custom"],
+    "types": ["oauth2"],
     "headers": {
+      "Authorization": "Bearer {{token}}",
       "Accept": "application/json",
       "Content-Type": "application/json"
     },
-    "signers": [{ "name": "google_service_account" }],
+    "signers": [
+      {
+        "name": "google_service_account",
+        "params": {
+          "scope": "https://www.googleapis.com/auth/cloud-platform"
+        }
+      }
+    ],
     "credential_fields": [
       {
+        "name": "token",
+        "label": "OAuth access token",
+        "type": "password",
+        "source": "oauth",
+        "hidden": true,
+        "required": false
+      },
+      {
+        "name": "refresh_token",
+        "label": "OAuth refresh token",
+        "type": "password",
+        "source": "oauth",
+        "hidden": true,
+        "required": false
+      },
+      {
+        "name": "expires_in",
+        "label": "OAuth token lifetime",
+        "source": "oauth",
+        "hidden": true,
+        "required": false
+      },
+      {
+        "name": "token_type",
+        "label": "OAuth token type",
+        "source": "oauth",
+        "hidden": true,
+        "required": false
+      },
+      {
         "name": "service_account_json",
-        "label": "Firebase service account JSON",
+        "label": "Legacy Firebase service account JSON",
         "type": "multiline_password",
-        "description": "Paste the complete service-account JSON downloaded from Firebase Console > Project settings > Service accounts."
+        "source": "user",
+        "hidden": true,
+        "required": false,
+        "description": "Execution-only compatibility field for existing service-account connections. New connections use Google OAuth."
       },
       {
         "name": "relay_encryption_key",
@@ -26,33 +67,329 @@
         "source": "generated",
         "hidden": true,
         "required": false,
-        "description": "Generated automatically by Apteva when the connection is created. Push uses it to encrypt FCM registration tokens at rest."
+        "description": "Generated automatically by Apteva for encrypting Firebase device identifiers at rest."
       }
-    ]
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/firebase",
+        "https://www.googleapis.com/auth/firebase.messaging",
+        "https://www.googleapis.com/auth/cloud-platform"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent select_account",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "health_check": {
+    "tool": "list_projects",
+    "input": {
+      "pageSize": 1
+    }
   },
   "tools": [
     {
-      "name": "send_message",
-      "description": "Send one Firebase Cloud Messaging HTTP v1 message to a registration token, topic, or condition.",
-      "method": "POST",
-      "path": "/v1/projects/-/messages:send",
+      "name": "list_projects",
+      "description": "List Firebase projects accessible to the connected Google identity. Use nextPageToken with pageToken to continue. A project appearing here does not by itself prove that the identity can create apps or send messages; those operations also require the corresponding project IAM permissions.",
+      "method": "GET",
+      "path": "/v1beta1/projects",
+      "query_params": ["pageSize", "pageToken", "showDeleted"],
       "input_schema": {
         "type": "object",
         "properties": {
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum projects to return. Firebase may return fewer."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Continuation token returned as nextPageToken by a previous call."
+          },
+          "showDeleted": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include projects in the DELETED state."
+          }
+        }
+      },
+      "mock_response": {
+        "results": [],
+        "_mock": true
+      }
+    },
+    {
+      "name": "list_android_apps",
+      "description": "List Firebase Android apps in a project. Match the exact packageName before creating an app so provisioning remains idempotent. Continue with nextPageToken when present.",
+      "method": "GET",
+      "path": "/v1beta1/projects/{project_id}/androidApps",
+      "path_params": ["project_id"],
+      "query_params": ["pageSize", "pageToken", "showDeleted"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Firebase project ID or project number."
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum Android apps to return."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Continuation token returned as nextPageToken by a previous call."
+          },
+          "showDeleted": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include soft-deleted Android apps."
+          }
+        },
+        "required": ["project_id"]
+      },
+      "mock_response": {
+        "apps": [],
+        "_mock": true
+      }
+    },
+    {
+      "name": "create_android_app",
+      "description": "Request creation of a Firebase Android app. Returns a long-running Operation, not the final app. Poll get_operation using the ID after the operations/ prefix, then use the resulting appId with get_android_config. List apps first and reuse an exact packageName match.",
+      "method": "POST",
+      "path": "/v1beta1/projects/{project_id}/androidApps",
+      "path_params": ["project_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Firebase project ID or project number."
+          },
+          "packageName": {
+            "type": "string",
+            "description": "Immutable Android application ID, for example ai.apteva.mobile."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Optional human-readable Firebase app name."
+          },
+          "apiKeyId": {
+            "type": "string",
+            "description": "Optional Google API key resource UID. Omit to let Firebase associate or provision a suitable key."
+          }
+        },
+        "required": ["project_id", "packageName"]
+      },
+      "mock_response": {
+        "name": "operations/mock-create-android-app",
+        "done": false,
+        "_mock": true
+      }
+    },
+    {
+      "name": "get_android_config",
+      "description": "Download an Android app configuration artifact. configFileContents is the complete google-services.json encoded as base64 bytes. Treat it as build configuration: decode only where needed and do not log its contents.",
+      "method": "GET",
+      "path": "/v1beta1/projects/{project_id}/androidApps/{app_id}/config",
+      "path_params": ["project_id", "app_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Firebase project ID or project number."
+          },
+          "app_id": {
+            "type": "string",
+            "description": "Opaque Firebase Android app ID returned as appId."
+          }
+        },
+        "required": ["project_id", "app_id"]
+      },
+      "mock_response": {
+        "configFilename": "google-services.json",
+        "configFileContents": "e30=",
+        "_mock": true
+      }
+    },
+    {
+      "name": "get_operation",
+      "description": "Poll a Firebase Management long-running operation. Pass only the opaque segment after operations/ from the Operation name returned by create_android_app. When done=true, inspect error or response; operations are removed automatically after completion.",
+      "method": "GET",
+      "path": "/v1beta1/operations/{operation_id}",
+      "path_params": ["operation_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "description": "Opaque operation identifier without the operations/ prefix."
+          }
+        },
+        "required": ["operation_id"]
+      },
+      "mock_response": {
+        "name": "operations/mock-create-android-app",
+        "done": true,
+        "response": {
+          "appId": "1:1234567890:android:mock",
+          "packageName": "ai.apteva.mobile"
+        },
+        "_mock": true
+      }
+    },
+    {
+      "name": "list_android_sha",
+      "description": "List SHA-1 and SHA-256 signing certificate hashes registered for one Firebase Android app. These certificates are not required for FCM delivery, but other Firebase products such as Google Sign-In or App Check may require them.",
+      "method": "GET",
+      "path": "/v1beta1/projects/{project_id}/androidApps/{app_id}/sha",
+      "path_params": ["project_id", "app_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Firebase project ID or project number."
+          },
+          "app_id": {
+            "type": "string",
+            "description": "Opaque Firebase Android app ID."
+          }
+        },
+        "required": ["project_id", "app_id"]
+      },
+      "mock_response": {
+        "certificates": [],
+        "_mock": true
+      }
+    },
+    {
+      "name": "add_android_sha",
+      "description": "Register one SHA-1 or SHA-256 signing certificate hash for a Firebase Android app. Do not add a duplicate returned by list_android_sha.",
+      "method": "POST",
+      "path": "/v1beta1/projects/{project_id}/androidApps/{app_id}/sha",
+      "path_params": ["project_id", "app_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Firebase project ID or project number."
+          },
+          "app_id": {
+            "type": "string",
+            "description": "Opaque Firebase Android app ID."
+          },
+          "certType": {
+            "type": "string",
+            "enum": ["SHA_1", "SHA_256"],
+            "description": "Certificate hash algorithm."
+          },
+          "shaHash": {
+            "type": "string",
+            "description": "Certificate fingerprint in the format expected by Firebase, normally colon-separated hexadecimal bytes."
+          }
+        },
+        "required": ["project_id", "app_id", "certType", "shaHash"]
+      },
+      "mock_response": {
+        "name": "projects/mock/androidApps/mock/sha/mock",
+        "certType": "SHA_256",
+        "shaHash": "00:00",
+        "_mock": true
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send one Firebase Cloud Messaging HTTP v1 message through an explicit Firebase project. Set exactly one target on message: fid (preferred for current Firebase SDKs), token (legacy/deprecated), topic, or condition. The connected Google identity needs cloudmessaging.messages.create on the selected project.",
+      "method": "POST",
+      "base_url": "https://fcm.googleapis.com",
+      "path": "/v1/projects/{project_id}/messages:send",
+      "path_params": ["project_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Firebase sender project ID or project number."
+          },
           "message": {
             "type": "object",
-            "description": "Complete FCM Message object containing exactly one target and any notification, data, Android, APNs, or Webpush options.",
+            "description": "FCM Message object. Supply exactly one of fid, token, topic, or condition plus data and/or notification content.",
+            "properties": {
+              "fid": {
+                "type": "string",
+                "description": "Firebase Installation ID to target. Preferred for current Firebase SDKs."
+              },
+              "token": {
+                "type": "string",
+                "description": "Legacy FCM registration token. Deprecated by Firebase in favor of fid."
+              },
+              "topic": {
+                "type": "string",
+                "description": "Topic name without the /topics/ prefix."
+              },
+              "condition": {
+                "type": "string",
+                "description": "Boolean topic condition."
+              },
+              "data": {
+                "type": "object",
+                "description": "UTF-8 string key/value payload.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "notification": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "body": { "type": "string" },
+                  "image": { "type": "string", "format": "uri" }
+                },
+                "additionalProperties": false
+              },
+              "android": {
+                "type": "object",
+                "description": "AndroidConfig including priority, ttl, collapse_key, restricted_package_name, data, notification, and fcm_options.",
+                "additionalProperties": true
+              },
+              "apns": {
+                "type": "object",
+                "description": "APNs-specific headers and payload.",
+                "additionalProperties": true
+              },
+              "webpush": {
+                "type": "object",
+                "description": "Web Push-specific headers, data, notification, and fcm_options.",
+                "additionalProperties": true
+              },
+              "fcm_options": {
+                "type": "object",
+                "description": "Cross-platform FCM options.",
+                "additionalProperties": true
+              }
+            },
             "additionalProperties": true
           },
           "validate_only": {
             "type": "boolean",
-            "description": "Validate the request without delivering the message."
+            "default": false,
+            "description": "Validate the request and IAM authorization without delivering the message."
           }
         },
-        "required": ["message"]
+        "required": ["project_id", "message"]
       },
       "mock_response": {
-        "name": "projects/apteva/messages/mock",
+        "name": "projects/mock/messages/mock",
         "_mock": true
       }
     }

@@ -119,6 +119,14 @@ type LocalSupervisor struct {
 	// retire fires; this is what gives us zero-downtime upgrades.
 	pendingMu sync.Mutex
 	pending   map[int64]*localProc
+
+	// fixedPorts coordinates exclusive raw host listeners across every local
+	// installation. installFixedPorts is the committed set for the currently
+	// active manifest; fixedPorts may additionally contain ports provisionally
+	// held by an in-flight or boot-resumed upgrade.
+	portMu            sync.Mutex
+	fixedPorts        map[fixedPortKey]fixedPortReservation
+	installFixedPorts map[int64]map[fixedPortKey]struct{}
 }
 
 type localProc struct {
@@ -127,6 +135,7 @@ type localProc struct {
 	logfile   io.Closer
 	done      chan struct{}
 	stoppedAt time.Time
+	spec      activationSpec
 }
 
 const appSidecarLogMaxBytes int64 = 16 << 20
@@ -138,12 +147,14 @@ func NewLocalSupervisor(cacheDir string) *LocalSupervisor {
 	_ = os.MkdirAll(cacheDir, 0755)
 	n := envInstallConcurrency()
 	return &LocalSupervisor{
-		cacheDir:   cacheDir,
-		procs:      map[int64]*localProc{},
-		buildMu:    map[string]*sync.Mutex{},
-		inflight:   map[int64]struct{}{},
-		installSem: make(chan struct{}, n),
-		pending:    map[int64]*localProc{},
+		cacheDir:          cacheDir,
+		procs:             map[int64]*localProc{},
+		buildMu:           map[string]*sync.Mutex{},
+		inflight:          map[int64]struct{}{},
+		installSem:        make(chan struct{}, n),
+		pending:           map[int64]*localProc{},
+		fixedPorts:        map[fixedPortKey]fixedPortReservation{},
+		installFixedPorts: map[int64]map[fixedPortKey]struct{}{},
 	}
 }
 
@@ -237,22 +248,11 @@ func (sup *LocalSupervisor) Install(installID int64, m *sdk.Manifest, env map[st
 	if err != nil {
 		return 0, "", err
 	}
-	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
+	spec, err := newActivationSpec(installID, m, binPath, port, env)
+	if err != nil {
 		return 0, "", err
 	}
-	healthPath := m.Runtime.HealthCheck
-	if healthPath == "" {
-		healthPath = "/health"
-	}
-	if err := sup.waitHealthy(installID, port, healthPath, 30*time.Second); err != nil {
-		// NEW failed health → kill it and (if there was a prior
-		// version parked by spawn's blue-green capture) restore OLD
-		// to the procs map. After rollback, sup.PID(installID)
-		// reports OLD's pid, which the caller checks to decide
-		// whether to leave the install row 'running' on its
-		// previous version or flip it to 'error' (fresh installs).
-		_ = sup.Stop(installID)
-		sup.rollbackToOld(installID)
+	if err := sup.activate(spec, 30*time.Second); err != nil {
 		return 0, "", err
 	}
 	return port, binPath, nil
@@ -268,14 +268,11 @@ func (sup *LocalSupervisor) Restart(installID int64, m *sdk.Manifest, port int, 
 	if _, err := os.Stat(binPath); err != nil {
 		return fmt.Errorf("cached binary missing at %s: %w", binPath, err)
 	}
-	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
+	spec, err := newActivationSpec(installID, m, binPath, port, env)
+	if err != nil {
 		return err
 	}
-	healthPath := m.Runtime.HealthCheck
-	if healthPath == "" {
-		healthPath = "/health"
-	}
-	return sup.waitHealthy(installID, port, healthPath, 30*time.Second)
+	return sup.activate(spec, 30*time.Second)
 }
 
 // Stop sends SIGTERM, waits up to 5s, then SIGKILL.
@@ -312,19 +309,20 @@ func (sup *LocalSupervisor) RetireOld(installID int64, grace time.Duration) {
 // supervisor's tracked process for this install — old is still
 // alive (we never killed it) and the DB still points at its port,
 // so traffic keeps flowing as if the upgrade had never been attempted.
-func (sup *LocalSupervisor) rollbackToOld(installID int64) {
+func (sup *LocalSupervisor) rollbackToOld(installID int64) *localProc {
 	sup.pendingMu.Lock()
 	p := sup.pending[installID]
 	delete(sup.pending, installID)
 	sup.pendingMu.Unlock()
 	if p == nil {
-		return
+		return nil
 	}
 	sup.mu.Lock()
 	sup.procs[installID] = p
 	sup.mu.Unlock()
 	log.Printf("[APPS-LOCAL] rolled back to previous sidecar install=%d pid=%d (new failed health)",
 		installID, p.cmd.Process.Pid)
+	return p
 }
 
 // PID returns the OS pid of the running child for this install, or 0.
@@ -399,7 +397,8 @@ func (sup *LocalSupervisor) fetchBinary(name, version, url string) (string, erro
 	return bin, nil
 }
 
-func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int, env map[string]string) error {
+func (sup *LocalSupervisor) spawn(spec activationSpec) error {
+	installID, appName, bin, port, env := spec.installID, spec.appName, spec.binPath, spec.httpPort, spec.env
 	// Blue-green: if there's a live process already tracked for this
 	// install_id (always true on the upgrade path — BuildFromSource
 	// re-enters spawn with a fresh bin), DON'T stop it here. We
@@ -465,7 +464,7 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	// in-memory registry have been swung over to NEW, or
 	// rollbackToOld(installID) if NEW fails health.
 	done := make(chan struct{})
-	proc := &localProc{cmd: cmd, port: port, logfile: logf, done: done}
+	proc := &localProc{cmd: cmd, port: port, logfile: logf, done: done, spec: spec.clone()}
 	reap := func() {
 		defer close(done)
 		err := cmd.Wait()
@@ -689,12 +688,12 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 
 	port, binPath, err := s.localApps.Install(installID, m, env)
 	if err != nil {
-		// Same blue-green failure shape as installFromSource: if
-		// the supervisor rolled back to a previous version, keep
-		// status='running' so the install keeps serving on OLD
-		// and agents' MCP URLs (via the loopback proxy) still
-		// resolve. Only fresh-install failures flip to 'error'.
-		if s.localApps.PID(installID) > 0 {
+		s.localApps.DiscardPendingFixedPorts(installID)
+		// Build/download failures happen before activation and fixed-port
+		// activation failures may have restarted OLD. Only preserve the
+		// running state after the previous HTTP and fixed TCP listeners have
+		// actually passed readiness; a pid alone is not a rollback check.
+		if activationRollbackVerified(err) || s.localApps.verifyCurrentProc(installID, 5*time.Second) {
 			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
 			s.store.db.Exec(
@@ -846,11 +845,118 @@ type localResumeRow struct {
 	dependencyIDs                                                       []int64
 }
 
+// rebuildLocalFixedPortReservations reconstructs the supervisor's exclusive
+// host-port ownership before boot resume fans out into parallel dependency
+// waves. The database manifest remains the durable source of truth; no second
+// reservation table is needed.
+func (s *Server) rebuildLocalFixedPortReservations() {
+	if s.localApps == nil {
+		return
+	}
+	s.localApps.ResetFixedPortReservations()
+	rows, err := s.store.db.Query(
+		`SELECT i.id, i.status, i.local_pid, COALESCE(i.local_bin_path,''), a.name,
+				COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
+				COALESCE(i.pending_manifest_json, '')
+		   FROM app_installs i JOIN apps a ON a.id = i.app_id
+		  WHERE i.status IN ('running','pending')
+		  ORDER BY CASE i.status WHEN 'running' THEN 0 ELSE 1 END, i.id`)
+	if err != nil {
+		log.Printf("[APPS-PORTS] rebuild reservations: %v", err)
+		return
+	}
+	defer rows.Close()
+	preferLocal := os.Getenv("APTEVA_APPS_REMOTE") == ""
+
+	for rows.Next() {
+		var id, pid int64
+		var status, binPath, appName, currentJSON, pendingJSON string
+		if err := rows.Scan(&id, &status, &pid, &binPath, &appName, &currentJSON, &pendingJSON); err != nil {
+			log.Printf("[APPS-PORTS] scan reservation: %v", err)
+			continue
+		}
+		var current sdk.Manifest
+		if err := json.Unmarshal([]byte(currentJSON), &current); err != nil {
+			log.Printf("[APPS-PORTS] install=%d current manifest: %v", id, err)
+			continue
+		}
+		// Remote/orchestrated and static running apps have no locally managed
+		// binary. Their host ports belong to the worker runtime, not this
+		// supervisor's machine.
+		if status == "running" && binPath == "" {
+			continue
+		}
+
+		// Running rows and pending upgrades with an existing binary have a
+		// committed OLD runtime whose ports must remain owned during resume.
+		hasPreviousRuntime := binPath != "" && (status == "running" || (status == "pending" && pendingJSON != ""))
+		if hasPreviousRuntime {
+			ports, err := fixedRuntimePorts(&current)
+			if err == nil {
+				err = s.localApps.RestoreCommittedFixedPorts(id, appName, ports)
+			}
+			if err != nil {
+				msg := fmt.Sprintf("fixed-port reservation conflict: %v", err)
+				log.Printf("[APPS-PORTS] install=%d %s", id, msg)
+				s.localApps.ReleaseFixedPorts(id)
+				if pid > 0 && processAlive(int(pid)) {
+					killOrphan(int(pid))
+				}
+				_, _ = s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, msg, id)
+				continue
+			}
+		}
+
+		if status != "pending" {
+			continue
+		}
+		if !hasPreviousRuntime && !preferLocal {
+			continue
+		}
+		target := current
+		if pendingJSON != "" {
+			if err := json.Unmarshal([]byte(pendingJSON), &target); err != nil {
+				log.Printf("[APPS-PORTS] install=%d pending manifest: %v", id, err)
+				continue
+			}
+		}
+		if !isRecoverableLocalPending(&target) {
+			continue
+		}
+		ports, err := fixedRuntimePorts(&target)
+		if err == nil {
+			err = s.localApps.RestorePendingFixedPorts(id, appName, ports)
+		}
+		if err == nil {
+			continue
+		}
+
+		msg := fmt.Sprintf("fixed-port reservation conflict: %v", err)
+		log.Printf("[APPS-PORTS] install=%d %s", id, msg)
+		if hasPreviousRuntime {
+			// Keep OLD eligible for the normal running-resume path. Its
+			// committed reservations remain intact; only the conflicting
+			// target upgrade is abandoned.
+			_, _ = s.store.db.Exec(
+				`UPDATE app_installs SET status='running', status_message='upgrade failed; previous version retained', error_message=?, pending_manifest_json='' WHERE id=?`,
+				msg, id,
+			)
+		} else {
+			s.localApps.ReleaseFixedPorts(id)
+			if pid > 0 && processAlive(int(pid)) {
+				killOrphan(int(pid))
+			}
+			_, _ = s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, msg, id)
+		}
+	}
+}
+
 // ResumeLocalInstalls re-spawns every local install whose status is running.
 // Boot order follows exact app-install bindings: dependencies become healthy
 // before dependents start their OnMount callbacks. Independent installs still
 // resume in parallel, preserving the fast common path.
 func (s *Server) ResumeLocalInstalls() {
+	s.rebuildLocalFixedPortReservations()
 	// We pull `i.version` (what was actually installed) separately from
 	// the install's manifest snapshot — they
 	// diverge as soon as marketplace polling sees a newer published
@@ -1055,7 +1161,7 @@ func cloneLocalBinPath(cacheDir, appName, version string) (string, bool) {
 type pendingLocalInstall struct {
 	id, localPID, localPort                         int64
 	appName, projectID, configEnc, version, binPath string
-	manifestJSON                                    string
+	currentManifestJSON, targetManifestJSON         string
 }
 
 // ResumePendingLocalInstalls reclaims install/upgrade jobs that were left
@@ -1070,6 +1176,7 @@ func (s *Server) ResumePendingLocalInstalls() {
 		`SELECT i.id, i.local_pid, i.local_port, i.local_bin_path,
 			COALESCE(i.project_id,''), COALESCE(i.config_encrypted,''),
 			i.version, a.name,
+			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 			COALESCE(NULLIF(i.pending_manifest_json, ''), NULLIF(i.manifest_json, ''), a.manifest_json)
 		   FROM app_installs i JOIN apps a ON a.id = i.app_id
 		  WHERE i.status='pending'`)
@@ -1081,7 +1188,7 @@ func (s *Server) ResumePendingLocalInstalls() {
 	for rows.Next() {
 		var r pendingLocalInstall
 		if err := rows.Scan(&r.id, &r.localPID, &r.localPort, &r.binPath,
-			&r.projectID, &r.configEnc, &r.version, &r.appName, &r.manifestJSON); err != nil {
+			&r.projectID, &r.configEnc, &r.version, &r.appName, &r.currentManifestJSON, &r.targetManifestJSON); err != nil {
 			log.Printf("[APPS-LOCAL] scan pending install: %v", err)
 			continue
 		}
@@ -1091,7 +1198,7 @@ func (s *Server) ResumePendingLocalInstalls() {
 
 	for _, r := range pending {
 		var m sdk.Manifest
-		if err := json.Unmarshal([]byte(r.manifestJSON), &m); err != nil {
+		if err := json.Unmarshal([]byte(r.targetManifestJSON), &m); err != nil {
 			log.Printf("[APPS-LOCAL] pending install=%d app=%s has bad manifest: %v", r.id, r.appName, err)
 			continue
 		}
@@ -1105,7 +1212,10 @@ func (s *Server) ResumePendingLocalInstalls() {
 			}
 		}
 		if r.localPID > 0 && r.localPort > 0 && r.binPath != "" {
-			s.resumeOneLocalInstall(r.id, r.localPID, r.localPort, r.binPath, r.appName, r.projectID, r.configEnc, r.version, r.manifestJSON)
+			// Resume OLD with its committed manifest. The pending target may
+			// declare different fixed ports and must not be used to reconstruct
+			// the still-installed binary before its upgrade is activated.
+			s.resumeOneLocalInstall(r.id, r.localPID, r.localPort, r.binPath, r.appName, r.projectID, r.configEnc, r.version, r.currentManifestJSON)
 		}
 		log.Printf("[APPS-LOCAL] resuming pending install=%d app=%s version=%s", r.id, m.Name, m.Version)
 		s.store.db.Exec(

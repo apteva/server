@@ -454,6 +454,142 @@
           "subscription_id"
         ]
       }
+    },
+    {
+      "name": "create_document_from_upload",
+      "description": "Create a PandaDoc document from an uploaded PDF. Pass the PDF as file and the documented creation object as data; then poll get_document_status until document.draft before editing or sending.",
+      "method": "POST",
+      "path": "/documents?upload",
+      "multipart_form": {"file_fields": {"file": "file"}, "field_names": ["data"]},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {"type": "string", "description": "PDF bytes as base64, data URL, or binary file value."},
+          "data": {"type": "object", "description": "DocumentCreateByPdfRequest containing name, recipients, fields, metadata, tags, folder_uuid, and optional parsing rules."}
+        },
+        "required": ["file", "data"]
+      }
+    },
+    {
+      "name": "create_document_session",
+      "description": "Create a short-lived embedded signing/viewing session for one document recipient. The response id is the E-Token used by PandaDoc's embedded signing client.",
+      "method": "POST",
+      "path": "/documents/{document_id}/session",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": {"type": "string"},
+          "recipient": {"type": "string", "description": "Recipient email already assigned to the document."},
+          "lifetime": {"type": "integer", "description": "Session lifetime in seconds."}
+        },
+        "required": ["document_id", "recipient"]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a blank PandaDoc template with metadata, owner, tokens, and folder placement.",
+      "method": "POST",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"}, "folder_uuid": {"type": "string"}, "owner": {"type": "object"},
+          "metadata": {"type": "object"}, "tokens": {"type": "array", "items": {"type": "object"}}
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "create_template_from_upload",
+      "description": "Create a PandaDoc template from a PDF, DOCX, or RTF upload. Pass template metadata as data and poll get_template_details until processing completes.",
+      "method": "POST",
+      "path": "/templates?upload",
+      "multipart_form": {"file_fields": {"file": "file"}, "field_names": ["data"]},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {"type": "string", "description": "PDF, DOCX, or RTF bytes as base64, data URL, or binary file value."},
+          "data": {"type": "object", "description": "Template data containing name and optional folder_uuid, owner, metadata, and tokens."}
+        },
+        "required": ["file", "data"]
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Update a processed template's variables and full role list.",
+      "method": "PATCH",
+      "path": "/templates/{template_id}",
+      "input_schema": {"type": "object", "properties": {"template_id": {"type": "string"}, "tokens": {"type": "array", "items": {"type": "object"}}, "roles": {"type": "array", "items": {"type": "object"}}}, "required": ["template_id"]}
+    },
+    {
+      "name": "delete_template",
+      "description": "Delete a PandaDoc template.",
+      "method": "DELETE",
+      "path": "/templates/{template_id}",
+      "input_schema": {"type": "object", "properties": {"template_id": {"type": "string"}}, "required": ["template_id"]}
+    },
+    {
+      "name": "duplicate_template",
+      "description": "Duplicate a template within the current workspace.",
+      "method": "POST",
+      "path": "/templates/{template_id}/duplicate",
+      "input_schema": {"type": "object", "properties": {"template_id": {"type": "string"}, "name": {"type": "string"}, "folder_uuid": {"type": "string"}, "owner": {"type": "object"}}, "required": ["template_id", "name"]}
+    },
+    {
+      "name": "get_contact",
+      "description": "Get one workspace contact.",
+      "method": "GET",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {"type": "object", "properties": {"contact_id": {"type": "string"}}, "required": ["contact_id"]}
+    },
+    {
+      "name": "update_contact",
+      "description": "Update a workspace contact.",
+      "method": "PATCH",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {"type": "object", "properties": {"contact_id": {"type": "string"}, "email": {"type": "string"}, "first_name": {"type": "string"}, "last_name": {"type": "string"}, "company": {"type": "string"}, "job_title": {"type": "string"}, "phone": {"type": "string"}, "country": {"type": "string"}, "state": {"type": "string"}, "street_address": {"type": "string"}, "city": {"type": "string"}, "postal_code": {"type": "string"}}, "required": ["contact_id"]}
+    },
+    {
+      "name": "delete_contact",
+      "description": "Delete a workspace contact.",
+      "method": "DELETE",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {"type": "object", "properties": {"contact_id": {"type": "string"}}, "required": ["contact_id"]}
+    },
+    {
+      "name": "get_webhook",
+      "description": "Get one webhook subscription and its current event configuration.",
+      "method": "GET",
+      "path": "/webhook-subscriptions/{subscription_id}",
+      "input_schema": {"type": "object", "properties": {"subscription_id": {"type": "string"}}, "required": ["subscription_id"]}
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update a webhook subscription's name, URL, active state, events, or payload fields.",
+      "method": "PATCH",
+      "path": "/webhook-subscriptions/{subscription_id}",
+      "input_schema": {"type": "object", "properties": {"subscription_id": {"type": "string"}, "name": {"type": "string"}, "url": {"type": "string"}, "active": {"type": "boolean"}, "events": {"type": "array", "items": {"type": "string"}}, "payload": {"type": "array", "items": {"type": "string"}}}, "required": ["subscription_id"]}
+    },
+    {
+      "name": "regenerate_webhook_shared_key",
+      "description": "Regenerate the signing shared key for a webhook subscription. Store the returned key securely before validating future webhook payloads.",
+      "method": "PATCH",
+      "path": "/webhook-subscriptions/{subscription_id}/shared-key",
+      "input_schema": {"type": "object", "properties": {"subscription_id": {"type": "string"}}, "required": ["subscription_id"]}
+    },
+    {
+      "name": "list_webhook_events",
+      "description": "List delivered PandaDoc webhook events for delivery inspection and recovery.",
+      "method": "GET",
+      "path": "/webhook-events",
+      "input_schema": {"type": "object", "properties": {"count": {"type": "integer"}, "page": {"type": "integer"}, "status": {"type": "string"}, "since": {"type": "string"}, "to": {"type": "string"}}}
+    },
+    {
+      "name": "get_webhook_event",
+      "description": "Get one webhook event including delivery status and payload.",
+      "method": "GET",
+      "path": "/webhook-events/{event_id}",
+      "input_schema": {"type": "object", "properties": {"event_id": {"type": "string"}}, "required": ["event_id"]}
     }
   ]
 }

@@ -25,27 +25,28 @@ import (
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
 type AppRow struct {
-	InstallID        int64            `json:"install_id"`
-	AppID            int64            `json:"app_id"`
-	Name             string           `json:"name"`
-	DisplayName      string           `json:"display_name"`
-	Version          string           `json:"version"`
-	AvailableVersion string           `json:"available_version,omitempty"`
-	Description      string           `json:"description"`
-	Icon             string           `json:"icon"`
-	IconStyle        string           `json:"icon_style,omitempty"`
-	ProjectID        string           `json:"project_id"`
-	Status           string           `json:"status"`
-	StatusMessage    string           `json:"status_message,omitempty"`
-	ErrorMessage     string           `json:"error_message,omitempty"`
-	Source           string           `json:"source"`
-	UpgradePolicy    string           `json:"upgrade_policy"`
-	Permissions      []sdk.Permission `json:"permissions"`
-	Surfaces         AppSurfaces      `json:"surfaces"`
-	Deprecated       bool             `json:"deprecated,omitempty"`
-	Deprecation      string           `json:"deprecation,omitempty"`
-	Replacement      string           `json:"replacement,omitempty"`
-	UIPanels         []sdk.UIPanel    `json:"ui_panels,omitempty"`
+	InstallID           int64            `json:"install_id"`
+	AppID               int64            `json:"app_id"`
+	Name                string           `json:"name"`
+	DisplayName         string           `json:"display_name"`
+	Version             string           `json:"version"`
+	AvailableVersion    string           `json:"available_version,omitempty"`
+	Description         string           `json:"description"`
+	Icon                string           `json:"icon"`
+	IconStyle           string           `json:"icon_style,omitempty"`
+	ProjectID           string           `json:"project_id"`
+	Status              string           `json:"status"`
+	StatusMessage       string           `json:"status_message,omitempty"`
+	ErrorMessage        string           `json:"error_message,omitempty"`
+	Source              string           `json:"source"`
+	UpgradePolicy       string           `json:"upgrade_policy"`
+	DefaultForNewAgents bool             `json:"default_for_new_agents"`
+	Permissions         []sdk.Permission `json:"permissions"`
+	Surfaces            AppSurfaces      `json:"surfaces"`
+	Deprecated          bool             `json:"deprecated,omitempty"`
+	Deprecation         string           `json:"deprecation,omitempty"`
+	Replacement         string           `json:"replacement,omitempty"`
+	UIPanels            []sdk.UIPanel    `json:"ui_panels,omitempty"`
 	// UISurfaces are code-free native UI descriptors. Mobile clients use
 	// Entry through the authenticated /api/apps/<name>/... proxy and validate
 	// the downloaded document against Schema before rendering it.
@@ -612,7 +613,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			i.upgrade_policy, i.version, i.permissions_json, a.name,
 			COALESCE(NULLIF(i.source, ''), a.source),
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
-			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0)
+			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0),
+			COALESCE(i.default_for_new_agents, 0)
 		FROM app_installs i JOIN apps a ON a.id = i.app_id`
 	args := []any{}
 	if projectID != "" {
@@ -669,11 +671,11 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			projID, status, statusMsg, errMsg                               string
 			upgradePolicy, version, permsJSON                               string
 			name, source, manifestJSON, availableManifestJSON, bindingsJSON string
-			hasPendingOptions                                               int
+			hasPendingOptions, defaultForNewAgents                          int
 		)
 		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
 			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON, &availableManifestJSON,
-			&bindingsJSON, &hasPendingOptions); err != nil {
+			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents); err != nil {
 			continue
 		}
 		var manifest sdk.Manifest
@@ -719,7 +721,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			IconStyle: manifest.IconStyle,
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
-			Permissions: perms, Surfaces: surfaces,
+			DefaultForNewAgents: defaultForNewAgents != 0,
+			Permissions:         perms, Surfaces: surfaces,
 			Deprecated:   isDeprecated,
 			Deprecation:  depInfo.Message,
 			Replacement:  depInfo.Replacement,
@@ -1377,6 +1380,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		if err := s.localApps.Stop(installID); err != nil {
 			log.Printf("[APPS] uninstall committed but process stop failed install=%d: %v", installID, err)
 		}
+		s.localApps.ReleaseFixedPorts(installID)
 	}
 	for _, skill := range pendingSkills {
 		s.sweepSkillFromProject(sweepUserID, sweepProjectID, skill.id, skill.slug, "app uninstalled")

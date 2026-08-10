@@ -244,9 +244,11 @@
     },
     {
       "name": "get_build",
-      "description": "Get current status and details for one build, including workflow, selected instance type, branch or tag, timestamps, App Store Connect status, and artifacts with short-lived download URLs.",
+      "description": "Get current status and details for one build, including workflow, selected instance type, branch or tag, timestamps, App Store Connect status, and artifacts with short-lived download URLs. A non-JSON or missing data payload is a provider error, even if Codemagic returns HTTP 200.",
       "method": "GET",
       "path": "/api/v3/builds/{build_id}",
+      "headers": { "Accept": "application/json" },
+      "response_path": "data",
       "input_schema": {
         "type": "object",
         "properties": {

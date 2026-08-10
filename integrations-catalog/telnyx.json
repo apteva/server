@@ -15,7 +15,7 @@
     "credential_fields": [
       { "name": "token", "label": "API Key", "description": "Telnyx API key with Voice API and Numbers permissions.", "type": "password", "required": true },
       { "name": "connection_id", "label": "Default Call Control Application ID", "description": "Optional default Telnyx Call Control Application / connection ID to copy into call tools.", "required": false },
-      { "name": "public_key", "label": "Webhook Public Key", "description": "Telnyx Ed25519 public key from Mission Control Portal > Keys & Credentials > Public Key. Used to verify every inbound call and status webhook.", "required": true },
+      { "name": "public_key", "label": "Webhook Public Key", "description": "Optional Telnyx Ed25519 public key from Mission Control Portal > Keys & Credentials > Public Key. Add it only when receiving webhooks so Apteva can verify their signatures; REST API access requires only the API key.", "required": false },
       { "name": "phone_number", "label": "Default From Number", "description": "Optional default Telnyx phone number to call from, in E.164 format.", "required": false }
     ]
   },

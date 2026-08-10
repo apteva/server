@@ -838,6 +838,17 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 	h.chatStreamOpened(chatID, inst)
 	defer h.chatStreamClosed(chatID)
 
+	// Commit the SSE response immediately, even when the conversation has no
+	// history yet. Without an initial body frame, development proxies and some
+	// CDNs can buffer the headers until the first chat message. The browser then
+	// remains in CONNECTING and can miss the useful open/ready signal even though
+	// the server-side subscription already exists. A comment is valid SSE and is
+	// ignored by message listeners.
+	if _, err := io.WriteString(w, ": connected\n\n"); err != nil {
+		return
+	}
+	flusher.Flush()
+
 	// Backfill from DB — every page since the client's checkpoint. The old
 	// one-shot LIMIT 1000 query silently skipped the rest of a large gap.
 	sinceStr := r.URL.Query().Get("since")

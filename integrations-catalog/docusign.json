@@ -1,226 +1,134 @@
 {
   "slug": "docusign",
   "name": "DocuSign",
-  "description": "MCP server for DocuSign e-signatures - envelopes, templates, recipients",
+  "description": "DocuSign eSignature API for production accounts: envelopes, documents, recipients, tabs, embedded signing, templates, audit events, and Connect webhooks. Enter the account ID and production REST base URI shown by DocuSign OAuth UserInfo.",
   "logo": "https://www.google.com/s2/favicons?domain=docusign.com&sz=128",
-  "categories": [
-    "e-signature",
-    "documents",
-    "contracts",
-    "legal"
-  ],
-  "base_url": "https://na4.docusign.net/restapi/v2.1",
+  "categories": ["e-signature", "documents", "contracts", "legal"],
+  "base_url": "{{credential.rest_base_url}}/restapi",
   "auth": {
-    "types": [
-      "bearer",
-      "oauth2"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
+    "types": ["oauth2"],
+    "headers": {"Authorization": "Bearer {{token}}", "Accept": "application/json", "Content-Type": "application/json"},
     "credential_fields": [
-      {
-        "name": "token",
-        "label": "access_token"
-      },
-      {
-        "name": "refresh_token",
-        "label": "refresh_token"
-      },
-      {
-        "name": "expires_in",
-        "label": "expires_in"
-      },
-      {
-        "name": "token_type",
-        "label": "token_type"
-      }
+      {"name": "token", "label": "Access Token", "type": "password", "required": false, "source": "oauth", "hidden": true},
+      {"name": "refresh_token", "label": "Refresh Token", "type": "password", "required": false, "source": "oauth", "hidden": true},
+      {"name": "expires_in", "label": "Expires In", "required": false, "source": "oauth", "hidden": true},
+      {"name": "token_type", "label": "Token Type", "required": false, "source": "oauth", "hidden": true},
+      {"name": "account_id", "label": "DocuSign Account ID", "required": true, "source": "user", "description": "The account_id returned by DocuSign OAuth UserInfo for the account you want agents to use."},
+      {"name": "rest_base_url", "label": "REST Base URL", "required": true, "source": "user", "description": "The base_uri returned by OAuth UserInfo, without /restapi, e.g. https://na4.docusign.net."}
     ],
     "oauth2": {
-      "authorize_url": "https://account-d.docusign.com/oauth/auth",
-      "token_url": "https://account-d.docusign.com/oauth/token",
-      "scopes": [
-        "signature",
-        "extended",
-        "impersonation"
-      ],
+      "authorize_url": "https://account.docusign.com/oauth/auth",
+      "token_url": "https://account.docusign.com/oauth/token",
+      "scopes": ["signature", "extended"],
       "client_id_required": true,
       "pkce": false
     }
   },
+  "health_check": {"tool": "get_account"},
   "tools": [
     {
-      "name": "send_envelope",
-      "description": "Create and send an envelope for signing",
-      "method": "POST",
-      "path": "/send-envelope",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "email_subject": {
-            "type": "string",
-            "description": "Email subject line"
-          },
-          "documents": {
-            "type": "array",
-            "description": "Documents to sign"
-          },
-          "recipients": {
-            "type": "object",
-            "description": "Envelope recipients (signers, cc, etc.)"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "created",
-              "sent"
-            ],
-            "description": "Envelope status (created=draft, sent=send immediately)"
-          }
-        },
-        "required": [
-          "email_subject",
-          "documents",
-          "recipients"
-        ]
-      }
+      "name": "get_account", "description": "Validate the connection and return the configured DocuSign account. Use the account ID and base_uri returned by DocuSign OAuth UserInfo when configuring this connection.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}",
+      "input_schema": {"type": "object", "properties": {}}
     },
     {
-      "name": "get_status",
-      "description": "Get the status of an envelope",
-      "method": "GET",
-      "path": "/get-status",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "envelope_id": {
-            "type": "string",
-            "description": "Envelope ID"
-          }
-        },
-        "required": [
-          "envelope_id"
-        ]
-      }
+      "name": "list_envelopes", "description": "List or search envelopes. DocuSign requires from_date unless envelope_ids or a folder filter is supplied.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes",
+      "input_schema": {"type": "object", "properties": {"from_date": {"type": "string", "description": "ISO date/time lower bound."}, "to_date": {"type": "string"}, "status": {"type": "string", "description": "Comma-separated statuses."}, "search_text": {"type": "string"}, "folder_ids": {"type": "string"}, "envelope_ids": {"type": "string"}, "count": {"type": "integer"}, "start_position": {"type": "string"}, "order": {"type": "string", "enum": ["asc", "desc"]}, "order_by": {"type": "string"}, "include": {"type": "string"}}}
     },
     {
-      "name": "add_recipient",
-      "description": "Add a recipient to an envelope",
-      "method": "GET",
-      "path": "/add-recipient",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "envelope_id": {
-            "type": "string",
-            "description": "Envelope ID"
-          },
-          "recipient_type": {
-            "type": "string",
-            "enum": [
-              "signer",
-              "cc",
-              "certifiedDelivery",
-              "inPersonSigner"
-            ],
-            "description": "Type of recipient"
-          },
-          "email": {
-            "type": "string",
-            "description": "Recipient email"
-          },
-          "name": {
-            "type": "string",
-            "description": "Recipient name"
-          },
-          "routing_order": {
-            "type": "number",
-            "description": "Signing order"
-          }
-        },
-        "required": [
-          "envelope_id",
-          "recipient_type",
-          "email",
-          "name"
-        ]
-      }
+      "name": "create_envelope", "description": "Create a draft or send an envelope. Documents use documentBase64, documentId, fileExtension, and name; recipients contains signers, carbonCopies, and other recipient groups. Set status=sent to send immediately or created for a draft.", "method": "POST", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes",
+      "input_schema": {"type": "object", "properties": {"emailSubject": {"type": "string"}, "emailBlurb": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}}, "recipients": {"type": "object"}, "status": {"type": "string", "enum": ["created", "sent"]}, "templateId": {"type": "string"}, "templateRoles": {"type": "array", "items": {"type": "object"}}, "compositeTemplates": {"type": "array", "items": {"type": "object"}}, "customFields": {"type": "object"}, "eventNotification": {"type": "object", "description": "Optional envelope-specific webhook configuration."}, "notification": {"type": "object"}, "brandId": {"type": "string"}, "transactionId": {"type": "string"}}, "required": ["status"]}
     },
     {
-      "name": "create_template",
-      "description": "Create a reusable template",
-      "method": "POST",
-      "path": "/create-template",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Template name"
-          },
-          "description": {
-            "type": "string",
-            "description": "Template description"
-          },
-          "documents": {
-            "type": "array",
-            "description": "Template documents"
-          },
-          "recipients": {
-            "type": "object",
-            "description": "Template recipients"
-          }
-        },
-        "required": [
-          "name",
-          "documents"
-        ]
-      }
+      "name": "get_envelope", "description": "Get envelope status and details.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "include": {"type": "string"}}, "required": ["envelopeId"]}
     },
     {
-      "name": "download_document",
-      "description": "Download a signed document",
-      "method": "GET",
-      "path": "/download-document",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "envelope_id": {
-            "type": "string",
-            "description": "Envelope ID"
-          },
-          "document_id": {
-            "type": "string",
-            "description": "Document ID (or 'combined' for all)"
-          }
-        },
-        "required": [
-          "envelope_id"
-        ]
-      }
+      "name": "update_envelope", "description": "Update an envelope. To send a draft set status=sent. To void it set status=voided and provide voidedReason.", "method": "PUT", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "status": {"type": "string", "enum": ["created", "sent", "voided"]}, "voidedReason": {"type": "string"}, "emailSubject": {"type": "string"}, "emailBlurb": {"type": "string"}, "recipients": {"type": "object"}, "notification": {"type": "object"}, "customFields": {"type": "object"}}, "required": ["envelopeId"]}
     },
     {
-      "name": "void_envelope",
-      "description": "Void an envelope",
-      "method": "GET",
-      "path": "/void-envelope",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "envelope_id": {
-            "type": "string",
-            "description": "Envelope ID"
-          },
-          "void_reason": {
-            "type": "string",
-            "description": "Reason for voiding"
-          }
-        },
-        "required": [
-          "envelope_id",
-          "void_reason"
-        ]
-      }
+      "name": "list_envelope_documents", "description": "List documents in an envelope before downloading a specific document or the combined PDF.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/documents",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}}, "required": ["envelopeId"]}
+    },
+    {
+      "name": "download_envelope_document", "description": "Download one envelope document. Use documentId=combined for the combined PDF, certificate for the completion certificate, or an ID returned by list_envelope_documents.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/documents/{documentId}",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "documentId": {"type": "string"}, "certificate": {"type": "boolean"}, "show_changes": {"type": "boolean"}, "watermark": {"type": "boolean"}}, "required": ["envelopeId", "documentId"]}
+    },
+    {
+      "name": "list_recipients", "description": "List all recipients and recipient IDs for an envelope.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/recipients",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "include_tabs": {"type": "boolean"}}, "required": ["envelopeId"]}
+    },
+    {
+      "name": "update_recipients", "description": "Add or update envelope recipients. Supply signers, carbonCopies, certifiedDeliveries, inPersonSigners, or other DocuSign recipient arrays using the official recipient structure.", "method": "PUT", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/recipients",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "signers": {"type": "array", "items": {"type": "object"}}, "carbonCopies": {"type": "array", "items": {"type": "object"}}, "certifiedDeliveries": {"type": "array", "items": {"type": "object"}}, "inPersonSigners": {"type": "array", "items": {"type": "object"}}, "editors": {"type": "array", "items": {"type": "object"}}, "agents": {"type": "array", "items": {"type": "object"}}}, "required": ["envelopeId"]}
+    },
+    {
+      "name": "delete_recipients", "description": "Remove draft-envelope recipients by recipientId. Only recipients on an envelope that has not completed can be removed.", "method": "DELETE", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/recipients",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "signers": {"type": "array", "items": {"type": "object"}}, "carbonCopies": {"type": "array", "items": {"type": "object"}}, "certifiedDeliveries": {"type": "array", "items": {"type": "object"}}, "inPersonSigners": {"type": "array", "items": {"type": "object"}}}, "required": ["envelopeId"]}
+    },
+    {
+      "name": "list_recipient_tabs", "description": "List tabs assigned to one recipient.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/recipients/{recipientId}/tabs",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "recipientId": {"type": "string"}, "include_anchor_tab_locations": {"type": "boolean"}, "include_metadata": {"type": "boolean"}}, "required": ["envelopeId", "recipientId"]}
+    },
+    {
+      "name": "create_recipient_tabs", "description": "Create signature, initial, date, text, checkbox, radio, and other tabs for a recipient. Send arrays under DocuSign names such as signHereTabs and textTabs.", "method": "POST", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/recipients/{recipientId}/tabs",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "recipientId": {"type": "string"}, "signHereTabs": {"type": "array", "items": {"type": "object"}}, "initialHereTabs": {"type": "array", "items": {"type": "object"}}, "dateSignedTabs": {"type": "array", "items": {"type": "object"}}, "textTabs": {"type": "array", "items": {"type": "object"}}, "checkboxTabs": {"type": "array", "items": {"type": "object"}}, "radioGroupTabs": {"type": "array", "items": {"type": "object"}}, "numberTabs": {"type": "array", "items": {"type": "object"}}, "emailTabs": {"type": "array", "items": {"type": "object"}}}, "required": ["envelopeId", "recipientId"]}
+    },
+    {
+      "name": "update_recipient_tabs", "description": "Update the supplied recipient tabs using their tabId values.", "method": "PUT", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/recipients/{recipientId}/tabs",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "recipientId": {"type": "string"}, "signHereTabs": {"type": "array", "items": {"type": "object"}}, "initialHereTabs": {"type": "array", "items": {"type": "object"}}, "textTabs": {"type": "array", "items": {"type": "object"}}, "checkboxTabs": {"type": "array", "items": {"type": "object"}}, "radioGroupTabs": {"type": "array", "items": {"type": "object"}}}, "required": ["envelopeId", "recipientId"]}
+    },
+    {
+      "name": "delete_recipient_tabs", "description": "Delete recipient tabs by supplying arrays containing tabId values.", "method": "DELETE", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/recipients/{recipientId}/tabs",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "recipientId": {"type": "string"}, "signHereTabs": {"type": "array", "items": {"type": "object"}}, "initialHereTabs": {"type": "array", "items": {"type": "object"}}, "textTabs": {"type": "array", "items": {"type": "object"}}, "checkboxTabs": {"type": "array", "items": {"type": "object"}}}, "required": ["envelopeId", "recipientId"]}
+    },
+    {
+      "name": "create_recipient_view", "description": "Create a short-lived embedded signing URL. The recipient must have clientUserId in the envelope; clientUserId, userName, email, authenticationMethod, and returnUrl must match that recipient.", "method": "POST", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/views/recipient",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "returnUrl": {"type": "string"}, "authenticationMethod": {"type": "string"}, "email": {"type": "string"}, "userName": {"type": "string"}, "clientUserId": {"type": "string"}, "recipientId": {"type": "string"}, "pingFrequency": {"type": "string"}, "pingUrl": {"type": "string"}}, "required": ["envelopeId", "returnUrl", "authenticationMethod", "email", "userName", "clientUserId"]}
+    },
+    {
+      "name": "create_sender_view", "description": "Create a short-lived embedded sender/correct URL for an envelope.", "method": "POST", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/views/sender",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}, "returnUrl": {"type": "string"}}, "required": ["envelopeId", "returnUrl"]}
+    },
+    {
+      "name": "get_envelope_audit_events", "description": "Get the envelope audit trail and history events.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/envelopes/{envelopeId}/audit_events",
+      "input_schema": {"type": "object", "properties": {"envelopeId": {"type": "string"}}, "required": ["envelopeId"]}
+    },
+    {
+      "name": "list_templates", "description": "List reusable DocuSign templates.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/templates",
+      "input_schema": {"type": "object", "properties": {"search_text": {"type": "string"}, "folder_ids": {"type": "string"}, "count": {"type": "integer"}, "start_position": {"type": "string"}, "order": {"type": "string"}, "order_by": {"type": "string"}, "include": {"type": "string"}}}
+    },
+    {
+      "name": "create_template", "description": "Create a reusable template with documents, recipient roles, and tabs.", "method": "POST", "path": "/v2.1/accounts/{{credential.account_id}}/templates",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "description": {"type": "string"}, "emailSubject": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}}, "recipients": {"type": "object"}, "status": {"type": "string", "enum": ["created"]}, "shared": {"type": "string"}}, "required": ["name"]}
+    },
+    {
+      "name": "get_template", "description": "Get template details.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/templates/{templateId}",
+      "input_schema": {"type": "object", "properties": {"templateId": {"type": "string"}, "include": {"type": "string"}}, "required": ["templateId"]}
+    },
+    {
+      "name": "update_template", "description": "Update template metadata, documents, recipients, or email settings.", "method": "PUT", "path": "/v2.1/accounts/{{credential.account_id}}/templates/{templateId}",
+      "input_schema": {"type": "object", "properties": {"templateId": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "emailSubject": {"type": "string"}, "emailBlurb": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}}, "recipients": {"type": "object"}, "shared": {"type": "string"}}, "required": ["templateId"]}
+    },
+    {
+      "name": "list_connect_configs", "description": "List DocuSign Connect webhook configurations for the account.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/connect",
+      "input_schema": {"type": "object", "properties": {"include_all": {"type": "boolean"}}}
+    },
+    {
+      "name": "create_connect_config", "description": "Create an account-level DocuSign Connect webhook configuration. Supply urlToPublishTo, name, enableLog, includeDocuments, requiresAcknowledgement, and eventConfiguration as needed.", "method": "POST", "path": "/v2.1/accounts/{{credential.account_id}}/connect",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "urlToPublishTo": {"type": "string"}, "allowEnvelopePublish": {"type": "string"}, "enableLog": {"type": "string"}, "includeDocuments": {"type": "string"}, "requiresAcknowledgement": {"type": "string"}, "signMessageWithX509Cert": {"type": "string"}, "eventConfiguration": {"type": "object"}, "recipientEvents": {"type": "array", "items": {"type": "string"}}, "envelopeEvents": {"type": "array", "items": {"type": "string"}}}, "required": ["name", "urlToPublishTo"]}
+    },
+    {
+      "name": "get_connect_config", "description": "Get one DocuSign Connect webhook configuration.", "method": "GET", "path": "/v2.1/accounts/{{credential.account_id}}/connect/{connectId}",
+      "input_schema": {"type": "object", "properties": {"connectId": {"type": "string"}}, "required": ["connectId"]}
+    },
+    {
+      "name": "update_connect_config", "description": "Replace a DocuSign Connect webhook configuration. Include connectId in the configuration body.", "method": "PUT", "path": "/v2.1/accounts/{{credential.account_id}}/connect",
+      "input_schema": {"type": "object", "properties": {"connectId": {"type": "string"}, "name": {"type": "string"}, "urlToPublishTo": {"type": "string"}, "enableLog": {"type": "string"}, "includeDocuments": {"type": "string"}, "requiresAcknowledgement": {"type": "string"}, "eventConfiguration": {"type": "object"}}, "required": ["connectId", "name", "urlToPublishTo"]}
+    },
+    {
+      "name": "delete_connect_config", "description": "Delete a DocuSign Connect webhook configuration.", "method": "DELETE", "path": "/v2.1/accounts/{{credential.account_id}}/connect/{connectId}",
+      "input_schema": {"type": "object", "properties": {"connectId": {"type": "string"}}, "required": ["connectId"]}
     }
   ]
 }

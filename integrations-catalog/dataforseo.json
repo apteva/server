@@ -200,7 +200,8 @@
         "required": [
           "keywords"
         ]
-      }
+      },
+      "body_root_param": "tasks"
     },
     {
       "name": "search_intent",

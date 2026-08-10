@@ -1,13 +1,14 @@
 {
   "slug": "firebase",
-  "name": "Firebase",
-  "description": "MCP server for Firebase - Auth, Firestore, Functions, Realtime Database",
+  "name": "Firebase (Legacy)",
+  "description": "Legacy placeholder catalog retained for existing connections. Do not use it for Android provisioning or push delivery; use Firebase for Android & FCM instead.",
   "logo": "https://www.google.com/s2/favicons?domain=firebase.google.com&sz=128",
   "categories": [
     "backend",
     "database",
     "auth",
-    "serverless"
+    "serverless",
+    "legacy"
   ],
   "base_url": "https://firestore.googleapis.com/v1",
   "auth": {

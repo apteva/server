@@ -220,23 +220,12 @@ func (sup *LocalSupervisor) spawnBuiltSource(installID int64, m *sdk.Manifest, s
 		existing := os.Getenv("PATH")
 		env["PATH"] = binPathPrefix + string(os.PathListSeparator) + existing
 	}
-	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
+	spec, err := newActivationSpec(installID, m, binPath, port, env)
+	if err != nil {
 		return 0, err
 	}
-	healthPath := m.Runtime.HealthCheck
-	if healthPath == "" {
-		healthPath = "/health"
-	}
 	progress("Waiting for health check…")
-	if err := sup.waitHealthy(installID, port, healthPath, 60*time.Second); err != nil {
-		// NEW failed health → kill it and (if there was a prior
-		// version parked by spawn's blue-green capture) restore
-		// OLD to the procs map. After rollback, sup.PID(installID)
-		// reports OLD's pid, which installFromSource checks to
-		// decide whether the install stays 'running' on its
-		// previous version or flips to 'error' (fresh installs).
-		_ = sup.Stop(installID)
-		sup.rollbackToOld(installID)
+	if err := sup.activate(spec, 60*time.Second); err != nil {
 		return 0, err
 	}
 	return port, nil
@@ -695,16 +684,12 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 
 	port, binPath, err := s.localApps.BuildFromSource(installID, m, env, progress)
 	if err != nil {
-		// Blue-green failure handling. If BuildFromSource rolled
-		// back to a previous version (PID > 0 means OLD is back in
-		// procs), the install is still serving on its old binary
-		// + old port — surface the upgrade failure as an
-		// error_message but keep status='running' so the registry
-		// doesn't evict the entry on the next LoadInstalledApps()
-		// and agent MCP traffic keeps flowing through the proxy.
-		// Fresh-install failures (no OLD to roll back to) flip the
-		// row to 'error' as before.
-		if s.localApps.PID(installID) > 0 {
+		s.localApps.DiscardPendingFixedPorts(installID)
+		// A source failure may occur during clone/build while OLD is still
+		// serving, or during activation after a verified rollback. Preserve
+		// status='running' only after checking OLD's HTTP and fixed TCP
+		// readiness; process existence alone is not sufficient evidence.
+		if activationRollbackVerified(err) || s.localApps.verifyCurrentProc(installID, 5*time.Second) {
 			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
 			s.store.db.Exec(

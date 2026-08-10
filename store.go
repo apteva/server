@@ -1094,11 +1094,13 @@ func (s *Store) migrate() error {
 				installed_by         INTEGER DEFAULT 0,
 				app_token_hash        TEXT NOT NULL DEFAULT '',
 				app_token_encrypted   TEXT NOT NULL DEFAULT '',
+				default_for_new_agents INTEGER NOT NULL DEFAULT 0,
 				UNIQUE(app_id, project_id)
 			)
 		`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN app_token_hash TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN app_token_encrypted TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN default_for_new_agents INTEGER NOT NULL DEFAULT 0`)
 	// Per-install source snapshot. The apps row tracks marketplace/latest
 	// metadata; these fields describe what this project is actually running.
 	// Backfill keeps upgrades from one project changing another project's

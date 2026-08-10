@@ -1004,6 +1004,9 @@ func main() {
 		if r.Method != http.MethodGet {
 			need = ProjectEditor
 		}
+		if strings.HasSuffix(path, "/agent-default") {
+			need = ProjectOwner
+		}
 		if _, ok := s.requireAppInstallAccess(w, r, installID, need); !ok {
 			return
 		}
@@ -1032,6 +1035,8 @@ func main() {
 			// Move an install between project / global scope without
 			// destroying its data. See apps_scope.go for the contract.
 			s.handleSetInstallScope(w, r)
+		case strings.HasSuffix(path, "/agent-default") && r.Method == http.MethodPatch:
+			s.handleSetInstallAgentDefault(w, r)
 		case strings.HasSuffix(path, "/permissions"),
 			strings.HasSuffix(path, "/default-effect"),
 			strings.Contains(path, "/grants"):

@@ -62,7 +62,16 @@ func (s *googleServiceAccountSigner) Sign(
 	creds map[string]string,
 	params map[string]any,
 ) ([]byte, error) {
-	serviceAccount, err := parseGoogleServiceAccount(creds["service_account_json"])
+	rawServiceAccount := strings.TrimSpace(creds["service_account_json"])
+	if rawServiceAccount == "" {
+		authorization := strings.TrimSpace(req.Header.Get("Authorization"))
+		if authorization == "" || strings.EqualFold(authorization, "Bearer") {
+			return nil, fmt.Errorf("OAuth access token or legacy service_account_json is required")
+		}
+		return nil, nil
+	}
+
+	serviceAccount, err := parseGoogleServiceAccount(rawServiceAccount)
 	if err != nil {
 		return nil, err
 	}
@@ -79,13 +88,16 @@ func (s *googleServiceAccountSigner) Sign(
 		return nil, err
 	}
 
-	if strings.Contains(req.URL.Path, "/projects/-/") {
-		req.URL.Path = strings.Replace(
-			req.URL.Path,
-			"/projects/-/",
-			"/projects/"+url.PathEscape(serviceAccount.ProjectID)+"/",
-			1,
-		)
+	for _, placeholder := range []string{"/projects/-/", "/projects/{project_id}/"} {
+		if strings.Contains(req.URL.Path, placeholder) {
+			req.URL.Path = strings.Replace(
+				req.URL.Path,
+				placeholder,
+				"/projects/"+url.PathEscape(serviceAccount.ProjectID)+"/",
+				1,
+			)
+			break
+		}
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	return nil, nil

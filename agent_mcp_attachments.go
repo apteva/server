@@ -403,20 +403,37 @@ func (s *Server) reconcileAllAgentAppBindings() {
 
 // appMCPConfigsForInstallIDs resolves wizard app selections to the same MCP
 // inventory records used by the detail-page picker.
-func (s *Server) appMCPConfigsForInstallIDs(userID int64, inst *Agent, installIDs []int64) ([]int64, []map[string]any) {
+func (s *Server) appMCPConfigsForInstallIDs(userID int64, inst *Agent, installIDs []int64) ([]int64, []map[string]any, error) {
 	validIDs := make([]int64, 0, len(installIDs))
 	serverIDs := make([]int64, 0, len(installIDs))
+	seenIDs := map[int64]bool{}
 	for _, installID := range installIDs {
+		if installID <= 0 || seenIDs[installID] {
+			if installID <= 0 {
+				return nil, nil, fmt.Errorf("invalid app install id %d", installID)
+			}
+			continue
+		}
+		seenIDs[installID] = true
 		var installProject string
 		var serverID int64
+		var skillCount int
 		err := s.store.db.QueryRow(`
-			SELECT COALESCE(i.project_id,''), COALESCE(m.id,0)
+			SELECT COALESCE(i.project_id,''), COALESCE(m.id,0),
+			       (SELECT COUNT(*) FROM skills sk WHERE sk.install_id=i.id AND sk.enabled=1)
 			FROM app_installs i
 			LEFT JOIN mcp_servers m ON m.upstream_id=?
 			WHERE i.id=? AND i.status='running'`,
-			appMCPUpstreamID(installID), installID).Scan(&installProject, &serverID)
-		if err != nil || (installProject != "" && installProject != inst.ProjectID) {
-			continue
+			appMCPUpstreamID(installID), installID).Scan(&installProject, &serverID, &skillCount)
+		if err != nil {
+			return nil, nil, fmt.Errorf("app install %d is not running or does not exist", installID)
+		}
+		if installProject != "" && installProject != inst.ProjectID {
+			return nil, nil, fmt.Errorf("app install %d belongs to project %q, agent belongs to project %q",
+				installID, installProject, inst.ProjectID)
+		}
+		if serverID == 0 && skillCount == 0 {
+			return nil, nil, fmt.Errorf("app install %d has no agent tools or skills", installID)
 		}
 		validIDs = append(validIDs, installID)
 		if serverID > 0 {
@@ -425,7 +442,7 @@ func (s *Server) appMCPConfigsForInstallIDs(userID int64, inst *Agent, installID
 	}
 	configs, err := s.resolveAgentMCPConfigs(userID, inst, serverIDs)
 	if err != nil {
-		return validIDs, nil
+		return nil, nil, err
 	}
-	return validIDs, configs
+	return validIDs, configs, nil
 }

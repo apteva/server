@@ -56,10 +56,14 @@ func TestGoogleServiceAccountSignerExchangesAndCachesToken(t *testing.T) {
 	defer tokenServer.Close()
 
 	signer := newGoogleServiceAccountSigner()
-	for i := 0; i < 2; i++ {
+	paths := []string{
+		"https://fcm.googleapis.com/v1/projects/-/messages:send",
+		"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send",
+	}
+	for _, path := range paths {
 		request := httptest.NewRequest(
 			http.MethodPost,
-			"https://fcm.googleapis.com/v1/projects/-/messages:send",
+			path,
 			nil,
 		)
 		_, err := signer.Sign(
@@ -81,6 +85,46 @@ func TestGoogleServiceAccountSignerExchangesAndCachesToken(t *testing.T) {
 	}
 	if tokenCalls.Load() != 1 {
 		t.Fatalf("token exchange calls=%d, want 1", tokenCalls.Load())
+	}
+}
+
+func TestGoogleServiceAccountSignerPreservesOAuthBearerToken(t *testing.T) {
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"https://firebase.googleapis.com/v1beta1/projects",
+		nil,
+	)
+	request.Header.Set("Authorization", "Bearer oauth-access-token")
+
+	if _, err := newGoogleServiceAccountSigner().Sign(
+		context.Background(),
+		request,
+		nil,
+		map[string]string{"access_token": "oauth-access-token"},
+		nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Get("Authorization"); got != "Bearer oauth-access-token" {
+		t.Fatalf("authorization=%q", got)
+	}
+}
+
+func TestGoogleServiceAccountSignerRequiresOAuthOrLegacyCredentials(t *testing.T) {
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"https://firebase.googleapis.com/v1beta1/projects",
+		nil,
+	)
+	_, err := newGoogleServiceAccountSigner().Sign(
+		context.Background(),
+		request,
+		nil,
+		map[string]string{},
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "OAuth access token") {
+		t.Fatalf("error=%v", err)
 	}
 }
 

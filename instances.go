@@ -1532,7 +1532,8 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// wizard's Setup step. MCP-capable apps are added to the agent's
 		// actual mcp_servers config; app_agent_bindings is synchronized
 		// metadata used by environments, grants, and skill inheritance.
-		BoundAppInstallIDs []int64 `json:"bound_app_install_ids,omitempty"`
+		// Omitted resolves creation defaults; a present [] explicitly opts out.
+		BoundAppInstallIDs *[]int64 `json:"bound_app_install_ids,omitempty"`
 		// BoundAppGrants — optional scoped access policies for the
 		// bound apps above. Written before auto-start so the first
 		// app MCP call sees the intended fail-closed policy.
@@ -1580,26 +1581,63 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		body.Config = "{}"
 	}
 
+	// Omitted means "use the project's creation defaults". A present array,
+	// including [], is an exact operator selection and therefore an opt-out.
+	selectedAppInstallIDs := []int64{}
+	if body.BoundAppInstallIDs == nil {
+		var err error
+		selectedAppInstallIDs, err = s.defaultAppInstallIDsForProject(body.ProjectID)
+		if err != nil {
+			http.Error(w, "resolve default apps", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		selectedAppInstallIDs = append(selectedAppInstallIDs, (*body.BoundAppInstallIDs)...)
+	}
+	// Validate and resolve every attachment before creating the DB row. This
+	// keeps defaults trustworthy: a selected app cannot silently disappear
+	// while the new agent starts without it.
+	attachmentProbe := &Agent{UserID: userID, ProjectID: body.ProjectID, Config: body.Config}
+	validAppInstallIDs, appMCPConfigs, err := s.appMCPConfigsForInstallIDs(
+		userID, attachmentProbe, selectedAppInstallIDs,
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	selectedAppInstallIDs = validAppInstallIDs
+
 	inst, err := s.store.CreateAgent(userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID)
 	if err != nil {
 		http.Error(w, "failed to create instance", http.StatusInternalServerError)
 		return
 	}
 
-	// Write the operator's explicit app + integration selections from
-	// the wizard's Setup step. Both are best-effort: failures are
-	// logged but don't abort the agent create — the operator can
-	// re-pick later from the agent detail page.
-	if len(body.BoundAppInstallIDs) > 0 {
-		validInstallIDs, appMCPConfigs := s.appMCPConfigsForInstallIDs(userID, inst, body.BoundAppInstallIDs)
-		body.BoundAppInstallIDs = validInstallIDs
-		for _, installID := range validInstallIDs {
-			if _, err := s.store.db.Exec(
+	// Write the operator's effective app selection before startup. App
+	// attachments are part of the creation contract: fail and remove the
+	// not-yet-started agent instead of silently creating it without a default.
+	if len(selectedAppInstallIDs) > 0 {
+		tx, err := s.store.db.Begin()
+		if err != nil {
+			_ = s.store.DeleteAgent(userID, inst.ID)
+			http.Error(w, "begin app attachment", http.StatusInternalServerError)
+			return
+		}
+		for _, installID := range selectedAppInstallIDs {
+			if _, err := tx.Exec(
 				`INSERT OR IGNORE INTO app_agent_bindings (install_id, agent_id, enabled) VALUES (?, ?, 1)`,
 				installID, inst.ID,
 			); err != nil {
-				log.Printf("[CREATE] bind app install_id=%d to agent=%d: %v", installID, inst.ID, err)
+				_ = tx.Rollback()
+				_ = s.store.DeleteAgent(userID, inst.ID)
+				http.Error(w, "attach selected app", http.StatusInternalServerError)
+				return
 			}
+		}
+		if err := tx.Commit(); err != nil {
+			_ = s.store.DeleteAgent(userID, inst.ID)
+			http.Error(w, "commit app attachments", http.StatusInternalServerError)
+			return
 		}
 		if len(appMCPConfigs) > 0 {
 			var instCfg map[string]any
@@ -1609,19 +1647,27 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			}
 			instCfg["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(
 				mcpMaps(instCfg["mcp_servers"]), appMCPConfigs, "add"))
-			if out, err := json.Marshal(instCfg); err == nil {
-				inst.Config = string(out)
+			out, err := json.Marshal(instCfg)
+			if err != nil {
+				_ = s.store.DeleteAgent(userID, inst.ID)
+				http.Error(w, "encode app attachments", http.StatusInternalServerError)
+				return
 			}
+			inst.Config = string(out)
 		}
 		// Skills are agent-scoped companions to the attached apps. One memory
 		// assignment is shared by main and every existing or future thread.
 		if _, err := s.reconcileAgentAppSkills(inst); err != nil {
-			log.Printf("[CREATE] reconcile app skills → agent=%d: %v", inst.ID, err)
+			_ = s.store.DeleteAgent(userID, inst.ID)
+			http.Error(w, "attach app skills", http.StatusInternalServerError)
+			return
 		}
 	}
+	// Integration connection picks retain their existing best-effort behavior;
+	// unlike app defaults, they are optional per-agent setup conveniences.
 	if len(body.BoundAppGrants) > 0 {
 		allowedInstalls := map[int64]bool{}
-		for _, id := range body.BoundAppInstallIDs {
+		for _, id := range selectedAppInstallIDs {
 			allowedInstalls[id] = true
 		}
 		for _, policy := range body.BoundAppGrants {
@@ -2526,8 +2572,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		// rawBody was decoded above; re-use it for the surface-level
 		// fields the client may set. If a key is absent in the request
-		// we keep whatever disk already held.
-		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control", "realtime_enabled", "realtime_voice", "realtime_voice_mcp"} {
+		// we keep whatever disk already held. main_pace is accepted only
+		// on this stopped-agent path so test/bootstrap callers can preload
+		// an exact first wake; a running Core remains the sole pace owner.
+		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control", "realtime_enabled", "realtime_voice", "realtime_voice_mcp", "main_pace"} {
 			if v, ok := rawBody[k]; ok {
 				cfg[k] = v
 			}

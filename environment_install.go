@@ -170,6 +170,7 @@ func (s *Server) deleteEnvironmentInstall(installID int64) {
 	var appID int64
 	_ = s.store.db.QueryRow(`SELECT app_id FROM app_installs WHERE id=?`, installID).Scan(&appID)
 	_ = s.localApps.Stop(installID)
+	s.localApps.ReleaseFixedPorts(installID)
 	if s.installedApps != nil {
 		s.installedApps.Remove(installID)
 	}
