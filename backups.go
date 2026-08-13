@@ -43,7 +43,12 @@ func (s *Server) handlePlatformSnapshot(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "admin only", http.StatusForbidden)
 		return
 	}
+	s.writePlatformSnapshot(w, r)
+}
 
+// writePlatformSnapshot contains the shared snapshot implementation. Its
+// callers must complete authentication and authorization before entering it.
+func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 	tmpDir, err := os.MkdirTemp("", "apteva-snapshot-*")
 	if err != nil {
 		http.Error(w, "tempdir: "+err.Error(), http.StatusInternalServerError)
@@ -313,6 +318,15 @@ const (
 	restorePendingSuffix = ".restored"
 	restoreMarkerSuffix  = ".restored.marker"
 	restoreBackupPrefix  = ".prerestore-"
+
+	// Restore accepts large installations but remains bounded against compressed
+	// and expanded archive exhaustion. These are hard safety ceilings, not normal
+	// backup-size targets.
+	maxRestoreCompressedBytes   int64 = 64 << 30
+	maxRestoreExpandedBytes     int64 = 256 << 30
+	maxRestoreEntryBytes        int64 = 128 << 30
+	maxRestoreManifestBytes     int64 = 4 << 20
+	maxRestoreArchiveEntryCount       = 10000
 )
 
 type restoreInstallReport struct {
@@ -343,10 +357,17 @@ func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing X-Confirm-Restore: yes — restore is destructive, confirmation required", http.StatusBadRequest)
 		return
 	}
+	s.restorePlatformSnapshot(w, r)
+}
 
+// restorePlatformSnapshot contains the shared restore implementation. Its
+// callers must complete authentication, authorization, and confirmation checks
+// before entering it.
+func (s *Server) restorePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRestoreCompressedBytes)
 	gz, err := gzip.NewReader(r.Body)
 	if err != nil {
-		http.Error(w, "body is not gzip: "+err.Error(), http.StatusBadRequest)
+		writeRestoreReadError(w, "body is not gzip", err, http.StatusBadRequest)
 		return
 	}
 	defer gz.Close()
@@ -362,17 +383,41 @@ func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
 	defer os.RemoveAll(stage)
 
 	staged := map[string]string{} // archivePath → on-disk path inside stage
+	var expandedBytes int64
+	entryCount := 0
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			http.Error(w, "tar read: "+err.Error(), http.StatusBadRequest)
+			writeRestoreReadError(w, "tar read", err, http.StatusBadRequest)
 			return
 		}
 		if h.Typeflag != tar.TypeReg {
 			continue
+		}
+		entryCount++
+		if entryCount > maxRestoreArchiveEntryCount {
+			http.Error(w, "snapshot contains too many files", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if h.Size < 0 || h.Size > maxRestoreEntryBytes {
+			http.Error(w, "snapshot file exceeds restore limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if h.Name == "manifest.json" && h.Size > maxRestoreManifestBytes {
+			http.Error(w, "snapshot manifest exceeds restore limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if expandedBytes > maxRestoreExpandedBytes-h.Size {
+			http.Error(w, "expanded snapshot exceeds restore limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		expandedBytes += h.Size
+		if _, duplicate := staged[h.Name]; duplicate {
+			http.Error(w, "snapshot contains duplicate file names", http.StatusBadRequest)
+			return
 		}
 		// Stage under a synthesised, sanitised path. We never use the
 		// archive's own name as a filesystem destination — it's only a
@@ -383,9 +428,15 @@ func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "stage write: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if _, err := io.Copy(f, tr); err != nil {
+		written, copyErr := io.Copy(f, tr)
+		if copyErr != nil {
 			f.Close()
-			http.Error(w, "stage copy: "+err.Error(), http.StatusInternalServerError)
+			writeRestoreReadError(w, "stage copy", copyErr, http.StatusInternalServerError)
+			return
+		}
+		if written != h.Size {
+			f.Close()
+			http.Error(w, "snapshot file size does not match archive header", http.StatusBadRequest)
 			return
 		}
 		f.Close()
@@ -522,6 +573,15 @@ func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(report)
+}
+
+func writeRestoreReadError(w http.ResponseWriter, prefix string, err error, fallbackStatus int) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		http.Error(w, "snapshot exceeds compressed restore limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	http.Error(w, prefix+": "+err.Error(), fallbackStatus)
 }
 
 func parseManagedMCPArchivePath(archivePath string) (int64, string, bool) {

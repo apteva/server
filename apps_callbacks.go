@@ -16,6 +16,8 @@ package main
 //   POST /channels/send                  — send a message to a named channel
 //   POST /integrations/:connID/execute   — call an integration tool (binding-gated)
 //   POST /apps/:appName/call             — call another app's MCP tool (binding-gated)
+//   GET  /platform/snapshot              — stream a full platform snapshot (privileged global installs only)
+//   POST /platform/restore               — restore a platform snapshot (separate destructive permission)
 //
 // The bindings-gated routes are the heart of the dependency system:
 // ExecuteIntegrationTool lets an app call an upstream API through a
@@ -96,6 +98,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleCallbackPlatformInfo(w, r)
+	case "platform":
+		s.handleCallbackPlatformBackup(w, r, parts[1:])
 	case "delegated-keys":
 		s.handleCallbackDelegatedKeys(w, r, parts[1:])
 	default:
