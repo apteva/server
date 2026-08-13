@@ -307,7 +307,7 @@ func (s *Server) callRuntimeManagedMCPIntegration(w http.ResponseWriter, runtime
 		Params: mustJSONRaw(map[string]any{"name": tool, "arguments": input}),
 	})
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/mcp/%d?environment_id=%s", connectionID, url.QueryEscape(runtime.ID)),
+		fmt.Sprintf("/mcp/connection/%d?environment_id=%s", connectionID, url.QueryEscape(runtime.ID)),
 		strings.NewReader(string(raw)),
 	)
 	req.RemoteAddr = "127.0.0.1:1"

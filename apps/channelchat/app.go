@@ -37,6 +37,12 @@ var migration006 string
 //go:embed migrations/007_conversations.sql
 var migration007 string
 
+//go:embed migrations/008_conversation_directive.sql
+var migration008 string
+
+//go:embed migrations/009_external_subject.sql
+var migration009 string
+
 // New constructs the app, ready to be loaded into a framework.Registry.
 // The InstanceResolver lets the HTTP handlers authorize per-chat and
 // forward user messages into the instance's core /event endpoint —
@@ -94,6 +100,34 @@ func (a *App) EnsureConversationThreadForDelivery(agentID int64, conversationID 
 	return err
 }
 
+// RefreshAgentConversationDirectives reapplies the composed suffix to every
+// live conversation thread for an agent after its inherited global directive
+// changes. Offline or not-yet-created threads remain safe: the refresh helper
+// clears their drift cache and the next delivery applies the durable state.
+func (a *App) RefreshAgentConversationDirectives(agentID int64) {
+	if a == nil || a.store == nil || a.handlers == nil {
+		return
+	}
+	chats, err := a.store.ListChatsForAgent(agentID)
+	if err != nil {
+		return
+	}
+	for i := range chats {
+		a.handlers.refreshExistingConversationDirective(&chats[i])
+	}
+}
+
+// ConversationSubjectForThread exposes only the trusted identity fields that
+// the server gateway needs to attach to downstream app MCP calls. The lookup
+// is based on the persisted agent/thread relationship; model-provided subject
+// arguments are never consulted.
+func (a *App) ConversationSubjectForThread(agentID int64, threadID string) (subjectType, subjectID, conversationID string, ok bool) {
+	if a == nil || a.store == nil {
+		return "", "", "", false
+	}
+	return a.store.SubjectForAgentThread(agentID, threadID)
+}
+
 func (a *App) Manifest() framework.Manifest {
 	return framework.Manifest{
 		Slug:        "channel-chat",
@@ -118,6 +152,8 @@ func (a *App) Migrations() []framework.Migration {
 		{Version: 5, Name: "add per-chat thread_id column", SQL: migration005},
 		{Version: 6, Name: "add user attachments", SQL: migration006},
 		{Version: 7, Name: "add project conversations and agent participants", Apply: applyMigration007},
+		{Version: 8, Name: "add per-conversation directive", SQL: migration008},
+		{Version: 9, Name: "add delegated external conversation subjects", SQL: migration009},
 	}
 }
 
@@ -167,6 +203,7 @@ func (a *App) HTTPRoutes() []framework.Route {
 	return []framework.Route{
 		{Method: "GET", Path: "/chats", Handler: a.wrap(a.handlers.listChats)},
 		{Method: "POST", Path: "/chats", Handler: a.wrap(a.handlers.createChat)},
+		{Method: "", Path: "/chats/", Handler: a.wrap(a.handlers.chatResource)},
 		{Method: "", Path: "/conversations", Handler: a.wrap(a.handlers.conversations)},
 		{Method: "", Path: "/conversation", Handler: a.wrap(a.handlers.conversation)},
 		{Method: "", Path: "/participants", Handler: a.wrap(a.handlers.participants)},

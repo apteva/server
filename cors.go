@@ -47,26 +47,37 @@ func newCORSConfig(env string) *corsConfig {
 // Credentialed requests (cookie or X-API-Key) cannot be paired with
 // `*`, so permissive mode echoes the exact request Origin back.
 func (c *corsConfig) middleware(next http.Handler) http.Handler {
-	if c == nil {
-		return next
-	}
+	return c.middlewareWithDynamicOrigin(next, nil)
+}
+
+// middlewareWithDynamicOrigin permits a narrowly registered API-key origin in
+// addition to the operator's static CORS configuration. Browser preflights do
+// not carry Authorization, so the callback checks the server's active
+// delegated-key records by origin; the subsequent request still passes full
+// authentication and authorization.
+func (c *corsConfig) middlewareWithDynamicOrigin(next http.Handler, dynamic func(*http.Request, string) bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		allow := ""
 		credentials := false
-		switch c.mode {
-		case "permissive":
-			if origin != "" {
-				allow = origin
-				credentials = true
+		if c != nil {
+			switch c.mode {
+			case "permissive":
+				if origin != "" {
+					allow = origin
+					credentials = true
+				}
+			case "wildcard":
+				allow = "*"
+			case "allowlist":
+				if origin != "" && c.origins[origin] {
+					allow = origin
+					credentials = true
+				}
 			}
-		case "wildcard":
-			allow = "*"
-		case "allowlist":
-			if origin != "" && c.origins[origin] {
-				allow = origin
-				credentials = true
-			}
+		}
+		if allow == "" && origin != "" && dynamic != nil && dynamic(r, origin) {
+			allow = origin
 		}
 
 		if allow != "" {

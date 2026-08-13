@@ -516,6 +516,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid MCP caller context: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		s.applyChannelChatSubjectContext(r)
 	}
 	var asyncReq *appMCPAsyncRequest
 	if tail == "/mcp" && r.Method == http.MethodPost {

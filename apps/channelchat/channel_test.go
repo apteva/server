@@ -677,7 +677,11 @@ func openChannelTestDB(t *testing.T, withAgents bool) *sql.DB {
 			project_id TEXT NOT NULL DEFAULT '',
 			owner_user_id INTEGER NOT NULL DEFAULT 0,
 			kind TEXT NOT NULL DEFAULT 'direct',
-			archived_at DATETIME
+			archived_at DATETIME,
+			directive TEXT NOT NULL DEFAULT '',
+			subject_type TEXT NOT NULL DEFAULT '',
+			subject_id TEXT NOT NULL DEFAULT '',
+			conversation_key TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE channel_chat_participants (
 			chat_id TEXT NOT NULL,
@@ -711,6 +715,9 @@ func openChannelTestDB(t *testing.T, withAgents bool) *sql.DB {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (message_id, agent_id)
 		);
+		CREATE UNIQUE INDEX idx_channel_chat_external_conversation
+		ON channel_chat_chats(owner_user_id, project_id, agent_id, subject_type, subject_id, conversation_key)
+		WHERE subject_type <> '' AND subject_id <> '' AND conversation_key <> '';
 	`); err != nil {
 		db.Close()
 		t.Fatalf("create schema: %v", err)

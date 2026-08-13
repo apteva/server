@@ -230,16 +230,18 @@ func (s *Store) GetMCPServer(userID, serverID int64) (*MCPServerRecord, string, 
 // GetMCPServerByIDUnscoped looks up an mcp_servers row by id WITHOUT a
 // user-id check. Used by the localhost MCP HTTP endpoint, which has no
 // session cookie — access is gated by knowing the row id (which is only
-// emitted to the local core via the gateway). Returns nil + nil when
-// the row doesn't exist (so callers can fall back to legacy lookups).
+// emitted to the local core via the gateway). Returns nil + nil only when
+// the row does not exist. Other database/scan errors are preserved: callers
+// must never reinterpret an id after an authoritative row lookup failed.
 func (s *Store) GetMCPServerByIDUnscoped(serverID int64) (*MCPServerRecord, error) {
 	var r MCPServerRecord
 	var encryptedEnv, createdAt, allowedJSON string
 	err := s.db.QueryRow(
-		`SELECT id, user_id, name, command, args, encrypted_env, description, status, tool_count, pid,
+		`SELECT id, user_id, name, COALESCE(command,''), COALESCE(args,'[]'), COALESCE(encrypted_env,''),
+			COALESCE(description,''), COALESCE(status,'stopped'), COALESCE(tool_count,0), COALESCE(pid,0),
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
 			COALESCE(connection_id,0), COALESCE(project_id,''),
-			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), created_at
+			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), COALESCE(created_at,CURRENT_TIMESTAMP)
 		 FROM mcp_servers WHERE id = ?`,
 		serverID,
 	).Scan(&r.ID, &r.UserID, &r.Name, &r.Command, &r.Args, &encryptedEnv, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
@@ -247,6 +249,9 @@ func (s *Store) GetMCPServerByIDUnscoped(serverID int64) (*MCPServerRecord, erro
 		&r.ConnectionID, &r.ProjectID,
 		&allowedJSON, &r.UpstreamID, &createdAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	r.CreatedAt, _ = parseTime(createdAt)
@@ -254,6 +259,13 @@ func (s *Store) GetMCPServerByIDUnscoped(serverID int64) (*MCPServerRecord, erro
 		json.Unmarshal([]byte(allowedJSON), &r.AllowedTools)
 	}
 	return &r, nil
+}
+
+// FindCanonicalMCPServerByConnection returns the oldest row for a connection.
+// The first row is the auto-created/default surface; later rows are scoped
+// views and must not silently replace it in generic connection pickers.
+func (s *Store) FindCanonicalMCPServerByConnection(connectionID int64) (*MCPServerRecord, error) {
+	return s.findMCPServerByConnection(connectionID, "ASC")
 }
 
 // UpdateMCPServerAllowedTools overwrites the allowed_tools filter on an
@@ -286,24 +298,35 @@ func (s *Store) UpdateMCPServerUpstreamID(serverID int64, upstreamID string) err
 	return err
 }
 
-// FindMCPServerByID returns a server without the user_id scope check — used
-// internally by the mcp_http proxy when resolving /mcp/<conn_id> to an mcp
-// server row by the shared connection.
+// FindMCPServerByConnection returns the newest scoped view for compatibility
+// with callers that explicitly want that historical behavior. Generic route
+// resolution should use FindCanonicalMCPServerByConnection instead.
 func (s *Store) FindMCPServerByConnection(connectionID int64) (*MCPServerRecord, error) {
+	return s.findMCPServerByConnection(connectionID, "DESC")
+}
+
+func (s *Store) findMCPServerByConnection(connectionID int64, order string) (*MCPServerRecord, error) {
+	if order != "ASC" {
+		order = "DESC"
+	}
 	var r MCPServerRecord
 	var createdAt, allowedJSON string
 	err := s.db.QueryRow(
-		`SELECT id, user_id, name, command, args, description, status, tool_count, pid,
+		`SELECT id, user_id, name, COALESCE(command,''), COALESCE(args,'[]'), COALESCE(description,''),
+			COALESCE(status,'stopped'), COALESCE(tool_count,0), COALESCE(pid,0),
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
 			COALESCE(connection_id,0), COALESCE(project_id,''),
-			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), created_at
-		 FROM mcp_servers WHERE connection_id = ? ORDER BY id DESC LIMIT 1`,
+			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), COALESCE(created_at,CURRENT_TIMESTAMP)
+		 FROM mcp_servers WHERE connection_id = ? ORDER BY id `+order+` LIMIT 1`,
 		connectionID,
 	).Scan(&r.ID, &r.UserID, &r.Name, &r.Command, &r.Args, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
 		&r.Source, &r.Transport, &r.URL, &r.ProviderID,
 		&r.ConnectionID, &r.ProjectID,
 		&allowedJSON, &r.UpstreamID, &createdAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	r.CreatedAt, _ = parseTime(createdAt)

@@ -224,7 +224,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		}
 		mcpServers = append(mcpServers, sourcePolicy.mcpConfig(
 			conn.AppSlug,
-			fmt.Sprintf("http://127.0.0.1:%s/mcp/%d?environment_id=%s", s.port, cid, environment.ID),
+			fmt.Sprintf("http://127.0.0.1:%s/mcp/connection/%d?environment_id=%s", s.port, cid, environment.ID),
 		))
 	}
 	for _, mcp := range environment.ManagedMCPs() {

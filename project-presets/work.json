@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "presets": [
+    {
+      "id": "work-executive",
+      "category": "work",
+      "name": "Executive workspace",
+      "description": "Prioritize decisions, prepare briefings, and follow through across a busy role.",
+      "match": [
+        "executive",
+        "founder",
+        "manager",
+        "chief of staff",
+        "briefings",
+        "decisions"
+      ],
+      "agents": [
+        {
+          "key": "chief-of-staff",
+          "name": "Executive Assistant",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "todo",
+            "notes",
+            "calendar",
+            "docs"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Turn ambiguous work into priorities, preserve decisions and notes, prepare briefings and documents, maintain durable follow-through, and ask before external commitments."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "work-sales",
+      "category": "work",
+      "name": "Sales team",
+      "description": "Research accounts, maintain CRM hygiene, prepare outreach, and surface follow-ups.",
+      "match": [
+        "sales",
+        "crm",
+        "pipeline",
+        "accounts",
+        "outreach",
+        "leads"
+      ],
+      "agents": [
+        {
+          "key": "sales",
+          "name": "Sales Agent",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "crm",
+            "web",
+            "email-checker",
+            "campaigns",
+            "calendar",
+            "bookings"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Research accounts, validate contact data, keep CRM and meeting context accurate, and prioritize follow-up. Draft outreach or campaigns unless explicit authority to send exists."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "work-support",
+      "category": "work",
+      "name": "Customer support",
+      "description": "Triage customer issues, prepare reliable responses, and escalate important cases.",
+      "match": [
+        "customer support",
+        "helpdesk",
+        "tickets",
+        "customer service",
+        "support team"
+      ],
+      "agents": [
+        {
+          "key": "support",
+          "name": "Support Agent",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "tickets",
+            "crm",
+            "notes",
+            "storage"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Triage and maintain ticket history, investigate before answering, preserve customer context and evidence, and escalate uncertainty. Never invent product facts or promise unsupported outcomes."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "work-research",
+      "category": "work",
+      "name": "Research desk",
+      "description": "Run structured research, preserve evidence, and produce decision-ready synthesis.",
+      "match": [
+        "research",
+        "analyst",
+        "market intelligence",
+        "competitive analysis",
+        "due diligence"
+      ],
+      "agents": [
+        {
+          "key": "researcher",
+          "name": "Research Agent",
+          "mode": "autonomous",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "web",
+            "notes",
+            "storage",
+            "tables"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Conduct evidence-based research, search and extract sources, preserve notes and artifacts, structure comparable evidence when useful, distinguish facts from inference, and report uncertainty and conflicting evidence clearly."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    }
+  ]
+}

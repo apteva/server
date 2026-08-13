@@ -169,6 +169,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			"X-Apteva-Project-ID", "X-Apteva-Issuer-App", "X-Apteva-Issuer-Install-ID",
 			"X-Apteva-Subject-Type", "X-Apteva-Subject-ID", "X-Apteva-Subject-Email",
 			"X-Apteva-Organization-ID", "X-Apteva-Organization-Slug", "X-Apteva-Scopes",
+			"X-Apteva-Conversation-ID",
 			sdk.HeaderBoundCallerInstallID,
 		} {
 			r.Header.Del(header)
@@ -233,6 +234,9 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				}
 				key, err := s.store.GetDelegatedUserAPIKey(keyHash)
 				if err == nil {
+					if !s.authorizeDelegatedAppRequest(w, r, key, appName, appPath) {
+						return
+					}
 					if appPath == "/mcp" && r.Method == http.MethodPost {
 						body, readErr := io.ReadAll(r.Body)
 						if readErr != nil {

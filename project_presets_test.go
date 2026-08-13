@@ -1,0 +1,233 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func seedPresetProject(t *testing.T, s *Server, id string) {
+	t.Helper()
+	ensureTestAdmin(t, s)
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO projects(id,user_id,name,description,color) VALUES(?,1,'Default','','#6366f1')`, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO project_members(project_id,user_id,role,added_by) VALUES(?,1,'owner',1)`, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) {
+	catalog, err := loadProjectPresetCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Presets) != 16 {
+		t.Fatalf("got %d presets, want 16", len(catalog.Presets))
+	}
+	counts := map[string]int{}
+	knownApps := map[string]bool{
+		"tasks": true, "todo": true, "notes": true, "calendar": true,
+		"pantry": true, "recipes": true, "health": true, "content": true,
+		"social": true, "media-studio": true, "storage": true, "analytics": true,
+		"docs": true, "crm": true, "web": true, "email-checker": true,
+		"campaigns": true, "bookings": true, "tickets": true, "tables": true,
+		"code": true, "environments": true, "deploy": true, "instances": true,
+		"containers": true, "fleet": true, "backup": true, "computer": true,
+		"screenshots": true, "signatures": true, "billing": true, "commerce": true,
+		"catalog": true, "inventory": true, "orders": true, "messaging": true,
+	}
+	requiredDomainApps := map[string][]string{
+		"personal-assistant":             {"todo", "notes", "calendar"},
+		"personal-household":             {"todo", "pantry", "recipes"},
+		"personal-wellbeing":             {"health", "notes", "calendar"},
+		"personal-creator":               {"content", "social", "media-studio", "analytics"},
+		"work-executive":                 {"notes", "calendar", "docs"},
+		"work-sales":                     {"crm", "web", "email-checker", "campaigns", "bookings"},
+		"work-support":                   {"tickets", "crm", "storage"},
+		"work-research":                  {"web", "notes", "tables"},
+		"development-software":           {"code", "environments", "deploy"},
+		"development-devops":             {"deploy", "instances", "containers", "backup"},
+		"development-qa":                 {"code", "environments", "computer", "screenshots"},
+		"development-data":               {"tables", "analytics", "storage"},
+		"business-lead-generation":       {"crm", "web", "email-checker", "campaigns", "analytics", "bookings"},
+		"business-professional-services": {"crm", "bookings", "docs", "signatures", "billing"},
+		"business-ecommerce":             {"commerce", "catalog", "inventory", "orders", "analytics"},
+		"business-local-services":        {"crm", "bookings", "messaging", "billing"},
+	}
+	for _, preset := range catalog.Presets {
+		counts[preset.Category]++
+		if len(preset.Agents) == 0 {
+			t.Fatalf("preset %s has no starter agent", preset.ID)
+		}
+		presetApps := projectPresetApps(preset)
+		for _, app := range presetApps {
+			if !knownApps[app] {
+				t.Fatalf("preset %s assigns unknown app %q", preset.ID, app)
+			}
+		}
+		for _, required := range requiredDomainApps[preset.ID] {
+			if !containsString(presetApps, required) {
+				t.Fatalf("preset %s must assign its domain app %q: %v", preset.ID, required, presetApps)
+			}
+		}
+		for _, component := range preset.Dashboard {
+			if strings.HasPrefix(component, "tasks:") && component != "tasks:task-overview" {
+				t.Fatalf("preset %s uses an unknown Tasks widget %q", preset.ID, component)
+			}
+		}
+	}
+	for _, category := range []string{"personal", "work", "development", "business"} {
+		if counts[category] != 4 {
+			t.Fatalf("category %s has %d presets, want 4", category, counts[category])
+		}
+	}
+	raw, _ := json.Marshal(catalog.Presets)
+	if strings.Contains(strings.ToLower(string(raw)), "workflow") {
+		t.Fatalf("presets must configure agents, not deterministic workflows: %s", raw)
+	}
+}
+
+func TestProjectPresetDeterministicPlannerClassifiesDoctorLeadGeneration(t *testing.T) {
+	catalog, err := loadProjectPresetCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	preset, confidence := deterministicProjectPreset("business", "I run a doctor lead-generation company", catalog.Presets)
+	if preset.ID != "business-lead-generation" {
+		t.Fatalf("selected %q, want business-lead-generation", preset.ID)
+	}
+	if confidence <= 0.5 {
+		t.Fatalf("confidence=%v, want a meaningful match", confidence)
+	}
+}
+
+func TestProjectPresetPreviewUsesConstrainedPlannerAndResolvesProjectApps(t *testing.T) {
+	s := newTestServer(t)
+	seedPresetProject(t, s, "preset-project")
+	crmInstallID := seedAppWithTools(t, s, "crm", "preset-project", []string{"contacts_list"})
+	if err := s.registerAppMCP(crmInstallID); err != nil {
+		t.Fatal(err)
+	}
+	s.projectPresetPlanner = func(_ context.Context, _ int64, _, _ string, _ []ProjectPreset) (projectPresetPlanChoice, error) {
+		return projectPresetPlanChoice{PresetID: "business-lead-generation", Confidence: 0.91}, nil
+	}
+	preview, err := s.compileProjectPresetPreview(context.Background(), 1, "preset-project", ProjectPresetPreviewRequest{
+		Description: "A company helping medical practices find qualified patients",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Planner != "meta" || preview.Preset.ID != "business-lead-generation" {
+		t.Fatalf("unexpected plan: planner=%s preset=%s", preview.Planner, preview.Preset.ID)
+	}
+	if len(preview.Agents) != 1 {
+		t.Fatalf("agents=%d, want 1", len(preview.Agents))
+	}
+	if !containsInt64(preview.Agents[0].AppInstallIDs, crmInstallID) {
+		t.Fatalf("CRM install %d not attached: %+v", crmInstallID, preview.Agents[0])
+	}
+	if strings.Contains(preview.Agents[0].Directive, "{{") {
+		t.Fatalf("directive still contains an unresolved placeholder: %q", preview.Agents[0].Directive)
+	}
+	if !strings.Contains(preview.Agents[0].Directive, "medical practices find qualified patients") {
+		t.Fatalf("project description was not placed in the agent directive: %q", preview.Agents[0].Directive)
+	}
+	foundMissingTasks := false
+	for _, warning := range preview.Warnings {
+		foundMissingTasks = foundMissingTasks || strings.Contains(warning, "tasks is assigned by the preset")
+	}
+	if !foundMissingTasks {
+		t.Fatalf("missing Tasks recommendation should be explicit: %v", preview.Warnings)
+	}
+}
+
+func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) {
+	s := newTestServer(t)
+	seedPresetProject(t, s, "apply-project")
+	crmInstallID := seedAppWithTools(t, s, "crm", "apply-project", []string{"contacts_list"})
+	if err := s.registerAppMCP(crmInstallID); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{
+		"preset_id":   "business-lead-generation",
+		"description": "Find and qualify leads for independent clinics; never send outreach without approval",
+	}
+
+	apply := func() map[string]any {
+		req := authedRequest(t, http.MethodPost, "/projects/apply-project/setup/apply", "", body)
+		rec := httptest.NewRecorder()
+		s.handleProject(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("apply status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	first := apply()
+	if got := len(first["created_agents"].([]any)); got != 1 {
+		t.Fatalf("created_agents=%d, want 1: %#v", got, first)
+	}
+	foundStoppedWarning := false
+	for _, raw := range first["warnings"].([]any) {
+		foundStoppedWarning = foundStoppedWarning || strings.Contains(raw.(string), "no LLM provider configured")
+	}
+	if !foundStoppedWarning {
+		t.Fatalf("stopped-agent warning was lost: %#v", first["warnings"])
+	}
+	agents, err := s.store.ListAgentsInProject("apply-project")
+	if err != nil || len(agents) != 1 {
+		t.Fatalf("project agents=%d err=%v", len(agents), err)
+	}
+	fresh, err := s.store.GetAgentByID(agents[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(fresh.Config), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !hasMCPName(mcpMaps(cfg["mcp_servers"]), "crm") {
+		t.Fatalf("preset agent did not use normal app attachment contract: %s", fresh.Config)
+	}
+	project, err := s.store.GetProjectAny("apply-project")
+	if err != nil || project.Name != "Default" || project.Description != body["description"] {
+		t.Fatalf("project=%+v err=%v", project, err)
+	}
+	layout := string(s.store.GetUserUILayout(1))
+	if !strings.Contains(layout, `"dashboard.home"`) || !strings.Contains(layout, `"native:inbox"`) {
+		t.Fatalf("dashboard layout was not applied: %s", layout)
+	}
+	second := apply()
+	if got := len(second["created_agents"].([]any)); got != 0 {
+		t.Fatalf("second apply created %d duplicate agents: %#v", got, second)
+	}
+	if got := len(second["existing_agents"].([]any)); got != 1 {
+		t.Fatalf("second apply existing_agents=%d, want 1", got)
+	}
+}
+
+func TestProjectPresetPlannerRejectsInventedShape(t *testing.T) {
+	if _, err := parseProjectPresetPlanChoice(`{"preset_id":"business-lead-generation","run_tool":"install"}`); err == nil {
+		t.Fatal("unknown planner fields must be rejected")
+	}
+	choice, err := parseProjectPresetPlanChoice("```json\n{\"preset_id\":\"business-lead-generation\",\"confidence\":0.8}\n```")
+	if err != nil || choice.PresetID != "business-lead-generation" {
+		t.Fatalf("choice=%+v err=%v", choice, err)
+	}
+}
+
+func containsInt64(values []int64, target int64) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}

@@ -105,16 +105,21 @@ type CurrentStatusMessage struct {
 // Chat is one durable Apteva conversation. AgentID remains the lead agent for
 // backwards compatibility; AgentIDs is the complete participant list.
 type Chat struct {
-	ID          string     `json:"id"`
-	AgentID     int64      `json:"instance_id"`
-	AgentIDs    []int64    `json:"agent_ids"`
-	ProjectID   string     `json:"project_id"`
-	OwnerUserID int64      `json:"owner_user_id,omitempty"`
-	Kind        string     `json:"kind"`
-	Title       string     `json:"title"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
+	ID              string     `json:"id"`
+	AgentID         int64      `json:"agent_id"`
+	InstanceID      int64      `json:"instance_id,omitempty"` // legacy response alias
+	AgentIDs        []int64    `json:"agent_ids"`
+	ProjectID       string     `json:"project_id"`
+	OwnerUserID     int64      `json:"owner_user_id,omitempty"`
+	Kind            string     `json:"kind"`
+	Title           string     `json:"title"`
+	Directive       string     `json:"directive,omitempty"`
+	SubjectType     string     `json:"subject_type,omitempty"`
+	SubjectID       string     `json:"subject_id,omitempty"`
+	ConversationKey string     `json:"conversation_key,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	ArchivedAt      *time.Time `json:"archived_at,omitempty"`
 	// ThreadID is the core thread that handles this chat. Empty =
 	// route to "main" (legacy / feature flag off). Assigned lazily
 	// on first message via EnsureChatThread when the feature flag
@@ -244,12 +249,14 @@ func (s *store) GetChat(id string) (*Chat, error) {
 	c, err := s.scanChat(s.db.QueryRow(
 		`SELECT id, agent_id, title, created_at, updated_at, thread_id,
 		        COALESCE(project_id, ''), COALESCE(owner_user_id, 0),
-		        COALESCE(kind, 'direct'), archived_at
+		        COALESCE(kind, 'direct'), archived_at, COALESCE(directive, ''),
+		        COALESCE(subject_type, ''), COALESCE(subject_id, ''), COALESCE(conversation_key, '')
 		 FROM channel_chat_chats WHERE id = ?`, id,
 	))
 	if err != nil {
 		return nil, err
 	}
+	c.InstanceID = c.AgentID
 	if err := s.loadChatParticipants(c); err != nil {
 		return nil, err
 	}
@@ -264,7 +271,8 @@ func (s *store) scanChat(row rowScanner) (*Chat, error) {
 	var c Chat
 	var archived sql.NullTime
 	err := row.Scan(&c.ID, &c.AgentID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.ThreadID,
-		&c.ProjectID, &c.OwnerUserID, &c.Kind, &archived)
+		&c.ProjectID, &c.OwnerUserID, &c.Kind, &archived, &c.Directive,
+		&c.SubjectType, &c.SubjectID, &c.ConversationKey)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -282,7 +290,8 @@ func (s *store) ListChatsForAgent(agentID int64) ([]Chat, error) {
 	rows, err := s.db.Query(
 		`SELECT c.id, c.agent_id, c.title, c.created_at, c.updated_at, c.thread_id,
 		        COALESCE(c.project_id, ''), COALESCE(c.owner_user_id, 0),
-		        COALESCE(c.kind, 'direct'), c.archived_at
+		        COALESCE(c.kind, 'direct'), c.archived_at, COALESCE(c.directive, ''),
+		        COALESCE(c.subject_type, ''), COALESCE(c.subject_id, ''), COALESCE(c.conversation_key, '')
 		 FROM channel_chat_chats c
 		 JOIN channel_chat_participants p ON p.chat_id = c.id
 		 WHERE p.agent_id = ? AND c.archived_at IS NULL
@@ -316,7 +325,8 @@ func (s *store) ListConversations(ownerUserID int64, projectID string, includeAr
 	_ = includePrimaryChatID
 	query := `SELECT id, agent_id, title, created_at, updated_at, thread_id,
 	                 COALESCE(project_id, ''), COALESCE(owner_user_id, 0),
-	                 COALESCE(kind, 'direct'), archived_at
+	                 COALESCE(kind, 'direct'), archived_at, COALESCE(directive, ''),
+	                 COALESCE(subject_type, ''), COALESCE(subject_id, ''), COALESCE(conversation_key, '')
 	          FROM channel_chat_chats c
 	          WHERE owner_user_id = ? AND project_id = ?
 	            AND c.id <> printf('default-%d', c.agent_id)`
@@ -343,7 +353,7 @@ func (s *store) ListConversations(ownerUserID int64, projectID string, includeAr
 	return out, rows.Err()
 }
 
-func (s *store) CreateConversation(ownerUserID int64, projectID, title string, agentIDs []int64, leadAgentID int64) (*Chat, error) {
+func (s *store) CreateConversation(ownerUserID int64, projectID, title string, agentIDs []int64, leadAgentID int64, directive ...string) (*Chat, error) {
 	if len(agentIDs) == 0 {
 		return nil, fmt.Errorf("at least one agent required")
 	}
@@ -362,11 +372,15 @@ func (s *store) CreateConversation(ownerUserID int64, projectID, title string, a
 	if len(agentIDs) > 1 {
 		kind = "room"
 	}
+	conversationDirective := ""
+	if len(directive) > 0 {
+		conversationDirective = strings.TrimSpace(directive[0])
+	}
 	err = s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
 		if _, err := conn.ExecContext(ctx, `
 			INSERT INTO channel_chat_chats
-				(id, agent_id, title, project_id, owner_user_id, kind)
-			VALUES (?, ?, ?, ?, ?, ?)`, id, leadAgentID, title, projectID, ownerUserID, kind); err != nil {
+				(id, agent_id, title, project_id, owner_user_id, kind, directive)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, id, leadAgentID, title, projectID, ownerUserID, kind, conversationDirective); err != nil {
 			return err
 		}
 		for _, agentID := range agentIDs {
@@ -388,7 +402,92 @@ func (s *store) CreateConversation(ownerUserID int64, projectID, title string, a
 	return s.GetChat(id)
 }
 
-func (s *store) UpdateConversation(id, title string, archived *bool) (*Chat, error) {
+// CreateOrResumeSubjectConversation atomically creates the one durable
+// conversation identified by an external subject and conversation key, or
+// returns the existing row. Ordinary dashboard conversations do not use this
+// path and remain unconstrained by the external-subject unique index.
+func (s *store) CreateOrResumeSubjectConversation(ownerUserID int64, projectID, title string, agentID int64, directive, subjectType, subjectID, conversationKey string) (*Chat, bool, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "New conversation"
+	}
+	directive = strings.TrimSpace(directive)
+	subjectType = strings.TrimSpace(subjectType)
+	subjectID = strings.TrimSpace(subjectID)
+	conversationKey = strings.TrimSpace(conversationKey)
+	if ownerUserID <= 0 || strings.TrimSpace(projectID) == "" || agentID <= 0 || subjectType == "" || subjectID == "" || conversationKey == "" {
+		return nil, false, fmt.Errorf("external conversation identity is incomplete")
+	}
+	id, err := conversationID()
+	if err != nil {
+		return nil, false, err
+	}
+	created := false
+	resolvedID := ""
+	err = s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		res, err := conn.ExecContext(ctx, `
+			INSERT OR IGNORE INTO channel_chat_chats
+				(id, agent_id, title, project_id, owner_user_id, kind, directive,
+				 subject_type, subject_id, conversation_key)
+			VALUES (?, ?, ?, ?, ?, 'direct', ?, ?, ?, ?)`,
+			id, agentID, title, projectID, ownerUserID, directive, subjectType, subjectID, conversationKey)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			created = true
+			resolvedID = id
+			_, err = conn.ExecContext(ctx, `
+				INSERT INTO channel_chat_participants (chat_id, agent_id, is_lead)
+				VALUES (?, ?, 1)`, id, agentID)
+			return err
+		}
+		return conn.QueryRowContext(ctx, `
+			SELECT id FROM channel_chat_chats
+			WHERE owner_user_id = ? AND project_id = ? AND agent_id = ?
+			  AND subject_type = ? AND subject_id = ? AND conversation_key = ?`,
+			ownerUserID, projectID, agentID, subjectType, subjectID, conversationKey).Scan(&resolvedID)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	chat, err := s.GetChat(resolvedID)
+	return chat, created, err
+}
+
+// ListChatsForAgentSubject is the delegated-client collection view. It never
+// returns another external subject's conversations or first-party dashboard
+// conversations.
+func (s *store) ListChatsForAgentSubject(agentID int64, subjectType, subjectID string) ([]Chat, error) {
+	rows, err := s.db.Query(
+		`SELECT c.id, c.agent_id, c.title, c.created_at, c.updated_at, c.thread_id,
+		        COALESCE(c.project_id, ''), COALESCE(c.owner_user_id, 0),
+		        COALESCE(c.kind, 'direct'), c.archived_at, COALESCE(c.directive, ''),
+		        COALESCE(c.subject_type, ''), COALESCE(c.subject_id, ''), COALESCE(c.conversation_key, '')
+		 FROM channel_chat_chats c
+		 JOIN channel_chat_participants p ON p.chat_id = c.id
+		 WHERE p.agent_id = ? AND c.subject_type = ? AND c.subject_id = ?
+		   AND c.archived_at IS NULL
+		 ORDER BY c.updated_at DESC`, agentID, strings.TrimSpace(subjectType), strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Chat{}
+	for rows.Next() {
+		chat, err := s.scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.loadChatParticipants(chat); err != nil {
+			return nil, err
+		}
+		out = append(out, *chat)
+	}
+	return out, rows.Err()
+}
+
+func (s *store) UpdateConversation(id, title string, archived *bool, directive *string) (*Chat, error) {
 	if strings.TrimSpace(title) != "" {
 		if _, err := s.db.Exec(`UPDATE channel_chat_chats SET title=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, strings.TrimSpace(title), id); err != nil {
 			return nil, err
@@ -405,6 +504,11 @@ func (s *store) UpdateConversation(id, title string, archived *bool) (*Chat, err
 			if err != nil {
 				return nil, err
 			}
+		}
+	}
+	if directive != nil {
+		if _, err := s.db.Exec(`UPDATE channel_chat_chats SET directive=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, strings.TrimSpace(*directive), id); err != nil {
+			return nil, err
 		}
 	}
 	return s.GetChat(id)
@@ -483,7 +587,8 @@ func (s *store) UnusedConversationThreads() ([]Chat, error) {
 	rows, err := s.db.Query(`
 		SELECT id, agent_id, title, created_at, updated_at, thread_id,
 		       COALESCE(project_id, ''), COALESCE(owner_user_id, 0),
-		       COALESCE(kind, 'direct'), archived_at
+		       COALESCE(kind, 'direct'), archived_at, COALESCE(directive, ''),
+		       COALESCE(subject_type, ''), COALESCE(subject_id, ''), COALESCE(conversation_key, '')
 		FROM channel_chat_chats c
 		WHERE TRIM(COALESCE(thread_id, '')) <> ''
 		  AND NOT EXISTS (
@@ -841,7 +946,8 @@ func (s *store) ChatForAgentThread(agentID int64, threadID string) (*Chat, error
 	c, err := s.scanChat(s.db.QueryRow(`
 		SELECT c.id, c.agent_id, c.title, c.created_at, c.updated_at, c.thread_id,
 		       COALESCE(c.project_id, ''), COALESCE(c.owner_user_id, 0),
-		       COALESCE(c.kind, 'direct'), c.archived_at
+		       COALESCE(c.kind, 'direct'), c.archived_at, COALESCE(c.directive, ''),
+		       COALESCE(c.subject_type, ''), COALESCE(c.subject_id, ''), COALESCE(c.conversation_key, '')
 		FROM channel_chat_chats c
 		JOIN channel_chat_participants p ON p.chat_id = c.id
 		WHERE p.agent_id = ? AND c.thread_id = ? AND c.archived_at IS NULL
@@ -853,6 +959,28 @@ func (s *store) ChatForAgentThread(agentID int64, threadID string) (*Chat, error
 		return nil, err
 	}
 	return c, nil
+}
+
+// SubjectForAgentThread resolves trusted external identity for an agent MCP
+// call. Empty values mean the thread is an ordinary first-party conversation
+// (or is not a Channel Chat thread).
+func (s *store) SubjectForAgentThread(agentID int64, threadID string) (subjectType, subjectID, conversationID string, ok bool) {
+	threadID = strings.TrimSpace(threadID)
+	if agentID <= 0 || threadID == "" || threadID == "main" {
+		return "", "", "", false
+	}
+	err := s.db.QueryRow(`
+		SELECT c.subject_type, c.subject_id, c.id
+		FROM channel_chat_chats c
+		JOIN channel_chat_participants p ON p.chat_id = c.id
+		WHERE p.agent_id = ? AND c.thread_id = ?
+		  AND c.archived_at IS NULL
+		  AND c.subject_type <> '' AND c.subject_id <> ''
+		LIMIT 1`, agentID, threadID).Scan(&subjectType, &subjectID, &conversationID)
+	if err != nil {
+		return "", "", "", false
+	}
+	return subjectType, subjectID, conversationID, true
 }
 
 func (s *store) CreateDeliveries(messageID int64, agentIDs []int64) error {

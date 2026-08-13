@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "presets": [
+    {
+      "id": "business-lead-generation",
+      "category": "business",
+      "name": "Lead-generation business",
+      "description": "Operate lead research, qualification, CRM follow-up, and client reporting.",
+      "match": [
+        "lead generation",
+        "lead-gen",
+        "doctor leads",
+        "medical leads",
+        "prospecting",
+        "appointment setting"
+      ],
+      "agents": [
+        {
+          "key": "lead-ops",
+          "name": "Lead Operations Agent",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "crm",
+            "web",
+            "email-checker",
+            "campaigns",
+            "analytics",
+            "calendar",
+            "bookings"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Research prospects, validate contact data, keep CRM and appointment context accurate, measure outcomes, and track substantial work durably. Draft outreach or campaigns unless explicit sending authority exists."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "business-professional-services",
+      "category": "business",
+      "name": "Professional services",
+      "description": "Coordinate client delivery, preparation, follow-up, and account context.",
+      "match": [
+        "consulting",
+        "agency",
+        "professional services",
+        "client work",
+        "advisory"
+      ],
+      "agents": [
+        {
+          "key": "client-ops",
+          "name": "Client Operations Agent",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "crm",
+            "calendar",
+            "bookings",
+            "docs",
+            "signatures",
+            "billing",
+            "storage"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Preserve client and appointment context, prepare and retain professional documents, and track approvals and billing state. Require review before client-facing communication, signatures, invoices, or commitments."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "business-ecommerce",
+      "category": "business",
+      "name": "E-commerce",
+      "description": "Monitor products, customers, content, and operational exceptions for an online store.",
+      "match": [
+        "ecommerce",
+        "e-commerce",
+        "online store",
+        "shopify",
+        "products",
+        "orders"
+      ],
+      "agents": [
+        {
+          "key": "commerce",
+          "name": "Commerce Operations Agent",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "commerce",
+            "catalog",
+            "inventory",
+            "orders",
+            "crm",
+            "social",
+            "analytics"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Maintain accurate storefront, catalog, stock, order, customer, publishing, and performance context and surface operational exceptions. Ask before pricing, refunds, product publishing, campaign publishing, or customer contact."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "business-local-services",
+      "category": "business",
+      "name": "Local service business",
+      "description": "Handle enquiries, appointment preparation, follow-up, and local business operations.",
+      "match": [
+        "local business",
+        "clinic",
+        "dentist",
+        "contractor",
+        "salon",
+        "appointments",
+        "service business"
+      ],
+      "agents": [
+        {
+          "key": "operations",
+          "name": "Business Operations Agent",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "crm",
+            "calendar",
+            "bookings",
+            "messaging",
+            "billing"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Maintain accurate enquiry, customer, appointment, communication, and billing context and surface exceptions. Never confirm bookings, contact customers, or issue invoices without configured authority."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    }
+  ]
+}

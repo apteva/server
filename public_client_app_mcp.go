@@ -12,9 +12,11 @@ import (
 )
 
 type publicClientScope struct {
-	Type    string   `json:"type"`
-	App     string   `json:"app"`
-	Actions []string `json:"actions"`
+	Type      string   `json:"type"`
+	App       string   `json:"app"`
+	Actions   []string `json:"actions"`
+	AgentIDs  []int64  `json:"agent_ids,omitempty"`
+	Directive string   `json:"directive,omitempty"`
 }
 
 type publicClientRateBucket struct {

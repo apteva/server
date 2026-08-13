@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -110,6 +111,57 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	}
 
 	return reg, nil
+}
+
+// refreshChannelChatConversationDirectives keeps already-created user-facing
+// threads synchronized after the agent's inherited global directive changes.
+// Channel Chat remains optional/nil-safe during startup and quarantine.
+func (s *Server) refreshChannelChatConversationDirectives(agentID int64) {
+	if s == nil || s.apps == nil {
+		return
+	}
+	app := s.apps.AppFor("channel-chat")
+	refresher, ok := app.(interface {
+		RefreshAgentConversationDirectives(int64)
+	})
+	if ok {
+		refresher.RefreshAgentConversationDirectives(agentID)
+	}
+}
+
+// applyChannelChatSubjectContext turns a trusted agent/thread pair into the
+// external subject carried by that durable conversation. Downstream app SDKs
+// receive this through CallerFrom(ctx); model-supplied subject arguments are
+// never authoritative.
+func (s *Server) applyChannelChatSubjectContext(r *http.Request) {
+	if s == nil || s.apps == nil || r == nil {
+		return
+	}
+	agentID, _ := strconv.ParseInt(strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Agent")), 10, 64)
+	threadID := strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Thread"))
+	if agentID <= 0 || threadID == "" {
+		return
+	}
+	for _, header := range []string{
+		"X-Apteva-Subject-Type", "X-Apteva-Subject-ID", "X-Apteva-Subject-Email",
+		"X-Apteva-Organization-ID", "X-Apteva-Organization-Slug", "X-Apteva-Conversation-ID",
+	} {
+		r.Header.Del(header)
+	}
+	app := s.apps.AppFor("channel-chat")
+	resolver, ok := app.(interface {
+		ConversationSubjectForThread(int64, string) (string, string, string, bool)
+	})
+	if !ok {
+		return
+	}
+	subjectType, subjectID, conversationID, ok := resolver.ConversationSubjectForThread(agentID, threadID)
+	if !ok {
+		return
+	}
+	r.Header.Set("X-Apteva-Subject-Type", subjectType)
+	r.Header.Set("X-Apteva-Subject-ID", subjectID)
+	r.Header.Set("X-Apteva-Conversation-ID", conversationID)
 }
 
 // componentCatalogFor walks every installed app visible to the

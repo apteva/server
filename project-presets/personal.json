@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "presets": [
+    {
+      "id": "personal-assistant",
+      "category": "personal",
+      "name": "Personal assistant",
+      "description": "A general assistant for planning, communication, reminders, and everyday follow-through.",
+      "match": [
+        "personal assistant",
+        "organize my life",
+        "email",
+        "calendar",
+        "reminders",
+        "daily planning"
+      ],
+      "agents": [
+        {
+          "key": "assistant",
+          "name": "Personal Assistant",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "todo",
+            "notes",
+            "calendar"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Keep the user's commitments, retained notes, calendar, and substantial delegated work organized; communicate important progress clearly; and ask before consequential external actions."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "personal-household",
+      "category": "personal",
+      "name": "Household",
+      "description": "Coordinate household errands, maintenance, shared plans, and recurring responsibilities.",
+      "match": [
+        "household",
+        "family",
+        "home maintenance",
+        "chores",
+        "errands"
+      ],
+      "agents": [
+        {
+          "key": "coordinator",
+          "name": "Household Coordinator",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "todo",
+            "calendar",
+            "pantry",
+            "recipes"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Coordinate household work, maintain clear errands and schedules, help track food and meal needs when relevant, surface exceptions, and never make purchases or commitments without approval."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "personal-wellbeing",
+      "category": "personal",
+      "name": "Wellbeing planner",
+      "description": "Support non-clinical routines, reflection, habits, and appointment preparation.",
+      "match": [
+        "wellbeing",
+        "wellness",
+        "habits",
+        "fitness planning",
+        "health routine"
+      ],
+      "agents": [
+        {
+          "key": "planner",
+          "name": "Wellbeing Planner",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "todo",
+            "health",
+            "notes",
+            "calendar"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Support non-clinical wellbeing goals, organize routines, record only user-provided health observations, preserve reflections, and prepare appointments. Do not diagnose, prescribe, or present medical advice as professional care."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "personal-creator",
+      "category": "personal",
+      "name": "Independent creator",
+      "description": "Organize ideas, a publishing cadence, research, and audience follow-up.",
+      "match": [
+        "creator",
+        "newsletter",
+        "youtube",
+        "podcast",
+        "personal brand",
+        "content"
+      ],
+      "agents": [
+        {
+          "key": "editor",
+          "name": "Creator Assistant",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "notes",
+            "content",
+            "social",
+            "media-studio",
+            "storage",
+            "analytics"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Capture ideas, draft and manage content, prepare media, organize durable work, and learn from audience performance. Require approval before publishing."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    }
+  ]
+}

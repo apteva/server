@@ -1699,10 +1699,31 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[CREATE] skip bound connection id=%d: %v", cid, err)
 				continue
 			}
+			mcpRecord, lookupErr := s.store.FindCanonicalMCPServerByConnection(conn.ID)
+			if lookupErr != nil {
+				log.Printf("[CREATE] resolve MCP for bound connection id=%d: %v", cid, lookupErr)
+				continue
+			}
+			if mcpRecord == nil {
+				toolCount := 0
+				if app := s.catalog.Get(conn.AppSlug); app != nil {
+					toolCount = len(app.Tools)
+				}
+				mcpID, createErr := s.store.CreateMCPServerFromConnection(userID, conn, toolCount)
+				if createErr != nil {
+					log.Printf("[CREATE] create MCP for bound connection id=%d: %v", cid, createErr)
+					continue
+				}
+				mcpRecord, lookupErr = s.store.GetMCPServerByIDUnscoped(mcpID)
+				if lookupErr != nil || mcpRecord == nil {
+					log.Printf("[CREATE] reload MCP for bound connection id=%d mcp=%d: %v", cid, mcpID, lookupErr)
+					continue
+				}
+			}
 			extraServers = append(extraServers, map[string]any{
-				"name":      conn.AppSlug,
+				"name":      mcpRecord.Name,
 				"transport": "http",
-				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, cid),
+				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, mcpRecord.ID),
 				// main_access stays implicit (default true); no_spawn
 				// not set so worker threads can also attach if they
 				// inherit this connection's role.
@@ -2548,6 +2569,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "core config updated but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 				return
 			}
+			if body.Directive != "" {
+				s.refreshChannelChatConversationDirectives(inst.ID)
+			}
 		}
 		for k, v := range resp.Header {
 			w.Header()[k] = v
@@ -2599,6 +2623,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[CONFIG] sync stopped app bindings failed agent=%d: %v", inst.ID, err)
 		http.Error(w, "config saved but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 		return
+	}
+	if body.Directive != "" {
+		s.refreshChannelChatConversationDirectives(inst.ID)
 	}
 	log.Printf("[CONFIG] PUT stopped agent=%d — persisted to config.json (applies on next start)", inst.ID)
 	writeJSON(w, inst)

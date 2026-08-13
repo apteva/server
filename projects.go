@@ -69,11 +69,19 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/projects/")
 
-	// Sub-route: /projects/<id>/members[/...] → members handler.
+	// Sub-routes are dispatched before the project id is used for auth.
 	if i := strings.Index(id, "/"); i >= 0 {
 		seg := id[i+1:]
 		if seg == "members" || strings.HasPrefix(seg, "members/") {
 			s.handleProjectMembers(w, r)
+			return
+		}
+		if seg == "setup/preview" {
+			s.handleProjectPresetPreview(w, r, id[:i])
+			return
+		}
+		if seg == "setup/apply" {
+			s.handleProjectPresetApply(w, r, id[:i])
 			return
 		}
 	}

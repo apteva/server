@@ -192,6 +192,11 @@ type Server struct {
 	// Nil-safe: only ever consulted by environment endpoints, so production
 	// agent paths never touch it.
 	environments *EnvironmentManager
+
+	// projectPresetPlanner is a deliberately narrow, no-tools planning hook.
+	// Production uses the caller's configured LLM provider when available;
+	// tests can replace it without starting Core or creating a durable thread.
+	projectPresetPlanner projectPresetPlannerFunc
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -639,8 +644,11 @@ func main() {
 	apiMux.HandleFunc("/auth/mfa/disable", s.authMiddleware(s.handleMFADisable))
 	apiMux.HandleFunc("/auth/mfa/recovery-codes", s.authMiddleware(s.handleMFARecoveryCodes))
 	apiMux.HandleFunc("/auth/preferences", s.authMiddleware(s.handleAuthPreferences))
+	apiMux.HandleFunc("/auth/delegated-users", s.authMiddleware(s.handleCreateDelegatedUser))
 	apiMux.HandleFunc("/ui-layout/projects/", s.authMiddleware(s.handleUILayoutSurface))
+	apiMux.HandleFunc("/ui/surfaces/", s.authMiddleware(s.handleUISurfaceResolution))
 	apiMux.HandleFunc("/ui/contributions", s.authMiddleware(s.handleUIContributions))
+	apiMux.HandleFunc("/project-presets", s.authMiddleware(s.handleProjectPresets))
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
 	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
 	apiMux.HandleFunc("/mobile/push/subscriptions", s.authMiddleware(s.handleMobilePushSubscriptions))
@@ -1371,7 +1379,7 @@ func main() {
 	// "*" for credential-free public clients, or "off" explicitly.
 	corsCfg := newCORSConfig(os.Getenv("CORS_ORIGIN"))
 	crossOriginCookies = corsCfg.needsCrossOriginCookies()
-	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middleware(apiMux)))))
+	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middlewareWithDynamicOrigin(apiMux, s.delegatedChatCORSOriginAllowed)))))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found.
@@ -1427,15 +1435,6 @@ func main() {
 		if !quarantined {
 			go s.ResumeRunningInstances()
 		}
-	}
-
-	// One-shot on boot: any local connection that's missing its
-	// auto-created mcp_servers row gets one. Covers suite-fan-out
-	// children created before the auto-MCP hook was added to the
-	// suite handler; also defensive against any race where the MCP
-	// insert failed after the connection insert succeeded.
-	if !quarantined {
-		go s.BackfillMissingMCPServers()
 	}
 
 	// Graceful shutdown: on SIGTERM or SIGINT (Ctrl+C), stop every
@@ -1617,6 +1616,10 @@ func main() {
 	if !quarantined {
 		s.RemountStaticApps()
 		s.backfillAppMCPs()
+		// Reconstruct integration MCP rows synchronously before cores resume.
+		// A background backfill allowed an agent to boot with an unresolved
+		// connection URL during the startup recovery window.
+		s.BackfillMissingMCPServers()
 		// Repair legacy app_agent_bindings drift from each agent's actual
 		// persisted MCP configuration before cores resume.
 		s.reconcileAllAgentAppBindings()

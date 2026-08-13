@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,12 +13,13 @@ import (
 // handleMCPEndpoint serves Streamable HTTP MCP transport for integration connections.
 // Endpoint: POST/GET /mcp/:id
 //
-// :id is interpreted as an mcp_servers.id FIRST (the row holds both the
-// allowed_tools filter and the connection_id pointer). If that lookup
-// misses, we fall back to interpreting :id as a connection_id and use
-// the most recent mcp_servers row over that connection — this preserves
-// backward compatibility with URLs emitted by older builds and gives
-// existing single-MCP-per-connection setups zero-effort migration.
+// :id is an mcp_servers.id (the row holds both the allowed_tools filter and
+// connection_id pointer). Truly missing rows retain a legacy connection-id
+// fallback for already-persisted agent configs. Lookup errors and existing
+// non-connection rows never fall through: reinterpreting the same integer as
+// a connection id can expose an unrelated integration.
+//
+// /mcp/connection/:id is the explicit, unambiguous internal legacy route.
 //
 // POST: JSON-RPC request → JSON-RPC response (or SSE stream for streaming)
 // GET: SSE stream for server-initiated messages (notifications)
@@ -31,8 +33,13 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the id from /mcp/123
+	// Parse either the canonical MCP-row route or the explicit internal
+	// connection route. Both remain loopback-only.
 	idStr := strings.TrimPrefix(r.URL.Path, "/mcp/")
+	explicitConnection := strings.HasPrefix(idStr, "connection/")
+	if explicitConnection {
+		idStr = strings.TrimPrefix(idStr, "connection/")
+	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -45,17 +52,48 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	var allowedTools []string
 	var mcpRowName string
 
-	if srv, err := s.store.GetMCPServerByIDUnscoped(id); err == nil && srv != nil && srv.ConnectionID > 0 {
-		connectionID = srv.ConnectionID
-		allowedTools = srv.AllowedTools
-		mcpRowName = srv.Name
-	} else {
-		// Legacy: id is a connection_id. Use the most recent mcp_servers
-		// row over that connection for the allowed_tools filter.
+	if explicitConnection {
 		connectionID = id
-		if srv, err := s.store.FindMCPServerByConnection(connectionID); err == nil && srv != nil {
+		srv, lookupErr := s.store.FindCanonicalMCPServerByConnection(connectionID)
+		if lookupErr != nil {
+			log.Printf("[MCP-ROUTE] resolve connection=%d: %v", connectionID, lookupErr)
+			http.Error(w, "failed to resolve MCP connection", http.StatusInternalServerError)
+			return
+		}
+		if srv != nil {
 			allowedTools = srv.AllowedTools
 			mcpRowName = srv.Name
+		}
+	} else {
+		srv, lookupErr := s.store.GetMCPServerByIDUnscoped(id)
+		if lookupErr != nil {
+			log.Printf("[MCP-ROUTE] resolve mcp_server=%d: %v", id, lookupErr)
+			http.Error(w, "failed to resolve MCP server", http.StatusInternalServerError)
+			return
+		}
+		if srv != nil {
+			if srv.ConnectionID <= 0 || srv.Source != "local" {
+				http.Error(w, "MCP server is not a local integration route", http.StatusNotFound)
+				return
+			}
+			connectionID = srv.ConnectionID
+			allowedTools = srv.AllowedTools
+			mcpRowName = srv.Name
+		} else {
+			// Legacy: id is a connection_id. Use the canonical mcp_servers
+			// row over that connection for the allowed_tools filter. This branch
+			// is entered only for sql.ErrNoRows, never for a failed row lookup.
+			connectionID = id
+			legacy, legacyErr := s.store.FindCanonicalMCPServerByConnection(connectionID)
+			if legacyErr != nil {
+				log.Printf("[MCP-ROUTE] resolve legacy connection=%d: %v", connectionID, legacyErr)
+				http.Error(w, "failed to resolve MCP connection", http.StatusInternalServerError)
+				return
+			}
+			if legacy != nil {
+				allowedTools = legacy.AllowedTools
+				mcpRowName = legacy.Name
+			}
 		}
 	}
 
@@ -131,6 +169,10 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 	if len(allowedTools) > 0 {
 		allowedSet = make(map[string]bool, len(allowedTools)*4)
 		stripPrefixes := []string{app.Slug + "_"}
+		canonicalName := s.store.CanonicalMCPNameForConnection(connectionID)
+		if canonicalName != "" && canonicalName != app.Slug && canonicalName != mcpRowName {
+			stripPrefixes = append(stripPrefixes, canonicalName+"_")
+		}
 		if mcpRowName != "" && mcpRowName != app.Slug {
 			stripPrefixes = append(stripPrefixes, mcpRowName+"_")
 		}

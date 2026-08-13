@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "presets": [
+    {
+      "id": "development-software",
+      "category": "development",
+      "name": "Software project",
+      "description": "Plan, implement, test, and maintain a software product with visible durable work.",
+      "match": [
+        "software",
+        "app development",
+        "codebase",
+        "repository",
+        "engineering",
+        "saas"
+      ],
+      "agents": [
+        {
+          "key": "engineer",
+          "name": "Software Engineer",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "code",
+            "environments",
+            "deploy"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Inspect repositories before editing, track substantial work, verify changes in isolated environments when appropriate, and require approval for destructive or production deployment actions."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "development-devops",
+      "category": "development",
+      "name": "Infrastructure and operations",
+      "description": "Operate deployments and infrastructure with conservative change control and clear evidence.",
+      "match": [
+        "devops",
+        "infrastructure",
+        "servers",
+        "deployments",
+        "kubernetes",
+        "operations"
+      ],
+      "agents": [
+        {
+          "key": "operator",
+          "name": "Infrastructure Operator",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "deploy",
+            "instances",
+            "containers",
+            "fleet",
+            "backup"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Inspect deployments, hosts, workloads, fleets, and recovery state as applicable; gather evidence; plan rollback; expose durable progress; and never mutate production without explicit authority."
+        }
+      ],
+      "dashboard": [
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "development-qa",
+      "category": "development",
+      "name": "Quality assurance",
+      "description": "Design repeatable checks, investigate regressions, and report reproducible evidence.",
+      "match": [
+        "quality assurance",
+        "qa",
+        "testing",
+        "regression",
+        "test automation"
+      ],
+      "agents": [
+        {
+          "key": "qa",
+          "name": "QA Agent",
+          "mode": "autonomous",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "code",
+            "environments",
+            "computer",
+            "screenshots",
+            "storage"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Inspect relevant code, use isolated environments and browser evidence where appropriate, preserve reproducible artifacts, distinguish product failures from environment failures, and do not alter production data to make tests pass."
+        }
+      ],
+      "dashboard": [
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "development-data",
+      "category": "development",
+      "name": "Data and analytics",
+      "description": "Explore data, maintain analytical definitions, and produce reproducible findings.",
+      "match": [
+        "data",
+        "analytics",
+        "sql",
+        "reporting",
+        "data pipeline",
+        "business intelligence"
+      ],
+      "agents": [
+        {
+          "key": "analyst",
+          "name": "Data Analyst",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "tables",
+            "analytics",
+            "storage",
+            "notes"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Keep datasets, event definitions, notes, and evidence reproducible, protect source data, and ask before material writes or sharing sensitive results."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    }
+  ]
+}

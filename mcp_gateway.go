@@ -156,18 +156,27 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				if app := catalog.Get(c.AppSlug); app != nil {
 					tc = len(app.Tools)
 				}
-				// One entry per CONNECTION (not per scoped MCP view).
-				// The URL uses connection id which the HTTP endpoint
-				// handles via legacy fallback (most-recent server for
-				// this connection). Agents that need the list of every
-				// scoped view should call list_mcp_servers instead.
+				// One entry per connection (not per scoped MCP view), routed
+				// through its canonical persisted mcp_servers row. Never put a
+				// connection id in the numeric MCP-row namespace: ids from the
+				// two tables can collide and resolve to another integration.
+				serverName := c.AppSlug
+				serverURL := fmt.Sprintf("http://127.0.0.1:%s/mcp/connection/%d", serverPort, c.ID)
+				canonical, lookupErr := store.FindCanonicalMCPServerByConnection(c.ID)
+				if lookupErr != nil {
+					return nil, fmt.Errorf("resolve MCP server for connection %d: %w", c.ID, lookupErr)
+				}
+				if canonical != nil {
+					serverName = canonical.Name
+					serverURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, canonical.ID)
+				}
 				result = append(result, connWithServer{
 					Connection: c,
 					ToolCount:  tc,
 					Server: map[string]any{
-						"name":      c.AppSlug,
+						"name":      serverName,
 						"transport": "http",
-						"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, c.ID),
+						"url":       serverURL,
 					},
 				})
 			}

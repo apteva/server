@@ -49,7 +49,7 @@ func TestMigration007RecoversUnrecordedPartialSchema(t *testing.T) {
 	}
 
 	for table, columns := range map[string][]string{
-		"channel_chat_chats":    {"project_id", "owner_user_id", "kind", "archived_at"},
+		"channel_chat_chats":    {"project_id", "owner_user_id", "kind", "archived_at", "directive", "subject_type", "subject_id", "conversation_key"},
 		"channel_chat_messages": {"agent_id", "metadata_json", "client_message_id"},
 	} {
 		for _, column := range columns {
@@ -76,7 +76,7 @@ func TestMigration007RecoversUnrecordedPartialSchema(t *testing.T) {
 	if err := db.QueryRow(`SELECT MAX(version) FROM framework_app_versions WHERE app_slug='channel-chat'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if participants != 1 || deliveries != 1 || version != 7 {
+	if participants != 1 || deliveries != 1 || version != 9 {
 		t.Fatalf("participants=%d deliveries=%d version=%d", participants, deliveries, version)
 	}
 	var orphanParticipants int

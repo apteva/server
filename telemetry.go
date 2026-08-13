@@ -661,7 +661,12 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 				New string `json:"new"`
 			}
 			if json.Unmarshal(ev.Data, &data) == nil && data.New != "" {
-				s.store.db.Exec("UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID)
+				if _, err := s.store.db.Exec("UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID); err == nil {
+					// Do not make Core's telemetry ingestion wait on re-entrant
+					// per-thread HTTP updates. Persistence is complete; each thread's
+					// next delivery also performs the same drift check defensively.
+					go s.refreshChannelChatConversationDirectives(ev.AgentID)
+				}
 			}
 		}
 	}
