@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apteva/server/apps/channelchat"
 	"github.com/apteva/server/apps/framework"
 )
 
@@ -49,8 +50,95 @@ func TestServerResolverUpdateThreadPreservesScopedMCPToolsWhenToolsOmitted(t *te
 	if _, exists := got["tools"]; exists {
 		t.Fatalf("directive-only update replaced scoped MCP tool allowlist: %v", got)
 	}
-	if got["directive_suffix"] != "conversation suffix" || got["conversation"] != true {
+	if got["directive_suffix"] != "conversation suffix" {
 		t.Fatalf("update body=%v", got)
+	}
+	if _, exists := got["conversation"]; exists {
+		t.Fatalf("update retained obsolete conversation flag: %v", got)
+	}
+}
+
+func TestServerResolverSpawnThreadSubmitsInitialEventsAtomically(t *testing.T) {
+	var got map[string]any
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/threads/chat-conv-1" {
+			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode spawn body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "created",
+			"events": map[string]any{"accepted": []string{"chat-message:42:agent:7"}, "duplicates": []string{}},
+		})
+	}))
+	defer core.Close()
+
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eventID := "chat-message:42:agent:7"
+	receipt, err := (&serverResolver{}).SpawnThread(
+		framework.InstanceInfo{Port: port},
+		"chat-conv-1",
+		"user-facing conversation",
+		[]string{"send", "spawn", "pace"},
+		[]string{"channels", "crm"},
+		[]channelchat.ThreadEvent{{ID: eventID, Message: "Hi"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status != "created" || len(receipt.Accepted) != 1 || receipt.Accepted[0] != eventID {
+		t.Fatalf("receipt=%+v", receipt)
+	}
+	if _, exists := got["conversation"]; exists {
+		t.Fatalf("spawn retained obsolete conversation flag: %v", got)
+	}
+	events, ok := got["events"].([]any)
+	if !ok || len(events) != 1 {
+		t.Fatalf("events=%v", got["events"])
+	}
+	first, _ := events[0].(map[string]any)
+	if first["id"] != eventID || first["message"] != "Hi" {
+		t.Fatalf("event=%v", first)
+	}
+}
+
+func TestServerResolverSpawnThreadRejectsMissingEventReceipt(t *testing.T) {
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "created"})
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = (&serverResolver{}).SpawnThread(
+		framework.InstanceInfo{Port: port}, "chat-conv-1", "suffix", nil, nil,
+		[]channelchat.ThreadEvent{{ID: "chat-message:1:agent:7", Message: "Hi"}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "did not acknowledge event") {
+		t.Fatalf("error=%v, want missing receipt", err)
 	}
 }
 

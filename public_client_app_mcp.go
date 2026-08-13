@@ -57,13 +57,12 @@ func (s *Server) tryHandlePublicClientAppMCP(w http.ResponseWriter, r *http.Requ
 		return true
 	}
 	_ = r.Body.Close()
-	restoreRequestBody(r, body)
-
-	action, err := publicClientMCPToolName(body)
+	action, scopedBody, err := scopePublicClientMCPRequest(body, key.ProjectID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return true
 	}
+	restoreRequestBody(r, scopedBody)
 	if !publicClientScopeAllows(key.Scopes, appName, action) {
 		http.Error(w, "public client key is not allowed to call this app action", http.StatusForbidden)
 		return true
@@ -73,7 +72,7 @@ func (s *Server) tryHandlePublicClientAppMCP(w http.ResponseWriter, r *http.Requ
 		return true
 	}
 
-	entry := s.installedApps.GetByNameAndProjectExact(appName, key.ProjectID)
+	entry := s.installedApps.GetByNameAndProject(appName, key.ProjectID)
 	if entry == nil {
 		http.Error(w, "app not installed for public client key project: "+appName, http.StatusNotFound)
 		return true
@@ -91,6 +90,49 @@ func (s *Server) tryHandlePublicClientAppMCP(w http.ResponseWriter, r *http.Requ
 	s.store.MarkAPIKeyUsed(key.ID, requestClientIP(r))
 	s.handleAppProxy(w, r)
 	return true
+}
+
+// scopePublicClientMCPRequest validates the only JSON-RPC shape public client
+// keys may invoke and stamps the key's trusted tenant scope into the forwarded
+// arguments. The browser can neither omit the project context nor substitute
+// another project when the selected app is a shared global installation.
+func scopePublicClientMCPRequest(body []byte, projectID string) (string, []byte, error) {
+	var rpc map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rpc); err != nil {
+		return "", nil, err
+	}
+	var method string
+	if err := json.Unmarshal(rpc["method"], &method); err != nil || method != "tools/call" {
+		return "", nil, errPublicClientMCPMethod
+	}
+	var params map[string]json.RawMessage
+	if err := json.Unmarshal(rpc["params"], &params); err != nil || params == nil {
+		return "", nil, errPublicClientMCPParams
+	}
+	var action string
+	if err := json.Unmarshal(params["name"], &action); err != nil || strings.TrimSpace(action) == "" {
+		return "", nil, errPublicClientMCPToolName
+	}
+	var arguments map[string]any
+	if err := json.Unmarshal(params["arguments"], &arguments); err != nil || arguments == nil {
+		return "", nil, errPublicClientMCPArguments
+	}
+	arguments["_project_id"] = projectID
+	argumentsJSON, err := json.Marshal(arguments)
+	if err != nil {
+		return "", nil, err
+	}
+	params["arguments"] = argumentsJSON
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return "", nil, err
+	}
+	rpc["params"] = paramsJSON
+	rewritten, err := json.Marshal(rpc)
+	if err != nil {
+		return "", nil, err
+	}
+	return strings.TrimSpace(action), rewritten, nil
 }
 
 func parseAppRuntimePath(path string) (string, string, bool) {
@@ -158,8 +200,10 @@ func publicClientMCPToolName(body []byte) (string, error) {
 }
 
 var (
-	errPublicClientMCPMethod   = publicClientError("public client keys only support tools/call")
-	errPublicClientMCPToolName = publicClientError("missing MCP tool name")
+	errPublicClientMCPMethod    = publicClientError("public client keys only support tools/call")
+	errPublicClientMCPParams    = publicClientError("MCP params must be an object")
+	errPublicClientMCPToolName  = publicClientError("missing MCP tool name")
+	errPublicClientMCPArguments = publicClientError("MCP params.arguments must be an object")
 )
 
 type publicClientError string

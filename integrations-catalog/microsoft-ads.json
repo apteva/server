@@ -1,7 +1,7 @@
 {
   "slug": "microsoft-ads",
   "name": "Microsoft Advertising",
-  "description": "Microsoft Advertising (formerly Bing Ads) v13 — Customer Management, Campaign Management, Bulk, and Reporting services. The Bing Ads API is primarily SOAP; these tools call the REST/JSON edge plus customer-management OData endpoints. OAuth2 via Microsoft identity (login.microsoftonline.com), Developer Token required for every call.",
+  "description": "Microsoft Advertising (formerly Bing Ads) v13 — Customer Management, Campaign Management, Reporting, and Ad Insight keyword planning. These tools call Microsoft's REST/JSON service routes. OAuth2 uses Microsoft identity and every API call requires a Developer Token.",
   "logo": "https://www.google.com/s2/favicons?domain=ads.microsoft.com&sz=128",
   "categories": [
     "advertising",
@@ -311,6 +311,253 @@
         "required": [
           "ReportRequestId"
         ]
+      }
+    },
+    {
+      "name": "get_historical_search_count",
+      "description": "Get Bing historical search counts for up to 1,000 keywords, grouped daily, weekly, or monthly and optionally by device. This is Ad Insight market-search data, not campaign performance reporting. Dates are native Microsoft DayMonthAndYear objects such as {\"Day\":1,\"Month\":1,\"Year\":2026}.",
+      "method": "POST",
+      "base_url": "https://adinsight.api.bingads.microsoft.com",
+      "path": "/AdInsight/v13/HistoricalSearchCount/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Keywords": {
+            "type": "array",
+            "description": "One to 1,000 keywords, each no longer than 100 characters.",
+            "items": { "type": "string", "maxLength": 100 },
+            "minItems": 1,
+            "maxItems": 1000
+          },
+          "Language": {
+            "type": "string",
+            "description": "Microsoft Advertising language name supported by the selected publisher countries, for example English, French, or Spanish."
+          },
+          "PublisherCountries": {
+            "type": "array",
+            "description": "Optional country/region codes used as the historical-data source, for example US, FR, or ES.",
+            "items": { "type": "string" }
+          },
+          "StartDate": {
+            "type": "object",
+            "properties": {
+              "Day": { "type": "integer", "minimum": 1, "maximum": 31 },
+              "Month": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "Year": { "type": "integer" }
+            },
+            "required": ["Day", "Month", "Year"]
+          },
+          "EndDate": {
+            "type": "object",
+            "properties": {
+              "Day": { "type": "integer", "minimum": 1, "maximum": 31 },
+              "Month": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "Year": { "type": "integer" }
+            },
+            "required": ["Day", "Month", "Year"]
+          },
+          "TimePeriodRollup": {
+            "type": "string",
+            "enum": ["Daily", "Weekly", "Monthly"]
+          },
+          "Devices": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["Computers", "NonSmartphones", "Smartphones", "Tablets"] }
+          }
+        },
+        "required": ["Keywords", "Language", "StartDate", "EndDate", "TimePeriodRollup"]
+      }
+    },
+    {
+      "name": "get_keyword_ideas",
+      "description": "Generate Microsoft Keyword Planner ideas and request monthly search counts, competition, suggested bid, relevance, source, and impression share. SearchParameters must contain one Query or URL seed plus Language, Location, and Network parameters. Every derived object needs Microsoft's Type discriminator. Ready example: [{\"Type\":\"QuerySearchParameter\",\"Queries\":[\"running shoes\"]},{\"Type\":\"LanguageSearchParameter\",\"Languages\":[{\"Type\":\"LanguageCriterion\",\"Language\":\"English\"}]},{\"Type\":\"LocationSearchParameter\",\"Locations\":[{\"Type\":\"LocationCriterion\",\"LocationId\":190}]},{\"Type\":\"NetworkSearchParameter\",\"Network\":{\"Type\":\"NetworkCriterion\",\"Network\":\"OwnedAndOperatedAndSyndicatedSearch\"}}].",
+      "method": "POST",
+      "base_url": "https://adinsight.api.bingads.microsoft.com",
+      "path": "/AdInsight/v13/KeywordIdeas/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ExpandIdeas": {
+            "type": "boolean",
+            "description": "True to discover related ideas; false to return attributes only for supplied query keywords.",
+            "default": true
+          },
+          "IdeaAttributes": {
+            "type": "array",
+            "description": "Competition is required. Keyword is always returned.",
+            "items": {
+              "type": "string",
+              "enum": ["AdGroup", "AdImpressionShare", "Competition", "Keyword", "MonthlySearchCounts", "Relevance", "Source", "SuggestedBid"]
+            },
+            "minItems": 1
+          },
+          "SearchParameters": {
+            "type": "array",
+            "description": "Native Microsoft Ad Insight search-parameter objects. Use one object per parameter type and do not duplicate types.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Type": {
+                  "type": "string",
+                  "enum": ["QuerySearchParameter", "UrlSearchParameter", "LanguageSearchParameter", "LocationSearchParameter", "NetworkSearchParameter", "DeviceSearchParameter", "CompetitionSearchParameter", "DateRangeSearchParameter", "ExcludeAccountKeywordsSearchParameter", "IdeaTextSearchParameter", "ImpressionShareSearchParameter", "SearchVolumeSearchParameter", "SuggestedBidSearchParameter"]
+                },
+                "Queries": {
+                  "type": "array",
+                  "description": "Up to 200 product/service words or phrases. Use with Type=QuerySearchParameter.",
+                  "items": { "type": "string" },
+                  "minItems": 1,
+                  "maxItems": 200
+                },
+                "Url": { "type": "string", "description": "URL seed." },
+                "Languages": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Type": { "type": "string", "enum": ["LanguageCriterion"] },
+                      "Language": { "type": "string" }
+                    },
+                    "required": ["Type", "Language"]
+                  },
+                  "minItems": 1
+                },
+                "Locations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Type": { "type": "string", "enum": ["LocationCriterion"] },
+                      "LocationId": { "type": "integer" }
+                    },
+                    "required": ["Type", "LocationId"]
+                  },
+                  "minItems": 1,
+                  "maxItems": 2000
+                },
+                "Network": {
+                  "type": "object",
+                  "properties": {
+                    "Type": { "type": "string", "enum": ["NetworkCriterion"] },
+                    "Network": { "type": "string", "enum": ["OwnedAndOperatedAndSyndicatedSearch", "OwnedAndOperatedOnly", "SyndicatedSearchOnly"] }
+                  },
+                  "required": ["Type", "Network"]
+                },
+                "Device": {
+                  "type": "object",
+                  "properties": {
+                    "Type": { "type": "string", "enum": ["DeviceCriterion"] },
+                    "DeviceName": { "type": "string", "enum": ["Computers", "NonSmartphones", "Smartphones", "Tablets"] }
+                  },
+                  "required": ["Type", "DeviceName"]
+                },
+                "CompetitionLevels": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["Low", "Medium", "High"] }
+                },
+                "StartDate": {
+                  "type": "object",
+                  "properties": { "Day": { "type": "integer" }, "Month": { "type": "integer" }, "Year": { "type": "integer" } },
+                  "required": ["Day", "Month", "Year"]
+                },
+                "EndDate": {
+                  "type": "object",
+                  "properties": { "Day": { "type": "integer" }, "Month": { "type": "integer" }, "Year": { "type": "integer" } },
+                  "required": ["Day", "Month", "Year"]
+                },
+                "Minimum": { "type": "number", "description": "Minimum value for search-volume, bid, relevance, or impression-share filters." },
+                "Maximum": { "type": "number", "description": "Maximum value for search-volume, bid, relevance, or impression-share filters." },
+                "ExcludeAccountKeywords": { "type": "boolean" }
+              },
+              "required": ["Type"]
+            },
+            "minItems": 4
+          }
+        },
+        "required": ["ExpandIdeas", "IdeaAttributes", "SearchParameters"]
+      }
+    },
+    {
+      "name": "get_keyword_traffic_estimates",
+      "description": "Get estimated CPC, position, clicks, CTR, impressions, and total cost for proposed keywords and bids. This route expects Microsoft's native campaign/ad-group estimator hierarchy; it does not create or modify campaigns.",
+      "method": "POST",
+      "base_url": "https://adinsight.api.bingads.microsoft.com",
+      "path": "/AdInsight/v13/KeywordTrafficEstimates/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignEstimators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "CampaignId": { "type": "integer", "description": "Optional existing campaign ID; omit for a proposed campaign." },
+                "DailyBudget": { "type": "number" },
+                "Criteria": {
+                  "type": "array",
+                  "description": "Optional native campaign criterion objects for language, location, network, or device targeting.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Type": { "type": "string", "enum": ["LanguageCriterion", "LocationCriterion", "NetworkCriterion", "DeviceCriterion"] },
+                      "Language": { "type": "string" },
+                      "LocationId": { "type": "integer" },
+                      "Network": { "type": "string", "enum": ["OwnedAndOperatedAndSyndicatedSearch", "OwnedAndOperatedOnly", "SyndicatedSearchOnly"] },
+                      "DeviceName": { "type": "string", "enum": ["Computers", "NonSmartphones", "Smartphones", "Tablets"] }
+                    },
+                    "required": ["Type"]
+                  }
+                },
+                "NegativeKeywords": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Id": { "type": "integer" },
+                      "MatchType": { "type": "string", "enum": ["Broad", "Phrase", "Exact"] },
+                      "Text": { "type": "string" }
+                    },
+                    "required": ["MatchType", "Text"]
+                  }
+                },
+                "AdGroupEstimators": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "AdGroupId": { "type": "integer", "description": "Optional existing ad group ID; omit for a proposed ad group." },
+                      "MaxCpc": { "type": "number" },
+                      "KeywordEstimators": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "Keyword": {
+                              "type": "object",
+                              "properties": {
+                                "Id": { "type": "integer" },
+                                "MatchType": { "type": "string", "enum": ["Broad", "Phrase", "Exact"] },
+                                "Text": { "type": "string" }
+                              },
+                              "required": ["MatchType", "Text"]
+                            },
+                            "MaxCpc": { "type": "number" }
+                          },
+                          "required": ["Keyword", "MaxCpc"]
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["MaxCpc", "KeywordEstimators"]
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": ["DailyBudget", "AdGroupEstimators"]
+            },
+            "minItems": 1
+          }
+        },
+        "required": ["CampaignEstimators"]
       }
     },
     {

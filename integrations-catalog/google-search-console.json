@@ -9,8 +9,24 @@
     "types": ["oauth2", "bearer"],
     "headers": { "Authorization": "Bearer {{token}}" },
     "credential_fields": [
-      { "name": "token", "label": "OAuth Access Token", "description": "Scope: https://www.googleapis.com/auth/webmasters.readonly (or webmasters for write)" }
-    ]
+      { "name": "token", "label": "access_token", "type": "password", "required": false, "source": "oauth", "hidden": true },
+      { "name": "refresh_token", "label": "refresh_token", "type": "password", "required": false, "source": "oauth", "hidden": true },
+      { "name": "expires_in", "label": "expires_in", "required": false, "source": "oauth", "hidden": true },
+      { "name": "expires_at", "label": "expires_at", "required": false, "source": "oauth", "hidden": true },
+      { "name": "token_type", "label": "token_type", "required": false, "source": "oauth", "hidden": true }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": ["https://www.googleapis.com/auth/webmasters"],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent select_account",
+        "include_granted_scopes": "true"
+      }
+    }
   },
   "tools": [
     {
@@ -33,7 +49,7 @@
     },
     {
       "name": "query_search_analytics",
-      "description": "Query search analytics — clicks, impressions, CTR, position by query/page/country/device/date",
+      "description": "Query clicks, impressions, CTR, and average position for a verified property. This reports searches that reached sites you own; it is not public keyword market volume. Group with dimensions such as query, page, country, device, date, hour, or searchAppearance. Page through rows with rowLimit and startRow; Google returns top rows rather than guaranteeing every row.",
       "method": "POST",
       "path": "/webmasters/v3/sites/{siteUrl}/searchAnalytics/query",
       "input_schema": {
@@ -42,11 +58,34 @@
           "siteUrl": { "type": "string" },
           "startDate": { "type": "string", "description": "YYYY-MM-DD" },
           "endDate": { "type": "string", "description": "YYYY-MM-DD" },
-          "dimensions": { "type": "array", "description": "['query','page','country','device','date','searchAppearance']" },
+          "dimensions": { "type": "array", "description": "Dimensions such as query, page, country, device, date, hour, or searchAppearance.", "items": { "type": "string", "enum": ["query", "page", "country", "device", "date", "hour", "searchAppearance"] } },
           "type": { "type": "string", "description": "web|image|video|news|discover|googleNews" },
-          "rowLimit": { "type": "number" },
-          "startRow": { "type": "number" },
-          "dimensionFilterGroups": { "type": "array" }
+          "aggregationType": { "type": "string", "enum": ["auto", "byPage", "byProperty", "byNewsShowcasePanel"] },
+          "dataState": { "type": "string", "enum": ["final", "all", "hourly_all"], "description": "Use all for fresh partial data or hourly_all with the hour dimension; default is finalized data." },
+          "rowLimit": { "type": "integer", "minimum": 1, "maximum": 25000, "default": 1000 },
+          "startRow": { "type": "integer", "minimum": 0, "default": 0 },
+          "dimensionFilterGroups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "groupType": { "type": "string", "enum": ["and"] },
+                "filters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "dimension": { "type": "string", "enum": ["query", "page", "country", "device", "searchAppearance"] },
+                      "operator": { "type": "string", "enum": ["equals", "notEquals", "contains", "notContains", "includingRegex", "excludingRegex"] },
+                      "expression": { "type": "string" }
+                    },
+                    "required": ["dimension", "operator", "expression"]
+                  }
+                }
+              },
+              "required": ["filters"]
+            }
+          }
         },
         "required": ["siteUrl", "startDate", "endDate"]
       }

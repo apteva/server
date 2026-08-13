@@ -34,6 +34,168 @@ func TestChannelChat_RealLLM_Codex_ActionBeforeReply(t *testing.T) {
 	})
 }
 
+// TestChannelChat_RealLLM_Codex_FreshConversationStartsWithFirstEvent guards
+// the latency regression where Server first created an empty chat thread and
+// only then POSTed the user's message. That caused an unnecessary empty model
+// round before Core could answer. The atomic thread-events contract must yield
+// one conversation model start before the first visible reply.
+func TestChannelChat_RealLLM_Codex_FreshConversationStartsWithFirstEvent(t *testing.T) {
+	directive := strings.Join([]string{
+		"# Role",
+		"You answer direct dashboard-chat questions concisely.",
+		"# Test response",
+		"When the user asks for the atomic chat marker, send exactly ATOMIC CHAT READY using channels_send with channel=current and phase=final.",
+		"Do not acknowledge first and do not call any other tool.",
+	}, "\n")
+	h := setupRealChannelChatHarness(t, "fresh-atomic-chat-codex-under-test", directive,
+		`{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	conversationThreadID := "chat-" + h.chatID
+	before, err := h.server.store.QueryTelemetry(h.agent.ID, "", time.Time{}, 1000, conversationThreadID)
+	if err != nil {
+		t.Fatalf("query fresh conversation telemetry: %v", err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("fresh conversation started before its first user event: %s", telemetryEventSignature(before))
+	}
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+
+	startedAt := time.Now()
+	h.post(t, "Reply with the atomic chat marker now.")
+	deadline := startedAt.Add(45 * time.Second)
+	var reply string
+	var replyCallAt time.Time
+	for time.Now().Before(deadline) {
+		reply = latestAgentChatReply(t, h.server, h.chatID)
+		for _, event := range newChannelCallEvents(t, h.server, h.agent.ID, baselineCalls) {
+			if event.ThreadID != conversationThreadID {
+				continue
+			}
+			var data struct {
+				Args struct {
+					Text string `json:"text"`
+				} `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) == nil && strings.TrimSpace(data.Args.Text) == "ATOMIC CHAT READY" {
+				replyCallAt = event.Time
+				break
+			}
+		}
+		if strings.TrimSpace(reply) == "ATOMIC CHAT READY" && !replyCallAt.IsZero() {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	latency := time.Since(startedAt)
+	if strings.TrimSpace(reply) != "ATOMIC CHAT READY" || replyCallAt.IsZero() {
+		t.Fatalf("fresh conversation did not visibly reply within 45s (latency=%s reply=%q)", latency.Round(time.Millisecond), reply)
+	}
+
+	starts, err := h.server.store.QueryTelemetry(h.agent.ID, "llm.start", time.Time{}, 1000, conversationThreadID)
+	if err != nil {
+		t.Fatalf("query conversation model starts: %v", err)
+	}
+	startsBeforeReply := 0
+	for _, event := range starts {
+		if !event.Time.After(replyCallAt) {
+			startsBeforeReply++
+		}
+	}
+	if startsBeforeReply != 1 {
+		t.Fatalf("conversation model starts before first reply=%d, want exactly one; starts=%s", startsBeforeReply, telemetryEventSignature(starts))
+	}
+	t.Logf("fresh conversation visible reply latency: %s (one model start)", latency.Round(time.Millisecond))
+}
+
+// TestChannelChat_RealLLM_Codex_DurableRequestEvolvesOnMain exercises the
+// natural user wording without protocol hints. It documents the desired
+// conversation -> main -> conversation behavior while Core's thread-authority
+// contract is being finalized.
+func TestChannelChat_RealLLM_Codex_DurableRequestEvolvesOnMain(t *testing.T) {
+	directive := strings.Join([]string{
+		"# Role",
+		"You are the operator's personal assistant.",
+		"# Schedule",
+		"- No recurring schedule is configured yet.",
+	}, "\n")
+	h := setupRealChannelChatHarness(t, "chat-durable-evolve-codex-under-test", directive,
+		`{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	baselineEvolved := telemetryEventIDs(t, h.server, h.agent.ID, "directive.evolved")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
+
+	h.post(t, "From now on, every day at 09:00 UTC, send me a notification saying exactly: Daily check-in.")
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+
+	conversationThreadID := "chat-" + h.chatID
+	var handoffs, mainEvolves, mainReplies, conversationEvolves int
+	var trace []string
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		message, _ := data.Args["message"].(string)
+		trace = append(trace, fmt.Sprintf("%s:%s->%s:%s", event.ThreadID, data.Name, target, message))
+		switch {
+		case data.Name == "send" && event.ThreadID == conversationThreadID && (target == "main" || target == "parent"):
+			handoffs++
+		case data.Name == "evolve" && event.ThreadID == "main":
+			mainEvolves++
+		case data.Name == "send" && event.ThreadID == "main" && target == conversationThreadID:
+			mainReplies++
+		case data.Name == "evolve" && event.ThreadID == conversationThreadID:
+			conversationEvolves++
+		}
+	}
+
+	evolved := newTelemetryEvents(t, h.server, h.agent.ID, "directive.evolved", baselineEvolved)
+	var evolvedDirective string
+	for _, event := range evolved {
+		if event.ThreadID != "main" {
+			continue
+		}
+		var data struct {
+			New string `json:"new"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil {
+			evolvedDirective = data.New
+		}
+	}
+	var visibleReplies []string
+	rows, err := h.server.store.db.Query(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>? ORDER BY id`, h.chatID, baselineMessageID)
+	if err != nil {
+		t.Fatalf("query durable handoff replies: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatal(err)
+		}
+		visibleReplies = append(visibleReplies, reply)
+	}
+
+	if handoffs != 1 || mainEvolves != 1 || mainReplies != 1 || conversationEvolves != 0 ||
+		!strings.Contains(evolvedDirective, "09:00") || !strings.Contains(evolvedDirective, "Daily check-in") ||
+		len(visibleReplies) == 0 || !strings.Contains(strings.ToLower(visibleReplies[len(visibleReplies)-1]), "daily check-in") {
+		t.Fatalf("durable chat evolution incomplete: handoffs=%d main_evolves=%d main_replies=%d conversation_evolves=%d directive=%q replies=%q trace=%v",
+			handoffs, mainEvolves, mainReplies, conversationEvolves, evolvedDirective, visibleReplies, trace)
+	}
+}
+
 func TestChannelChat_RealLLM_OpenCodeGLM52_ActionBeforeReply(t *testing.T) {
 	runRealActionBeforeReply(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
 		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-action-glm52-under-test", "glm-5.2", directive, config)

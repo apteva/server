@@ -19,24 +19,26 @@ import (
 )
 
 type conversationResolver struct {
-	agents      map[int64]framework.InstanceInfo
-	forwarded   atomic.Int64
-	forwardErr  error
-	forwardFn   func(call int64) error
-	forwards    chan conversationShutdownCall
-	spawned     atomic.Int64
-	spawnErr    error
-	updated     atomic.Int64
-	updateErr   error
-	toolMu      sync.Mutex
-	threadTools []string
-	spawnTools  []string
-	updateTools []string
-	events      chan string
-	shutdowns   chan conversationShutdownCall
-	kills       chan conversationShutdownCall
-	threadIDs   map[int64][]string
-	listErr     error
+	agents       map[int64]framework.InstanceInfo
+	forwarded    atomic.Int64
+	forwardErr   error
+	forwardFn    func(call int64) error
+	forwards     chan conversationShutdownCall
+	spawned      atomic.Int64
+	spawnErr     error
+	updated      atomic.Int64
+	updateErr    error
+	toolMu       sync.Mutex
+	threadTools  []string
+	spawnTools   []string
+	updateTools  []string
+	threadExists bool
+	eventIDs     map[string]struct{}
+	events       chan string
+	shutdowns    chan conversationShutdownCall
+	kills        chan conversationShutdownCall
+	threadIDs    map[int64][]string
+	listErr      error
 }
 
 type conversationShutdownCall struct {
@@ -48,7 +50,7 @@ type conversationShutdownCall struct {
 func TestChatThreadProfileSupportsWorkProgressChildrenAndSelectiveReporting(t *testing.T) {
 	for _, required := range []string{
 		"[PLATFORM CONVERSATION AUTHORITY]",
-		"conversation=true",
+		"server created this durable thread",
 		"dashboard user is the only",
 		"Main is a coordination endpoint, not a",
 		"overrides inherited autonomous",
@@ -881,11 +883,11 @@ func TestPassivePresenceDoesNotCreateConversationThread(t *testing.T) {
 		t.Fatalf("passive presence persisted thread=%q", reloaded.ThreadID)
 	}
 
-	threadID, err := h.forwardConversationEvent(inst, chat.ID, "[chat]\nUser message:\nHello")
+	threadID, err := h.forwardConversationEvent(inst, chat.ID, "chat-message:1:agent:285", "[chat]\nUser message:\nHello")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if threadID != "chat-default-285" || resolver.spawned.Load() != 1 || resolver.forwarded.Load() != 1 {
+	if threadID != "chat-default-285" || resolver.spawned.Load() != 1 || resolver.forwarded.Load() != 0 {
 		t.Fatalf("first user message thread=%q spawned=%d forwarded=%d", threadID, resolver.spawned.Load(), resolver.forwarded.Load())
 	}
 }
@@ -919,15 +921,40 @@ func TestConversationThreadMCPsExcludeMainOutputAndKeepDomainTools(t *testing.T)
 	}
 }
 
-func (r *conversationResolver) SpawnThread(_ framework.InstanceInfo, _ string, _ string, tools []string, _ []string) error {
+func (r *conversationResolver) SpawnThread(inst framework.InstanceInfo, threadID string, _ string, tools []string, _ []string, events []ThreadEvent) (ThreadEventReceipt, error) {
 	r.spawned.Add(1)
 	r.toolMu.Lock()
+	defer r.toolMu.Unlock()
 	r.spawnTools = append([]string(nil), tools...)
-	if len(r.threadTools) == 0 {
+	if r.spawnErr != nil {
+		return ThreadEventReceipt{}, r.spawnErr
+	}
+	status := "exists"
+	if !r.threadExists {
+		status = "created"
+		r.threadExists = true
 		r.threadTools = append([]string(nil), tools...)
 	}
-	r.toolMu.Unlock()
-	return r.spawnErr
+	if r.eventIDs == nil {
+		r.eventIDs = make(map[string]struct{})
+	}
+	receipt := ThreadEventReceipt{Status: status}
+	for _, event := range events {
+		if _, exists := r.eventIDs[event.ID]; exists {
+			receipt.Duplicates = append(receipt.Duplicates, event.ID)
+			continue
+		}
+		r.eventIDs[event.ID] = struct{}{}
+		receipt.Accepted = append(receipt.Accepted, event.ID)
+		text, _ := event.Message.(string)
+		if r.forwards != nil {
+			r.forwards <- conversationShutdownCall{AgentID: inst.ID, ThreadID: threadID, Message: text}
+		}
+		if r.events != nil && text != "" {
+			r.events <- text
+		}
+	}
+	return receipt, nil
 }
 func (r *conversationResolver) ListMCPNames(framework.InstanceInfo) ([]string, error) {
 	return []string{"channels"}, nil
@@ -935,6 +962,10 @@ func (r *conversationResolver) ListMCPNames(framework.InstanceInfo) ([]string, e
 func (r *conversationResolver) ThreadTools(framework.InstanceInfo, string) ([]string, error) {
 	r.toolMu.Lock()
 	defer r.toolMu.Unlock()
+	if !r.threadExists && len(r.threadTools) == 0 {
+		return nil, missingThreadTestError{}
+	}
+	r.threadExists = true
 	return append([]string(nil), r.threadTools...), nil
 }
 func (r *conversationResolver) UpdateThread(_ framework.InstanceInfo, _ string, _ string, tools []string) error {
@@ -995,7 +1026,7 @@ func TestExplicitConversationAlwaysUsesDedicatedEnsuredThread(t *testing.T) {
 	resolver := &conversationResolver{forwards: make(chan conversationShutdownCall, 2)}
 	h, chat, inst := newConversationHarness(t, 901, resolver)
 
-	if err := h.deliverConversationMessage(inst, chat, "hello", nil, nil, nil); err != nil {
+	if err := h.deliverConversationMessage(inst, chat, 1, "hello", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	first := <-resolver.forwards
@@ -1003,7 +1034,7 @@ func TestExplicitConversationAlwaysUsesDedicatedEnsuredThread(t *testing.T) {
 	if first.ThreadID != wantThreadID {
 		t.Fatalf("first delivery thread=%q, want %q", first.ThreadID, wantThreadID)
 	}
-	if err := h.deliverConversationMessage(inst, chat, "again", nil, nil, nil); err != nil {
+	if err := h.deliverConversationMessage(inst, chat, 2, "again", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	second := <-resolver.forwards
@@ -1013,8 +1044,8 @@ func TestExplicitConversationAlwaysUsesDedicatedEnsuredThread(t *testing.T) {
 	if got := resolver.spawned.Load(); got != 2 {
 		t.Fatalf("idempotent ensure calls=%d, want one before every delivery", got)
 	}
-	if got := resolver.updated.Load(); got != 1 {
-		t.Fatalf("directive updates=%d, want only initial cache population", got)
+	if got := resolver.updated.Load(); got != 0 {
+		t.Fatalf("directive updates=%d, want none for an atomically created thread", got)
 	}
 	resolver.toolMu.Lock()
 	spawnTools := append([]string(nil), resolver.spawnTools...)
@@ -1032,7 +1063,7 @@ func TestExistingConversationAddsSpawnWithoutDroppingScopedMCPTools(t *testing.T
 	}
 	h, chat, inst := newConversationHarness(t, 904, resolver)
 
-	if err := h.deliverConversationMessage(inst, chat, "continue", nil, nil, nil); err != nil {
+	if err := h.deliverConversationMessage(inst, chat, 1, "continue", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	<-resolver.forwards
@@ -1051,7 +1082,7 @@ func TestConversationSpawnFailureNeverFallsBackToMain(t *testing.T) {
 	resolver := &conversationResolver{spawnErr: errors.New("core unavailable")}
 	h, chat, inst := newConversationHarness(t, 902, resolver)
 
-	err := h.deliverConversationMessage(inst, chat, "do not misroute", nil, nil, nil)
+	err := h.deliverConversationMessage(inst, chat, 1, "do not misroute", nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "ensure core conversation thread") {
 		t.Fatalf("delivery error=%v", err)
 	}
@@ -1060,30 +1091,31 @@ func TestConversationSpawnFailureNeverFallsBackToMain(t *testing.T) {
 	}
 }
 
-func TestConversationMissingThreadIsEnsuredAndRetriedOnce(t *testing.T) {
+func TestConversationDeliveryRetryUsesStableEventIDWithoutSecondTurn(t *testing.T) {
 	t.Setenv("CHANNELCHAT_PER_THREAD", "1")
 	resolver := &conversationResolver{forwards: make(chan conversationShutdownCall, 2)}
-	resolver.forwardFn = func(call int64) error {
-		if call == 1 {
-			return missingThreadTestError{}
-		}
-		return nil
-	}
 	h, chat, inst := newConversationHarness(t, 903, resolver)
 
-	if err := h.deliverConversationMessage(inst, chat, "recover me", nil, nil, nil); err != nil {
+	if err := h.deliverConversationMessage(inst, chat, 77, "recover me", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.deliverConversationMessage(inst, chat, 77, "recover me", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	first := <-resolver.forwards
-	second := <-resolver.forwards
-	if first.ThreadID != "chat-"+chat.ID || second.ThreadID != first.ThreadID {
-		t.Fatalf("retry threads first=%q second=%q", first.ThreadID, second.ThreadID)
-	}
-	if got := resolver.forwarded.Load(); got != 2 {
-		t.Fatalf("forward calls=%d, want exactly two", got)
+	if first.ThreadID != "chat-"+chat.ID {
+		t.Fatalf("delivery thread=%q", first.ThreadID)
 	}
 	if got := resolver.spawned.Load(); got != 2 {
-		t.Fatalf("ensure calls=%d, want initial plus one recovery", got)
+		t.Fatalf("idempotent create/event calls=%d, want two", got)
+	}
+	if got := resolver.forwarded.Load(); got != 0 {
+		t.Fatalf("separate /event calls=%d, want zero", got)
+	}
+	select {
+	case duplicate := <-resolver.forwards:
+		t.Fatalf("duplicate event triggered a second turn: %+v", duplicate)
+	default:
 	}
 }
 

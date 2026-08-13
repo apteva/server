@@ -1,0 +1,4454 @@
+{
+  "slug": "yepapi",
+  "name": "YepAPI",
+  "description": "Unified pay-per-use API for SEO and backlink research, SERPs, Google Maps, scraping, AI chat and media, YouTube, TikTok, Instagram, Amazon, and email intelligence. YepAPI is an independent aggregator and is not affiliated with Yep.com.",
+  "logo": "https://www.google.com/s2/favicons?domain=yepapi.com&sz=128",
+  "categories": [
+    "seo",
+    "serp",
+    "scraping",
+    "ai",
+    "media",
+    "youtube",
+    "social",
+    "amazon",
+    "email",
+    "yepapi"
+  ],
+  "base_url": "https://api.yepapi.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-api-key": "{{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "YepAPI key beginning with yep_sk_, available from the YepAPI dashboard."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "ai_chat",
+      "description": "YepAPI-style chat (camelCase, 83 models). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available. Returns one complete non-streaming response for reliable agent tool use.",
+      "method": "POST",
+      "path": "/v1/ai/chat",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "YepAPI model id or supported short alias. Defaults to openai/gpt-4o-mini."
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Message text."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "tool_call_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ]
+            }
+          },
+          "maxTokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "topP": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "frequencyPenalty": {
+            "type": "number"
+          },
+          "presencePenalty": {
+            "type": "number"
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "ai_chat_completions",
+      "description": "OpenAI-compatible chat (drop-in replacement). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available. Returns one complete non-streaming OpenAI-compatible response for reliable agent tool use.",
+      "method": "POST",
+      "path": "/v1/ai/chat/completions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Full provider/model id returned by ai_models."
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Message text."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "tool_call_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ]
+            }
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "top_p": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "frequency_penalty": {
+            "type": "number"
+          },
+          "presence_penalty": {
+            "type": "number"
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "ai_models",
+      "description": "List current YepAPI chat models with provider, context window, capabilities, and token pricing. This discovery route is free; use an id from this response with ai_chat or ai_chat_completions.",
+      "method": "GET",
+      "path": "/v1/ai/models",
+      "omit_auth_headers": [
+        "x-api-key"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "amazon_best_sellers",
+      "description": "Best sellers, hot new releases, and high-rated per category. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/best-sellers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Amazon leaf category slug (e.g. `software`, `home-garden`) — see `/v1/amazon/categories`"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          },
+          "type": {
+            "type": "string",
+            "description": "`BEST_SELLERS`, `HOT_NEW_RELEASES`, `HIGH_RATED`"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (50 items/page)"
+          }
+        },
+        "required": [
+          "category"
+        ]
+      }
+    },
+    {
+      "name": "amazon_categories",
+      "description": "All Amazon top-level category slugs. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          }
+        }
+      }
+    },
+    {
+      "name": "amazon_deals",
+      "description": "Amazon's live deals feed with filters. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/deals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (30 deals/page)"
+          },
+          "price_range": {
+            "type": "string",
+            "description": "Filter like `ALL`, `UNDER_25`, `25_50`, `50_100`, `OVER_100`"
+          },
+          "discount_range": {
+            "type": "string",
+            "description": "`ALL`, `10_OFF`, `25_OFF`, `50_OFF`, `70_OFF`"
+          },
+          "deal_type": {
+            "type": "string",
+            "description": "e.g. `BEST_DEAL`, `LIGHTNING_DEAL`"
+          },
+          "category": {
+            "type": "string",
+            "description": "Amazon category slug"
+          },
+          "min_rating": {
+            "type": "string",
+            "description": "Minimum star rating filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "amazon_influencer",
+      "description": "Amazon influencer storefront profile. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/influencer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "influencer_name": {
+            "type": "string",
+            "description": "Influencer's Amazon username (part after `/shop/`)"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          }
+        },
+        "required": [
+          "influencer_name"
+        ]
+      }
+    },
+    {
+      "name": "amazon_product",
+      "description": "Full product details for an ASIN (50+ fields). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon Standard Identification Number (e.g. `B07ZPKBL9V`)"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_product_offers",
+      "description": "Up to 100 third-party seller offers per ASIN. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/product-offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max offers (1–100)"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "product_condition": {
+            "type": "string",
+            "description": "`ALL`, `NEW`, `USED`, `RENEWED`, `COLLECTIBLE`"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_product_reviews",
+      "description": "Product reviews with star/verified filters. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/product-reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "`TOP_REVIEWS` or `MOST_RECENT`"
+          },
+          "star_rating": {
+            "type": "string",
+            "description": "`ALL`, `5_STARS`, `4_STARS`, `3_STARS`, `2_STARS`, `1_STARS`, `POSITIVE`, `CRITICAL`"
+          },
+          "verified_purchases_only": {
+            "type": "boolean",
+            "description": "Only verified purchasers"
+          },
+          "images_or_videos_only": {
+            "type": "boolean",
+            "description": "Only reviews with media"
+          },
+          "current_format_only": {
+            "type": "boolean",
+            "description": "Only reviews for the current format/variation"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (7 reviews/page)"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_products_by_category",
+      "description": "List products under a category browse-node ID. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/products-by-category",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": {
+            "type": "string",
+            "description": "Amazon category browse-node ID (numeric)"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "`RELEVANCE`, `LOWEST_PRICE`, `HIGHEST_PRICE`, `REVIEWS`, `NEWEST`, `BEST_SELLERS`"
+          },
+          "product_condition": {
+            "type": "string",
+            "description": "`ALL`, `NEW`, `USED`, `RENEWED`, `COLLECTIBLE`"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (48 products/page)"
+          },
+          "is_prime": {
+            "type": "boolean",
+            "description": "Only Prime-eligible"
+          },
+          "deals_and_discounts": {
+            "type": "string",
+            "description": "Discount filter"
+          }
+        },
+        "required": [
+          "category_id"
+        ]
+      }
+    },
+    {
+      "name": "amazon_search",
+      "description": "Search Amazon products by keyword. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search keywords"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (1-based)"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code (US, GB, DE, CA, AU, IN, JP, FR, IT, ES, etc.)"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "`RELEVANCE`, `LOWEST_PRICE`, `HIGHEST_PRICE`, `REVIEWS`, `NEWEST`, `BEST_SELLERS`"
+          },
+          "product_condition": {
+            "type": "string",
+            "description": "`ALL`, `NEW`, `USED`, `RENEWED`, `COLLECTIBLE`"
+          },
+          "is_prime": {
+            "type": "boolean",
+            "description": "Only return Prime-eligible products"
+          },
+          "deals_and_discounts": {
+            "type": "string",
+            "description": "Filter for discount tiers (e.g. `ALL_DISCOUNTS`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "amazon_seller",
+      "description": "Third-party Amazon seller profile. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/seller",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "seller_id": {
+            "type": "string",
+            "description": "Amazon seller ID (e.g. `A02211013Q5HP3OMSZC7W`)"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          }
+        },
+        "required": [
+          "seller_id"
+        ]
+      }
+    },
+    {
+      "name": "amazon_seller_reviews",
+      "description": "Reviews for a third-party seller. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/amazon/seller-reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "seller_id": {
+            "type": "string",
+            "description": "Amazon seller ID"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO alpha-2 country code"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (5 reviews/page)"
+          },
+          "star_rating": {
+            "type": "string",
+            "description": "`ALL`, `5_STARS`, `4_STARS`, `3_STARS`, `2_STARS`, `1_STARS`, `POSITIVE`, `CRITICAL`"
+          },
+          "verified_purchases_only": {
+            "type": "boolean",
+            "description": "Only verified purchasers"
+          }
+        },
+        "required": [
+          "seller_id"
+        ]
+      }
+    },
+    {
+      "name": "email_author_finder",
+      "description": "Find the email of the author behind an article or blog URL. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/author-finder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL of the article or blog post to find the author of"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "email_combined",
+      "description": "Enrich an email into both the person and their company. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/combined",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to enrich"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "email_company",
+      "description": "Enrich a domain into a structured company profile. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/company",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Company domain to enrich (e.g., `stripe.com`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_count",
+      "description": "Count emails on a domain by department and seniority. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/count",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to count emails for (e.g., `stripe.com`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_domain_search",
+      "description": "Every email on a company domain, with names, roles and a company profile. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/domain-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Company domain to search (e.g., `stripe.com`). Required unless `company` is provided."
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name to search instead of a domain"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of emails to return: `10`, `20`, or `50`"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination"
+          },
+          "department": {
+            "type": "string",
+            "description": "Filter results by department (e.g., `engineering`, `sales`)"
+          },
+          "country": {
+            "type": "string",
+            "description": "Filter results by ISO country code (e.g., `US`)"
+          }
+        }
+      }
+    },
+    {
+      "name": "email_domain_status",
+      "description": "Classify a domain: webmail, disposable, accept-all, gibberish. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/domain-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to check (e.g., `stripe.com`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_enrich",
+      "description": "Turn any email into a full contact profile. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/enrich",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to enrich"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "email_finder",
+      "description": "Find a person's verified work email from their name and company domain. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/finder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Company domain to search on (e.g., `stripe.com`)"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name of the person"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name of the person"
+          },
+          "full_name": {
+            "type": "string",
+            "description": "Full name, as an alternative to first/last name"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name, used to help disambiguate"
+          }
+        },
+        "required": [
+          "domain",
+          "first_name",
+          "last_name"
+        ]
+      }
+    },
+    {
+      "name": "email_format",
+      "description": "A company's most common email address patterns. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/format",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to detect email patterns for (e.g., `stripe.com`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_linkedin_finder",
+      "description": "Find a verified email from a LinkedIn profile URL. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/linkedin-finder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "LinkedIn profile URL (e.g., `https://www.linkedin.com/in/username`)"
+          },
+          "full": {
+            "type": "boolean",
+            "description": "Return the full contact profile including sources"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "email_locations",
+      "description": "Employee locations tallied by country. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Company domain to get employee locations for (e.g., `stripe.com`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_person",
+      "description": "Enrich an email into a structured person profile. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/person",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address of the person to enrich"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "email_phone_finder",
+      "description": "Find a phone number from an email, domain or LinkedIn URL. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/phone-finder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to find a phone number for"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Company domain to find a phone number for"
+          },
+          "linkedin": {
+            "type": "string",
+            "description": "LinkedIn profile URL to find a phone number for"
+          }
+        }
+      }
+    },
+    {
+      "name": "email_phone_validator",
+      "description": "Validate and normalize a phone number. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/phone-validator",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "Phone number to validate, in any common format"
+          },
+          "country_code": {
+            "type": "string",
+            "description": "ISO country code hint for numbers without an international prefix (e.g., `US`)"
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      }
+    },
+    {
+      "name": "email_similar",
+      "description": "Companies and domains similar to a target domain. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/similar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to find similar companies for (e.g., `stripe.com`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_sources",
+      "description": "Public web pages where an email address appears. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/sources",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to look up sources for"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "email_technology",
+      "description": "Technology stack a company's website runs on. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/technology",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to detect technologies for (e.g., `stripe.com`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_verify",
+      "description": "Verify deliverability with SMTP, MX, disposable and accept-all checks + score. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/email/verify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to verify"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "instagram_hashtag",
+      "description": "Hashtag top and recent posts. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/hashtag",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hashtag": {
+            "type": "string",
+            "description": "Hashtag name (without #)"
+          }
+        },
+        "required": [
+          "hashtag"
+        ]
+      }
+    },
+    {
+      "name": "instagram_media_id",
+      "description": "Convert shortcode to media ID. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/media-id",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shortcode": {
+            "type": "string",
+            "description": "Post shortcode from the Instagram URL"
+          }
+        },
+        "required": [
+          "shortcode"
+        ]
+      }
+    },
+    {
+      "name": "instagram_post",
+      "description": "Post details by shortcode. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shortcode": {
+            "type": "string",
+            "description": "Post shortcode from the Instagram URL"
+          }
+        },
+        "required": [
+          "shortcode"
+        ]
+      }
+    },
+    {
+      "name": "instagram_post_comments",
+      "description": "Post comments. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/post-comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shortcode": {
+            "type": "string",
+            "description": "Post shortcode from the Instagram URL"
+          },
+          "end_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          }
+        },
+        "required": [
+          "shortcode"
+        ]
+      }
+    },
+    {
+      "name": "instagram_post_likers",
+      "description": "Users who liked a post. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/post-likers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shortcode": {
+            "type": "string",
+            "description": "Post shortcode from the Instagram URL"
+          },
+          "end_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          }
+        },
+        "required": [
+          "shortcode"
+        ]
+      }
+    },
+    {
+      "name": "instagram_search",
+      "description": "Search users, hashtags, and places. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user",
+      "description": "User profile by username. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_about",
+      "description": "Extended user about info. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-about",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_followers",
+      "description": "User's followers list. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-followers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          },
+          "end_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_highlights",
+      "description": "User's story highlights. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-highlights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_posts",
+      "description": "User's posts. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          },
+          "end_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_reels",
+      "description": "User's reels. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-reels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          },
+          "end_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_similar",
+      "description": "Similar accounts. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-similar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_stories",
+      "description": "User's active stories. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-stories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "instagram_user_tagged",
+      "description": "Posts the user is tagged in. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/instagram/user-tagged",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Instagram username"
+          },
+          "end_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "maps_place",
+      "description": "Full place details for a Google Place ID (accepts raw `ChIJ...` or `places/ChIJ...`). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/maps/place",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "place_id": {
+            "type": "string",
+            "description": "Google Place ID. Accepts the raw ID (`ChIJBR3G8LJqkFQRWD2Wzn0qG3c`) or the resource name (`places/ChIJBR3G8LJqkFQRWD2Wzn0qG3c`)."
+          },
+          "language": {
+            "type": "string",
+            "description": "BCP-47 language code (e.g. `en`, `es`, `fr`)."
+          },
+          "region": {
+            "type": "string",
+            "description": "CLDR region code (e.g. `us`, `gb`, `de`)."
+          }
+        },
+        "required": [
+          "place_id"
+        ]
+      }
+    },
+    {
+      "name": "maps_reviews",
+      "description": "Up to 150 Google Maps reviews for a Place ID — sort_by relevant/newest/highest_rating/lowest_rating, depth 10–150, with full text, author, photos, and owner responses. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/maps/reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "place_id": {
+            "type": "string",
+            "description": "Google Place ID (e.g. `ChIJBR3G8LJqkFQRWD2Wzn0qG3c`). Get one from Maps Search."
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Review ordering: `relevant`, `newest`, `highest_rating`, or `lowest_rating`."
+          },
+          "depth": {
+            "type": "number",
+            "description": "How many reviews to fetch. Clamped to `10`–`150` and rounded to the nearest 10."
+          },
+          "language": {
+            "type": "string",
+            "description": "Two-letter language code (e.g. `en`, `es`, `fr`)."
+          },
+          "location_code": {
+            "type": "number",
+            "description": "DataForSEO location code (e.g. `2840` = United States)."
+          }
+        },
+        "required": [
+          "place_id"
+        ]
+      }
+    },
+    {
+      "name": "maps_search",
+      "description": "Text search across Google Maps — full place profiles for any query (1–20 results, paginated). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/maps/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Text query, e.g. `\"coffee in seattle\"`, `\"restaurants near times square\"`."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of places to return (1–20). Use `nextPageToken` for more."
+          },
+          "language": {
+            "type": "string",
+            "description": "BCP-47 language code (e.g. `en`, `es`, `fr`)."
+          },
+          "region": {
+            "type": "string",
+            "description": "CLDR region code (e.g. `us`, `gb`, `de`). Biases results to a country."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "media_queue",
+      "description": "Submit one asynchronous YepAPI image, video, music, speech, image-analysis, or video-analysis job. Model-specific pricing applies. Supply the documented model id plus only inputs supported by that model, then poll media_status until completed or failed; do not submit the same paid job repeatedly.",
+      "method": "POST",
+      "path": "/v1/media/queue",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Exact media model id from YepAPI's model catalog."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Generation, narration, or analysis instruction."
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to synthesize for text-to-speech models."
+          },
+          "imageData": {
+            "type": "object",
+            "properties": {
+              "mimeType": {
+                "type": "string",
+                "description": "Input image MIME type."
+              },
+              "base64": {
+                "type": "string",
+                "description": "Base64-encoded input image."
+              }
+            },
+            "required": [
+              "mimeType",
+              "base64"
+            ]
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mimeType": {
+                  "type": "string"
+                },
+                "base64": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mimeType",
+                "base64"
+              ]
+            },
+            "description": "Reference images for models accepting multiple image inputs."
+          },
+          "videoData": {
+            "type": "object",
+            "properties": {
+              "mimeType": {
+                "type": "string"
+              },
+              "base64": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "mimeType",
+              "base64"
+            ]
+          },
+          "audioData": {
+            "type": "object",
+            "properties": {
+              "mimeType": {
+                "type": "string"
+              },
+              "base64": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "mimeType",
+              "base64"
+            ]
+          },
+          "voice": {
+            "type": "string",
+            "description": "Voice id or name for speech models."
+          },
+          "options": {
+            "type": "object",
+            "description": "Model-specific generation settings.",
+            "properties": {
+              "aspectRatio": {
+                "type": "string"
+              },
+              "resolution": {
+                "type": "string"
+              },
+              "duration": {
+                "description": "Requested duration; model APIs may use a number or numeric string."
+              },
+              "quality": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string"
+              },
+              "format": {
+                "type": "string"
+              },
+              "seed": {
+                "type": "integer"
+              },
+              "negativePrompt": {
+                "type": "string"
+              },
+              "imageRole": {
+                "type": "string"
+              },
+              "language": {
+                "type": "string"
+              },
+              "speed": {
+                "type": "number"
+              },
+              "style": {
+                "type": "string"
+              },
+              "speaker": {
+                "type": "string"
+              },
+              "sampleRate": {
+                "type": "integer"
+              },
+              "outputFormat": {
+                "type": "string"
+              },
+              "generateAudio": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": [
+          "model"
+        ]
+      }
+    },
+    {
+      "name": "media_status",
+      "description": "Poll a YepAPI media job and retrieve its generated or analyzed result. Poll at a reasonable interval and stop when status is completed or failed; results are retained for a limited time.",
+      "method": "GET",
+      "path": "/v1/media/status/{jobId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job id returned by media_queue."
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      }
+    },
+    {
+      "name": "scrape",
+      "description": "Standard page scrape (HTML or markdown). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to scrape"
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format: `markdown`, `html`, `text`"
+          },
+          "waitFor": {
+            "type": "number",
+            "description": "Wait for JS rendering (ms)"
+          },
+          "selector": {
+            "type": "string",
+            "description": "CSS selector to extract specific element"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "scrape_ai_extract",
+      "description": "AI-powered data extraction via natural language. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/scrape/ai-extract",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to extract data from"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What data to extract"
+          },
+          "schema": {
+            "type": "object",
+            "description": "JSON Schema for structured output"
+          }
+        },
+        "required": [
+          "url",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "scrape_extract",
+      "description": "CSS/XPath structured data extraction. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/scrape/extract",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to extract data from"
+          },
+          "extractRules": {
+            "type": "object",
+            "description": "CSS/XPath extraction rules (see below)"
+          }
+        },
+        "required": [
+          "url",
+          "extractRules"
+        ]
+      }
+    },
+    {
+      "name": "scrape_js",
+      "description": "JavaScript-rendered page scrape. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/scrape/js",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to scrape"
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format: `markdown`, `html`, `text`"
+          },
+          "waitFor": {
+            "type": "number",
+            "description": "Wait for JS to render (ms)"
+          },
+          "selector": {
+            "type": "string",
+            "description": "CSS selector to extract specific element"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "scrape_screenshot",
+      "description": "Full-page screenshot (base64 PNG). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/scrape/screenshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to screenshot"
+          },
+          "fullPage": {
+            "type": "boolean",
+            "description": "Capture entire scrollable page"
+          },
+          "width": {
+            "type": "number",
+            "description": "Viewport width in pixels"
+          },
+          "height": {
+            "type": "number",
+            "description": "Viewport height in pixels"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "scrape_stealth",
+      "description": "Stealth scrape with anti-bot bypass. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/scrape/stealth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to scrape"
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format: `markdown`, `html`, `text`"
+          },
+          "waitFor": {
+            "type": "number",
+            "description": "Wait for JS rendering (ms)"
+          },
+          "country": {
+            "type": "string",
+            "description": "Proxy country code"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "search_google",
+      "description": "Google search results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/search/google",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country code for geo-targeted results"
+          },
+          "numResults": {
+            "type": "number",
+            "description": "Number of results to return"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "seo_ai_chatgpt",
+      "description": "What ChatGPT says about a brand/query. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/ai/chatgpt",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Query to send to ChatGPT"
+          },
+          "location": {
+            "type": "string",
+            "description": "Country code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "seo_ai_gemini",
+      "description": "What Gemini says about a brand/query. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/ai/gemini",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Query to send to Gemini"
+          },
+          "location": {
+            "type": "string",
+            "description": "Country code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "seo_ai_llm_mentions",
+      "description": "Search 253M+ indexed ChatGPT + Google AI Overview answers for brand/keyword mentions ($0.20 base + $0.002/row). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/ai/llm-mentions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "1–10 entries. Each entry is `{ domain }` **or** `{ keyword }` with optional `search_filter`, `search_scope`, `include_subdomains` (domains), or `match_type` (keywords)."
+          },
+          "platform": {
+            "type": "string",
+            "description": "`\"google\"` (AI Overview, multi-locale) or `\"chat_gpt\"` (US/English only)."
+          },
+          "location": {
+            "type": "string",
+            "description": "Country code (e.g. `\"us\"`, `\"gb\"`, `\"de\"`)."
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Raw DataForSEO location code. Overrides `location`."
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code (e.g. `\"en\"`)."
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 8 filters. Each is `[field, operator, value]`. Operators: `=`, `<>`, `<`, `>`, `<=`, `>=`, `in`, `not_in`, `like`, `not_like`, `ilike`, `not_ilike`, `match`, `not_match`. Combine with `\"and\"` / `\"or\"`."
+          },
+          "order_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 3 sort rules, e.g. `[\"ai_search_volume,desc\"]`."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip results (0–9000). Use `search_after_token` for deeper pagination."
+          },
+          "search_after_token": {
+            "type": "string",
+            "description": "Pagination cursor returned by a previous response."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items returned (1–1000)."
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag (≤255 chars)."
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "seo_backlinks_anchors",
+      "description": "Anchor text distribution. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/backlinks/anchors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze anchor text for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of anchors to return"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "seo_backlinks_domain_intersection",
+      "description": "Domains linking to multiple targets. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/backlinks/domain-intersection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to find common backlinks for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of intersections to return"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "seo_backlinks_list",
+      "description": "Individual backlinks to a target. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/backlinks/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain, subdomain, or URL to get backlinks for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of backlinks to return"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "seo_backlinks_page_intersection",
+      "description": "Pages linking to multiple targets. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/backlinks/page-intersection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to find common backlinks for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of intersections to return"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "seo_backlinks_referring_domains",
+      "description": "Referring domains list. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/backlinks/referring-domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to get referring domains for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of referring domains to return"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "seo_backlinks_summary",
+      "description": "Backlink profile summary. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/backlinks/summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to get backlink summary for"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "seo_competitors_domain",
+      "description": "SEO competitor domains. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/competitors/domain",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to find competitors for (without protocol)"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code. See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max competitor domains to return"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_competitors_keywords",
+      "description": "Keyword gap analysis between domains. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/competitors/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain1": {
+            "type": "string",
+            "description": "Primary domain (without protocol)"
+          },
+          "domain2": {
+            "type": "string",
+            "description": "Competitor domain (without protocol)"
+          },
+          "intersections": {
+            "type": "boolean",
+            "description": "`true` = shared keywords, `false` = keywords only domain1 ranks for"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code. See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max keywords to return"
+          },
+          "filters": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "keyword",
+                    "volume",
+                    "cpc",
+                    "competition",
+                    "competitionLevel",
+                    "difficulty",
+                    "intent",
+                    "words",
+                    "length"
+                  ]
+                },
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "=",
+                    "!=",
+                    "in",
+                    "nin",
+                    "like",
+                    "not_like"
+                  ]
+                },
+                "value": {
+                  "description": "Scalar or array value appropriate for the selected operator."
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ]
+            }
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "default": "all"
+          },
+          "sort": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            },
+            "description": "Sort rules such as volume:desc."
+          }
+        },
+        "required": [
+          "domain1",
+          "domain2"
+        ]
+      }
+    },
+    {
+      "name": "seo_competitors_pages",
+      "description": "Page-level keyword intersection. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/competitors/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "type": "object",
+            "description": "Numbered keys (`\"1\"`, `\"2\"`, etc.) mapping to page URLs. Up to 20."
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code. See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max keywords to return"
+          }
+        },
+        "required": [
+          "pages"
+        ]
+      }
+    },
+    {
+      "name": "seo_competitors_serp",
+      "description": "Domains competing for a keyword set. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/competitors/serp",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to analyze (up to 200)"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code. See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max competitor domains to return"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "seo_content_search",
+      "description": "Find online content mentions for a keyword. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/content/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to search for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of results to return"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "seo_content_sentiment",
+      "description": "Sentiment analysis for keyword mentions. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/content/sentiment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to analyze"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of results to return"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "seo_content_summary",
+      "description": "Aggregate content analysis summary. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/content/summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to analyze"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_available",
+      "description": "Bulk domain availability check (up to 50 per call, premium pricing included). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/available",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Single domain to check (no protocol, e.g. `example.com`)"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 50 domains to check in one call"
+          }
+        }
+      }
+    },
+    {
+      "name": "seo_domain_backlinks",
+      "description": "Domain backlink profile. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/backlinks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to get backlinks for (without protocol, e.g., `\"github.com\"`)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of backlinks to return"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_keywords",
+      "description": "Keywords a domain ranks for. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to analyze (without protocol, e.g., `\"stripe.com\"`)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of keywords to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          },
+          "filters": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "keyword",
+                    "volume",
+                    "cpc",
+                    "competition",
+                    "competitionLevel",
+                    "difficulty",
+                    "intent",
+                    "words",
+                    "length"
+                  ]
+                },
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "=",
+                    "!=",
+                    "in",
+                    "nin",
+                    "like",
+                    "not_like"
+                  ]
+                },
+                "value": {
+                  "description": "Scalar or array value appropriate for the selected operator."
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ]
+            }
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "default": "all"
+          },
+          "sort": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            },
+            "description": "Sort rules such as volume:desc."
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_metrics",
+      "description": "Ahrefs-style DR, UR, backlinks, traffic value, organic keywords (page + domain scope). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain or URL to analyze. `http(s)://` is stripped automatically."
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_overview",
+      "description": "Traffic, keywords, backlinks, domain rank. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/overview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to analyze (without protocol)"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code. See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_rank_overview",
+      "description": "Organic & paid traffic, keyword counts, position distribution, movement. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/rank-overview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to analyze (e.g., `stripe.com`)"
+          },
+          "location": {
+            "type": "string",
+            "description": "Target country as a two-letter code (e.g., `\"us\"`, `\"gb\"`)"
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_technologies",
+      "description": "Technologies detected on a domain. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/technologies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to analyze (without protocol)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_traffic",
+      "description": "Bulk traffic estimation for up to 1,000 domains. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/traffic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of domains to estimate (max 1,000)",
+            "maxItems": 1000
+          },
+          "location": {
+            "type": "string",
+            "description": "Target country as a two-letter code (e.g., `\"us\"`, `\"gb\"`)"
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "seo_domain_whois",
+      "description": "WHOIS registration data. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/domain/whois",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to look up (without protocol)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "seo_keywords",
+      "description": "Bulk keyword metrics (volume, CPC, difficulty, intent, trends). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of keywords to analyze (max 100). See validity rules below.",
+            "maxItems": 100
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          },
+          "filters": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "keyword",
+                    "volume",
+                    "cpc",
+                    "competition",
+                    "competitionLevel",
+                    "difficulty",
+                    "intent",
+                    "words",
+                    "length"
+                  ]
+                },
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "=",
+                    "!=",
+                    "in",
+                    "nin",
+                    "like",
+                    "not_like"
+                  ]
+                },
+                "value": {
+                  "description": "Scalar or array value appropriate for the selected operator."
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ]
+            }
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "default": "all"
+          },
+          "sort": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            },
+            "description": "Sort rules such as volume:desc."
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "seo_keywords_difficulty",
+      "description": "Keyword difficulty (KD) for up to 1,000 keywords. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/keywords/difficulty",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of keywords to score (max 1,000)",
+            "maxItems": 1000
+          },
+          "location": {
+            "type": "string",
+            "description": "Target country as a two-letter code (e.g., `\"us\"`, `\"gb\"`)"
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "seo_keywords_ideas",
+      "description": "Keyword suggestions from a seed keyword. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/keywords/ideas",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Seed keyword to generate ideas from (e.g., `\"react framework\"`)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of keyword ideas to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          },
+          "filters": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "keyword",
+                    "volume",
+                    "cpc",
+                    "competition",
+                    "competitionLevel",
+                    "difficulty",
+                    "intent",
+                    "words",
+                    "length"
+                  ]
+                },
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "=",
+                    "!=",
+                    "in",
+                    "nin",
+                    "like",
+                    "not_like"
+                  ]
+                },
+                "value": {
+                  "description": "Scalar or array value appropriate for the selected operator."
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ]
+            }
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "default": "all"
+          },
+          "sort": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            },
+            "description": "Sort rules such as volume:desc."
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "seo_keywords_intent",
+      "description": "Search intent classification for up to 1,000 keywords. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/keywords/intent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of keywords to classify (max 1,000)",
+            "maxItems": 1000
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "seo_keywords_overview",
+      "description": "Full keyword metrics — volume, KD, intent, CPC, backlinks. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/keywords/overview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of keywords to analyze (max 700)",
+            "maxItems": 700
+          },
+          "location": {
+            "type": "string",
+            "description": "Target country as a two-letter code (e.g., `\"us\"`, `\"gb\"`)"
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "seo_keywords_related",
+      "description": "Related keywords for a seed keyword. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/keywords/related",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Seed keyword to find related terms for (e.g., `\"email marketing\"`)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of related keywords to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          },
+          "filters": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "keyword",
+                    "volume",
+                    "cpc",
+                    "competition",
+                    "competitionLevel",
+                    "difficulty",
+                    "intent",
+                    "words",
+                    "length"
+                  ]
+                },
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "=",
+                    "!=",
+                    "in",
+                    "nin",
+                    "like",
+                    "not_like"
+                  ]
+                },
+                "value": {
+                  "description": "Scalar or array value appropriate for the selected operator."
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ]
+            }
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "default": "all"
+          },
+          "sort": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            },
+            "description": "Sort rules such as volume:desc."
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "seo_onpage_content",
+      "description": "Content parsing and readability scores. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/onpage/content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to parse"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "seo_onpage_instant",
+      "description": "Technical page audit (meta, headings, links, images). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/onpage/instant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to audit"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "seo_onpage_lighthouse",
+      "description": "Google Lighthouse scores. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/onpage/lighthouse",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to audit"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "seo_trends",
+      "description": "Interest over time for up to 5 keywords. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/seo/trends",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to compare (max 5)",
+            "maxItems": 5
+          },
+          "location": {
+            "type": "string",
+            "description": "Country code"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "serp_baidu",
+      "description": "Baidu organic results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/baidu",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to look up on Baidu"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_bing",
+      "description": "Bing organic results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/bing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to look up on Bing"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google",
+      "description": "Google organic results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to look up on Google"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google_ads",
+      "description": "Google Ads Transparency Center. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google-ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to find ads in the Google Ads Transparency Center"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google_ai_mode",
+      "description": "Google AI Mode / AI Overviews. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google-ai-mode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to retrieve Google AI Mode results for"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google_autocomplete",
+      "description": "Google Autocomplete suggestions. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google-autocomplete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Partial search query to get autocomplete suggestions for"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of suggestions to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google_datasets",
+      "description": "Google Dataset Search. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google-datasets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Dataset search query to look up on Google Dataset Search"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google_finance",
+      "description": "Google Finance results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google-finance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Finance search query to look up on Google Finance"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google_images",
+      "description": "Google Images results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google-images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Image search query to look up on Google Images"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_google_news",
+      "description": "Google News results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/google-news",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "News search query to look up on Google News"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_yahoo",
+      "description": "Yahoo organic results. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/yahoo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to look up on Yahoo"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "serp_youtube",
+      "description": "YouTube search via SERP. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/serp/youtube",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to look up on YouTube"
+          },
+          "depth": {
+            "type": "number",
+            "description": "Number of results to return"
+          },
+          "location_code": {
+            "type": "number",
+            "description": "Target country code (e.g., `2840` for US). See Location Codes."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO language code (e.g., `en`, `es`)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_challenge",
+      "description": "Challenge info by name or ID. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/challenge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "challenge_name": {
+            "type": "string",
+            "description": "Challenge hashtag name (without #)"
+          },
+          "challenge_id": {
+            "type": "string",
+            "description": "Challenge ID (alternative to name)"
+          }
+        }
+      }
+    },
+    {
+      "name": "tiktok_challenge_videos",
+      "description": "Videos in a challenge. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/challenge-videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "description": "TikTok challenge ID"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "challenge_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_comment_replies",
+      "description": "Replies to a comment. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/comment-replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "string",
+            "description": "ID of the parent comment"
+          },
+          "video_id": {
+            "type": "string",
+            "description": "ID of the video containing the comment"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "comment_id",
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_comments",
+      "description": "Video comments. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full TikTok video URL"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_music",
+      "description": "Music/sound info by URL. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/music",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full TikTok music/sound URL"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_music_videos",
+      "description": "Videos using a sound. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/music-videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "music_id": {
+            "type": "string",
+            "description": "TikTok music/sound ID"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "music_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_search",
+      "description": "Search TikTok videos. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_search_challenge",
+      "description": "Search TikTok challenges. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/search-challenge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "string",
+            "description": "Search query for challenges"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_search_photo",
+      "description": "Search TikTok photo posts. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/search-photo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "string",
+            "description": "Search query for photo posts"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_search_user",
+      "description": "Search TikTok users. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/search-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "string",
+            "description": "Search query for users"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_user",
+      "description": "User profile by unique_id. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "unique_id": {
+            "type": "string",
+            "description": "TikTok username (without @)"
+          }
+        },
+        "required": [
+          "unique_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_user_favorites",
+      "description": "User's favorited videos. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/user-favorites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "TikTok user ID (numeric)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_user_followers",
+      "description": "User's followers list. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/user-followers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "TikTok user ID (numeric)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_user_following",
+      "description": "User's following list. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/user-following",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "TikTok user ID (numeric)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_user_posts",
+      "description": "User's posted videos. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/user-posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "TikTok user ID (numeric)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_user_reposts",
+      "description": "User's reposted videos. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/user-reposts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "TikTok user ID (numeric)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "count": {
+            "type": "string",
+            "description": "Number of results to return (pass as string, e.g. `\"20\"`)"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_user_story",
+      "description": "User's current story. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/user-story",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "unique_id": {
+            "type": "string",
+            "description": "TikTok username (without @)"
+          }
+        },
+        "required": [
+          "unique_id"
+        ]
+      }
+    },
+    {
+      "name": "tiktok_video",
+      "description": "Full video details by URL. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/tiktok/video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full TikTok video URL"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel",
+      "description": "Channel overview. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_about",
+      "description": "Channel about info. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-about",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_channels",
+      "description": "Featured channels. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-channels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_community",
+      "description": "Community posts. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-community",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_livestreams",
+      "description": "Channel livestreams. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-livestreams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_playlists",
+      "description": "Channel playlists. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-playlists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_search",
+      "description": "Search within a channel. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id",
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_shorts",
+      "description": "Channel shorts. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-shorts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_store",
+      "description": "Channel merch store. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-store",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_channel_videos",
+      "description": "Channel videos list. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/channel-videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube channel ID"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_comments",
+      "description": "Video comments. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort: `top` or `new`"
+          },
+          "token": {
+            "type": "string",
+            "description": "Continuation token for pagination"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_hashtag",
+      "description": "Hashtag content. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/hashtag",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "Hashtag (without #)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Continuation token for pagination"
+          }
+        },
+        "required": [
+          "tag"
+        ]
+      }
+    },
+    {
+      "name": "youtube_home",
+      "description": "YouTube homepage feed. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/home",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "geo": {
+            "type": "string",
+            "description": "Country code (e.g. `US`)"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code (e.g. `en`)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Continuation token for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "youtube_hype",
+      "description": "YouTube Hype content. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/hype",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "geo": {
+            "type": "string",
+            "description": "Country code"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          }
+        }
+      }
+    },
+    {
+      "name": "youtube_metadata",
+      "description": "Video metadata. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_playlist",
+      "description": "Playlist details and videos. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/playlist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube playlist ID"
+          },
+          "token": {
+            "type": "string",
+            "description": "Continuation token for pagination"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_post",
+      "description": "Single community post. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube post ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_post_comments",
+      "description": "Community post comments. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/post-comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube post ID"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_related",
+      "description": "Related videos. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/related",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "token": {
+            "type": "string",
+            "description": "Continuation token for pagination"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_resolve",
+      "description": "Resolve handles / short URLs to IDs. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/resolve",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Any YouTube URL"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "youtube_screenshot",
+      "description": "Video screenshot / thumbnail. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/screenshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Time in HH:MM:SS format"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_search",
+      "description": "Search YouTube. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter: `video`, `channel`, `playlist`"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort: `upload_date`, `view_count`, `rating`"
+          },
+          "duration": {
+            "type": "string",
+            "description": "Duration filter"
+          },
+          "upload_date": {
+            "type": "string",
+            "description": "Upload date filter"
+          },
+          "features": {
+            "type": "string",
+            "description": "Feature filter"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code (e.g. `US`)"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code (e.g. `en`)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Continuation token for pagination"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "youtube_shorts",
+      "description": "Shorts feed. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/shorts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "string",
+            "description": "Continuation token from previous response"
+          }
+        },
+        "required": [
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "youtube_shorts_info",
+      "description": "Short video details. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/shorts-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video/short ID"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_subtitles",
+      "description": "Video subtitles. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/subtitles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_suggest",
+      "description": "Search suggestions / autocomplete. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/suggest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "youtube_transcript",
+      "description": "Video transcript / captions. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/transcript",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_trending",
+      "description": "Trending videos. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/trending",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "geo": {
+            "type": "string",
+            "description": "Country code (e.g. `US`, `GB`, `IN`)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Category: `now`, `music`, `gaming`, `movies`"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        }
+      }
+    },
+    {
+      "name": "youtube_video",
+      "description": "Full video metadata and formats. This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_video_info",
+      "description": "Video info (lighter). This is a pay-per-use YepAPI request; avoid duplicate calls and reuse returned pagination tokens where available.",
+      "method": "POST",
+      "path": "/v1/youtube/video-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "geo": {
+            "type": "string",
+            "description": "Country code for geo-specific results"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

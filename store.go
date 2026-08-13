@@ -21,9 +21,14 @@ type User struct {
 	// Role is the platform-level role: 'user' (default) or 'admin'.
 	// Admin is an implicit owner on every project — see
 	// requireProjectAccess in authz.go.
-	Role        string     `json:"role"`
-	CreatedAt   time.Time  `json:"created_at"`
-	OnboardedAt *time.Time `json:"onboarded_at,omitempty"`
+	Role               string     `json:"role"`
+	CreatedAt          time.Time  `json:"created_at"`
+	OnboardedAt        *time.Time `json:"onboarded_at,omitempty"`
+	MFAType            string     `json:"mfa_type,omitempty"`
+	MFASecretEncrypted string     `json:"-"`
+	MFARecoveryHashes  string     `json:"-"`
+	MFALastCounter     int64      `json:"-"`
+	MFAEnabledAt       *time.Time `json:"mfa_enabled_at,omitempty"`
 }
 
 type APIKey struct {
@@ -386,6 +391,11 @@ func (s *Store) migrate() error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			email TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
+			mfa_type TEXT NOT NULL DEFAULT '',
+			mfa_secret_encrypted TEXT NOT NULL DEFAULT '',
+			mfa_recovery_hashes TEXT NOT NULL DEFAULT '[]',
+			mfa_last_counter INTEGER NOT NULL DEFAULT -1,
+			mfa_enabled_at DATETIME,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS api_keys (
@@ -416,6 +426,8 @@ func (s *Store) migrate() error {
 			token TEXT PRIMARY KEY,
 			user_id INTEGER NOT NULL REFERENCES users(id),
 			expires_at DATETIME NOT NULL,
+			auth_state TEXT NOT NULL DEFAULT 'active',
+			mfa_attempts INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 			CREATE TABLE IF NOT EXISTS provider_types (
@@ -751,6 +763,30 @@ func (s *Store) migrate() error {
 		s.db.Exec("ALTER TABLE users ADD COLUMN onboarded_at DATETIME")
 		s.db.Exec("UPDATE users SET onboarded_at = created_at WHERE onboarded_at IS NULL")
 	}
+	// Optional dashboard MFA. These columns intentionally live on users and
+	// sessions so the first TOTP implementation needs no auxiliary table.
+	// Existing sessions remain fully authenticated through the active default.
+	if !columnExists(s.db, "users", "mfa_type") {
+		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_type TEXT NOT NULL DEFAULT ''")
+	}
+	if !columnExists(s.db, "users", "mfa_secret_encrypted") {
+		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT NOT NULL DEFAULT ''")
+	}
+	if !columnExists(s.db, "users", "mfa_recovery_hashes") {
+		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_recovery_hashes TEXT NOT NULL DEFAULT '[]'")
+	}
+	if !columnExists(s.db, "users", "mfa_last_counter") {
+		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_last_counter INTEGER NOT NULL DEFAULT -1")
+	}
+	if !columnExists(s.db, "users", "mfa_enabled_at") {
+		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_enabled_at DATETIME")
+	}
+	if !columnExists(s.db, "sessions", "auth_state") {
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN auth_state TEXT NOT NULL DEFAULT 'active'")
+	}
+	if !columnExists(s.db, "sessions", "mfa_attempts") {
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN mfa_attempts INTEGER NOT NULL DEFAULT 0")
+	}
 
 	// Migrations for existing DBs — silently ignored if columns already exist
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN thread_id TEXT DEFAULT ''")
@@ -999,10 +1035,12 @@ func (s *Store) migrate() error {
 			user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 			language TEXT NOT NULL DEFAULT '',
 			ui_layout TEXT NOT NULL DEFAULT '{}',
+			ui_layout_revision INTEGER NOT NULL DEFAULT 0,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
 	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout TEXT NOT NULL DEFAULT '{}'")
+	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout_revision INTEGER NOT NULL DEFAULT 0")
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS mobile_push_subscriptions (
 			id TEXT PRIMARY KEY,
@@ -1428,9 +1466,16 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var u User
 	var createdAt string
 	var onboardedAt sql.NullString
+	var mfaEnabledAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at FROM users WHERE email = ?", email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &createdAt, &onboardedAt)
+		`SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at,
+		        COALESCE(mfa_type,''), COALESCE(mfa_secret_encrypted,''),
+		        COALESCE(mfa_recovery_hashes,'[]'), COALESCE(mfa_last_counter,-1), mfa_enabled_at
+		   FROM users WHERE email = ?`, email,
+	).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &createdAt, &onboardedAt,
+		&u.MFAType, &u.MFASecretEncrypted, &u.MFARecoveryHashes, &u.MFALastCounter, &mfaEnabledAt,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1438,6 +1483,11 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	if onboardedAt.Valid {
 		if t, err := parseTime(onboardedAt.String); err == nil {
 			u.OnboardedAt = &t
+		}
+	}
+	if mfaEnabledAt.Valid {
+		if t, err := parseTime(mfaEnabledAt.String); err == nil {
+			u.MFAEnabledAt = &t
 		}
 	}
 	return &u, nil
@@ -1450,9 +1500,16 @@ func (s *Store) GetUserByID(id int64) (*User, error) {
 	var u User
 	var createdAt string
 	var onboardedAt sql.NullString
+	var mfaEnabledAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &createdAt, &onboardedAt)
+		`SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at,
+		        COALESCE(mfa_type,''), COALESCE(mfa_secret_encrypted,''),
+		        COALESCE(mfa_recovery_hashes,'[]'), COALESCE(mfa_last_counter,-1), mfa_enabled_at
+		   FROM users WHERE id = ?`, id,
+	).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &createdAt, &onboardedAt,
+		&u.MFAType, &u.MFASecretEncrypted, &u.MFARecoveryHashes, &u.MFALastCounter, &mfaEnabledAt,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1460,6 +1517,11 @@ func (s *Store) GetUserByID(id int64) (*User, error) {
 	if onboardedAt.Valid {
 		if t, err := parseTime(onboardedAt.String); err == nil {
 			u.OnboardedAt = &t
+		}
+	}
+	if mfaEnabledAt.Valid {
+		if t, err := parseTime(mfaEnabledAt.String); err == nil {
+			u.MFAEnabledAt = &t
 		}
 	}
 	return &u, nil
@@ -1496,15 +1558,21 @@ func (s *Store) SetUserLanguage(userID int64, language string) error {
 }
 
 func (s *Store) GetUserUILayout(userID int64) json.RawMessage {
+	raw, _ := s.GetUserUILayoutWithRevision(userID)
+	return raw
+}
+
+func (s *Store) GetUserUILayoutWithRevision(userID int64) (json.RawMessage, int64) {
 	var raw string
-	if err := s.db.QueryRow("SELECT ui_layout FROM user_preferences WHERE user_id = ?", userID).Scan(&raw); err != nil {
-		return json.RawMessage(`{}`)
+	var revision int64
+	if err := s.db.QueryRow("SELECT ui_layout, COALESCE(ui_layout_revision, 0) FROM user_preferences WHERE user_id = ?", userID).Scan(&raw, &revision); err != nil {
+		return json.RawMessage(`{}`), 0
 	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" || !json.Valid([]byte(raw)) {
-		return json.RawMessage(`{}`)
+		return json.RawMessage(`{}`), revision
 	}
-	return json.RawMessage(raw)
+	return json.RawMessage(raw), revision
 }
 
 func (s *Store) SetUserUILayout(userID int64, layout json.RawMessage) error {
@@ -1520,12 +1588,90 @@ func (s *Store) SetUserUILayout(userID int64, layout json.RawMessage) error {
 		return errors.New("ui_layout must be a JSON object")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO user_preferences (user_id, ui_layout, updated_at)
-		 VALUES (?, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(user_id) DO UPDATE SET ui_layout = excluded.ui_layout, updated_at = CURRENT_TIMESTAMP`,
+		`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
+		 VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id) DO UPDATE SET
+			ui_layout = excluded.ui_layout,
+			ui_layout_revision = user_preferences.ui_layout_revision + 1,
+			updated_at = CURRENT_TIMESTAMP`,
 		userID, raw,
 	)
 	return err
+}
+
+var errUILayoutConflict = errors.New("ui layout changed in another session")
+
+// PatchUserUILayoutSurface atomically replaces one project's surface while
+// retaining every other project, surface, and dormant widget configuration.
+// expectedRevision is optional; when supplied it prevents an older browser
+// snapshot from overwriting a newer edit.
+func (s *Store) PatchUserUILayoutSurface(userID int64, projectID, surface string, value json.RawMessage, expectedRevision *int64) (json.RawMessage, int64, error) {
+	if len(value) > 64<<10 || !json.Valid(value) {
+		return nil, 0, errors.New("surface layout must be valid JSON no larger than 64 KiB")
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
+		 VALUES (?, '{}', 0, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id) DO NOTHING`, userID,
+	); err != nil {
+		return nil, 0, err
+	}
+
+	for attempts := 0; attempts < 3; attempts++ {
+		current, revision := s.GetUserUILayoutWithRevision(userID)
+		if expectedRevision != nil && *expectedRevision != revision {
+			return current, revision, errUILayoutConflict
+		}
+		var document map[string]any
+		if err := json.Unmarshal(current, &document); err != nil || document == nil {
+			document = map[string]any{}
+		}
+		projects, _ := document["projects"].(map[string]any)
+		if projects == nil {
+			projects = map[string]any{}
+			document["projects"] = projects
+		}
+		project, _ := projects[projectID].(map[string]any)
+		if project == nil {
+			project = map[string]any{}
+			projects[projectID] = project
+		}
+		slots, _ := project["slots"].(map[string]any)
+		if slots == nil {
+			slots = map[string]any{}
+			project["slots"] = slots
+		}
+		var decoded any
+		if err := json.Unmarshal(value, &decoded); err != nil {
+			return nil, revision, err
+		}
+		slots[surface] = decoded
+		next, err := json.Marshal(document)
+		if err != nil {
+			return nil, revision, err
+		}
+		if len(next) > 128<<10 {
+			return nil, revision, errors.New("ui_layout must be no larger than 128 KiB")
+		}
+		result, err := s.db.Exec(
+			`UPDATE user_preferences
+			 SET ui_layout=?, ui_layout_revision=ui_layout_revision+1, updated_at=CURRENT_TIMESTAMP
+			 WHERE user_id=? AND ui_layout_revision=?`, string(next), userID, revision,
+		)
+		if err != nil {
+			return nil, revision, err
+		}
+		changed, _ := result.RowsAffected()
+		if changed == 1 {
+			return json.RawMessage(next), revision + 1, nil
+		}
+		if expectedRevision != nil {
+			current, currentRevision := s.GetUserUILayoutWithRevision(userID)
+			return current, currentRevision, errUILayoutConflict
+		}
+	}
+	current, revision := s.GetUserUILayoutWithRevision(userID)
+	return current, revision, errUILayoutConflict
 }
 
 // UpdateUserPassword rewrites a user's bcrypt hash. The caller must
@@ -1544,6 +1690,145 @@ func (s *Store) UpdateUserPassword(userID int64, newHash string) error {
 		return fmt.Errorf("user %d not found", userID)
 	}
 	return nil
+}
+
+func (s *Store) BeginTOTPEnrollment(userID int64, encryptedSecret string) error {
+	res, err := s.db.Exec(
+		`UPDATE users
+		    SET mfa_type='totp_pending', mfa_secret_encrypted=?,
+		        mfa_recovery_hashes='[]', mfa_last_counter=-1, mfa_enabled_at=NULL
+		  WHERE id=? AND COALESCE(mfa_type,'') != 'totp'`,
+		encryptedSecret, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("MFA is already enabled")
+	}
+	return nil
+}
+
+func (s *Store) ConfirmTOTPEnrollment(userID, counter int64, recoveryHashes []string) error {
+	raw, err := json.Marshal(recoveryHashes)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.Exec(
+		`UPDATE users
+		    SET mfa_type='totp', mfa_recovery_hashes=?, mfa_last_counter=?,
+		        mfa_enabled_at=CURRENT_TIMESTAMP
+		  WHERE id=? AND mfa_type='totp_pending' AND mfa_secret_encrypted != ''`,
+		string(raw), counter, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("TOTP enrollment is not pending")
+	}
+	return nil
+}
+
+// AdvanceMFACounter atomically prevents reuse of a TOTP time step, including
+// concurrent attempts arriving at different server handlers.
+func (s *Store) AdvanceMFACounter(userID, counter int64) error {
+	res, err := s.db.Exec(
+		`UPDATE users SET mfa_last_counter=?
+		  WHERE id=? AND mfa_type='totp' AND mfa_last_counter < ?`,
+		counter, userID, counter,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("TOTP code was already used")
+	}
+	return nil
+}
+
+func (s *Store) ConsumeMFARecoveryHash(userID int64, wanted string) (int, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var raw string
+	if err := tx.QueryRow(
+		"SELECT COALESCE(mfa_recovery_hashes,'[]') FROM users WHERE id=? AND mfa_type='totp'",
+		userID,
+	).Scan(&raw); err != nil {
+		return 0, err
+	}
+	var hashes []string
+	if err := json.Unmarshal([]byte(raw), &hashes); err != nil {
+		return 0, err
+	}
+	remaining := make([]string, 0, len(hashes))
+	found := false
+	for _, hash := range hashes {
+		if !found && hash == wanted {
+			found = true
+			continue
+		}
+		remaining = append(remaining, hash)
+	}
+	if !found {
+		return 0, fmt.Errorf("invalid recovery code")
+	}
+	next, err := json.Marshal(remaining)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec("UPDATE users SET mfa_recovery_hashes=? WHERE id=?", string(next), userID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(remaining), nil
+}
+
+func (s *Store) ReplaceMFARecoveryHashes(userID int64, hashes []string) error {
+	raw, err := json.Marshal(hashes)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.Exec(
+		"UPDATE users SET mfa_recovery_hashes=? WHERE id=? AND mfa_type='totp'",
+		string(raw), userID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("MFA is not enabled")
+	}
+	return nil
+}
+
+func (s *Store) DisableMFA(userID int64) error {
+	res, err := s.db.Exec(
+		`UPDATE users
+		    SET mfa_type='', mfa_secret_encrypted='', mfa_recovery_hashes='[]',
+		        mfa_last_counter=-1, mfa_enabled_at=NULL
+		  WHERE id=?`, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("user %d not found", userID)
+	}
+	return nil
+}
+
+func recoveryHashCount(raw string) int {
+	var hashes []string
+	if err := json.Unmarshal([]byte(raw), &hashes); err != nil {
+		return 0
+	}
+	return len(hashes)
 }
 
 // ListUsers returns every user row, ordered by id so user_id=1 (the
@@ -2478,6 +2763,15 @@ func (s *Store) CreateSession(token string, userID int64, expiresAt time.Time) e
 	return err
 }
 
+func (s *Store) CreatePendingMFASession(token string, userID int64, expiresAt time.Time) error {
+	_, err := s.db.Exec(
+		`INSERT INTO sessions (token, user_id, expires_at, auth_state, mfa_attempts)
+		 VALUES (?, ?, ?, 'pending_mfa', 0)`,
+		token, userID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
+	)
+	return err
+}
+
 func (s *Store) DeleteSession(token string) error {
 	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
 	return err
@@ -2486,9 +2780,10 @@ func (s *Store) DeleteSession(token string) error {
 func (s *Store) GetSession(token string) (int64, error) {
 	var userID int64
 	var expiresAt string
+	var authState string
 	err := s.db.QueryRow(
-		"SELECT user_id, expires_at FROM sessions WHERE token = ?", token,
-	).Scan(&userID, &expiresAt)
+		"SELECT user_id, expires_at, COALESCE(auth_state,'active') FROM sessions WHERE token = ?", token,
+	).Scan(&userID, &expiresAt, &authState)
 	if err != nil {
 		return 0, err
 	}
@@ -2500,7 +2795,67 @@ func (s *Store) GetSession(token string) (int64, error) {
 		s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
 		return 0, fmt.Errorf("session expired")
 	}
+	if authState != "active" {
+		return 0, fmt.Errorf("session is not fully authenticated")
+	}
 	return userID, nil
+}
+
+func (s *Store) GetPendingMFASession(token string) (userID int64, attempts int, err error) {
+	var expiresAt, authState string
+	err = s.db.QueryRow(
+		"SELECT user_id, expires_at, COALESCE(auth_state,'active'), COALESCE(mfa_attempts,0) FROM sessions WHERE token = ?",
+		token,
+	).Scan(&userID, &expiresAt, &authState, &attempts)
+	if err != nil {
+		return 0, 0, err
+	}
+	exp, err := parseTime(expiresAt)
+	if err != nil || time.Now().UTC().After(exp) {
+		_, _ = s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+		return 0, 0, fmt.Errorf("MFA challenge expired")
+	}
+	if authState != "pending_mfa" {
+		return 0, 0, fmt.Errorf("MFA challenge not found")
+	}
+	return userID, attempts, nil
+}
+
+func (s *Store) RecordPendingMFAFailure(token string, maxAttempts int) error {
+	res, err := s.db.Exec(
+		`UPDATE sessions SET mfa_attempts=mfa_attempts+1
+		 WHERE token=? AND auth_state='pending_mfa'`, token,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("MFA challenge not found")
+	}
+	var attempts int
+	if err := s.db.QueryRow("SELECT mfa_attempts FROM sessions WHERE token=?", token).Scan(&attempts); err != nil {
+		return err
+	}
+	if attempts >= maxAttempts {
+		_, _ = s.db.Exec("DELETE FROM sessions WHERE token=?", token)
+	}
+	return nil
+}
+
+func (s *Store) ActivateMFASession(token string, expiresAt time.Time) error {
+	res, err := s.db.Exec(
+		`UPDATE sessions
+		    SET auth_state='active', mfa_attempts=0, expires_at=?
+		  WHERE token=? AND auth_state='pending_mfa'`,
+		expiresAt.UTC().Format("2006-01-02 15:04:05"), token,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("MFA challenge not found")
+	}
+	return nil
 }
 
 // parseTime tries multiple formats that SQLite may return.

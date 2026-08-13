@@ -25,6 +25,7 @@ func newTestServer(t *testing.T) *Server {
 	// Reset rate limiters for clean test state
 	loginLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
 	registerLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
+	mfaLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
 	publicClientRateMu.Lock()
 	publicClientRateBuckets = map[int64]publicClientRateBucket{}
 	publicClientRateMu.Unlock()
@@ -35,6 +36,7 @@ func newTestServer(t *testing.T) *Server {
 		broadcaster:    NewTelemetryBroadcaster(),
 		regMode:        "open",
 		instanceSecret: "test-secret",
+		secret:         bytes.Repeat([]byte{0x42}, 32),
 	}
 }
 

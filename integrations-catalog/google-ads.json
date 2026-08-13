@@ -1,7 +1,7 @@
 {
   "slug": "google-ads",
   "name": "Google Ads",
-  "description": "Google Ads API v23 — manage campaigns, ad groups, ads, keywords, budgets, and run performance reports via GAQL queries",
+  "description": "Google Ads API v23 — generate Keyword Planner ideas and historical metrics, manage campaigns, ad groups, ads, keywords, and budgets, and run performance reports via GAQL",
   "logo": "https://upload.wikimedia.org/wikipedia/commons/c/c7/Google_Ads_logo.svg",
   "categories": [
     "advertising",
@@ -96,6 +96,202 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      }
+    },
+    {
+      "name": "generate_keyword_ideas",
+      "description": "Generate Google Keyword Planner ideas from keywords, a page URL, both, or an entire site. Returns keyword text plus historical metrics such as average monthly searches, monthly search volumes, competition, competition index, and top-of-page bid ranges. Set exactly one of keywordSeed, urlSeed, keywordAndUrlSeed, or siteSeed. Use resource names such as languageConstants/1000 and geoTargetConstants/2840.",
+      "method": "POST",
+      "path": "/customers/{customer_id}:generateKeywordIdeas",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID without hyphens."
+          },
+          "language": {
+            "type": "string",
+            "description": "Optional language resource name, for example languageConstants/1000 for English."
+          },
+          "geoTargetConstants": {
+            "type": "array",
+            "description": "Up to 10 geo target resource names, for example geoTargetConstants/2840 for the United States.",
+            "items": { "type": "string" },
+            "maxItems": 10
+          },
+          "includeAdultKeywords": {
+            "type": "boolean",
+            "default": false
+          },
+          "keywordPlanNetwork": {
+            "type": "string",
+            "enum": ["GOOGLE_SEARCH", "GOOGLE_SEARCH_AND_PARTNERS"],
+            "default": "GOOGLE_SEARCH"
+          },
+          "keywordAnnotation": {
+            "type": "array",
+            "description": "Optional annotations to include, such as KEYWORD_CONCEPT.",
+            "items": { "type": "string", "enum": ["KEYWORD_CONCEPT"] }
+          },
+          "historicalMetricsOptions": {
+            "type": "object",
+            "description": "Optional date range and CPC controls for the returned historical metrics.",
+            "properties": {
+              "includeAverageCpc": { "type": "boolean" },
+              "yearMonthRange": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "object",
+                    "properties": {
+                      "year": { "type": "integer" },
+                      "month": { "type": "string", "enum": ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"] }
+                    },
+                    "required": ["year", "month"]
+                  },
+                  "end": {
+                    "type": "object",
+                    "properties": {
+                      "year": { "type": "integer" },
+                      "month": { "type": "string", "enum": ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"] }
+                    },
+                    "required": ["year", "month"]
+                  }
+                },
+                "required": ["start", "end"]
+              }
+            }
+          },
+          "aggregateMetrics": {
+            "type": "object",
+            "description": "Optional aggregate metric request.",
+            "properties": {
+              "aggregateMetricTypes": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["DEVICE"] }
+              }
+            }
+          },
+          "keywordSeed": {
+            "type": "object",
+            "description": "Use this seed for one or more product/service phrases.",
+            "properties": {
+              "keywords": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            },
+            "required": ["keywords"]
+          },
+          "urlSeed": {
+            "type": "object",
+            "description": "Use this seed to generate ideas from one page URL.",
+            "properties": { "url": { "type": "string" } },
+            "required": ["url"]
+          },
+          "keywordAndUrlSeed": {
+            "type": "object",
+            "description": "Use this seed to combine product/service phrases with one page URL.",
+            "properties": {
+              "keywords": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "url": { "type": "string" }
+            },
+            "required": ["keywords", "url"]
+          },
+          "siteSeed": {
+            "type": "object",
+            "description": "Use this seed to generate ideas from an entire site.",
+            "properties": { "site": { "type": "string" } },
+            "required": ["site"]
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "pageToken": {
+            "type": "string"
+          }
+        },
+        "required": ["customer_id"]
+      }
+    },
+    {
+      "name": "generate_keyword_historical_metrics",
+      "description": "Get Keyword Planner historical metrics for known keywords: average monthly searches over the past 12 months, per-month search volume, competition level/index, and low/high top-of-page bid ranges. This is market-volume data, not performance data from an existing campaign. Near-identical keywords may be deduplicated by Google.",
+      "method": "POST",
+      "path": "/customers/{customer_id}:generateKeywordHistoricalMetrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID without hyphens."
+          },
+          "keywords": {
+            "type": "array",
+            "description": "One to 10,000 keywords to measure.",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "maxItems": 10000
+          },
+          "language": {
+            "type": "string",
+            "description": "Optional language resource name, for example languageConstants/1000."
+          },
+          "geoTargetConstants": {
+            "type": "array",
+            "description": "Up to 10 geo target resource names.",
+            "items": { "type": "string" },
+            "maxItems": 10
+          },
+          "includeAdultKeywords": {
+            "type": "boolean",
+            "default": false
+          },
+          "keywordPlanNetwork": {
+            "type": "string",
+            "enum": ["GOOGLE_SEARCH", "GOOGLE_SEARCH_AND_PARTNERS"],
+            "default": "GOOGLE_SEARCH"
+          },
+          "historicalMetricsOptions": {
+            "type": "object",
+            "description": "Set includeAverageCpc=true to include average CPC and optionally select a historical year/month range.",
+            "properties": {
+              "includeAverageCpc": { "type": "boolean", "default": true },
+              "yearMonthRange": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "object",
+                    "properties": {
+                      "year": { "type": "integer" },
+                      "month": { "type": "string", "enum": ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"] }
+                    },
+                    "required": ["year", "month"]
+                  },
+                  "end": {
+                    "type": "object",
+                    "properties": {
+                      "year": { "type": "integer" },
+                      "month": { "type": "string", "enum": ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"] }
+                    },
+                    "required": ["year", "month"]
+                  }
+                },
+                "required": ["start", "end"]
+              }
+            }
+          },
+          "aggregateMetrics": {
+            "type": "object",
+            "properties": {
+              "aggregateMetricTypes": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["DEVICE"] }
+              }
+            }
+          }
+        },
+        "required": ["customer_id", "keywords"]
       }
     },
     {

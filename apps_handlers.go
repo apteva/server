@@ -807,6 +807,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 						Slots:          c.Slots,
 						SupportedSizes: c.SupportedSizes,
 						DefaultSize:    c.DefaultSize,
+						Visibility:     c.Visibility,
+						RefreshTopics:  c.RefreshTopics,
 						PropsSchema:    c.PropsSchema,
 						SettingsSchema: c.SettingsSchema,
 						PreviewProps:   c.PreviewProps,

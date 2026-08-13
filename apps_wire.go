@@ -489,13 +489,12 @@ func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, dir
 	}
 	payload := map[string]any{
 		"directive_suffix": directiveSuffix,
-		"conversation":     true,
 	}
 	if len(tools) > 0 {
 		payload["tools"] = tools
 	}
 	body, _ := json.Marshal(payload)
-	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
 	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -520,20 +519,23 @@ func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, dir
 // thread inherits main's directive verbatim and appends the caller's
 // suffix — gives channelchat the "inherit + role hint" semantic
 // without having to fetch main's directive first.
-func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, directive string, tools, mcp []string) error {
+func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, directive string, tools, mcp []string, events []channelchat.ThreadEvent) (channelchat.ThreadEventReceipt, error) {
 	if inst.Port == 0 {
-		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+		return channelchat.ThreadEventReceipt{}, fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
 	}
-	body, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"directive_suffix": directive,
 		"tools":            tools,
 		"mcp":              mcp,
-		"conversation":     true,
-	})
-	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
+	}
+	if len(events) > 0 {
+		payload["events"] = events
+	}
+	body, _ := json.Marshal(payload)
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
 	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return channelchat.ThreadEventReceipt{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if inst.CoreAPIKey != "" {
@@ -541,13 +543,52 @@ func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, dire
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return channelchat.ThreadEventReceipt{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("spawn thread %q: HTTP %d", threadID, resp.StatusCode)
+	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if readErr != nil {
+		return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: read response: %w", threadID, readErr)
 	}
-	return nil
+	if resp.StatusCode >= 300 {
+		detail := strings.TrimSpace(string(responseBody))
+		if detail == "" {
+			return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: HTTP %d", threadID, resp.StatusCode)
+		}
+		return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: HTTP %d: %s", threadID, resp.StatusCode, detail)
+	}
+	var response struct {
+		Status string `json:"status"`
+		Events struct {
+			Accepted   []string `json:"accepted"`
+			Duplicates []string `json:"duplicates"`
+		} `json:"events"`
+	}
+	if len(responseBody) > 0 {
+		if err := json.Unmarshal(responseBody, &response); err != nil {
+			return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: decode response: %w", threadID, err)
+		}
+	}
+	receipt := channelchat.ThreadEventReceipt{
+		Status:     response.Status,
+		Accepted:   response.Events.Accepted,
+		Duplicates: response.Events.Duplicates,
+	}
+	if len(events) > 0 {
+		received := make(map[string]struct{}, len(receipt.Accepted)+len(receipt.Duplicates))
+		for _, id := range receipt.Accepted {
+			received[id] = struct{}{}
+		}
+		for _, id := range receipt.Duplicates {
+			received[id] = struct{}{}
+		}
+		for _, event := range events {
+			if _, ok := received[event.ID]; !ok {
+				return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: core did not acknowledge event %q", threadID, event.ID)
+			}
+		}
+	}
+	return receipt, nil
 }
 
 // SpawnOpaqueThread creates a normal app-owned thread without assigning any

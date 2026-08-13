@@ -134,6 +134,8 @@ type IntegrationUIComponent struct {
 	Slots          []string       `json:"slots,omitempty"`
 	SupportedSizes []string       `json:"supported_sizes,omitempty"`
 	DefaultSize    string         `json:"default_size,omitempty"`
+	Visibility     string         `json:"visibility,omitempty"`
+	RefreshTopics  []string       `json:"refresh_topics,omitempty"`
 	PropsSchema    map[string]any `json:"props_schema,omitempty"`
 	SettingsSchema map[string]any `json:"settings_schema,omitempty"`
 	PreviewProps   map[string]any `json:"preview_props,omitempty"`

@@ -123,13 +123,17 @@ func requestIsTLS(r *http.Request) bool {
 // over HTTP we degrade to SameSite=Lax (same-origin only — which is
 // the actual deployment shape for HTTP-only setups anyway).
 func setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	setSessionCookieForDuration(w, r, token, sessionDuration)
+}
+
+func setSessionCookieForDuration(w http.ResponseWriter, r *http.Request, token string, duration time.Duration) {
 	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionDuration.Seconds()),
+		MaxAge:   int(duration.Seconds()),
 		Secure:   requestIsTLS(r),
 	}
 	if crossOriginCookies && requestIsTLS(r) {
@@ -642,6 +646,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := generateToken(32)
+	if userMFAEnabled(user) {
+		if err := s.store.CreatePendingMFASession(token, user.ID, time.Now().Add(mfaPendingDuration)); err != nil {
+			http.Error(w, "failed to create MFA challenge", http.StatusInternalServerError)
+			return
+		}
+		setSessionCookieForDuration(w, r, token, mfaPendingDuration)
+		writeJSON(w, map[string]any{
+			"mfa_required": true,
+			"email":        user.Email,
+		})
+		return
+	}
 	if err := s.store.CreateSession(token, user.ID, time.Now().Add(sessionDuration)); err != nil {
 		http.Error(w, "failed to create session: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -649,8 +665,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, r, token)
 	writeJSON(w, map[string]any{
-		"user_id": user.ID,
-		"email":   user.Email,
+		"user_id":      user.ID,
+		"email":        user.Email,
+		"mfa_required": false,
 	})
 }
 
@@ -717,14 +734,24 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = string(PlatformUser)
 	}
+	uiLayout, uiLayoutRevision := s.store.GetUserUILayoutWithRevision(u.ID)
 	resp := map[string]any{
-		"user_id":    u.ID,
-		"email":      u.Email,
-		"role":       role,
-		"created_at": u.CreatedAt.UTC().Format(time.RFC3339),
-		"onboarded":  u.OnboardedAt != nil,
-		"language":   normalizedDashboardLanguage(s.store.GetUserLanguage(u.ID)),
-		"ui_layout":  s.store.GetUserUILayout(u.ID),
+		"user_id":            u.ID,
+		"email":              u.Email,
+		"role":               role,
+		"created_at":         u.CreatedAt.UTC().Format(time.RFC3339),
+		"onboarded":          u.OnboardedAt != nil,
+		"language":           normalizedDashboardLanguage(s.store.GetUserLanguage(u.ID)),
+		"ui_layout":          uiLayout,
+		"ui_layout_revision": uiLayoutRevision,
+		"mfa_enabled":        userMFAEnabled(u),
+		"mfa_type": func() string {
+			if userMFAEnabled(u) {
+				return "totp"
+			}
+			return ""
+		}(),
+		"mfa_recovery_codes_remaining": recoveryHashCount(u.MFARecoveryHashes),
 	}
 	if u.OnboardedAt != nil {
 		resp["onboarded_at"] = u.OnboardedAt.UTC().Format(time.RFC3339)
@@ -776,9 +803,11 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	uiLayout, uiLayoutRevision := s.store.GetUserUILayoutWithRevision(userID)
 	writeJSON(w, map[string]any{
-		"language":  normalizedDashboardLanguage(s.store.GetUserLanguage(userID)),
-		"ui_layout": s.store.GetUserUILayout(userID),
+		"language":           normalizedDashboardLanguage(s.store.GetUserLanguage(userID)),
+		"ui_layout":          uiLayout,
+		"ui_layout_revision": uiLayoutRevision,
 	})
 }
 

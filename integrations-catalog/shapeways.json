@@ -1,7 +1,7 @@
 {
   "slug": "shapeways",
   "name": "Shapeways",
-  "description": "Shapeways OAuth2 API for JSON/base64 model uploads, printability and material pricing, shipping options, fulfillment orders, and shipment tracking.",
+  "description": "Shapeways OAuth2 API for JSON/base64 model uploads, material and printability pricing, shipping choices, billable fulfillment orders, and shipment status.",
   "logo": "https://www.google.com/s2/favicons?domain=shapeways.com&sz=128",
   "categories": ["3d-printing", "shapeways", "marketplace", "materials", "orders"],
   "base_url": "https://api.shapeways.com",
@@ -15,6 +15,7 @@
       {
         "name": "token",
         "label": "Access Token",
+        "type": "password",
         "description": "Shapeways OAuth2 access token. Tokens normally expire after one hour; prefer Authorize so refresh tokens are managed automatically."
       }
     ],
@@ -26,18 +27,18 @@
       "pkce": false
     }
   },
-  "health_check": { "tool": "list_materials" },
+  "health_check": { "tool": "list_models" },
   "tools": [
     {
       "name": "list_materials",
-      "description": "List all available Shapeways materials.",
+      "description": "List the current Shapeways material catalog. This is discovery data; call get_model afterward to verify that a particular uploaded model is printable and priced in a selected material.",
       "method": "GET",
       "path": "/materials/v1",
       "input_schema": { "type": "object", "properties": {} }
     },
     {
       "name": "get_material",
-      "description": "Get detailed information for a Shapeways material.",
+      "description": "Get current details for one Shapeways material, including its title, printer association, color-file support, and swatch metadata.",
       "method": "GET",
       "path": "/materials/{materialId}/v1",
       "input_schema": {
@@ -77,7 +78,7 @@
     },
     {
       "name": "list_models",
-      "description": "List authenticated user's Shapeways models.",
+      "description": "List models owned by the authenticated Shapeways account, 36 per page. Use the returned modelId with get_model for printability and per-material prices.",
       "method": "GET",
       "path": "/models/v1",
       "query_params": ["page"],
@@ -90,7 +91,7 @@
     },
     {
       "name": "get_model",
-      "description": "Get Shapeways model information and printability/material checks.",
+      "description": "Get one Shapeways model, including processing state, material printability, and current per-material prices. After upload, poll this read-only route until processing has finished; do not repeatedly upload the same file.",
       "method": "GET",
       "path": "/models/{modelId}/v1",
       "input_schema": {
@@ -116,7 +117,7 @@
     },
     {
       "name": "place_order",
-      "description": "Create and charge a Shapeways fulfillment order. This is a billable action: obtain shipping choices first, verify every model/material with get_model, and confirm the address and quantities before calling.",
+      "description": "Create and immediately charge a Shapeways fulfillment order. This is a billable action: call get_shipping_options, verify every model/material with get_model, and explicitly confirm the destination, shipping choice, quantities, and expected prices before calling.",
       "method": "POST",
       "path": "/orders/v1",
       "input_schema": {
@@ -148,7 +149,7 @@
           "incentives": { "type": "array", "items": { "type": "string" } },
           "paymentVerificationId": { "type": "string", "description": "Shapeways-issued payment authorization id when required for the application." },
           "paymentMethod": { "type": "string", "enum": ["credit_card"] },
-          "shippingOption": { "type": "string", "enum": ["Cheapest", "Fastest"] },
+          "shippingOption": { "type": "string", "description": "Use Cheapest or Fastest, or the shippingOptionId returned by get_shipping_options when the account/API accepts a specific option." },
           "manufacturingSpeed": { "type": "string", "enum": ["Economy", "Priority"] },
           "refNumber": { "type": "string", "maxLength": 20, "description": "Reference printed on the packing slip and invoice." },
           "metadata": {
@@ -166,7 +167,7 @@
     },
     {
       "name": "list_orders",
-      "description": "List Shapeways orders and their fulfillment status. Optionally restrict the response to a comma-separated set of order ids.",
+      "description": "List Shapeways API orders with aggregate counts, production state, expected ship dates, and shipment details. Optionally restrict the response to comma-separated order ids.",
       "method": "GET",
       "path": "/orders/v1",
       "query_params": ["orderIds"],
@@ -179,7 +180,7 @@
     },
     {
       "name": "get_order",
-      "description": "Get Shapeways order details and status.",
+      "description": "Get one Shapeways API order, including item production state, rejection details, expected ship date, and tracking data when shipped.",
       "method": "GET",
       "path": "/orders/{orderId}/v1",
       "input_schema": {
@@ -192,7 +193,7 @@
     },
     {
       "name": "get_shipping_options",
-      "description": "Get shipping options for a destination country and optional zip/postal code.",
+      "description": "Get current shipping options and prices for a destination. Pass Cheapest/Fastest or a supported returned shippingOptionId to place_order; availability and prices can change, so query this immediately before ordering.",
       "method": "GET",
       "path": "/cart/shipping-options/v1",
       "query_params": ["country", "zipCode"],
