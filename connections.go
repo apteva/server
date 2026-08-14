@@ -3217,7 +3217,13 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	if environmentID == "" {
 		environmentID = r.Header.Get("X-Apteva-Environment-Id")
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+	if environmentID == "" {
+		err = s.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
+	}
+	var result *ExecuteResult
+	if err == nil {
+		result, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+	}
 	if err != nil {
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "dashboard", tool.Name, body.Input, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)

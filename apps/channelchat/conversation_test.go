@@ -100,8 +100,8 @@ func TestChatThreadProfileSupportsWorkProgressChildrenAndSelectiveReporting(t *t
 		}
 	}
 	profile := chatThreadProfileFor(framework.InstanceInfo{Kind: "user"})
-	if strings.Join(profile.Tools, ",") != "send,spawn,pace" {
-		t.Fatalf("ordinary chat tools=%v, want send, spawn, pace", profile.Tools)
+	if strings.Join(profile.Tools, ",") != "send,spawn,pace,channels_send" {
+		t.Fatalf("ordinary chat tools=%v, want send, spawn, pace, channels_send", profile.Tools)
 	}
 }
 
@@ -1368,7 +1368,7 @@ func TestExplicitConversationAlwaysUsesDedicatedEnsuredThread(t *testing.T) {
 	resolver.toolMu.Lock()
 	spawnTools := append([]string(nil), resolver.spawnTools...)
 	resolver.toolMu.Unlock()
-	if strings.Join(spawnTools, ",") != "send,spawn,pace" {
+	if strings.Join(spawnTools, ",") != "send,spawn,pace,channels_send" {
 		t.Fatalf("spawn tools=%v, want chat leader profile", spawnTools)
 	}
 }

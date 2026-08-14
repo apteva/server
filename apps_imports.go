@@ -301,7 +301,13 @@ func (s *Server) executeImportIntegrationTool(r *http.Request, connID int64, too
 	if environmentID == "" {
 		environmentID = r.Header.Get("X-Apteva-Environment-Id")
 	}
-	result, err := executeIntegrationToolWithRefresh(resolved.App, tool, resolved.Credentials, resolved.Input, environmentID, persist)
+	if environmentID == "" {
+		err = s.prepareIntegrationExternalFetch(resolved.App, tool, resolved.Credentials, resolved.Input)
+	}
+	var result *ExecuteResult
+	if err == nil {
+		result, err = executeIntegrationToolWithRefresh(resolved.App, tool, resolved.Credentials, resolved.Input, environmentID, persist)
+	}
 	if err != nil {
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "imports", tool.Name, input, nil, err))
 		return nil, err

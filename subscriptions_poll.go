@@ -185,7 +185,11 @@ func (d *PollingSubscriptionDispatcher) run(sub *Subscription) error {
 		}
 		return d.server.store.UpdateConnectionCredentials(persistTargetID, enc)
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
+	err = d.server.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
+	var result *ExecuteResult
+	if err == nil {
+		result, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
+	}
 	if err != nil {
 		d.server.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "subscription-poller", tool.Name, input, nil, err))
 		return d.recordFailure(sub, now, fmt.Errorf("execute %s: %w", cfg.Tool, err), interval)

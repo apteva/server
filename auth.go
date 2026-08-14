@@ -52,18 +52,17 @@ func (rl *rateLimiter) allow(ip string, maxAttempts int, window time.Duration) b
 }
 
 func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" && trustForwardedHeaders(r) {
-		return strings.Split(fwd, ",")[0]
-	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return ip
-	}
-	return strings.TrimSpace(r.RemoteAddr)
+	return resolvedClientIP(r)
 }
 
 func trustForwardedHeaders(r *http.Request) bool {
-	return requestFromLoopback(r) || envTruthy(os.Getenv("APTEVA_TRUST_PROXY_HEADERS"))
+	if requestFromLoopback(r) || requestFromConfiguredProxy(r) {
+		return true
+	}
+	// Backward compatibility for deployments that already firewall the server
+	// behind one trusted proxy. New deployments should use the CIDR-scoped
+	// APTEVA_TRUSTED_PROXY_CIDRS setting instead.
+	return envTruthy(os.Getenv("APTEVA_TRUST_PROXY_HEADERS"))
 }
 
 func requestFromLoopback(r *http.Request) bool {

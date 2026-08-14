@@ -322,7 +322,13 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 			if environmentID == "" {
 				environmentID = r.Header.Get("X-Apteva-Environment-Id")
 			}
-			execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+			if environmentID == "" {
+				err = s.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
+			}
+			var execResult *ExecuteResult
+			if err == nil {
+				execResult, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+			}
 			if err != nil {
 				s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "mcp-http", tool.Name, params.Arguments, nil, err))
 				result = map[string]any{

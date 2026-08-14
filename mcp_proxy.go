@@ -173,7 +173,16 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 				}
 				// stdio proxy subprocess — no HTTP request to read a environment
 				// id from, so environmentID="" (production path, no interception).
-				execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
+				proxyPublicURL := store.GetSetting("public_url")
+				if proxyPublicURL == "" {
+					proxyPublicURL = os.Getenv("PUBLIC_URL")
+				}
+				relayServer := &Server{store: store, secret: secret, catalog: catalog, publicURL: proxyPublicURL}
+				err = relayServer.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
+				var execResult *ExecuteResult
+				if err == nil {
+					execResult, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
+				}
 				if err != nil {
 					result = map[string]any{
 						"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},

@@ -1565,13 +1565,7 @@ func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string,
 	}
 	queryLimit := limit
 	if status != "" && status != "all" {
-		queryLimit = limit * 5
-		if queryLimit < 100 {
-			queryLimit = 100
-		}
-		if queryLimit > 500 {
-			queryLimit = 500
-		}
+		queryLimit = inboxCandidateLimit(limit)
 	}
 	placeholders := make([]string, len(ownerIDs))
 	args := make([]any, 0, len(ownerIDs)+3)
@@ -1666,7 +1660,7 @@ func (s *store) ListReportMessages(ownerIDs []int64, projectID string, limit int
 		where += ` AND i.project_id = ?`
 		args = append(args, strings.TrimSpace(projectID))
 	}
-	args = append(args, limit)
+	args = append(args, inboxCandidateLimit(limit))
 	q := `
 		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
 		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
@@ -1718,6 +1712,9 @@ func (s *store) ListReportMessages(ownerIDs []int64, projectID string, limit int
 		row.Period = period
 		row.Dismissed = dismissed
 		out = append(out, row)
+		if len(out) >= limit {
+			break
+		}
 	}
 	return out, rows.Err()
 }
@@ -1741,7 +1738,7 @@ func (s *store) ListAlertMessages(ownerIDs []int64, projectID string, limit int)
 		where += ` AND i.project_id = ?`
 		args = append(args, strings.TrimSpace(projectID))
 	}
-	args = append(args, limit)
+	args = append(args, inboxCandidateLimit(limit))
 	q := `
 		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
 		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
@@ -1793,8 +1790,25 @@ func (s *store) ListAlertMessages(ownerIDs []int64, projectID string, limit int)
 		row.Severity = severity
 		row.Dismissed = dismissed
 		out = append(out, row)
+		if len(out) >= limit {
+			break
+		}
 	}
 	return out, rows.Err()
+}
+
+// Inbox dismissal is stored inside component JSON, so it is evaluated after
+// rows are decoded. Read a bounded surplus of candidates to ensure a recently
+// dismissed card cannot consume the SQL LIMIT and hide an older visible item.
+func inboxCandidateLimit(limit int) int {
+	queryLimit := limit * 5
+	if queryLimit < 100 {
+		queryLimit = 100
+	}
+	if queryLimit > 500 {
+		queryLimit = 500
+	}
+	return queryLimit
 }
 
 func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]CurrentStatusMessage, error) {

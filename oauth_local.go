@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -243,6 +244,7 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 				"rollout_delay":        s.agentRolloutDelay().String(),
 				"legacy_detach_active": s.agentShutdownPolicy() == "detach",
 			},
+			"geoip": s.geoIPSettingsState(),
 		})
 		return
 
@@ -254,12 +256,16 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 			AgentBootResume      *string `json:"agent_boot_resume"`
 			AgentBootResumeDelay *string `json:"agent_boot_resume_delay"`
 			AgentRolloutDelay    *string `json:"agent_rollout_delay"`
+			GeoIPEnabled         *bool   `json:"geoip_enabled"`
+			GeoIPSource          *string `json:"geoip_source"`
+			GeoIPAccountID       *string `json:"geoip_account_id"`
+			GeoIPLicenseKey      *string `json:"geoip_license_key"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if (body.PushRelayURL != nil || body.AgentUpdatePolicy != nil || body.AgentBootResume != nil || body.AgentBootResumeDelay != nil || body.AgentRolloutDelay != nil) && !s.isAdmin(getUserID(r)) {
+		if (body.PushRelayURL != nil || body.AgentUpdatePolicy != nil || body.AgentBootResume != nil || body.AgentBootResumeDelay != nil || body.AgentRolloutDelay != nil || body.GeoIPEnabled != nil || body.GeoIPSource != nil || body.GeoIPAccountID != nil || body.GeoIPLicenseKey != nil) && !s.isAdmin(getUserID(r)) {
 			http.Error(w, "admin access required", http.StatusForbidden)
 			return
 		}
@@ -328,6 +334,27 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := s.store.SetSetting(key, d.String()); err != nil {
 				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if body.GeoIPEnabled != nil || body.GeoIPSource != nil || body.GeoIPAccountID != nil || body.GeoIPLicenseKey != nil {
+			current, _ := readManagedGeoIPConfig(filepath.Join(s.dataDir, "geoip", "config.json"))
+			enabled := current.Enabled
+			if body.GeoIPEnabled != nil {
+				enabled = *body.GeoIPEnabled
+			}
+			source, accountID, licenseKey := current.Source, current.AccountID, ""
+			if body.GeoIPSource != nil {
+				source = *body.GeoIPSource
+			}
+			if body.GeoIPAccountID != nil {
+				accountID = *body.GeoIPAccountID
+			}
+			if body.GeoIPLicenseKey != nil {
+				licenseKey = *body.GeoIPLicenseKey
+			}
+			if err := s.updateManagedGeoIPConfig(enabled, source, accountID, licenseKey); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}

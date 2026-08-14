@@ -1,0 +1,5 @@
+import{Sa as X}from"./main-bwc6dqpn.js";import{createContext as m,useCallback as w,useContext as A,useState as W,useEffect as F}from"react";import{jsx as k}from"react/jsx-runtime";var Z=m({projects:[],currentProject:null,setCurrentProject:()=>{},reload:()=>{}}),q="apteva_project_id";function f(M,H,N){let Q=new Set(M),B=H.getItem(q);if(B&&Q.has(B))return B;let y=N.getItem(q),z=y&&Q.has(y)?y:M[0]??null;if(!z)return H.removeItem(q),null;if(H.setItem(q,z),y!==z)N.setItem(q,z);return z}function x({children:M}){let[H,N]=W([]),[Q,B]=W(null),y=w(()=>{X.list().then((G)=>{let U=G||[];N(U);let $=f(U.map((V)=>V.id),window.sessionStorage,window.localStorage);B(U.find((V)=>V.id===$)||null)}).catch(()=>{})},[]);F(()=>{y()},[y]);let z=(G)=>{if(B(G),G)window.sessionStorage.setItem(q,G.id),window.localStorage.setItem(q,G.id);else window.sessionStorage.removeItem(q),window.localStorage.removeItem(q)};return k(Z.Provider,{value:{projects:H,currentProject:Q,setCurrentProject:z,reload:y},children:M})}function J(){return A(Z)}
+export{x as ua,J as va};
+
+//# debugId=C646847EBBEFE00564756E2164756E21
+//# sourceMappingURL=main-4bdrbzd5.js.map

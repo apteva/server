@@ -58,7 +58,34 @@ type AppTemplate struct {
 	// Slack auth.test). Apps without a health_check fall back to
 	// "no validation possible" — the test endpoint replies with
 	// `skipped: true`. See integrations/src/types.ts AppHealthCheck.
-	HealthCheck *AppHealthCheck `json:"health_check,omitempty"`
+	HealthCheck   *AppHealthCheck          `json:"health_check,omitempty"`
+	URLProperties []IntegrationURLProperty `json:"url_properties,omitempty"`
+}
+
+type IntegrationURLProperty struct {
+	ID                  string   `json:"id"`
+	Label               string   `json:"label"`
+	Purpose             string   `json:"purpose,omitempty"`
+	Types               []string `json:"types"`
+	VerificationMethods []string `json:"verification_methods"`
+	SetupURL            string   `json:"setup_url,omitempty"`
+}
+
+type ExternalFetchInput struct {
+	Path             string                  `json:"path"`
+	Property         string                  `json:"property"`
+	Relay            string                  `json:"relay,omitempty"`
+	HTTPSRequired    bool                    `json:"https_required,omitempty"`
+	RedirectsAllowed bool                    `json:"redirects_allowed,omitempty"`
+	TTLSeconds       int                     `json:"ttl_seconds,omitempty"`
+	MaxBytes         int64                   `json:"max_bytes,omitempty"`
+	MIMETypes        []string                `json:"mime_types,omitempty"`
+	When             *ExternalFetchCondition `json:"when,omitempty"`
+}
+
+type ExternalFetchCondition struct {
+	Path   string `json:"path"`
+	Equals any    `json:"equals"`
 }
 
 // AppHealthCheck is the catalog-side shape of a per-app probe.
@@ -586,6 +613,8 @@ type AppToolDef struct {
 	// signing for this tool — useful for public endpoints inside an
 	// otherwise-authenticated app catalog entry.
 	Signing *ToolSigningConfig `json:"signing,omitempty"`
+
+	ExternalFetchInputs []ExternalFetchInput `json:"external_fetch_inputs,omitempty"`
 }
 
 type MultipartFormDef struct {

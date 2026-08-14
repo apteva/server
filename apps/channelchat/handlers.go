@@ -138,11 +138,14 @@ type chatThreadProfile struct {
 	Tools           []string
 }
 
-// chatThreadTools is the local Core tool profile for user-facing chats. spawn
+// chatThreadTools is the exact Core tool profile for user-facing chats. spawn
 // makes the chat a leader of temporary one-off children; send handles selective
-// reports and durable requests; pace idles it between user turns. The actual
-// work surface still comes from the agent's attached MCPs.
-var chatThreadTools = []string{"send", "spawn", "pace"}
+// reports and durable requests; pace idles it between user turns. channels_send
+// is pinned because visible replies are part of the transport contract, not an
+// optional capability the model should have to rediscover. The Channels MCP
+// itself remains deferred, keeping its schemas out of main and ordinary workers.
+// The rest of the work surface still comes from the agent's attached MCPs.
+var chatThreadTools = []string{"send", "spawn", "pace", "channels_send"}
 
 func chatThreadProfileFor(inst framework.InstanceInfo) chatThreadProfile {
 	directive := chatThreadDirectiveSuffix

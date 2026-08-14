@@ -584,6 +584,17 @@ func TestInboxDismissFiltersMessagesAndPersistsProps(t *testing.T) {
 	if _, err := st.EnsureDefaultChat(285); err != nil {
 		t.Fatalf("EnsureDefaultChat: %v", err)
 	}
+	older, err := st.Append(defaultChatID(285), "agent", "Report: Pantry inventory", nil, "main", "final", []framework.ChatComponent{{
+		App:  "channel-chat",
+		Name: "report-card",
+		Props: map[string]any{
+			"title":   "Pantry inventory",
+			"summary": "The older visible report.",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("append older report: %v", err)
+	}
 	msg, err := st.Append(defaultChatID(285), "agent", "Report: Pantry check", nil, "main", "final", []framework.ChatComponent{{
 		App:  "channel-chat",
 		Name: "report-card",
@@ -599,8 +610,8 @@ func TestInboxDismissFiltersMessagesAndPersistsProps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListReportMessages before: %v", err)
 	}
-	if len(before) != 1 {
-		t.Fatalf("reports before dismiss=%d, want 1", len(before))
+	if len(before) != 2 {
+		t.Fatalf("reports before dismiss=%d, want 2", len(before))
 	}
 	components, err := applyInboxDismiss(msg.Components, 99)
 	if err != nil {
@@ -614,12 +625,12 @@ func TestInboxDismissFiltersMessagesAndPersistsProps(t *testing.T) {
 	if props["dismissed"] != true || props["dismissed_at"] == "" || props["dismissed_by"] == nil {
 		t.Fatalf("dismiss props not persisted: %#v", props)
 	}
-	after, err := st.ListReportMessages([]int64{285}, "default", 20)
+	after, err := st.ListReportMessages([]int64{285}, "default", 1)
 	if err != nil {
 		t.Fatalf("ListReportMessages after: %v", err)
 	}
-	if len(after) != 0 {
-		t.Fatalf("reports after dismiss=%d, want 0", len(after))
+	if len(after) != 1 || after[0].Message.ID != older.ID {
+		t.Fatalf("reports after dismiss=%+v, want older visible report %d", after, older.ID)
 	}
 }
 

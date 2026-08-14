@@ -124,14 +124,32 @@ func TestChannelChat_RealLLM_Codex_DurableRequestEvolvesOnMain(t *testing.T) {
 	waitForInitialAgentTurn(t, h)
 
 	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
-	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
-	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	baselineActivity := telemetryEventIDs(t, h.server, h.agent.ID, "")
 	baselineEvolved := telemetryEventIDs(t, h.server, h.agent.ID, "directive.evolved")
 	var baselineMessageID int64
 	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
 
 	h.post(t, "From now on, every day at 09:00 UTC, send me a notification saying exactly: Daily check-in.")
-	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+	// A durable handoff spans two independently scheduled threads. Waiting for
+	// any stable llm.done sequence can end while the conversation's post-main
+	// round is still active. Observe the actual contract instead: main must
+	// evolve and the originating conversation must publish its confirmation.
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+		hasMainEvolution := false
+		for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "directive.evolved", baselineEvolved) {
+			if event.ThreadID == "main" {
+				hasMainEvolution = true
+				break
+			}
+		}
+		if hasMainEvolution && strings.Contains(reply, "daily check-in") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentActivityQuiet(t, h, baselineActivity, 3*time.Second)
 
 	conversationThreadID := "chat-" + h.chatID
 	var handoffs, mainEvolves, mainReplies, conversationEvolves int

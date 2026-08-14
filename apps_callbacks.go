@@ -759,8 +759,12 @@ func (s *Server) handleCallbackChannels(w http.ResponseWriter, r *http.Request, 
 // the same code path /connections/:id/execute uses, including OAuth
 // refresh + 401 retry + token persistence.
 func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) == 3 && parts[1] == "url-properties" && r.Method == http.MethodGet {
+		s.handleCallbackIntegrationURLProperty(w, r, parts[0], parts[2])
+		return
+	}
 	if len(parts) != 2 || parts[1] != "execute" || r.Method != http.MethodPost {
-		http.Error(w, "POST /integrations/:id/execute only", http.StatusMethodNotAllowed)
+		http.Error(w, "unsupported integration callback", http.StatusMethodNotAllowed)
 		return
 	}
 	installID, err := requireInstallID(r)
@@ -942,7 +946,13 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	if environmentID == "" {
 		environmentID = r.Header.Get("X-Apteva-Environment-Id")
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+	if environmentID == "" {
+		err = s.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
+	}
+	var result *ExecuteResult
+	if err == nil {
+		result, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+	}
 	if err != nil {
 		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
 		if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, executionInput, "error", err.Error()); ok {
@@ -970,6 +980,51 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, result)
+}
+
+func (s *Server) handleCallbackIntegrationURLProperty(w http.ResponseWriter, r *http.Request, connIDRaw, property string) {
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if !installHasPermission(s, installID, sdk.PermConnectionsExecute) {
+		http.Error(w, "missing permission: "+string(sdk.PermConnectionsExecute), http.StatusForbidden)
+		return
+	}
+	connID, err := strconv.ParseInt(connIDRaw, 10, 64)
+	if err != nil || connID <= 0 {
+		http.Error(w, "invalid connID", http.StatusBadRequest)
+		return
+	}
+	conn, encrypted, err := s.store.GetConnection(getUserID(r), connID)
+	if err != nil || conn == nil {
+		http.Error(w, "connection not found", http.StatusNotFound)
+		return
+	}
+	_, bound := installBoundConnection(s, installID, connID)
+	if !bound && connectionOwnerInstallID(s, connID) != installID && connectionCreatedVia(s, connID) != "integration" {
+		http.Error(w, "connection not reachable by this install", http.StatusForbidden)
+		return
+	}
+	app := s.catalog.Get(conn.AppSlug)
+	def := findURLProperty(app, property)
+	if def == nil {
+		http.Error(w, "URL property not found", http.StatusNotFound)
+		return
+	}
+	credentials := map[string]string{}
+	if encrypted != "" {
+		plain, err := Decrypt(s.secret, encrypted)
+		if err != nil || json.Unmarshal([]byte(plain), &credentials) != nil {
+			http.Error(w, "connection credentials unavailable", http.StatusInternalServerError)
+			return
+		}
+	}
+	response := s.urlPropertyResponse(app, *def, integrationOAuthFingerprint(credentials))
+	response["integration"] = app.Slug
+	response["property"] = property
+	writeJSON(w, response)
 }
 
 // sanitizeIntegrationCallbackInput separates server-owned routing metadata

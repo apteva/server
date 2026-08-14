@@ -1174,6 +1174,469 @@
       }
     },
     {
+      "name": "list_subaccounts",
+      "description": "List Twilio subaccounts owned by the authenticated main account, with optional name and lifecycle-status filters.",
+      "method": "GET",
+      "path": "/Accounts.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": {
+            "type": "string",
+            "description": "Only return subaccounts with this friendly name"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended",
+              "closed"
+            ],
+            "description": "Only return subaccounts in this lifecycle state"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_subaccount",
+      "description": "Create a Twilio subaccount under the authenticated main account. Use the returned Account SID to isolate a customer or workload.",
+      "method": "POST",
+      "path": "/Accounts.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": {
+            "type": "string",
+            "description": "Human-readable name for the new subaccount"
+          }
+        },
+        "required": [
+          "FriendlyName"
+        ]
+      }
+    },
+    {
+      "name": "get_subaccount",
+      "description": "Retrieve a Twilio subaccount by Account SID using the authenticated main account credentials.",
+      "method": "GET",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          }
+        },
+        "required": [
+          "SubaccountSid"
+        ]
+      }
+    },
+    {
+      "name": "update_subaccount",
+      "description": "Rename a Twilio subaccount. Use the dedicated lifecycle tools to suspend, reactivate, or close it.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "New human-readable name"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "FriendlyName"
+        ]
+      }
+    },
+    {
+      "name": "suspend_subaccount",
+      "description": "Suspend a Twilio subaccount using main-account credentials. Pass Status=suspended; suspended subaccounts can later be reactivated.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "Status": {
+            "type": "string",
+            "const": "suspended",
+            "description": "Must be suspended"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "Status"
+        ]
+      }
+    },
+    {
+      "name": "reactivate_subaccount",
+      "description": "Reactivate a suspended Twilio subaccount using main-account credentials. Pass Status=active.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "Status": {
+            "type": "string",
+            "const": "active",
+            "description": "Must be active"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "Status"
+        ]
+      }
+    },
+    {
+      "name": "close_subaccount",
+      "description": "Permanently close a Twilio subaccount using main-account credentials. Pass Status=closed. This action cannot be undone.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "Status": {
+            "type": "string",
+            "const": "closed",
+            "description": "Must be closed"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "Status"
+        ]
+      }
+    },
+    {
+      "name": "create_standard_api_key",
+      "description": "Create a standard API key for a Twilio account or subaccount. The response contains the secret only once, so store it securely.",
+      "method": "POST",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID that will own the key"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Human-readable key name"
+          }
+        },
+        "required": [
+          "AccountSid"
+        ]
+      }
+    },
+    {
+      "name": "create_restricted_api_key",
+      "description": "Create a permission-scoped restricted API key for a Twilio account or subaccount. Pass KeyType=restricted and Policy as a JSON string such as {\"allow\":[\"/twilio/messaging/messages/read\"]}. The secret is returned only once.",
+      "method": "POST",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID that will own the key"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Human-readable key name"
+          },
+          "KeyType": {
+            "type": "string",
+            "const": "restricted",
+            "description": "Must be restricted"
+          },
+          "Policy": {
+            "type": "string",
+            "description": "JSON-encoded Twilio restricted-key policy object containing an allow array of permission strings"
+          }
+        },
+        "required": [
+          "AccountSid",
+          "KeyType",
+          "Policy"
+        ]
+      }
+    },
+    {
+      "name": "list_api_keys",
+      "description": "List standard and restricted API keys owned by a Twilio account or subaccount. Key secrets are never returned by list operations.",
+      "method": "GET",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID that owns the keys"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        },
+        "required": [
+          "AccountSid"
+        ]
+      }
+    },
+    {
+      "name": "get_api_key",
+      "description": "Retrieve a Twilio API key by SID. Twilio does not return the key secret after creation.",
+      "method": "GET",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys/{KeySid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "KeySid": {
+            "type": "string",
+            "pattern": "^SK[0-9a-fA-F]{32}$",
+            "description": "API Key SID"
+          }
+        },
+        "required": [
+          "KeySid"
+        ]
+      }
+    },
+    {
+      "name": "update_api_key",
+      "description": "Rename a Twilio API key or replace a restricted key's complete policy. Policy must be a JSON string and fully overwrites the existing policy.",
+      "method": "POST",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys/{KeySid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "KeySid": {
+            "type": "string",
+            "pattern": "^SK[0-9a-fA-F]{32}$",
+            "description": "API Key SID"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "New human-readable key name"
+          },
+          "Policy": {
+            "type": "string",
+            "description": "Complete replacement restricted-key policy encoded as JSON"
+          }
+        },
+        "required": [
+          "KeySid"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "FriendlyName"
+            ]
+          },
+          {
+            "required": [
+              "Policy"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "delete_api_key",
+      "description": "Delete and revoke a Twilio API key. This also invalidates Access Tokens generated with that key's secret.",
+      "method": "DELETE",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys/{KeySid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "KeySid": {
+            "type": "string",
+            "pattern": "^SK[0-9a-fA-F]{32}$",
+            "description": "API Key SID to revoke"
+          }
+        },
+        "required": [
+          "KeySid"
+        ]
+      }
+    },
+    {
+      "name": "get_account_usage",
+      "description": "Retrieve usage and cost records for a specific Twilio account or subaccount using its Account SID.",
+      "method": "GET",
+      "path": "/Accounts/{AccountSid}/Usage/Records.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID whose usage should be retrieved"
+          },
+          "Category": {
+            "type": "string",
+            "description": "Usage category such as calls, sms, phonenumbers, or recordings"
+          },
+          "StartDate": {
+            "type": "string",
+            "description": "Start date in GMT as YYYY-MM-DD or a Twilio relative offset such as -30days"
+          },
+          "EndDate": {
+            "type": "string",
+            "description": "End date in GMT as YYYY-MM-DD or a Twilio relative offset such as +30days"
+          },
+          "IncludeSubaccounts": {
+            "type": "boolean",
+            "description": "Whether to aggregate usage from child subaccounts"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        },
+        "required": [
+          "AccountSid"
+        ]
+      }
+    },
+    {
+      "name": "get_account_usage_by_period",
+      "description": "Retrieve Twilio usage for a specific account or subaccount using a daily, monthly, yearly, or preset reporting period.",
+      "method": "GET",
+      "path": "/Accounts/{AccountSid}/Usage/Records/{Period}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID whose usage should be retrieved"
+          },
+          "Period": {
+            "type": "string",
+            "enum": [
+              "Daily",
+              "Monthly",
+              "Yearly",
+              "AllTime",
+              "Today",
+              "Yesterday",
+              "ThisMonth",
+              "LastMonth"
+            ],
+            "description": "Twilio Usage Records convenience subresource"
+          },
+          "Category": {
+            "type": "string",
+            "description": "Usage category such as calls, sms, phonenumbers, or recordings"
+          },
+          "StartDate": {
+            "type": "string",
+            "description": "Optional start date in GMT as YYYY-MM-DD"
+          },
+          "EndDate": {
+            "type": "string",
+            "description": "Optional end date in GMT as YYYY-MM-DD"
+          },
+          "IncludeSubaccounts": {
+            "type": "boolean",
+            "description": "Whether to aggregate usage from child subaccounts"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        },
+        "required": [
+          "AccountSid",
+          "Period"
+        ]
+      }
+    },
+    {
       "name": "list_whatsapp_senders",
       "description": "List all WhatsApp Business senders (phone numbers) registered in your Twilio account. Shows sender status, phone number, and WhatsApp Business profile details.",
       "method": "GET",
@@ -1375,6 +1838,10 @@
             "type": "integer",
             "default": 50,
             "description": "Number of templates to return"
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque token from meta.next_page_url for the next result page"
           },
           "Language": {
             "type": "string",

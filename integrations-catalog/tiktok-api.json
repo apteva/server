@@ -55,6 +55,16 @@
       "scope_separator": ","
     }
   },
+  "url_properties": [
+    {
+      "id": "content_delivery",
+      "label": "Media delivery URL",
+      "purpose": "Lets TikTok securely fetch photos and videos stored in Apteva without following redirects.",
+      "types": ["url_prefix"],
+      "verification_methods": ["file"],
+      "setup_url": "https://developers.tiktok.com/apps/"
+    }
+  ],
   "tools": [
     {
       "name": "post_video",
@@ -163,6 +173,19 @@
           "source_info"
         ]
       },
+      "external_fetch_inputs": [
+        {
+          "path": "source_info.video_url",
+          "property": "content_delivery",
+          "relay": "required",
+          "https_required": true,
+          "redirects_allowed": false,
+          "ttl_seconds": 7200,
+          "max_bytes": 4294967296,
+          "mime_types": ["video/mp4", "video/webm", "video/quicktime"],
+          "when": {"path": "source_info.source", "equals": "PULL_FROM_URL"}
+        }
+      ],
       "mock_response": {
         "data": {
           "publish_id": "v_pub_id.mock0000000001"
@@ -288,6 +311,18 @@
           "media_type"
         ]
       },
+      "external_fetch_inputs": [
+        {
+          "path": "source_info.photo_images[]",
+          "property": "content_delivery",
+          "relay": "required",
+          "https_required": true,
+          "redirects_allowed": false,
+          "ttl_seconds": 7200,
+          "max_bytes": 20971520,
+          "mime_types": ["image/jpeg", "image/webp"]
+        }
+      ],
       "mock_response": {
         "data": {
           "publish_id": "p_pub_id.mock0000000002"
@@ -345,6 +380,19 @@
           "source_info"
         ]
       },
+      "external_fetch_inputs": [
+        {
+          "path": "source_info.video_url",
+          "property": "content_delivery",
+          "relay": "required",
+          "https_required": true,
+          "redirects_allowed": false,
+          "ttl_seconds": 7200,
+          "max_bytes": 4294967296,
+          "mime_types": ["video/mp4", "video/webm", "video/quicktime"],
+          "when": {"path": "source_info.source", "equals": "PULL_FROM_URL"}
+        }
+      ],
       "mock_response": {
         "data": {
           "publish_id": "v_inbox_id.mock0000000003"

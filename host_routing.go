@@ -130,6 +130,11 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		originalDirector(req)
 		req.Host = r.Host
 		req.Header.Set("X-Forwarded-Host", r.Host)
+		if !isUpgrade {
+			hr.server.applyGeoCountryHeader(req.Header, r)
+		} else {
+			req.Header.Del(geoCountryHeader)
+		}
 		req.Header.Del("X-Apteva-Original-Authorization")
 		req.Header.Del("X-Apteva-App-Token")
 		if appToken != "" {

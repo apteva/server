@@ -139,7 +139,25 @@ The agent can manage its own integrations and connections.
 | `DATA_DIR` | `data` | Instance data directory |
 | `APPS_DIR` | auto-detect | Integration catalog JSON directory |
 | `PUBLIC_URL` | — | Public URL for webhook callbacks |
+| `APTEVA_GEOIP_COUNTRY_DB` | — | Optional path to a Country `.mmdb`. Public app ingress receives a trusted `X-Apteva-Country` ISO code; the file is reloaded after atomic updates. |
+| `APTEVA_TRUSTED_PROXY_CIDRS` | — | Comma-separated proxy networks allowed to supply `X-Forwarded-For`, for example `10.0.0.0/8,2001:db8:1234::/48`. Loopback proxies are trusted automatically. |
 | `QUIET` | — | Set to `1` to suppress console output |
+
+GeoIP is enabled by default with the free DB-IP Country Lite database. Its first
+download happens asynchronously, requires no account or API key, and is refreshed
+monthly. GeoIP remains entirely fail-open: a missing, invalid, or unmatched
+database never blocks a request. Operators can instead use
+`MAXMIND_LICENSE_KEY=... apteva geoip setup --account-id ...` for GeoLite2
+Country or `apteva geoip setup --test` during development. Configuration and the
+database live below `$APTEVA_HOME/geoip/`; Server keeps the last known-good copy
+on refresh failure and notices atomic replacement without a restart.
+`APTEVA_GEOIP_COUNTRY_DB` remains an operator-owned override that Server never
+downloads over.
+
+DB-IP Country Lite data is provided by [DB-IP](https://db-ip.com) under the
+[Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+`APTEVA_TRUST_PROXY_HEADERS=1` remains available for older, network-isolated
+deployments, but new deployments should use the CIDR-scoped setting.
 
 ## License
 

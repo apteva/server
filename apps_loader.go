@@ -528,12 +528,18 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	publicRoute := appProxyRouteIsNoAuth(entry, tail, r.Method)
 	// Rewrite path so the sidecar sees its own routes (without the
 	// /apps/<name> prefix). The token swap happens in Director.
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = tail
+		if publicRoute && !requestIsProtocolUpgrade(r) {
+			s.applyGeoCountryHeader(req.Header, r)
+		} else {
+			req.Header.Del(geoCountryHeader)
+		}
 		// Ordinary app routes are agent/user-facing. Only the authenticated
 		// /apps/callback/apps/:name/call bridge may mint this identity.
 		req.Header.Del(sdk.HeaderBoundCallerInstallID)

@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	sdk "github.com/apteva/app-sdk"
@@ -11,6 +12,8 @@ import (
 func TestAppProxy_NoAuthRoutePreservesCallerAuthorization(t *testing.T) {
 	s := newTestServer(t)
 	s.installedApps = NewInstalledAppsRegistry()
+	visitor := netip.MustParseAddr("81.2.69.142")
+	s.geoCountry = staticCountryLookup{visitor: "GB"}
 
 	const (
 		projectID    = "proj-auth"
@@ -21,10 +24,12 @@ func TestAppProxy_NoAuthRoutePreservesCallerAuthorization(t *testing.T) {
 	var seenAuth string
 	var seenAppToken string
 	var seenOriginalAuth string
+	var seenCountry string
 	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenAuth = r.Header.Get("Authorization")
 		seenAppToken = r.Header.Get("X-Apteva-App-Token")
 		seenOriginalAuth = r.Header.Get("X-Apteva-Original-Authorization")
+		seenCountry = r.Header.Get(geoCountryHeader)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer sidecar.Close()
@@ -43,7 +48,9 @@ func TestAppProxy_NoAuthRoutePreservesCallerAuthorization(t *testing.T) {
 	apiMux := http.NewServeMux()
 	s.registerAppRuntimeRoutes(apiMux)
 	req := httptest.NewRequest(http.MethodGet, "/apps/auth/me?project_id="+projectID, nil)
+	req.RemoteAddr = visitor.String() + ":443"
 	req.Header.Set("Authorization", callerBearer)
+	req.Header.Set(geoCountryHeader, "ZZ")
 	w := httptest.NewRecorder()
 	apiMux.ServeHTTP(w, req)
 
@@ -58,6 +65,9 @@ func TestAppProxy_NoAuthRoutePreservesCallerAuthorization(t *testing.T) {
 	}
 	if seenOriginalAuth != callerBearer {
 		t.Fatalf("X-Apteva-Original-Authorization = %q, want caller bearer", seenOriginalAuth)
+	}
+	if seenCountry != "GB" {
+		t.Fatalf("X-Apteva-Country = %q, want trusted GB", seenCountry)
 	}
 }
 
@@ -138,9 +148,11 @@ func TestAppProxy_PrivateRouteStillUsesInstallAuthorization(t *testing.T) {
 
 	var seenAuth string
 	var seenAppToken string
+	var seenCountry string
 	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenAuth = r.Header.Get("Authorization")
 		seenAppToken = r.Header.Get("X-Apteva-App-Token")
+		seenCountry = r.Header.Get(geoCountryHeader)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer sidecar.Close()
@@ -157,6 +169,7 @@ func TestAppProxy_PrivateRouteStillUsesInstallAuthorization(t *testing.T) {
 	s.registerAppRuntimeRoutes(apiMux)
 	req := httptest.NewRequest(http.MethodGet, "/apps/auth/admin/users?project_id="+projectID, nil)
 	req.Header.Set("Authorization", callerBearer)
+	req.Header.Set(geoCountryHeader, "ZZ")
 	w := httptest.NewRecorder()
 	apiMux.ServeHTTP(w, req)
 
@@ -168,5 +181,8 @@ func TestAppProxy_PrivateRouteStillUsesInstallAuthorization(t *testing.T) {
 	}
 	if seenAppToken != "" {
 		t.Fatalf("X-Apteva-App-Token = %q, want empty on private route", seenAppToken)
+	}
+	if seenCountry != "" {
+		t.Fatalf("private route received spoofed country %q", seenCountry)
 	}
 }

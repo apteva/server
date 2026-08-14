@@ -89,6 +89,9 @@ type Server struct {
 	catalog              *AppCatalog
 	secret               []byte // AES-256 key for encrypting provider data
 	integrationWebhookMu sync.Mutex
+	// Optional test transport for the public integration media relay. Nil in
+	// production, where the relay installs its SSRF-hardened transport.
+	integrationRelayTransport http.RoundTripper
 	// agentConfigLocks serializes read/modify/write updates to one agent's
 	// config. MCP attachment changes are additive at the API, but ultimately
 	// core consumes one desired mcp_servers list; without this lock two
@@ -155,6 +158,10 @@ type Server struct {
 	// marked publicly cacheable (Cache-Control: public, max-age>0).
 	// See edge_cache.go.
 	edgeCache *EdgeCache
+	// geoCountry is an optional local Country MMDB reader (DB-IP by default,
+	// with MaxMind and operator-owned files supported). It enriches public app
+	// ingress only and remains inactive when no valid database is available.
+	geoCountry countryLookup
 
 	// manifestRefreshInFlight gates the background goroutine launched
 	// by handleListApps that refreshes manifest_json from upstream.
@@ -545,6 +552,7 @@ func main() {
 		platformStatus: newPlatformStatusPoller(dataDir),
 		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
 		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
+		geoCountry:     newManagedGeoCountryLookup(dataDir),
 	}
 	s.startupIntent = s.readLifecycleIntent(false)
 	quarantined := cloneQuarantineEnabled()
@@ -817,8 +825,10 @@ func main() {
 	apiMux.HandleFunc("/integrations/catalog/reload", s.authMiddleware(s.handleCatalogReload))
 	apiMux.HandleFunc("/integrations/catalog/status", s.authMiddleware(s.handleCatalogStatus))
 	apiMux.HandleFunc("/integrations/catalog/download", s.authMiddleware(s.handleCatalogDownload))
-	apiMux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleGetCatalogApp))
+	apiMux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleIntegrationURLProperties))
 	apiMux.HandleFunc("/integrations/catalog", s.authMiddleware(s.handleListCatalog))
+	// Public provider verification files and encrypted, short-lived media relay.
+	apiMux.HandleFunc("/relay/", s.handleIntegrationRelay)
 
 	// Credential-group (suite) routes. Let templates declare that N
 	// apps share one key, optionally an account-scoped one that fans
@@ -1667,6 +1677,11 @@ func main() {
 			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
 		}
 		s.stopMobilePushWorker()
+		if s.geoCountry != nil {
+			if err := s.geoCountry.Close(); err != nil {
+				log.Printf("[GEOIP] close country database: %v", err)
+			}
+		}
 		s.stopApps(appsReg)
 		if preserveAgents {
 			log.Printf("[SHUTDOWN] leaving user agent core process(es) alive for reattach")
