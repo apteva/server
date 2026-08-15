@@ -1033,6 +1033,9 @@ func main() {
 		if strings.HasSuffix(path, "/agent-default") {
 			need = ProjectOwner
 		}
+		if strings.HasSuffix(path, "/delegated-access-policies") {
+			need = ProjectOwner
+		}
 		if _, ok := s.requireAppInstallAccess(w, r, installID, need); !ok {
 			return
 		}
@@ -1063,6 +1066,8 @@ func main() {
 			s.handleSetInstallScope(w, r)
 		case strings.HasSuffix(path, "/agent-default") && r.Method == http.MethodPatch:
 			s.handleSetInstallAgentDefault(w, r)
+		case strings.HasSuffix(path, "/delegated-access-policies"):
+			s.handleDelegatedAccessPolicies(w, r)
 		case strings.HasSuffix(path, "/permissions"),
 			strings.HasSuffix(path, "/default-effect"),
 			strings.Contains(path, "/grants"):
@@ -1389,7 +1394,7 @@ func main() {
 	// "*" for credential-free public clients, or "off" explicitly.
 	corsCfg := newCORSConfig(os.Getenv("CORS_ORIGIN"))
 	crossOriginCookies = corsCfg.needsCrossOriginCookies()
-	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middlewareWithDynamicOrigin(apiMux, s.delegatedChatCORSOriginAllowed)))))
+	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middlewareWithDynamicOrigin(apiMux, s.delegatedAppCORSOriginAllowed)))))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found.

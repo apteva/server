@@ -233,7 +233,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				}
 				key, err := s.store.GetDelegatedUserAPIKey(keyHash)
 				if err == nil {
-					if !s.authorizeDelegatedAppRequest(w, r, key, appName, appPath) {
+					if !s.authorizeDelegatedAppRequest(w, r, key, appName) {
 						return
 					}
 					if appPath == "/mcp" && r.Method == http.MethodPost {

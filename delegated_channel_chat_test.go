@@ -82,15 +82,6 @@ func TestCreateDelegatedChatCredentialAndEnforceRESTBoundary(t *testing.T) {
 		t.Fatalf("wrong origin status=%d body=%s", blocked.Code, blocked.Body.String())
 	}
 
-	forbiddenRoute := httptest.NewRequest(http.MethodDelete, "/apps/channel-chat/chats/conv-other", nil)
-	forbiddenRoute.Header.Set("Authorization", "Bearer "+token.AccessToken)
-	forbiddenRoute.Header.Set("Origin", "https://shop.example")
-	blocked = httptest.NewRecorder()
-	next(blocked, forbiddenRoute)
-	if blocked.Code != http.StatusForbidden {
-		t.Fatalf("forbidden route status=%d body=%s", blocked.Code, blocked.Body.String())
-	}
-
 	// Network clients cannot spoof another subject through trusted headers.
 	spoof := httptest.NewRequest(http.MethodGet, "/apps/channel-chat/chats?agent_id="+itoa64(agent.ID), nil)
 	spoof.Header.Set("Authorization", "Bearer "+token.AccessToken)
@@ -144,7 +135,7 @@ func TestDelegatedChatCredentialExpiryAndDynamicCORS(t *testing.T) {
 	preflight.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	cors := (*corsConfig)(nil).middlewareWithDynamicOrigin(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("preflight should be handled by CORS")
-	}), s.delegatedChatCORSOriginAllowed)
+	}), s.delegatedAppCORSOriginAllowed)
 	corsRec := httptest.NewRecorder()
 	cors.ServeHTTP(corsRec, preflight)
 	if corsRec.Code != http.StatusNoContent || corsRec.Header().Get("Access-Control-Allow-Origin") != "https://chat.example" {

@@ -54,20 +54,25 @@ func delegatedUserScopeAllows(rawScopes, appName, action string) bool {
 	return false
 }
 
-func (s *Server) authorizeDelegatedAppRequest(w http.ResponseWriter, r *http.Request, key *APIKey, appName, appPath string) bool {
-	if appName != "channel-chat" {
-		return true
-	}
-	action := delegatedChannelChatAction(r.Method, appPath)
-	if action == "" {
-		http.Error(w, "delegated user key is not allowed to call this channel-chat route", http.StatusForbidden)
+func delegatedUserScopeHasApp(rawScopes, appName string) bool {
+	var scopes []publicClientScope
+	if err := json.Unmarshal([]byte(rawScopes), &scopes); err != nil {
 		return false
 	}
-	if !delegatedUserScopeAllows(key.Scopes, appName, action) {
-		http.Error(w, "delegated user key is not allowed to perform this chat action", http.StatusForbidden)
+	for _, scope := range scopes {
+		if (scope.Type == "app_user" || scope.Type == "app_action") && (scope.App == appName || scope.App == "*") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) authorizeDelegatedAppRequest(w http.ResponseWriter, r *http.Request, key *APIKey, appName string) bool {
+	if !delegatedUserScopeHasApp(key.Scopes, appName) {
+		http.Error(w, "delegated user key is not allowed to call this app", http.StatusForbidden)
 		return false
 	}
-	if !publicClientOriginAllowed(key.AllowedOrigins, r.Header.Get("Origin")) {
+	if origin := r.Header.Get("Origin"); origin != "" && !publicClientOriginAllowed(key.AllowedOrigins, origin) {
 		http.Error(w, "origin not allowed", http.StatusForbidden)
 		return false
 	}
@@ -76,32 +81,6 @@ func (s *Server) authorizeDelegatedAppRequest(w http.ResponseWriter, r *http.Req
 		return false
 	}
 	return true
-}
-
-func delegatedChannelChatAction(method, path string) string {
-	path = strings.TrimSuffix(path, "/")
-	switch {
-	case path == "/chats" && method == http.MethodPost:
-		return "chat.create"
-	case path == "/chats" && method == http.MethodGet:
-		return "chat.list"
-	case strings.HasPrefix(path, "/chats/") && method == http.MethodGet:
-		return "chat.read"
-	case strings.HasPrefix(path, "/chats/") && method == http.MethodPatch:
-		return "chat.update"
-	case path == "/messages" && method == http.MethodGet:
-		return "message.read"
-	case path == "/messages" && method == http.MethodPost:
-		return "message.send"
-	case path == "/stream" && method == http.MethodGet:
-		return "stream.read"
-	case path == "/seen" && method == http.MethodPost:
-		return "chat.seen"
-	case path == "/presence" && method == http.MethodPost:
-		return "chat.presence"
-	default:
-		return ""
-	}
 }
 
 func delegatedChannelChatScope(rawScopes string) (publicClientScope, bool) {
@@ -119,6 +98,7 @@ func delegatedChannelChatScope(rawScopes string) (publicClientScope, bool) {
 
 type delegatedUserKeyRequest struct {
 	ProjectID        string          `json:"project_id"`
+	OAuthClientID    string          `json:"oauth_client_id"`
 	SubjectType      string          `json:"subject_type"`
 	SubjectID        string          `json:"subject_id"`
 	SubjectEmail     string          `json:"subject_email"`
@@ -328,20 +308,19 @@ func uniquePositiveInt64s(values []int64) []int64 {
 	return out
 }
 
-func (s *Server) delegatedChatCORSOriginAllowed(r *http.Request, origin string) bool {
+func (s *Server) delegatedAppCORSOriginAllowed(r *http.Request, origin string) bool {
 	if s == nil || s.store == nil || r == nil {
 		return false
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api")
 	appName, _, ok := splitAppProxyPath(path)
-	if !ok || appName != "channel-chat" {
+	if !ok {
 		return false
 	}
 	rows, err := s.store.db.Query(`
-		SELECT COALESCE(allowed_origins, '[]')
+		SELECT COALESCE(allowed_origins, '[]'), COALESCE(scopes, '[]')
 		FROM api_keys
 		WHERE kind = 'delegated_user'
-		  AND issuer_app = 'channel-chat'
 		  AND revoked_at IS NULL
 		  AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)`)
 	if err != nil {
@@ -349,8 +328,8 @@ func (s *Server) delegatedChatCORSOriginAllowed(r *http.Request, origin string) 
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var allowed string
-		if rows.Scan(&allowed) == nil && publicClientOriginAllowed(allowed, origin) {
+		var allowed, scopes string
+		if rows.Scan(&allowed, &scopes) == nil && delegatedUserScopeHasApp(scopes, appName) && publicClientOriginAllowed(allowed, origin) {
 			return true
 		}
 	}
@@ -375,7 +354,7 @@ func (s *Server) handleCallbackDelegatedKeys(w http.ResponseWriter, r *http.Requ
 	out, err := s.mintDelegatedUserKeyForInstall(installID, body)
 	if err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, errDelegatedForbidden) {
+		if errors.Is(err, errDelegatedForbidden) || errors.Is(err, errDelegatedPolicyNotFound) {
 			status = http.StatusForbidden
 		}
 		http.Error(w, err.Error(), status)
@@ -424,15 +403,28 @@ func (s *Server) mintDelegatedUserKeyForInstall(installID int64, body delegatedU
 	subjectEmail := strings.TrimSpace(strings.ToLower(body.SubjectEmail))
 	orgID := strings.TrimSpace(body.OrganizationID)
 	orgSlug := strings.TrimSpace(strings.ToLower(body.OrganizationSlug))
+	oauthClientID := strings.TrimSpace(body.OAuthClientID)
 	scopesJSON := "[]"
-	if len(body.Scopes) > 0 && string(body.Scopes) != "null" {
+	ttlSeconds := body.ExpiresIn
+	rateLimit := body.RateLimit
+	if oauthClientID != "" {
+		policy, err := s.delegatedAccessPolicyFor(installID, requestedProjectID, oauthClientID)
+		if err != nil {
+			return nil, err
+		}
+		scopesJSON = string(policy.Scopes)
+		ttlSeconds = policy.TokenTTLSeconds
+		rateLimit = policy.RateLimitPerMinute
+	} else if len(body.Scopes) > 0 && string(body.Scopes) != "null" {
+		// Compatibility for existing issuer apps. New generic issuers identify
+		// their OAuth client and cannot supply their own authorization policy.
 		if !json.Valid(body.Scopes) {
 			return nil, errors.New("scopes must be valid JSON")
 		}
 		scopesJSON = string(body.Scopes)
 	}
 	originsJSON := "[]"
-	if len(body.AllowedOrigins) > 0 {
+	if oauthClientID != "" || len(body.AllowedOrigins) > 0 {
 		origins, err := validateDelegatedOrigins(body.AllowedOrigins)
 		if err != nil {
 			return nil, err
@@ -440,7 +432,7 @@ func (s *Server) mintDelegatedUserKeyForInstall(installID int64, body delegatedU
 		rawOrigins, _ := json.Marshal(origins)
 		originsJSON = string(rawOrigins)
 	}
-	ttl := time.Duration(body.ExpiresIn) * time.Second
+	ttl := time.Duration(ttlSeconds) * time.Second
 	if ttl <= 0 {
 		ttl = time.Hour
 	}
@@ -456,7 +448,7 @@ func (s *Server) mintDelegatedUserKeyForInstall(installID int64, body delegatedU
 		ProjectID:          requestedProjectID,
 		Scopes:             scopesJSON,
 		AllowedOrigins:     originsJSON,
-		RateLimitPerMinute: body.RateLimit,
+		RateLimitPerMinute: rateLimit,
 		ExpiresAt:          expiresAt,
 		IssuerApp:          appName,
 		IssuerInstallID:    installID,
@@ -470,12 +462,13 @@ func (s *Server) mintDelegatedUserKeyForInstall(installID int64, body delegatedU
 		return nil, err
 	}
 	return map[string]any{
-		"access_token": raw,
-		"token_type":   "Bearer",
-		"expires_in":   int(ttl.Seconds()),
-		"expires_at":   expiresAt,
-		"key_prefix":   key.KeyPrefix,
-		"project_id":   key.ProjectID,
+		"access_token":    raw,
+		"token_type":      "Bearer",
+		"expires_in":      int(ttl.Seconds()),
+		"expires_at":      expiresAt,
+		"key_prefix":      key.KeyPrefix,
+		"project_id":      key.ProjectID,
+		"oauth_client_id": oauthClientID,
 		"subject": map[string]any{
 			"type":              subjectType,
 			"id":                subjectID,

@@ -275,14 +275,16 @@ type delegatedChatPrincipal struct {
 	SubjectType string
 	SubjectID   string
 	AgentIDs    map[int64]bool
+	Actions     map[string]bool
 	Directive   string
 }
 
 type delegatedChatScope struct {
-	Type      string  `json:"type"`
-	App       string  `json:"app"`
-	AgentIDs  []int64 `json:"agent_ids"`
-	Directive string  `json:"directive"`
+	Type      string   `json:"type"`
+	App       string   `json:"app"`
+	Actions   []string `json:"actions"`
+	AgentIDs  []int64  `json:"agent_ids"`
+	Directive string   `json:"directive"`
 }
 
 func delegatedPrincipal(r *http.Request) (delegatedChatPrincipal, bool) {
@@ -299,6 +301,7 @@ func delegatedPrincipal(r *http.Request) (delegatedChatPrincipal, bool) {
 		SubjectType: subjectType,
 		SubjectID:   subjectID,
 		AgentIDs:    map[int64]bool{},
+		Actions:     map[string]bool{},
 	}
 	var scopes []delegatedChatScope
 	_ = json.Unmarshal([]byte(r.Header.Get("X-Apteva-Scopes")), &scopes)
@@ -311,6 +314,12 @@ func delegatedPrincipal(r *http.Request) (delegatedChatPrincipal, bool) {
 				principal.AgentIDs[agentID] = true
 			}
 		}
+		for _, action := range scope.Actions {
+			action = strings.TrimSpace(action)
+			if action != "" {
+				principal.Actions[action] = true
+			}
+		}
 		principal.Directive = strings.TrimSpace(scope.Directive)
 		break
 	}
@@ -319,6 +328,38 @@ func delegatedPrincipal(r *http.Request) (delegatedChatPrincipal, bool) {
 
 func (p delegatedChatPrincipal) allowsAgent(agentID int64) bool {
 	return agentID > 0 && p.AgentIDs[agentID]
+}
+
+func (p delegatedChatPrincipal) allowsAction(action string) bool {
+	return action != "" && p.Actions[action]
+}
+
+func delegatedChatRequestAction(method, path string) string {
+	path = strings.TrimSuffix(path, "/")
+	path = strings.TrimPrefix(path, "/api/apps/channel-chat")
+	path = strings.TrimPrefix(path, "/apps/channel-chat")
+	switch {
+	case path == "/chats" && method == http.MethodPost:
+		return "chat.create"
+	case path == "/chats" && method == http.MethodGet:
+		return "chat.list"
+	case strings.HasPrefix(path, "/chats/") && method == http.MethodGet:
+		return "chat.read"
+	case strings.HasPrefix(path, "/chats/") && method == http.MethodPatch:
+		return "chat.update"
+	case path == "/messages" && method == http.MethodGet:
+		return "message.read"
+	case path == "/messages" && method == http.MethodPost:
+		return "message.send"
+	case path == "/stream" && method == http.MethodGet:
+		return "stream.read"
+	case path == "/seen" && method == http.MethodPost:
+		return "chat.seen"
+	case path == "/presence" && method == http.MethodPost:
+		return "chat.presence"
+	default:
+		return ""
+	}
 }
 
 func delegatedConversationMatches(r *http.Request, chat *Chat) bool {

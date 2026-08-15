@@ -114,6 +114,39 @@ curl -X POST localhost:5280/providers \
 curl localhost:5280/providers -H "Authorization: Bearer sk-..."
 ```
 
+### Delegated app access
+
+Identity apps mint browser credentials without choosing their own privileges.
+A project owner configures the server-owned policy for each issuer install and
+OAuth client; the issuer then supplies only trusted subject data and validated
+browser origins.
+
+```bash
+curl -X PUT localhost:5280/api/apps/installs/158/delegated-access-policies \
+  -H "Authorization: Bearer sk-..." \
+  -H "Content-Type: application/json" \
+  -d '{"policies":[{
+    "oauth_client_id":"web-client",
+    "scopes":[
+      {"type":"app_user","app":"catalog","actions":["items.list"]},
+      {"type":"app_user","app":"channel-chat","actions":["chat.list","message.send"],"agent_ids":[566]}
+    ],
+    "token_ttl_seconds":3600,
+    "rate_limit_per_minute":120
+  }]}'
+```
+
+`PUT` atomically replaces the install's complete policy set; `{"policies":[]}`
+disables delegated minting. Apps and actions must be explicit—wildcards are
+rejected. Project-scoped installs derive `project_id` automatically; policies
+for a global issuer install must include it. Replacing a policy immediately
+revokes existing delegated credentials from that issuer install.
+
+The gateway enforces the configured app boundary, browser origin, rate limit,
+and MCP tool actions. REST apps receive the trusted identity and policy in
+`X-Apteva-*` headers and must map their own routes to the configured actions;
+Channel Chat is the reference implementation.
+
 ## MCP Gateway
 
 Each core instance gets an `apteva-server` MCP gateway injected automatically. This gives the agent access to management tools:

@@ -233,7 +233,16 @@ func (a *App) HTTPRoutes() []framework.Route {
 // Route.Handler signature without every route needing to know the
 // AppCtx it already has via the closed-over handler struct.
 func (a *App) wrap(fn func(http.ResponseWriter, *http.Request, *framework.AppCtx)) func(http.ResponseWriter, *http.Request, *framework.AppCtx) {
-	return fn
+	return func(w http.ResponseWriter, r *http.Request, ctx *framework.AppCtx) {
+		if principal, delegated := delegatedPrincipal(r); delegated {
+			action := delegatedChatRequestAction(r.Method, r.URL.Path)
+			if !principal.allowsAction(action) {
+				http.Error(w, "delegated user key is not allowed to perform this chat action", http.StatusForbidden)
+				return
+			}
+		}
+		fn(w, r, ctx)
+	}
 }
 
 func (a *App) Channels() []framework.ChannelFactory { return a.factories }

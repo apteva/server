@@ -422,6 +422,19 @@ func (s *Store) migrate() error {
 			organization_slug TEXT NOT NULL DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS delegated_access_policies (
+			issuer_install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
+			project_id TEXT NOT NULL,
+			oauth_client_id TEXT NOT NULL,
+			scopes TEXT NOT NULL,
+			token_ttl_seconds INTEGER NOT NULL DEFAULT 3600,
+			rate_limit_per_minute INTEGER NOT NULL DEFAULT 120,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (issuer_install_id, project_id, oauth_client_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_delegated_access_policy_lookup
+			ON delegated_access_policies(issuer_install_id, project_id, oauth_client_id);
 		CREATE TABLE IF NOT EXISTS sessions (
 			token TEXT PRIMARY KEY,
 			user_id INTEGER NOT NULL REFERENCES users(id),
@@ -1400,7 +1413,7 @@ func (s *Store) migrate() error {
 }
 
 func (s *Store) validateMigratedSchema() error {
-	requiredTables := []string{"users", "agents", "projects", "project_members", "app_installs", "skills", "telemetry", "mobile_push_subscriptions"}
+	requiredTables := []string{"users", "agents", "projects", "project_members", "app_installs", "delegated_access_policies", "skills", "telemetry", "mobile_push_subscriptions"}
 	for _, table := range requiredTables {
 		if !tableExists(s.db, table) {
 			return fmt.Errorf("migration incomplete: required table %s is missing", table)
