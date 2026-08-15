@@ -6,23 +6,61 @@
   "categories": ["affiliate", "publisher", "products", "links", "amazon", "marketing"],
   "base_url": "https://creatorsapi.amazon",
   "auth": {
-    "types": ["bearer"],
+    "types": ["api_key"],
+    "token_exchange": {
+      "url": "https://api.amazon.com/auth/o2/token",
+      "url_selector": {
+        "credential_field": "credential_version",
+        "values": {
+          "3.1": "https://api.amazon.com/auth/o2/token",
+          "3.2": "https://api.amazon.co.uk/auth/o2/token",
+          "3.3": "https://api.amazon.co.jp/auth/o2/token"
+        }
+      },
+      "method": "POST",
+      "content_type": "application/json",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{credential.credential_id}}",
+        "client_secret": "{{credential.credential_secret}}",
+        "scope": "creatorsapi::default"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    },
     "headers": {
-      "Authorization": "Bearer {{token}}",
+      "Authorization": "Bearer {{access_token}}",
       "Content-Type": "application/json",
       "x-marketplace": "{{marketplace}}"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "Creators API access token",
-        "description": "OAuth 2.0 access token from Amazon Creators API token endpoint. v2.x credentials may need the version suffix in this field, for example '<token>, Version 2.1'.",
+        "name": "credential_id",
+        "label": "Credential ID",
+        "description": "Credential ID generated for your application in Associates Central under Tools > Creators API.",
+        "type": "text"
+      },
+      {
+        "name": "credential_secret",
+        "label": "Credential secret",
+        "description": "Credential secret shown when you create the Creators API credential.",
         "type": "password"
+      },
+      {
+        "name": "credential_version",
+        "label": "Credential version",
+        "description": "Optional version shown with the credential: 3.1, 3.2, or 3.3. Defaults to 3.1 (North America).",
+        "required": false,
+        "default": "3.1",
+        "type": "text"
       },
       {
         "name": "marketplace",
         "label": "Marketplace",
-        "description": "Marketplace domain such as www.amazon.com or www.amazon.co.uk.",
+        "description": "Optional marketplace domain such as www.amazon.com or www.amazon.co.uk. Defaults to www.amazon.com.",
+        "required": false,
+        "default": "www.amazon.com",
         "type": "text"
       }
     ]

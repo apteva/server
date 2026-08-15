@@ -1,9 +1,9 @@
 {
   "slug": "awin",
   "name": "Awin",
-  "description": "Awin publisher API for program discovery, program details, offers/vouchers, link builder, and publisher transaction reporting.",
+  "description": "Awin publisher APIs for programme discovery, product feeds, offers/vouchers, link building, and publisher transaction reporting.",
   "logo": "https://www.google.com/s2/favicons?domain=awin.com&sz=128",
-  "categories": ["affiliate", "publisher", "programs", "offers", "links", "stats", "marketing"],
+  "categories": ["affiliate", "publisher", "programs", "offers", "products", "links", "stats", "marketing", "ecommerce"],
   "base_url": "https://api.awin.com",
   "auth": {
     "types": ["bearer"],
@@ -16,7 +16,15 @@
         "name": "token",
         "label": "Awin API token",
         "description": "Personal API token from Awin API Credentials.",
-        "type": "password"
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "product_feed_key",
+        "label": "Product feed API key",
+        "description": "Separate data-feed key from Toolbox > Create-a-Feed. Awin does not accept the Publisher API token for product feeds.",
+        "type": "password",
+        "required": false
       }
     ]
   },
@@ -102,6 +110,38 @@
           "extraConditionsDetails": { "type": "boolean", "default": false }
         },
         "required": ["publisherId", "advertiserId"]
+      }
+    },
+    {
+      "name": "product_feeds_list",
+      "description": "Download the CSV catalog of Awin product feeds visible to this publisher, including advertiser, feed ID, membership status, last import time, and feed URL. Requires the separate product-feed API key.",
+      "method": "GET",
+      "base_url": "https://productdata.awin.com",
+      "path": "/datafeed/list/apikey/{{credential.product_feed_key}}",
+      "omit_auth_headers": ["Authorization", "Accept"],
+      "headers": { "Accept": "text/csv" },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "product_feed_download",
+      "description": "Download a normalized CSV page for one Awin product feed. Returns product IDs, merchant metadata, prices, descriptions, category, brand, stock state, destination URL, image URL, and commissionable Awin deep link.",
+      "method": "GET",
+      "base_url": "https://datafeed.api.productserve.com",
+      "path": "/datafeed/download/apikey/{{credential.product_feed_key}}/fid/{feedId}/format/csv/language/{language}/delimiter/%2C/compression/none/adultcontent/{adultContent}/columns/aw_deep_link%2Cproduct_name%2Caw_product_id%2Cmerchant_product_id%2Cmerchant_image_url%2Cdescription%2Cmerchant_category%2Csearch_price%2Cmerchant_name%2Cmerchant_id%2Ccategory_name%2Ccurrency%2Cstore_price%2Cmerchant_deep_link%2Cbrand_name%2Ccommission_group%2Cin_stock%2Cstock_quantity%2Cstock_status%2Cean%2Cupc%2Cmpn%2Cproduct_GTIN/",
+      "omit_auth_headers": ["Authorization", "Accept"],
+      "headers": { "Accept": "text/csv" },
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feedId": { "type": "integer", "description": "Feed ID returned by product_feeds_list." },
+          "language": { "type": "string", "description": "Awin feed language code, normally en.", "default": "en" },
+          "adultContent": { "type": "integer", "enum": [0, 1], "description": "Whether adult products may be returned.", "default": 0 }
+        },
+        "required": ["feedId", "language", "adultContent"]
       }
     },
     {

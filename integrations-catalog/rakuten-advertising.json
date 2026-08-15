@@ -1,0 +1,215 @@
+{
+  "slug": "rakuten-advertising",
+  "name": "Rakuten Advertising",
+  "description": "Official Rakuten Advertising publisher APIs for advertiser discovery, partnerships, offers, physical product search, deep links, and recent transaction events.",
+  "logo": "https://www.google.com/s2/favicons?domain=rakutenadvertising.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "offers", "products", "links", "stats", "ecommerce"],
+  "base_url": "https://api.linksynergy.com",
+  "auth": {
+    "types": ["api_key"],
+    "token_exchange": {
+      "url": "https://api.linksynergy.com/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "headers": {
+        "Authorization": "Bearer {{token_key}}"
+      },
+      "body_params": {
+        "scope": "{{account_id}}"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token_key",
+        "label": "Token key",
+        "description": "Base64-encoded client_id:client_secret from a Rakuten Advertising developer application.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "account_id",
+        "label": "Publisher account ID",
+        "description": "Publisher SID/account ID used as the token scope.",
+        "type": "text",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "advertisers_list",
+    "input": { "limit": 1, "page": 1 }
+  },
+  "tools": [
+    {
+      "name": "advertisers_list",
+      "description": "List and filter Rakuten advertisers, including product-feed and deep-link capabilities.",
+      "method": "GET",
+      "path": "/v2/advertisers",
+      "query_params": ["ships_to", "deep_links", "network", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ships_to": { "type": "string", "description": "Country code the advertiser ships to." },
+          "deep_links": { "type": "boolean" },
+          "network": { "type": "integer", "description": "Rakuten network ID." },
+          "limit": { "type": "integer", "minimum": 1, "default": 50 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "advertiser_get",
+      "description": "Get one Rakuten advertiser and its partnership eligibility, policies, features, and contact details.",
+      "method": "GET",
+      "path": "/v2/advertisers/{advertiser_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "advertiser_id": { "type": "integer" } },
+        "required": ["advertiser_id"]
+      }
+    },
+    {
+      "name": "partnerships_list",
+      "description": "List the publisher's Rakuten advertiser partnerships and their current statuses.",
+      "method": "GET",
+      "path": "/v1/partnerships",
+      "query_params": ["partner_status", "advertiser_status", "network", "category", "status_update_range", "approve_date_range", "apply_date_range", "limit", "page", "sort_by", "order_by"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partner_status": { "type": "string", "description": "Partnership status, such as active, pending, or rejected." },
+          "advertiser_status": { "type": "string", "enum": ["active", "inactive"] },
+          "network": { "type": "integer" },
+          "category": { "type": "string", "description": "One category or a comma-separated category list." },
+          "status_update_range": { "type": "string", "description": "Relative range such as 1d, 7d, or 30d." },
+          "approve_date_range": { "type": "string" },
+          "apply_date_range": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1 },
+          "page": { "type": "integer", "minimum": 1 },
+          "sort_by": { "type": "string", "enum": ["status_update_datetime", "approve_datetime", "apply_datetime"] },
+          "order_by": { "type": "string", "enum": ["asc", "dsc"] }
+        }
+      }
+    },
+    {
+      "name": "partnership_get",
+      "description": "Get the publisher's partnership status and advertiser details for one advertiser ID.",
+      "method": "GET",
+      "path": "/v1/partnerships/{advertiser_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "advertiser_id": { "type": "integer" } },
+        "required": ["advertiser_id"]
+      }
+    },
+    {
+      "name": "offers_list",
+      "description": "List Rakuten advertiser commission offers, optionally filtered to active offers or one advertiser.",
+      "method": "GET",
+      "path": "/v1/offers",
+      "query_params": ["offer_status", "advertiser", "advertiser_status", "offer_type", "network", "start_date_range", "date_type", "date_start", "date_end", "limit", "page", "sort_by", "order_by"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_status": { "type": "string", "enum": ["active", "available", "upcoming"], "default": "active" },
+          "advertiser": { "type": "integer" },
+          "advertiser_status": { "type": "string", "enum": ["active", "inactive"] },
+          "offer_type": { "type": "string", "enum": ["private", "private-special", "public", "public-special", "baseline"] },
+          "network": { "type": "integer" },
+          "start_date_range": { "type": "string", "description": "Relative range such as 1d, 7d, or 30d." },
+          "date_type": { "type": "string", "description": "Provider date type used with date_start/date_end." },
+          "date_start": { "type": "string", "description": "YYYYMMDD." },
+          "date_end": { "type": "string", "description": "YYYYMMDD." },
+          "limit": { "type": "integer", "minimum": 1 },
+          "page": { "type": "integer", "minimum": 1 },
+          "sort_by": { "type": "string" },
+          "order_by": { "type": "string", "enum": ["asc", "dsc"] }
+        }
+      }
+    },
+    {
+      "name": "offer_get",
+      "description": "Get one Rakuten commission offer by global offer ID.",
+      "method": "GET",
+      "path": "/v1/offers/{goid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "goid": { "type": "integer" } },
+        "required": ["goid"]
+      }
+    },
+    {
+      "name": "products_search",
+      "description": "Search partner-advertiser physical products. Returns XML normalized to JSON, including merchant, SKU, category, retail and sale prices, UPC, description, image, and commissionable product link.",
+      "method": "GET",
+      "path": "/productsearch/1.0",
+      "headers": { "Accept": "application/xml" },
+      "query_params": ["keyword", "exact", "one", "none", "mid", "cat", "language", "max", "pagenumber", "sort", "sorttype"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string", "description": "All search terms." },
+          "exact": { "type": "string", "description": "Exact phrase search." },
+          "one": { "type": "string", "description": "Match at least one term." },
+          "none": { "type": "string", "description": "Exclude these terms." },
+          "mid": { "type": "integer", "description": "Advertiser ID." },
+          "cat": { "type": "string", "description": "Primary or secondary category search." },
+          "language": { "type": "string", "enum": ["en_US", "fr_FR", "de_DE", "pt_BR"], "default": "en_US" },
+          "max": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+          "pagenumber": { "type": "integer", "minimum": 1, "default": 1 },
+          "sort": { "type": "string", "enum": ["retailprice", "productname", "categoryname", "mid"] },
+          "sorttype": { "type": "string", "enum": ["asc", "dsc"] }
+        },
+        "anyOf": [
+          { "required": ["keyword"] },
+          { "required": ["exact"] },
+          { "required": ["one"] },
+          { "required": ["mid"] },
+          { "required": ["cat"] }
+        ]
+      }
+    },
+    {
+      "name": "deep_link_generate",
+      "description": "Generate a commissionable deep link for one approved advertiser, optionally carrying a u1 tracking value.",
+      "method": "POST",
+      "path": "/v1/links/deep_links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "advertiser_id": { "type": "integer" },
+          "u1": { "type": "string", "description": "Optional publisher tracking value." }
+        },
+        "required": ["url", "advertiser_id"]
+      }
+    },
+    {
+      "name": "transactions_list",
+      "description": "Retrieve recent Rakuten transaction events for directional conversion and commission reporting. The provider retains only recent event data and does not retroactively update commissions.",
+      "method": "GET",
+      "path": "/events/1.0/transactions",
+      "query_params": ["process_date_start", "process_date_end", "transaction_date_start", "transaction_date_end", "limit", "page", "currency", "type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "process_date_start": { "type": "string", "description": "UTC YYYY-MM-DD HH:mm:ss, no more than 30 days old." },
+          "process_date_end": { "type": "string", "description": "UTC YYYY-MM-DD HH:mm:ss; use with process_date_start." },
+          "transaction_date_start": { "type": "string", "description": "UTC YYYY-MM-DD HH:mm:ss, no more than 100 days old." },
+          "transaction_date_end": { "type": "string", "description": "UTC YYYY-MM-DD HH:mm:ss; use with transaction_date_start." },
+          "limit": { "type": "integer", "minimum": 1, "default": 100 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "currency": { "type": "string" },
+          "type": { "type": "string", "enum": ["realtime", "batch"] }
+        }
+      }
+    }
+  ]
+}

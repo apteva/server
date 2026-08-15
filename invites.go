@@ -338,6 +338,7 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 			http.Error(w, "credentials required", http.StatusBadRequest)
 			return
 		}
+		body.Credentials = applyCredentialFieldDefaults(app, body.Credentials)
 		credsJSON, _ := json.Marshal(body.Credentials)
 		enc, err := Encrypt(s.secret, string(credsJSON))
 		if err != nil {
@@ -405,6 +406,7 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 		http.Error(w, "credentials required", http.StatusBadRequest)
 		return
 	}
+	body.Credentials = applyCredentialFieldDefaults(app, body.Credentials)
 	credsJSON, _ := json.Marshal(body.Credentials)
 	enc, err := Encrypt(s.secret, string(credsJSON))
 	if err != nil {

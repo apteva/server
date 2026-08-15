@@ -1239,6 +1239,7 @@ func executeIntegrationToolWithRefresh(
 	environmentID string,
 	onRefresh onCredsRefresh,
 ) (*ExecuteResult, error) {
+	credentials = applyCredentialFieldDefaults(app, credentials)
 	if app != nil && app.Auth.TokenExchange != nil &&
 		(environmentID == "" || environmentIntegrationMode(environmentID) == IntegrationModeReal) {
 		changed, err := ensureCredentialExchangeToken(app, credentials, false)
@@ -1369,7 +1370,10 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 	if method == "" {
 		method = http.MethodPost
 	}
-	exchangeURL := resolveTemplate(cfg.URL, credentials)
+	exchangeURL, err := credentialTokenExchangeURL(cfg, credentials)
+	if err != nil {
+		return false, credentialExchangeError(app, credentials, nil, err.Error())
+	}
 	req, err := http.NewRequest(method, exchangeURL, body)
 	if err != nil {
 		return false, credentialExchangeError(app, credentials, nil, "credential token exchange request is invalid: "+err.Error())
@@ -1435,6 +1439,22 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 	}
 	credentials["token_expires_at"] = expiresAt.UTC().Format(time.RFC3339)
 	return true, nil
+}
+
+func credentialTokenExchangeURL(cfg *CredentialTokenExchangeConfig, credentials map[string]string) (string, error) {
+	if cfg.URLSelector == nil {
+		return resolveTemplate(cfg.URL, credentials), nil
+	}
+	field := strings.TrimSpace(cfg.URLSelector.CredentialField)
+	value := strings.TrimSpace(credentials[field])
+	if value == "" {
+		return "", fmt.Errorf("credential token exchange requires %s", field)
+	}
+	selectedURL := cfg.URLSelector.Values[value]
+	if selectedURL == "" {
+		return "", fmt.Errorf("credential token exchange does not support the supplied %s", field)
+	}
+	return resolveTemplate(selectedURL, credentials), nil
 }
 
 func credentialExchangeError(app *AppTemplate, credentials map[string]string, response map[string]any, fallback string) error {
@@ -1651,6 +1671,7 @@ func inputSchemaRequires(schema map[string]any, field string) bool {
 }
 
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
+	credentials = applyCredentialFieldDefaults(app, credentials)
 	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
 	// API. Resolve it fail-safe, in order:
 	//   1. a per-environment interceptor fixture;
@@ -2212,6 +2233,21 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}, nil
 }
 
+func applyCredentialFieldDefaults(app *AppTemplate, credentials map[string]string) map[string]string {
+	if credentials == nil {
+		credentials = make(map[string]string)
+	}
+	if app == nil {
+		return credentials
+	}
+	for _, field := range app.Auth.CredentialFields {
+		if strings.TrimSpace(credentials[field.Name]) == "" && field.Default != "" {
+			credentials[field.Name] = field.Default
+		}
+	}
+	return credentials
+}
+
 func environmentIntegrationMode(environmentID string) string {
 	if environmentID == "" {
 		return IntegrationModeReal
@@ -2607,6 +2643,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	body.Credentials = generatedCredentials
+	body.Credentials = applyCredentialFieldDefaults(app, body.Credentials)
 	credsJSON, _ := json.Marshal(body.Credentials)
 	encrypted, err := Encrypt(s.secret, string(credsJSON))
 	if err != nil {

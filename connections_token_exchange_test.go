@@ -146,6 +146,65 @@ func TestCredentialTokenExchangeResolvesURLTemplate(t *testing.T) {
 	}
 }
 
+func TestCredentialTokenExchangeSelectsURLFromCredential(t *testing.T) {
+	selector := &CredentialTokenURLSelector{
+		CredentialField: "credential_version",
+		Values: map[string]string{
+			"3.1": "https://api.amazon.com/auth/o2/token",
+			"3.2": "https://api.amazon.co.uk/auth/o2/token",
+			"3.3": "https://api.amazon.co.jp/auth/o2/token",
+		},
+	}
+	cfg := &CredentialTokenExchangeConfig{
+		URL:         "https://api.amazon.com/auth/o2/token",
+		URLSelector: selector,
+	}
+
+	got, err := credentialTokenExchangeURL(cfg, map[string]string{"credential_version": "3.2"})
+	if err != nil {
+		t.Fatalf("select exchange URL: %v", err)
+	}
+	if want := "https://api.amazon.co.uk/auth/o2/token"; got != want {
+		t.Fatalf("exchange URL=%q want=%q", got, want)
+	}
+	if _, err := credentialTokenExchangeURL(cfg, map[string]string{"credential_version": "2.1"}); err == nil {
+		t.Fatal("expected unsupported credential version error")
+	}
+}
+
+func TestAmazonAssociatesCatalogUsesCredentialExchange(t *testing.T) {
+	catalog := NewAppCatalog()
+	if err := catalog.LoadFromDir("integrations-catalog"); err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	app := catalog.Get("amazon-associates")
+	if app == nil || app.Auth.TokenExchange == nil {
+		t.Fatal("Amazon Associates token exchange missing")
+	}
+	if got := app.Auth.Headers["Authorization"]; got != "Bearer {{access_token}}" {
+		t.Fatalf("authorization header=%q", got)
+	}
+	wantFields := []string{"credential_id", "credential_secret", "credential_version", "marketplace"}
+	if len(app.Auth.CredentialFields) != len(wantFields) {
+		t.Fatalf("credential fields=%#v", app.Auth.CredentialFields)
+	}
+	for i, want := range wantFields {
+		if got := app.Auth.CredentialFields[i].Name; got != want {
+			t.Fatalf("credential field %d=%q want=%q", i, got, want)
+		}
+	}
+	credentials := applyCredentialFieldDefaults(app, map[string]string{
+		"credential_id":     "creator-id",
+		"credential_secret": "creator-secret",
+	})
+	if credentials["credential_version"] != "3.1" || credentials["marketplace"] != "www.amazon.com" {
+		t.Fatalf("Amazon credential defaults not applied: %#v", credentials)
+	}
+	if got, err := credentialTokenExchangeURL(app.Auth.TokenExchange, credentials); err != nil || got != "https://api.amazon.com/auth/o2/token" {
+		t.Fatalf("default exchange URL=%q err=%v", got, err)
+	}
+}
+
 func TestCredentialTokenExchangeCJJSONExpiryAndCachedReuse(t *testing.T) {
 	expiresAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
 	var exchanges atomic.Int32

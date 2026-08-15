@@ -399,15 +399,21 @@ type OAuth1Config struct {
 }
 
 type CredentialTokenExchangeConfig struct {
-	URL               string            `json:"url"`
-	Method            string            `json:"method,omitempty"`
-	ContentType       string            `json:"content_type,omitempty"`
-	Headers           map[string]string `json:"headers,omitempty"`
-	BodyParams        map[string]string `json:"body_params"`
-	AccessTokenPath   string            `json:"access_token_path,omitempty"`
-	ExpiresAtPath     string            `json:"expires_at_path,omitempty"`
-	ExpiresInPath     string            `json:"expires_in_path,omitempty"`
-	ExpirySkewSeconds int               `json:"expiry_skew_seconds,omitempty"`
+	URL               string                      `json:"url"`
+	URLSelector       *CredentialTokenURLSelector `json:"url_selector,omitempty"`
+	Method            string                      `json:"method,omitempty"`
+	ContentType       string                      `json:"content_type,omitempty"`
+	Headers           map[string]string           `json:"headers,omitempty"`
+	BodyParams        map[string]string           `json:"body_params"`
+	AccessTokenPath   string                      `json:"access_token_path,omitempty"`
+	ExpiresAtPath     string                      `json:"expires_at_path,omitempty"`
+	ExpiresInPath     string                      `json:"expires_in_path,omitempty"`
+	ExpirySkewSeconds int                         `json:"expiry_skew_seconds,omitempty"`
+}
+
+type CredentialTokenURLSelector struct {
+	CredentialField string            `json:"credential_field"`
+	Values          map[string]string `json:"values"`
 }
 
 type MutualTLSConfig struct {
@@ -424,6 +430,7 @@ type CredentialField struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
 	Required    *bool  `json:"required,omitempty"`
+	Default     string `json:"default,omitempty"`
 	Type        string `json:"type,omitempty"`   // "password" or "text"
 	Source      string `json:"source,omitempty"` // "user", "oauth", or "generated"
 	Hidden      bool   `json:"hidden,omitempty"`
