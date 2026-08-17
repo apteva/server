@@ -595,6 +595,11 @@ func connectionOwnerInstallID(s *Server, connID int64) int64 {
 
 func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request, parts []string) {
 	if len(parts) == 0 || parts[0] == "" {
+		// GET /agents (no id) — the SDK's optional AgentDirectoryClient.
+		if r.Method == http.MethodGet {
+			s.handleCallbackAgentList(w, r)
+			return
+		}
 		http.Error(w, "instance id required", http.StatusBadRequest)
 		return
 	}
@@ -1768,6 +1773,48 @@ func (s *Server) callbackRealtimeAudioBaseURL(r *http.Request, installID, agentI
 		return requestReachableBaseURL(r, s.localGatewayURL())
 	}
 	return callbackReachableBaseURL(s.publicBaseURL(), r)
+}
+
+// handleCallbackAgentList serves GET /api/apps/callback/agents — the
+// SDK's optional AgentDirectoryClient surface. Requires the declared
+// platform.instances.read permission. Project-scoped installs are
+// pinned to their own project regardless of ?project_id; global
+// installs may filter by project or omit it to list every user agent.
+// Store.ListAgents already excludes platform-owned helper agents.
+func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request) {
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if !installHasPermission(s, installID, sdk.PermInstancesRead) {
+		http.Error(w, "missing permission: "+string(sdk.PermInstancesRead), http.StatusForbidden)
+		return
+	}
+	var installProject string
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID,
+	).Scan(&installProject); err != nil {
+		http.Error(w, "app installation not found", http.StatusNotFound)
+		return
+	}
+	projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+	if installProject != "" {
+		projectID = installProject
+	}
+	agents, err := s.store.ListAgents(getUserID(r), projectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out := make([]sdk.PlatformInstance, 0, len(agents))
+	for _, agent := range agents {
+		out = append(out, sdk.PlatformInstance{
+			ID: agent.ID, Name: agent.Name, Status: agent.Status,
+			Mode: agent.Mode, ProjectID: agent.ProjectID, DefaultThreadID: "main",
+		})
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int64) (*Agent, error) {

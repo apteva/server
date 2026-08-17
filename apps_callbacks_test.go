@@ -1222,3 +1222,89 @@ func TestInstallBoundAppID_DoesNotDependOnBootRegistry(t *testing.T) {
 		t.Fatalf("non-running target authorized as install %d", got)
 	}
 }
+
+// GET /apps/callback/agents — the SDK's optional AgentDirectoryClient.
+// Requires platform.instances.read; project-scoped installs are pinned
+// to their own project regardless of ?project_id; platform helpers and
+// foreign users' agents never appear.
+func TestCallback_AgentList_PermissionAndScope(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (2, 'other@test.local', 'x')`)
+	a1, err := s.store.CreateAgent(1, "alpha", "d", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2, err := s.store.CreateAgent(1, "beta", "d", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a3, err := s.store.CreateAgent(1, "gamma", "d", "autonomous", "{}", "proj-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := s.store.CreateAgent(2, "foreign", "d", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper, err := s.store.CreateAgent(1, "helper", "d", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.store.db.Exec(`UPDATE agents SET kind='platform_helper' WHERE id=?`, helper.ID)
+
+	withPerm := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "a2a-list-test"}
+	withPerm.Requires.Permissions = []sdk.Permission{sdk.PermInstancesRead}
+	installID := seedInstallWithBindings(t, s, "a2a-list-test", withPerm, nil)
+
+	list := func(installID int64, query string) ([]sdk.PlatformInstance, int, string) {
+		req := httptest.NewRequest(http.MethodGet, "/apps/callback/agents"+query, nil)
+		req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+		req.Header.Set("X-User-ID", "1")
+		rec := httptest.NewRecorder()
+		s.handleAppCallback(rec, req)
+		var out []sdk.PlatformInstance
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return out, rec.Code, rec.Body.String()
+	}
+	ids := func(agents []sdk.PlatformInstance) map[int64]bool {
+		m := map[int64]bool{}
+		for _, a := range agents {
+			m[a.ID] = true
+		}
+		return m
+	}
+
+	// Project-scoped install: pinned to proj-1 even when asking for proj-2.
+	got, code, body := list(installID, "?project_id=proj-2")
+	if code != http.StatusOK {
+		t.Fatalf("scoped list: %d %s", code, body)
+	}
+	m := ids(got)
+	if !m[a1.ID] || !m[a2.ID] || m[a3.ID] || m[foreign.ID] || m[helper.ID] {
+		t.Fatalf("scoped list wrong agents: %v", m)
+	}
+
+	// Global install: all owner agents; project filter honored.
+	s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, installID)
+	got, code, _ = list(installID, "")
+	if code != http.StatusOK {
+		t.Fatalf("global list: %d", code)
+	}
+	m = ids(got)
+	if !m[a1.ID] || !m[a2.ID] || !m[a3.ID] || m[foreign.ID] || m[helper.ID] {
+		t.Fatalf("global list wrong agents: %v", m)
+	}
+	got, _, _ = list(installID, "?project_id=proj-2")
+	m = ids(got)
+	if m[a1.ID] || !m[a3.ID] {
+		t.Fatalf("global filtered list wrong agents: %v", m)
+	}
+
+	// Install without the permission: 403.
+	noPerm := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "a2a-noperm-test"}
+	noPermID := seedInstallWithBindings(t, s, "a2a-noperm-test", noPerm, nil)
+	if _, code, _ := list(noPermID, ""); code != http.StatusForbidden {
+		t.Fatalf("missing permission: got %d, want 403", code)
+	}
+}
