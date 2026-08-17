@@ -136,3 +136,84 @@ func TestCallAppMCPToolAsAgentForwardsRuntimeCaller(t *testing.T) {
 		t.Fatalf("caller header=%q", caller)
 	}
 }
+
+// The gateway's optional /agent-<id>/ segment attributes the calling
+// core: the sidecar must receive a server-set X-Apteva-Caller-Agent
+// (spoofed inbound values scrubbed), and the plain 2-segment form must
+// stay caller-less. This is what makes caller-aware apps (a2a) work
+// inside environments.
+func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
+	s := newTestServer(t)
+	s.environments = NewEnvironmentManager(t.TempDir())
+	s.environments.server = s
+
+	type seen struct {
+		auth, caller, thread, project string
+	}
+	var got seen
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = seen{
+			auth:    r.Header.Get("Authorization"),
+			caller:  r.Header.Get("X-Apteva-Caller-Agent"),
+			thread:  r.Header.Get("X-Apteva-Caller-Thread"),
+			project: r.Header.Get("X-Apteva-Project-ID"),
+		}
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	res, err := s.store.db.Exec(`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES ('a2a','git','','','{}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appID, _ := res.LastInsertId()
+	res, err = s.store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status, installed_by) VALUES (?, 'env-attr', 'running', 1)`, appID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID, _ := res.LastInsertId()
+
+	environment := &Environment{
+		ID: "env-attr",
+		installs: map[string]*localInstall{
+			"a2a": {InstallID: installID, SidecarURL: backend.URL},
+		},
+	}
+	s.environments.environments["env-attr"] = environment
+
+	do := func(path, spoofCaller string) int {
+		r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+		r.RemoteAddr = "127.0.0.1:54321" // the gateway is loopback-only
+		if spoofCaller != "" {
+			r.Header.Set("X-Apteva-Caller-Agent", spoofCaller)
+			r.Header.Set("X-Apteva-Caller-Thread", "spoof-thread")
+		}
+		w := httptest.NewRecorder()
+		s.handleEnvironmentAppGateway(w, r)
+		return w.Code
+	}
+
+	// Attributed form: header set from URL, spoof scrubbed.
+	if code := do("/environment-app-gateway/env-attr/agent-42/a2a/mcp", "999"); code != 200 {
+		t.Fatalf("attributed call status %d", code)
+	}
+	if got.caller != "42" || got.project != "env-attr" || got.thread != "" {
+		t.Fatalf("attributed headers = %+v, want caller 42, project env-attr, no thread", got)
+	}
+	if got.auth == "" {
+		t.Fatal("install token not injected")
+	}
+
+	// Plain form: caller-less, spoof still scrubbed.
+	if code := do("/environment-app-gateway/env-attr/a2a/mcp", "999"); code != 200 {
+		t.Fatalf("plain call status %d", code)
+	}
+	if got.caller != "" || got.thread != "" {
+		t.Fatalf("plain form leaked caller headers: %+v", got)
+	}
+
+	// Malformed agent segment is rejected.
+	if code := do("/environment-app-gateway/env-attr/agent-x/a2a/mcp", ""); code != http.StatusBadRequest {
+		t.Fatalf("malformed agent segment status %d, want 400", code)
+	}
+}

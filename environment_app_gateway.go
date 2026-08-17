@@ -34,10 +34,29 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 	rest := strings.TrimPrefix(r.URL.Path, "/environment-app-gateway/")
 	parts := strings.SplitN(rest, "/", 3)
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		http.Error(w, "environment-app-gateway: need /<environmentID>/<app>/<path>", http.StatusBadRequest)
+		http.Error(w, "environment-app-gateway: need /<environmentID>[/agent-<id>]/<app>/<path>", http.StatusBadRequest)
 		return
 	}
-	environmentID, app := parts[0], parts[1]
+	environmentID := parts[0]
+	// Optional agent attribution segment: URLs minted per environment-agent
+	// carry /agent-<id>/ so sidecars receive a Caller (a2a and other
+	// caller-aware apps need it). The plain 2-segment form stays valid for
+	// seeding and legacy callers — those run caller-less as before.
+	var callerAgentID int64
+	if strings.HasPrefix(parts[1], "agent-") {
+		callerAgentID, _ = strconv.ParseInt(strings.TrimPrefix(parts[1], "agent-"), 10, 64)
+		if len(parts) < 3 || callerAgentID <= 0 {
+			http.Error(w, "environment-app-gateway: invalid agent segment", http.StatusBadRequest)
+			return
+		}
+		rest = parts[0] + "/" + parts[2]
+		parts = strings.SplitN(rest, "/", 3)
+		if len(parts) < 2 || parts[1] == "" {
+			http.Error(w, "environment-app-gateway: need /<environmentID>/agent-<id>/<app>/<path>", http.StatusBadRequest)
+			return
+		}
+	}
+	app := parts[1]
 	tail := "/"
 	if len(parts) == 3 {
 		tail = "/" + parts[2]
@@ -68,6 +87,15 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 		orig(req)
 		req.URL.Path = tail
 		req.Header.Set("Authorization", "Bearer "+token)
+		// The caller header is server-attributed, never client-supplied:
+		// scrub inbound values, then set from the URL's agent segment.
+		req.Header.Del("X-Apteva-Caller-Agent")
+		req.Header.Del("X-Apteva-Caller-Thread")
+		req.Header.Del("X-Apteva-Project-ID")
+		if callerAgentID > 0 {
+			req.Header.Set("X-Apteva-Caller-Agent", strconv.FormatInt(callerAgentID, 10))
+			req.Header.Set("X-Apteva-Project-ID", environmentID)
+		}
 	}
 	proxy.ServeHTTP(w, r)
 }
@@ -76,6 +104,12 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 // real (install-backed) app through the token-brokering gateway.
 func (s *Server) environmentAppMCPURL(environmentID, app string) string {
 	return fmt.Sprintf("http://127.0.0.1:%s/api/environment-app-gateway/%s/%s/mcp", s.port, environmentID, app)
+}
+
+// environmentAgentAppMCPURL is the per-agent variant: the agent segment lets
+// the gateway attribute calls so sidecars receive an sdk.Caller.
+func (s *Server) environmentAgentAppMCPURL(environmentID string, agentID int64, app string) string {
+	return fmt.Sprintf("http://127.0.0.1:%s/api/environment-app-gateway/%s/agent-%d/%s/mcp", s.port, environmentID, agentID, app)
 }
 
 // handleEnvironmentAppPublicGateway exposes a runtime app's regular HTTP and

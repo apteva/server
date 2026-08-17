@@ -161,8 +161,96 @@ func loadOpenCodeGoAPIKey(t *testing.T) string {
 			return strings.TrimSpace(key)
 		}
 	}
+	// Providers/connections fusion: locally-migrated stores keep LLM keys
+	// as connections rows (legacy provider rows deleted), so fall back to
+	// app_slug='opencode-go' connections. Several rows may exist with a
+	// mix of dead and live keys — probe each against the API and return
+	// the first that authenticates.
+	candidates := opencodeGoKeysFromLocalConnections()
+	for _, key := range candidates {
+		if opencodeGoKeyWorks(key) {
+			return key
+		}
+	}
+	if len(candidates) > 0 {
+		t.Skipf("found %d local OpenCode Go key(s) but none authenticate against the API", len(candidates))
+	}
 	t.Skip("OpenCode Go provider auth not found in the environment or local Apteva provider stores")
 	return ""
+}
+
+// opencodeGoKeysFromLocalConnections returns every distinct OpenCode Go
+// key stored as a connection, newest connection first (newer rows are
+// likelier to hold a live key).
+func opencodeGoKeysFromLocalConnections() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, dataDir := range []string{filepath.Join(home, ".apteva"), filepath.Join(home, ".apteva-prod")} {
+		secret, err := LoadSecret(dataDir)
+		if err != nil {
+			continue
+		}
+		db, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "apteva.db")+"?mode=ro")
+		if err != nil {
+			continue
+		}
+		rows, err := db.Query(`SELECT encrypted_credentials FROM connections
+			WHERE app_slug='opencode-go' AND status='active' ORDER BY id DESC`)
+		if err != nil {
+			_ = db.Close()
+			continue
+		}
+		var encryptedRows []string
+		for rows.Next() {
+			var encrypted string
+			if rows.Scan(&encrypted) == nil {
+				encryptedRows = append(encryptedRows, encrypted)
+			}
+		}
+		rows.Close()
+		_ = db.Close()
+		for _, encrypted := range encryptedRows {
+			plain, err := Decrypt(secret, encrypted)
+			if err != nil {
+				continue
+			}
+			var creds map[string]any
+			if json.Unmarshal([]byte(plain), &creds) != nil {
+				continue
+			}
+			for _, field := range []string{"api_key", "OPENCODE_GO_API_KEY", "key", "token"} {
+				if key, _ := creds[field].(string); strings.TrimSpace(key) != "" && !seen[strings.TrimSpace(key)] {
+					seen[strings.TrimSpace(key)] = true
+					out = append(out, strings.TrimSpace(key))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// opencodeGoKeyWorks probes the key with a minimal chat completion —
+// the same endpoint core uses — so tests never spawn agents on a key
+// that will 401.
+func opencodeGoKeyWorks(key string) bool {
+	body := strings.NewReader(`{"model":"glm-5.2","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
+	req, err := http.NewRequest(http.MethodPost, "https://opencode.ai/zen/go/v1/chat/completions", body)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+key)
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden
 }
 
 func loadXAIAPIKey(t *testing.T) string {

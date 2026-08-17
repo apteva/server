@@ -1802,6 +1802,25 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 	if installProject != "" {
 		projectID = installProject
 	}
+	// In-environment installs (project == environment id) list the
+	// environment's agents by alias instead of the operator roster —
+	// environment agent rows are kind='environment_agent' and would
+	// otherwise be invisible. Every environment agent gets the
+	// environment's app MCPs wired at spawn, so attached=true.
+	if s.environments != nil && installProject != "" {
+		if environment, ok := s.environments.Get(installProject); ok {
+			out := []sdk.PlatformInstance{}
+			for _, environmentAgent := range environment.Agents() {
+				out = append(out, sdk.PlatformInstance{
+					ID: environmentAgent.AgentID, Name: environmentAgent.Alias,
+					Status: "running", Mode: "autonomous", ProjectID: installProject,
+					DefaultThreadID: "main", AttachedToCaller: true,
+				})
+			}
+			writeJSON(w, out)
+			return
+		}
+	}
 	agents, err := s.store.ListAgents(getUserID(r), projectID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

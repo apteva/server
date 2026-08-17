@@ -210,7 +210,9 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	legacyApps := environment.Apps()
 	for _, name := range s.environmentAgentAppMCPNames(environment, src) {
 		if _, ok := environment.Install(name); ok {
-			mcpServers = append(mcpServers, sourcePolicy.mcpConfig(name, s.environmentAppMCPURL(environment.ID, name)))
+			// Per-agent URL so the gateway attributes calls and the
+			// sidecar receives an sdk.Caller (a2a etc. require it).
+			mcpServers = append(mcpServers, sourcePolicy.mcpConfig(name, s.environmentAgentAppMCPURL(environment.ID, wAgent.ID, name)))
 			continue
 		}
 		if inst, ok := legacyApps[name]; ok && inst != nil {
@@ -282,7 +284,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	wAgent.Config = string(cfgJSON)
 	_ = s.store.UpdateAgent(wAgent)
 
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, src.ProjectID)
+	providerEnv, err := s.GetAllProviderEnvVars(userID, src.ProjectID)
 	if err != nil {
 		providerEnv = map[string]string{}
 	}
