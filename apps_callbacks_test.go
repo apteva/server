@@ -1308,3 +1308,48 @@ func TestCallback_AgentList_PermissionAndScope(t *testing.T) {
 		t.Fatalf("missing permission: got %d, want 403", code)
 	}
 }
+
+// The agent list annotates attached_to_caller from app_agent_bindings
+// so capability-aware apps (a2a) can scope discovery to agents that
+// actually hold their tools.
+func TestCallback_AgentList_AnnotatesAttachment(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	bound, err := s.store.CreateAgent(1, "bound", "d", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unbound, err := s.store.CreateAgent(1, "unbound", "d", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := s.store.CreateAgent(1, "disabled", "d", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "a2a-attach-test"}
+	manifest.Requires.Permissions = []sdk.Permission{sdk.PermInstancesRead}
+	installID := seedInstallWithBindings(t, s, "a2a-attach-test", manifest, nil)
+	s.store.db.Exec(`INSERT INTO app_agent_bindings (install_id, agent_id, enabled) VALUES (?, ?, 1)`, installID, bound.ID)
+	s.store.db.Exec(`INSERT INTO app_agent_bindings (install_id, agent_id, enabled) VALUES (?, ?, 0)`, installID, disabled.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/apps/callback/agents", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	var out []sdk.PlatformInstance
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	attached := map[int64]bool{}
+	for _, a := range out {
+		attached[a.ID] = a.AttachedToCaller
+	}
+	if !attached[bound.ID] || attached[unbound.ID] || attached[disabled.ID] {
+		t.Fatalf("attachment annotation wrong: %v", attached)
+	}
+}

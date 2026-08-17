@@ -1807,11 +1807,28 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Annotate which agents have the calling install bound
+	// (app_agent_bindings is derived from live MCP attachments), so
+	// capability-aware apps like a2a can scope discovery to agents
+	// that actually hold their tools.
+	bound := map[int64]bool{}
+	if rows, err := s.store.db.Query(
+		`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1`, installID,
+	); err == nil {
+		for rows.Next() {
+			var agentID int64
+			if rows.Scan(&agentID) == nil {
+				bound[agentID] = true
+			}
+		}
+		rows.Close()
+	}
 	out := make([]sdk.PlatformInstance, 0, len(agents))
 	for _, agent := range agents {
 		out = append(out, sdk.PlatformInstance{
 			ID: agent.ID, Name: agent.Name, Status: agent.Status,
 			Mode: agent.Mode, ProjectID: agent.ProjectID, DefaultThreadID: "main",
+			AttachedToCaller: bound[agent.ID],
 		})
 	}
 	writeJSON(w, out)
