@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestTelegramCatalogExposesSetMyName(t *testing.T) {
+func TestTelegramCatalogExposesConversationOperations(t *testing.T) {
 	raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/telegram.json")
 	if err != nil {
 		t.Fatal(err)
@@ -14,13 +14,24 @@ func TestTelegramCatalogExposesSetMyName(t *testing.T) {
 	if err := json.Unmarshal(raw, &app); err != nil {
 		t.Fatal(err)
 	}
+	found := map[string]bool{}
 	for _, tool := range app.Tools {
 		if tool.Name == "set_my_name" {
 			if tool.Method != "POST" || tool.Path != "/setMyName" {
 				t.Fatalf("set_my_name = %s %s, want POST /setMyName", tool.Method, tool.Path)
 			}
-			return
+			found[tool.Name] = true
+		}
+		if tool.Name == "send_message_draft" {
+			if tool.Method != "POST" || tool.Path != "/sendMessageDraft" {
+				t.Fatalf("send_message_draft = %s %s, want POST /sendMessageDraft", tool.Method, tool.Path)
+			}
+			found[tool.Name] = true
 		}
 	}
-	t.Fatal("set_my_name is missing")
+	for _, name := range []string{"set_my_name", "send_message_draft"} {
+		if !found[name] {
+			t.Fatalf("%s is missing", name)
+		}
+	}
 }

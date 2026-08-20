@@ -64,6 +64,24 @@
       }
     },
     {
+      "name": "send_message_draft",
+      "description": "Stream an ephemeral partial message in a private chat while a response is generated. Reuse the same non-zero draft_id for animated updates, and send the complete result with send_message when finished.",
+      "method": "POST",
+      "path": "/sendMessageDraft",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "integer", "description": "Target private chat ID." },
+          "message_thread_id": { "type": "integer" },
+          "draft_id": { "type": "integer", "not": { "const": 0 }, "description": "Stable non-zero ID for this animated draft." },
+          "text": { "type": "string", "maxLength": 4096, "description": "Partial text. Empty text displays Telegram's native Thinking placeholder." },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "entities": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["chat_id", "draft_id"]
+      }
+    },
+    {
       "name": "send_photo",
       "description": "Send a photo by URL or existing Telegram file_id. For local file upload support, add multipart later.",
       "method": "POST",
