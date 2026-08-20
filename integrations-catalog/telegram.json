@@ -29,6 +29,20 @@
       "input_schema": { "type": "object", "properties": {} }
     },
     {
+      "name": "set_my_name",
+      "description": "Set the bot's global display name. Telegram applies this across all chats; omit language_code to change the default name.",
+      "method": "POST",
+      "path": "/setMyName",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 0, "maxLength": 64 },
+          "language_code": { "type": "string", "description": "Optional two-letter ISO 639-1 language code. Omit for the default bot name." }
+        },
+        "required": ["name"]
+      }
+    },
+    {
       "name": "send_message",
       "description": "Send a text message to a chat via Telegram sendMessage.",
       "method": "POST",
