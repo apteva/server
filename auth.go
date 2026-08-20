@@ -170,6 +170,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			"X-Apteva-Organization-ID", "X-Apteva-Organization-Slug", "X-Apteva-Scopes",
 			"X-Apteva-Conversation-ID",
 			sdk.HeaderBoundCallerInstallID,
+			sdk.HeaderBoundCallerAppName,
 		} {
 			r.Header.Del(header)
 		}

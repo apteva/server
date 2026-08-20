@@ -571,9 +571,10 @@ func TestCallback_AppCall_GlobalCallerPreservesValidatedProject(t *testing.T) {
 	}
 
 	var gotArguments map[string]any
-	var gotBoundCaller string
+	var gotBoundCaller, gotBoundCallerName string
 	targetHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotBoundCaller = r.Header.Get(sdk.HeaderBoundCallerInstallID)
+		gotBoundCallerName = r.Header.Get(sdk.HeaderBoundCallerAppName)
 		var rpc struct {
 			Params struct {
 				Arguments map[string]any `json:"arguments"`
@@ -630,6 +631,9 @@ func TestCallback_AppCall_GlobalCallerPreservesValidatedProject(t *testing.T) {
 	}
 	if gotBoundCaller != itoa(callerID) {
 		t.Fatalf("bound caller header=%q, want %d", gotBoundCaller, callerID)
+	}
+	if gotBoundCallerName != "messaging-project-context-test" {
+		t.Fatalf("bound caller app name=%q, want messaging-project-context-test", gotBoundCallerName)
 	}
 
 	// Preserve compatibility with global callers bound directly to a
@@ -697,13 +701,14 @@ func TestCallback_AppProxy_StreamsThroughExactBinding(t *testing.T) {
 	s := newTestServer(t)
 	s.installedApps = NewInstalledAppsRegistry()
 	ensureTestAdmin(t, s)
-	var gotPath, gotQuery, gotAuth, gotTargetID, gotCallerID, gotUserID, gotRange, gotBody string
+	var gotPath, gotQuery, gotAuth, gotTargetID, gotCallerID, gotCallerName, gotUserID, gotRange, gotBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query().Get("project_id")
 		gotAuth = r.Header.Get("Authorization")
 		gotTargetID = r.Header.Get("X-Apteva-App-Install-ID")
 		gotCallerID = r.Header.Get("X-Apteva-Bound-Caller-Install-ID")
+		gotCallerName = r.Header.Get(sdk.HeaderBoundCallerAppName)
 		gotUserID = r.Header.Get("X-User-ID")
 		gotRange = r.Header.Get("Range")
 		body, _ := io.ReadAll(r.Body)
@@ -755,6 +760,9 @@ func TestCallback_AppProxy_StreamsThroughExactBinding(t *testing.T) {
 	}
 	if gotTargetID != itoa(storageID) || gotCallerID != itoa(mediaID) {
 		t.Fatalf("install headers target=%q caller=%q", gotTargetID, gotCallerID)
+	}
+	if gotCallerName != "media" {
+		t.Fatalf("caller app name=%q, want media", gotCallerName)
 	}
 	if gotUserID != "1" {
 		t.Fatalf("trusted caller user missing: %q", gotUserID)

@@ -284,7 +284,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	wAgent.Config = string(cfgJSON)
 	_ = s.store.UpdateAgent(wAgent)
 
-	providerEnv, err := s.GetAllProviderEnvVars(userID, src.ProjectID)
+	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, src.ProjectID)
 	if err != nil {
 		providerEnv = map[string]string{}
 	}

@@ -1150,6 +1150,11 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, "target app has no sidecar URL", http.StatusBadGateway)
 		return
 	}
+	callerAppName := strings.TrimSpace(s.callerAppName(installID))
+	if callerAppName == "" {
+		http.Error(w, "calling app is not running", http.StatusUnauthorized)
+		return
+	}
 	if target.ProjectID != "" {
 		if effectiveProjectID == "" {
 			// Compatibility for global callers with an exact binding to a
@@ -1194,6 +1199,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	// target SDK uses it to admit app_only tools while rejecting the same tool
 	// through an agent-facing MCP connection.
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(installID, 10))
+	req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s tool=%s error=%s", installID, effectiveProjectID, targetAppName, body.Tool, truncate(err.Error(), 500))
@@ -1294,6 +1300,11 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "target app not reachable: "+targetAppName, http.StatusBadGateway)
 		return
 	}
+	callerAppName := strings.TrimSpace(s.callerAppName(callerInstallID))
+	if callerAppName == "" {
+		http.Error(w, "calling app is not running", http.StatusUnauthorized)
+		return
+	}
 	q := r.URL.Query()
 	callerUserID, requestedProjectID, ok := s.runtimeCallerProject(
 		w, r, callerInstallID, q.Get("project_id"), ProjectViewer,
@@ -1339,6 +1350,7 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		}
 		req.Header.Set("X-Apteva-App-Install-ID", strconv.FormatInt(target.InstallID, 10))
 		req.Header.Set("X-Apteva-Bound-Caller-Install-ID", strconv.FormatInt(callerInstallID, 10))
+		req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
 	}
 	proxy.ServeHTTP(w, r)
 }
