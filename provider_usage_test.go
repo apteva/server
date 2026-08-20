@@ -37,12 +37,41 @@ func installTestProviderUsage(t *testing.T, handler http.Handler) {
 	})
 }
 
-func createTestCodexUsageProvider(t *testing.T, s *Server, state map[string]any) *Provider {
+// createTestCodexUsageConnection builds the Codex connection the usage
+// endpoint now reads. Connections store credentials flat; the fetcher
+// still wants the providers-era nested shape, and reshaping that is
+// exactly what handleConnectionUsage does.
+func createTestCodexUsageConnection(t *testing.T, s *Server, accessToken string, expiredOpts ...bool) *Connection {
 	t.Helper()
 	if len(s.secret) == 0 {
 		s.secret = testSecret()
 	}
-	raw, err := json.Marshal(state)
+	if s.catalog == nil {
+		s.catalog = NewAppCatalog()
+	}
+	s.catalog.Register(&AppTemplate{
+		Slug: "openai-codex", Name: "OpenAI Codex",
+		Auth: AppAuthConfig{Types: []string{"oauth_device_code"}},
+		Runtime: &AppRuntimeConfig{
+			Role: "llm", ProviderKey: openAICodexAuthProvider,
+			Env:          map[string]string{"OPENAI_CODEX_ACCESS_TOKEN": "{{credentials.access_token}}"},
+			Capabilities: []string{"subscription_usage"},
+		},
+	})
+	expiry := time.Now().Add(time.Hour)
+	refreshToken := ""
+	if len(expiredOpts) > 0 && expiredOpts[0] {
+		// Past expiry + a refresh token is what makes the usage path
+		// refresh through the connection before calling upstream.
+		expiry = time.Now().Add(-time.Hour)
+		refreshToken = "refresh-usage"
+	}
+	raw, err := json.Marshal(map[string]string{
+		"access_token":     accessToken,
+		"account_id":       "account-usage",
+		"refresh_token":    refreshToken,
+		"token_expires_at": expiry.UTC().Format(time.RFC3339),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,11 +79,12 @@ func createTestCodexUsageProvider(t *testing.T, s *Server, state map[string]any)
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider, err := s.store.CreateProvider(1, 15, "llm", "OpenAI Codex", encrypted)
+	conn, err := s.store.CreateConnection(1, "openai-codex", "OpenAI Codex", "Codex",
+		"oauth_device_code", encrypted, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return provider
+	return conn
 }
 
 func connectedTestCodexUsageState(accessToken string) map[string]any {
@@ -70,16 +100,16 @@ func connectedTestCodexUsageState(accessToken string) map[string]any {
 	}
 }
 
-func requestTestProviderUsage(t *testing.T, s *Server, userID, providerID int64, refresh bool) (*httptest.ResponseRecorder, ProviderUsageSnapshot) {
+func requestTestProviderUsage(t *testing.T, s *Server, userID, connectionID int64, refresh bool) (*httptest.ResponseRecorder, ProviderUsageSnapshot) {
 	t.Helper()
-	path := "/providers/" + itoa64(providerID) + "/usage"
+	path := "/connections/" + itoa64(connectionID) + "/usage"
 	if refresh {
 		path += "?refresh=1"
 	}
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("X-User-ID", itoa64(userID))
 	rec := httptest.NewRecorder()
-	s.handleProviderUsage(rec, req)
+	s.handleConnectionUsage(rec, req)
 	var snapshot ProviderUsageSnapshot
 	if strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
 		_ = json.Unmarshal(rec.Body.Bytes(), &snapshot)
@@ -134,7 +164,7 @@ func TestProviderUsageCodexNormalizesCachesAndThrottlesRefresh(t *testing.T) {
 
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
-	provider := createTestCodexUsageProvider(t, s, connectedTestCodexUsageState("access-usage"))
+	provider := createTestCodexUsageConnection(t, s, "access-usage")
 
 	rec, snapshot := requestTestProviderUsage(t, s, 1, provider.ID, false)
 	if rec.Code != http.StatusOK {
@@ -191,7 +221,7 @@ func TestProviderUsageCodexServesRecentCacheAsStaleOnFailure(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
 	state := connectedTestCodexUsageState("access-stale")
-	provider := createTestCodexUsageProvider(t, s, state)
+	provider := createTestCodexUsageConnection(t, s, "access-stale")
 	if rec, _ := requestTestProviderUsage(t, s, 1, provider.ID, false); rec.Code != http.StatusOK {
 		t.Fatalf("initial status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -220,7 +250,8 @@ func TestProviderUsageCacheSingleflightsConcurrentAccountReads(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
 	state := connectedTestCodexUsageState("access-concurrent")
-	provider := createTestCodexUsageProvider(t, s, state)
+	conn := createTestCodexUsageConnection(t, s, "access-concurrent")
+	credentials := map[string]string{"access_token": "access-concurrent", "account_id": "account-usage"}
 	fetcher := codexProviderUsageFetcher{}
 
 	start := make(chan struct{})
@@ -231,7 +262,8 @@ func TestProviderUsageCacheSingleflightsConcurrentAccountReads(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			<-start
-			snapshot, err := s.fetchProviderUsage(t.Context(), 1, provider, openAICodexAuthProvider, state, fetcher, false)
+			req := httptest.NewRequest(http.MethodGet, "/connections/1/usage", nil).WithContext(t.Context())
+			snapshot, err := s.fetchConnectionUsage(req, conn, cloneUsageState(state), fetcher, credentials)
 			if err != nil {
 				errs <- err
 				return
@@ -271,15 +303,19 @@ func TestProviderUsageCodexRefreshesExpiredOAuthBeforeFetch(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 	oldTokenEndpoint := openAICodexTokenEndpoint
+	oldIntegrationTokenURL := integrationOpenAICodexTokenURL
 	openAICodexTokenEndpoint = tokenServer.URL
-	defer func() { openAICodexTokenEndpoint = oldTokenEndpoint }()
+	// The connection refresh path has its own endpoint; usage on a
+	// migrated Codex row goes through that one.
+	integrationOpenAICodexTokenURL = tokenServer.URL
+	defer func() {
+		openAICodexTokenEndpoint = oldTokenEndpoint
+		integrationOpenAICodexTokenURL = oldIntegrationTokenURL
+	}()
 
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
-	state := connectedTestCodexUsageState("expired-access")
-	state["credentials"].(map[string]any)["refresh_token"] = "refresh-usage"
-	state["credentials"].(map[string]any)["expires_at"] = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
-	provider := createTestCodexUsageProvider(t, s, state)
+	provider := createTestCodexUsageConnection(t, s, "expired-access", true)
 	rec, snapshot := requestTestProviderUsage(t, s, 1, provider.ID, false)
 	if rec.Code != http.StatusOK || !snapshot.Supported {
 		t.Fatalf("refreshed usage status=%d body=%s", rec.Code, rec.Body.String())
@@ -287,25 +323,26 @@ func TestProviderUsageCodexRefreshesExpiredOAuthBeforeFetch(t *testing.T) {
 }
 
 func TestProviderUsageUnsupportedAndOwnershipIsolation(t *testing.T) {
-	s := newTestServer(t)
-	ensureTestAdmin(t, s)
-	s.secret = testSecret()
-	raw, _ := json.Marshal(map[string]any{"OPENAI_API_KEY": "sk-test"})
-	encrypted, _ := Encrypt(s.secret, string(raw))
-	provider, err := s.store.CreateProvider(1, 1, "llm", "OpenAI", encrypted)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := runtimeTestServer(t)
+	// A runtime backend with no quota endpoint reports supported=false
+	// rather than erroring, so the card renders a neutral state.
+	registerRuntimeApp(s, "anthropic-api", "anthropic", map[string]string{
+		"ANTHROPIC_API_KEY": "{{credentials.api_key}}",
+	})
+	conn := addConnection(t, s, "anthropic-api", "Anthropic", "", map[string]string{"api_key": "sk-ant"})
 
-	rec, snapshot := requestTestProviderUsage(t, s, 1, provider.ID, false)
+	rec, snapshot := requestTestProviderUsage(t, s, 1, conn.ID, false)
 	if rec.Code != http.StatusOK || snapshot.Supported {
 		t.Fatalf("unsupported status=%d snapshot=%+v", rec.Code, snapshot)
 	}
+
 	other, err := s.store.CreateUser("provider-usage-other@test.local", "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, _ = requestTestProviderUsage(t, s, other.ID, provider.ID, false)
+	// Usage is scoped by owner: another user must not read this
+	// connection's quota, and the lookup 404s rather than leaking it.
+	rec, _ = requestTestProviderUsage(t, s, other.ID, conn.ID, false)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("cross-user usage status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -323,4 +360,22 @@ func TestCodexProviderTypeAdvertisesSubscriptionUsage(t *testing.T) {
 		}
 	}
 	t.Fatalf("Codex capabilities=%v missing %q", providerType.Capabilities, providerUsageCapability)
+}
+
+// cloneUsageState gives each concurrent caller its own map, mirroring
+// handleConnectionUsage building a fresh one per request.
+func cloneUsageState(state map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range state {
+		if nested, ok := v.(map[string]any); ok {
+			copied := map[string]any{}
+			for nk, nv := range nested {
+				copied[nk] = nv
+			}
+			out[k] = copied
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }

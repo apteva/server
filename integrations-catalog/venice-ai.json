@@ -712,5 +712,12 @@
   ],
   "health_check": {
     "tool": "list_models"
+  },
+  "runtime": {
+    "role": "llm",
+    "provider_key": "venice",
+    "env": {
+      "VENICE_API_KEY": "{{credentials.token}}"
+    }
   }
 }

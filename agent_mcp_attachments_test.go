@@ -303,6 +303,51 @@ func TestRefreshAgentAppMCPConfigsRepairsStaleURLAndBinding(t *testing.T) {
 	}
 }
 
+func TestRefreshAgentAppMCPConfigsPrunesMissingLocalRegistryRows(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	agent, err := s.store.CreateAgent(1, "stale-registry-agent", "directive", "autonomous", `{}`, "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeStoppedConfigAtomic(agent.ID, func(cfg map[string]any) error {
+		cfg["mcp_servers"] = []any{
+			map[string]any{
+				"name":      "removed-hosted-row",
+				"transport": "http",
+				"url":       "http://127.0.0.1:5280/mcp/999999",
+			},
+			map[string]any{
+				"name":      "external",
+				"transport": "http",
+				"url":       "https://mcp.example.test/mcp/999999",
+			},
+			map[string]any{
+				"name":      "channels",
+				"transport": "http",
+				"url":       "http://127.0.0.1:5280/mcp/channels",
+			},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.refreshAgentAppMCPConfigs(agent); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := s.currentAgentMCPServers(agent, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasMCPName(servers, "removed-hosted-row") {
+		t.Fatalf("missing local registry row was retained: %#v", servers)
+	}
+	if !hasMCPName(servers, "external") || !hasMCPName(servers, "channels") {
+		t.Fatalf("non-registry MCP configs were pruned: %#v", servers)
+	}
+}
+
 func TestConcurrentAgentMCPAddsDoNotOverwriteEachOther(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)

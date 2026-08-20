@@ -717,12 +717,8 @@ func main() {
 	})
 	// Webhook receiver (unauthenticated — external services POST here).
 	// One route, one handler, one URL shape: /webhooks/<opaque_token>.
-	// The handler dispatches internally based on which table the token
-	// matches: subscription rows (for per-sub upstream deliveries
-	// registered with the external service) or provider rows (for
-	// project-level trigger deliveries from Composio and friends).
-	// Opaque tokens mean the URL doesn't leak project id or provider
-	// kind and the route is future-proof for any new trigger backend.
+	// Tokens resolve to subscription rows registered with external services.
+	// Opaque values keep internal subscription and project ids out of the URL.
 	mux.HandleFunc("/webhooks/email", s.handleEmailWebhook)
 	mux.HandleFunc("/webhooks/", s.handleWebhook)
 	// Token-authenticated realtime audio bridge. Mounted outside the regular
@@ -750,11 +746,6 @@ func main() {
 	// Email (AgentMail) gateway config
 	apiMux.HandleFunc("/email/configure", s.authMiddleware(s.handleEmailConfigure))
 	apiMux.HandleFunc("/email/status", s.authMiddleware(s.handleEmailStatus))
-
-	// Hosted providers — proxy calls that need the stored API key
-	apiMux.HandleFunc("/composio/apps", s.authMiddleware(s.handleListComposioApps))
-	apiMux.HandleFunc("/composio/toolkit/", s.authMiddleware(s.handleGetComposioToolkit))
-	apiMux.HandleFunc("/composio/reconcile", s.authMiddleware(s.handleComposioReconcile))
 
 	// Subscription management
 	apiMux.HandleFunc("/subscriptions", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -891,10 +882,32 @@ func main() {
 	apiMux.HandleFunc("/ingress/routes/", s.authMiddleware(s.handleIngressRoute))
 	apiMux.HandleFunc("/ingress/certs", s.authMiddleware(s.handleIngressCerts))
 
+	// GET /api/connections/runtime — the Models settings tab's list:
+	// connections whose catalog entry declares a `runtime` block,
+	// in the same precedence order GetProviderPool resolves them.
+	apiMux.HandleFunc("/connections/runtime", s.authMiddleware(s.handleListRuntimeConnections))
+
 	apiMux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/connections/")
 		if strings.HasPrefix(path, "auth/") {
 			s.handlePollConnectionDeviceAuth(w, r)
+		} else if strings.HasSuffix(path, "/primary") {
+			// PATCH /api/connections/:id/primary — pick which key backs
+			// the runtime when several exist for one app. Replaces the
+			// providers table's implicit lowest-id dedup.
+			s.handleSetConnectionPrimary(w, r)
+		} else if strings.HasSuffix(path, "/runtime-config") {
+			// GET/PATCH /api/connections/:id/runtime-config — model picks
+			// and non-secret knobs. PATCH merges.
+			s.handleConnectionRuntimeConfig(w, r)
+		} else if strings.HasSuffix(path, "/usage") {
+			// GET /api/connections/:id/usage — subscription quota, polled
+			// live from the upstream (not integration_usage_events).
+			s.handleConnectionUsage(w, r)
+		} else if strings.HasSuffix(path, "/models") {
+			// GET /api/connections/:id/models — live model list for the
+			// Models and Helper pickers.
+			s.handleConnectionModels(w, r)
 		} else if strings.HasSuffix(path, "/tools") {
 			s.handleConnectionTools(w, r)
 		} else if strings.HasSuffix(path, "/execute") {
@@ -907,13 +920,6 @@ func main() {
 			// POST /api/connections/:id/mcp — create a scoped MCP server
 			// from an existing connection. Body: { name, allowed_tools }.
 			s.handleCreateScopedMCP(w, r)
-		} else if strings.HasSuffix(path, "/triggers") {
-			// GET /api/connections/:id/triggers — list Composio trigger
-			// types available for this connection's toolkit. Only
-			// meaningful for composio-source connections; returns 404
-			// for local. Used by the dashboard subscription create form
-			// to populate the trigger picker.
-			s.handleConnectionTriggers(w, r)
 		} else if strings.HasSuffix(path, "/test") {
 			// POST /api/connections/:id/test — run the app's
 			// health_check probe against the stored credentials and
@@ -1130,86 +1136,25 @@ func main() {
 	apiMux.HandleFunc("/managed-mcp-runtime/", s.handleManagedMCPRuntimeGateway)
 	apiMux.HandleFunc("/runtime-managed-mcp/", s.handleRuntimeManagedMCPGateway)
 
-	// Composio per-toolkit action listing — powers the dashboard tool picker
-	// when the user is scoping down a Composio MCP server.
-	apiMux.HandleFunc("/composio/toolkits/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/composio/toolkits/")
-		if strings.HasSuffix(path, "/actions") {
-			s.handleListComposioToolkitActions(w, r)
-			return
-		}
-		http.Error(w, "not found", http.StatusNotFound)
-	}))
-
-	// Provider routes
-	apiMux.HandleFunc("/provider-types", s.authMiddleware(s.handleListProviderTypes))
-	apiMux.HandleFunc("/providers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			s.handleListProviders(w, r)
-		case http.MethodPost:
-			s.handleCreateProvider(w, r)
-		default:
-			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
-		}
-	}))
+	// Provider routes — reduced to the one endpoint that must outlive
+	// the providers table.
+	//
+	// apteva-core builds this URL itself from the OPENAI_CODEX_PROVIDER_ID
+	// we inject at spawn, and holds it for the life of the process, so a
+	// core started before the providers/connections fusion keeps calling
+	// /api/providers/<old id>/auth/runtime-token forever. handleRuntimeToken
+	// serves a provider row if one still exists and otherwise resolves the
+	// migrated connection via legacy_provider_id. See runtime_token.go.
+	//
+	// Everything else the providers table used to expose — CRUD, types,
+	// model discovery, usage, device auth, credential probes — now lives
+	// on connections. See runtime_connection_handlers.go.
 	apiMux.HandleFunc("/providers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/providers/")
-		if path == "auth/start" {
-			s.handleStartProviderAuth(w, r)
+		if strings.HasSuffix(strings.TrimPrefix(r.URL.Path, "/providers/"), "/auth/runtime-token") {
+			s.handleRuntimeToken(w, r)
 			return
 		}
-		if strings.HasPrefix(path, "auth/") {
-			s.handlePollProviderAuth(w, r)
-			return
-		}
-		if strings.HasSuffix(path, "/models") {
-			s.handleProviderModels(w, r)
-			return
-		}
-		if strings.HasSuffix(path, "/usage") {
-			s.handleProviderUsage(w, r)
-			return
-		}
-		if strings.HasSuffix(path, "/auth/status") {
-			s.handleProviderAuthAction(w, r, "status")
-			return
-		}
-		if strings.HasSuffix(path, "/auth/refresh") {
-			s.handleProviderAuthAction(w, r, "refresh")
-			return
-		}
-		if strings.HasSuffix(path, "/auth/logout") {
-			s.handleProviderAuthAction(w, r, "logout")
-			return
-		}
-		if strings.HasSuffix(path, "/auth/runtime-token") {
-			s.handleProviderAuthAction(w, r, "runtime-token")
-			return
-		}
-		if strings.HasSuffix(path, "/auth/smoke-test") {
-			s.handleProviderAuthAction(w, r, "smoke-test")
-			return
-		}
-		// POST /providers/:id/test — run the provider's credential
-		// probe and return a ProviderTestResult. Pairs with the
-		// pre-flight gate in handleCreateProvider so operators get
-		// the same green-tick / red-X feedback after the row was
-		// saved as they did on the create form.
-		if strings.HasSuffix(path, "/test") && r.Method == http.MethodPost {
-			s.handleTestProvider(w, r)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			s.handleGetProvider(w, r)
-		case http.MethodPut:
-			s.handleUpdateProvider(w, r)
-		case http.MethodDelete:
-			s.handleDeleteProvider(w, r)
-		default:
-			http.Error(w, "GET, PUT, POST, or DELETE", http.StatusMethodNotAllowed)
-		}
+		http.Error(w, "providers have been replaced by connections; see /api/connections/runtime", http.StatusGone)
 	}))
 
 	// /agent-templates — wizard's starter-config catalog. Builtin
@@ -1487,9 +1432,10 @@ func main() {
 	s.appBus = NewAppEventBus()
 	// Bridge AppEventBus → subscriptions(source='app_event'). Started
 	// here so by the time the HTTP listener accepts requests every
-	// active app-event subscription is already wired to its lane and
-	// any events published during boot are picked up via the bus's
-	// since-cursor (replays from the ring up to last_seq_delivered).
+	// active app-event subscription is already wired to its lane. Reconcile
+	// restores each in-memory producer counter from the durable subscription
+	// cursors before sidecars can publish. The process-local ring only replays
+	// reconnect gaps within this server process; it does not survive restart.
 	s.appEventDispatcher = NewAppEventDispatcher(s)
 	s.pollingDispatcher = NewPollingSubscriptionDispatcher(s)
 	if !quarantined {
@@ -1529,6 +1475,15 @@ func main() {
 	}
 	s.localApps = NewLocalSupervisor(cacheBase)
 	s.RegisterBuiltinApps()
+
+	// Move legacy `providers` rows onto `connections` (providers/
+	// connections fusion). Runs after the catalog is loaded because the
+	// catalog's runtime.env block is what maps a provider's env-var-keyed
+	// blob onto a connection's credential fields. Idempotent and
+	// non-destructive — provider rows are left in place, and a row whose
+	// credentials disagree with an existing connection is logged rather
+	// than merged. See provider_migration.go.
+	s.migrateProvidersToConnections()
 
 	// Initialise the static-mount table NOW so the listener (started
 	// next) can serve requests safely before RemountStaticApps fills

@@ -8,12 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 //go:embed project-presets/*.json
@@ -279,6 +282,76 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 	}, nil
 }
 
+// installMissingPresetApps installs a preset's not-yet-installed apps
+// from the registry, so applying a preset is genuinely one click instead
+// of "install eight apps by hand first, then apply".
+//
+// It reuses the requires.apps dependency cascade wholesale by wrapping
+// the missing names in a synthetic manifest: the preset's app list IS a
+// dependency list, and the cascade already does everything the job
+// needs — registry name→manifest resolution, transitive deps in topo
+// order (webinars pulls streaming by itself), cycle detection, and
+// skip-if-installed.
+//
+// Every ref is marked Optional with an explicit opt-in binding. That
+// combination makes each app resolve independently: one app missing
+// from the registry (or failing its build) degrades to a warning while
+// the rest still install, instead of the hard-fail a required ref
+// produces. A preset must apply with whatever subset exists — that was
+// the old behavior, and auto-install must only ever improve on it.
+//
+// Installs run synchronously (clone/build/health-check inside the
+// call), so on return the new installs are status='running' and visible
+// to the preview compiler.
+func (s *Server) installMissingPresetApps(
+	userID int64, projectID string, appNames []string,
+	visible map[string]visibleProjectPresetApp,
+) []string {
+	// No local supervisor means no way to run a sidecar — nothing to
+	// gain from resolving the registry, and the resolution itself is a
+	// network call. Headless variants and the unit-test fixture both
+	// land here.
+	if s.localApps == nil {
+		return nil
+	}
+	var missing []string
+	for _, name := range appNames {
+		if visible[name].InstallID == 0 {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	refs := make([]sdk.RequiredAppRef, 0, len(missing))
+	bindings := map[string]any{}
+	for _, name := range missing {
+		refs = append(refs, sdk.RequiredAppRef{Name: name, Optional: true})
+		bindings[name] = true
+	}
+	synthetic := &sdk.Manifest{}
+	synthetic.Requires.Apps = refs
+
+	warnings := []string{}
+	resolved, err := s.installDependencies(userID, synthetic, projectID, bindings)
+	if err != nil {
+		// Registry unreachable — nothing installed; every app keeps the
+		// classic not-installed warning below.
+		log.Printf("[PRESET-INSTALL] project=%s registry resolution failed: %v", projectID, err)
+		warnings = append(warnings, "app auto-install skipped: "+err.Error())
+	}
+	for _, name := range missing {
+		if id, ok := resolved[name]; ok && id != 0 {
+			log.Printf("[PRESET-INSTALL] project=%s installed %s (install=%d)", projectID, name, id)
+			continue
+		}
+		warnings = append(warnings,
+			fmt.Sprintf("%s is assigned by the preset but is not installed and could not be installed from the registry", name))
+	}
+	return warnings
+}
+
 func projectPresetApps(preset ProjectPreset) []string {
 	seen := map[string]bool{}
 	apps := []string{}
@@ -466,12 +539,47 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		http.Error(w, "preset_id is required", http.StatusBadRequest)
 		return
 	}
+
+	// Auto-install the preset's missing apps before compiling the
+	// preview, so the agents bind the full set instead of whatever
+	// happened to be installed. Preview (the read-only endpoint) never
+	// does this — installing is a side effect that belongs to apply.
+	//
+	// Admin-gated because installing apps is an admin capability
+	// everywhere else (handleInstallApp requires platform admin); a
+	// project editor applying a preset gets the old warn-and-continue
+	// behavior rather than a privilege escalation.
+	installWarnings := []string{}
+	if userID := getUserID(r); s.store.GetPlatformRole(userID) == PlatformAdmin {
+		if catalog, err := loadProjectPresetCatalog(); err == nil {
+			if preset, ok := catalog.ByID[body.PresetID]; ok {
+				if visible, err := s.visibleProjectPresetApps(projectID); err == nil {
+					installWarnings = s.installMissingPresetApps(
+						userID, projectID, projectPresetApps(preset), visible)
+				}
+			}
+		}
+	}
+
 	preview, err := s.compileProjectPresetPreview(r.Context(), getUserID(r), projectID, ProjectPresetPreviewRequest{
 		PresetID: body.PresetID, Description: body.Description,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	// The preview re-warns generically about anything still missing;
+	// the install pass already explains those with the richer "could
+	// not be installed from the registry" message, so drop the
+	// duplicates and keep the informative one.
+	if len(installWarnings) > 0 {
+		kept := preview.Warnings[:0]
+		for _, warning := range preview.Warnings {
+			if !strings.HasSuffix(warning, "not installed for this project") {
+				kept = append(kept, warning)
+			}
+		}
+		preview.Warnings = append(kept, installWarnings...)
 	}
 	project, err := s.store.GetProjectAny(projectID)
 	if err != nil {

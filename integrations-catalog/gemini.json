@@ -623,5 +623,12 @@
   ],
   "health_check": {
     "tool": "list_models"
+  },
+  "runtime": {
+    "role": "llm",
+    "provider_key": "google",
+    "env": {
+      "GOOGLE_API_KEY": "{{credentials.api_key}}"
+    }
   }
 }

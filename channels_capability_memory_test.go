@@ -161,7 +161,10 @@ func TestSyncChannelsCapabilityMemoryDiskIdempotentAndRemovable(t *testing.T) {
 	}
 }
 
-func TestCreateInstanceSeedsChannelsCapabilityMemoryByDefault(t *testing.T) {
+// Renamed from ...ByDefault when the replacement default landed: the
+// conversations app owns the chat surface, so the capability memory is
+// seeded only when an agent explicitly opts into the legacy channels.
+func TestCreateInstanceSeedsChannelsCapabilityMemoryOnOptIn(t *testing.T) {
 	s := newTestServer(t)
 	user, err := s.store.CreateUser("channels-capability-create@example.com", "hash")
 	if err != nil {
@@ -170,9 +173,10 @@ func TestCreateInstanceSeedsChannelsCapabilityMemoryByDefault(t *testing.T) {
 
 	start := false
 	body, _ := json.Marshal(map[string]any{
-		"name":      "chat-ready",
-		"directive": "help users",
-		"start":     start,
+		"name":             "chat-ready",
+		"directive":        "help users",
+		"start":            start,
+		"include_channels": true,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/instances", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

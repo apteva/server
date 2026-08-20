@@ -653,6 +653,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		return nil
 	}
 	defer s.localApps.releaseInstall(installID)
+	oldMCPSurface := s.snapshotAppMCPSurface(installID)
 
 	releaseAppLock := s.localApps.lockApp(m.Name, m.Version)
 	defer releaseAppLock()
@@ -735,7 +736,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	s.reconcileAllAppDepBindings()
 	// Bridge the app's manifest tools into the platform's mcp_servers
 	// table so [[list_mcp_servers]] surfaces them and agents can connect.
-	if err := s.registerAppMCP(installID); err != nil {
+	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
 		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
 	}
 	// Blue-green handoff complete: DB now points at NEW's port, the

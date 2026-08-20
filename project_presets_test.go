@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -25,8 +28,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Presets) != 16 {
-		t.Fatalf("got %d presets, want 16", len(catalog.Presets))
+	if len(catalog.Presets) != 17 {
+		t.Fatalf("got %d presets, want 17", len(catalog.Presets))
 	}
 	counts := map[string]int{}
 	knownApps := map[string]bool{
@@ -39,6 +42,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"containers": true, "fleet": true, "backup": true, "computer": true,
 		"screenshots": true, "signatures": true, "billing": true, "commerce": true,
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
+		"webinars": true,
 	}
 	requiredDomainApps := map[string][]string{
 		"personal-assistant":             {"todo", "notes", "calendar"},
@@ -57,6 +61,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"business-professional-services": {"crm", "bookings", "docs", "signatures", "billing"},
 		"business-ecommerce":             {"commerce", "catalog", "inventory", "orders", "analytics"},
 		"business-local-services":        {"crm", "bookings", "messaging", "billing"},
+		"business-webinars":              {"webinars", "crm", "messaging", "campaigns"},
 	}
 	for _, preset := range catalog.Presets {
 		counts[preset.Category]++
@@ -80,9 +85,11 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 			}
 		}
 	}
-	for _, category := range []string{"personal", "work", "development", "business"} {
-		if counts[category] != 4 {
-			t.Fatalf("category %s has %d presets, want 4", category, counts[category])
+	// business grew a fifth preset (webinars); the other categories stay at 4.
+	wantCounts := map[string]int{"personal": 4, "work": 4, "development": 4, "business": 5}
+	for category, want := range wantCounts {
+		if counts[category] != want {
+			t.Fatalf("category %s has %d presets, want %d", category, counts[category], want)
 		}
 	}
 	raw, _ := json.Marshal(catalog.Presets)
@@ -99,6 +106,20 @@ func TestProjectPresetDeterministicPlannerClassifiesDoctorLeadGeneration(t *test
 	preset, confidence := deterministicProjectPreset("business", "I run a doctor lead-generation company", catalog.Presets)
 	if preset.ID != "business-lead-generation" {
 		t.Fatalf("selected %q, want business-lead-generation", preset.ID)
+	}
+	if confidence <= 0.5 {
+		t.Fatalf("confidence=%v, want a meaningful match", confidence)
+	}
+}
+
+func TestProjectPresetDeterministicPlannerClassifiesWebinars(t *testing.T) {
+	catalog, err := loadProjectPresetCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	preset, confidence := deterministicProjectPreset("business", "I want a space to host webinars and online workshops for my course", catalog.Presets)
+	if preset.ID != "business-webinars" {
+		t.Fatalf("selected %q, want business-webinars", preset.ID)
 	}
 	if confidence <= 0.5 {
 		t.Fatalf("confidence=%v, want a meaningful match", confidence)
@@ -230,4 +251,139 @@ func containsInt64(values []int64, target int64) bool {
 		}
 	}
 	return false
+}
+
+// TestProjectPresetApplyAutoInstallsMissingRegistryApps is the one-click
+// contract: an admin applying a preset gets the preset's apps installed
+// from the registry, not a pile of "not installed" warnings. The
+// registry and manifest are stubbed; the app is kind=static with an
+// absolute static_dir so the install completes synchronously without a
+// clone or build.
+func TestProjectPresetApplyAutoInstallsMissingRegistryApps(t *testing.T) {
+	s := newTestServer(t)
+	seedPresetProject(t, s, "webinar-project")
+	s.localApps = NewLocalSupervisor(t.TempDir())
+	s.installedApps = NewInstalledAppsRegistry()
+	s.staticMounts = newStaticAppMounts()
+
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<html></html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `schema: apteva-app/v1
+name: webinars
+display_name: Webinars
+version: 0.1.1
+scopes: [project, global]
+runtime:
+  kind: static
+  static_dir: %s
+`, staticDir)
+	}))
+	defer manifest.Close()
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"apps": []map[string]any{{"name": "webinars", "manifest_url": manifest.URL}},
+		})
+	}))
+	defer registry.Close()
+	t.Setenv("APTEVA_APP_REGISTRY_URL", registry.URL)
+
+	body := map[string]any{
+		"preset_id":   "business-webinars",
+		"description": "Host webinars for my course business",
+	}
+	req := authedRequest(t, http.MethodPost, "/projects/webinar-project/setup/apply", "", body)
+	rec := httptest.NewRecorder()
+	s.handleProject(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The webinars app must now be a running install in this project.
+	var installID int64
+	var status string
+	if err := s.store.db.QueryRow(`
+		SELECT i.id, i.status FROM app_installs i
+		JOIN apps a ON a.id=i.app_id
+		WHERE a.name='webinars' AND i.project_id='webinar-project'`).
+		Scan(&installID, &status); err != nil {
+		t.Fatalf("webinars was not installed: %v", err)
+	}
+	if status != "running" {
+		t.Fatalf("install status = %q, want running", status)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	// Apps the registry does not carry (crm, messaging, …) degrade to
+	// the informative warning instead of failing the apply — the exact
+	// pre-auto-install behavior, minus the apps we could fix.
+	warnings, _ := result["warnings"].([]any)
+	sawRegistryMiss, sawWebinarsWarning := false, false
+	for _, raw := range warnings {
+		text, _ := raw.(string)
+		if strings.Contains(text, "could not be installed from the registry") {
+			sawRegistryMiss = true
+		}
+		if strings.Contains(text, "webinars") {
+			sawWebinarsWarning = true
+		}
+	}
+	if !sawRegistryMiss {
+		t.Fatalf("expected registry-miss warnings for uninstallable apps: %#v", warnings)
+	}
+	if sawWebinarsWarning {
+		t.Fatalf("webinars installed fine and must not be warned about: %#v", warnings)
+	}
+}
+
+// A non-admin project editor keeps the old warn-and-continue behavior:
+// applying a preset never becomes a way to install apps without the
+// platform-admin capability handleInstallApp requires.
+func TestProjectPresetApplyDoesNotInstallForNonAdmins(t *testing.T) {
+	s := newTestServer(t)
+	seedPresetProject(t, s, "editor-project")
+	s.localApps = NewLocalSupervisor(t.TempDir())
+
+	editor, err := s.store.CreateUser("preset-editor@test.local", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO project_members(project_id,user_id,role,added_by) VALUES('editor-project',?,'editor',1)`,
+		editor.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A registry that fails the test if anyone dials it.
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("non-admin apply must not consult the registry")
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer registry.Close()
+	t.Setenv("APTEVA_APP_REGISTRY_URL", registry.URL)
+
+	body := map[string]any{
+		"preset_id":   "business-webinars",
+		"description": "Host webinars for my course business",
+	}
+	req := authedRequest(t, http.MethodPost, "/projects/editor-project/setup/apply", "", body)
+	req.Header.Set("X-User-ID", fmt.Sprint(editor.ID))
+	rec := httptest.NewRecorder()
+	s.handleProject(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var count int
+	if err := s.store.db.QueryRow(`SELECT count(*) FROM app_installs`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("non-admin apply installed %d apps, want 0", count)
+	}
 }

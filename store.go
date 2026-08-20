@@ -466,7 +466,6 @@ func (s *Store) migrate() error {
 			(6, 'embeddings', 'Voyage', 'Text embeddings', '["VOYAGE_API_KEY"]', 1, 20),
 			(7, 'tts', 'ElevenLabs', 'Text-to-speech', '["ELEVENLABS_API_KEY"]', 1, 30),
 			(8, 'browserbase', 'Browserbase', 'Cloud browser automation via Browserbase', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40),
-			(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16),
 			(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14),
 			(11, 'steel', 'Steel', 'Cloud browser automation via Steel.dev', '["STEEL_API_KEY"]', 1, 41),
 			(12, 'browser-engine', 'Browser Engine', 'Cloud browser automation via Browser Engine (self-hosted)', '["BROWSER_API_KEY","BROWSER_API_URL"]', 1, 42),
@@ -849,14 +848,6 @@ func (s *Store) migrate() error {
 	// deterministic internal key; new rows use random internal keys.
 	migrateEmptySubscriptionWebhookPaths(s.db)
 
-	// Provider webhook_token: per-provider-per-project opaque token used
-	// as the path component of /webhooks/<token>. The unified ingress
-	// handler matches this column for provider-backed trigger deliveries
-	// (Composio today; any other trigger backend tomorrow). Indexed so
-	// the ingress lookup is O(1) without decrypting blobs.
-	s.db.Exec("ALTER TABLE providers ADD COLUMN webhook_token TEXT DEFAULT ''")
-	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_providers_webhook_token ON providers(webhook_token) WHERE webhook_token != ''")
-
 	// Multi-connection support: dedupe any existing (user, project, name)
 	// collisions in mcp_servers by suffixing all but the oldest row with
 	// the row id, then enforce uniqueness with an index. Do the same for
@@ -903,14 +894,11 @@ func (s *Store) migrate() error {
 	// endpoint only serves those specific tools and rejects any tools/call
 	// targeting anything outside the list.
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT ''")
-	// upstream_id: used for source=remote rows (Composio) so we can track a
-	// versioned rename when the tool filter changes. Our mcp_servers.id
-	// stays stable for clients; upstream_id is rotated when we re-create
-	// the hosted server with a different action list.
+	// upstream_id stores a durable identifier supplied by a remote MCP or app.
+	// The local mcp_servers.id remains stable when an upstream identity changes.
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN upstream_id TEXT NOT NULL DEFAULT ''")
 
-	// Pending-OAuth state table for local catalog OAuth2 flows (composio OAuth is
-	// delegated and does not use this table).
+	// Pending-OAuth state table for local catalog OAuth2 flows.
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS oauth_states (
 		state TEXT PRIMARY KEY,
 		user_id INTEGER NOT NULL,
@@ -946,13 +934,49 @@ func (s *Store) migrate() error {
 	// later via PATCH /connections/:id/expose.
 	s.db.Exec(`ALTER TABLE connections ADD COLUMN auto_mcp INTEGER NOT NULL DEFAULT 1`)
 
+	// ─── Runtime-backend columns (providers/connections fusion) ───
+	//
+	// runtime_config: non-secret runtime knobs — pinned model IDs, base
+	// URL overrides, Ollama's model names. Deliberately NOT in
+	// encrypted_credentials: these are preferences, not secrets, and the
+	// pool resolver reads them on every agent boot.
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN runtime_config TEXT NOT NULL DEFAULT '{}'`)
+	// is_primary: which connection supplies the credential when several
+	// exist for the same app (e.g. three OpenCode Go keys). The old
+	// providers table deduped implicitly by lowest id; making it explicit
+	// lets the operator choose. Scope precedence is unchanged — a
+	// project-scoped row still beats a global one; is_primary only breaks
+	// ties *within* a scope.
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0`)
+	// legacy_provider_id: the providers.id this row was migrated from, or
+	// 0. Cores built before the fusion construct their token-refresh URL
+	// as /api/providers/<OPENAI_CODEX_PROVIDER_ID>/auth/runtime-token
+	// from an env var we injected at spawn, so that id has to keep
+	// resolving after the providers table is gone. See
+	// resolveRuntimeTokenConnection in provider_auth.go.
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN legacy_provider_id INTEGER NOT NULL DEFAULT 0`)
+	// At most one primary per user+project+app. Partial unique indexes are
+	// supported by modernc.org/sqlite, so the invariant is enforced by the
+	// DB rather than by handler code that can be bypassed.
+	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_primary
+		ON connections(user_id, project_id, app_slug) WHERE is_primary = 1`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_connections_legacy_provider
+		ON connections(legacy_provider_id) WHERE legacy_provider_id != 0`)
+	// Backfill: mark the lowest id in each group primary so the new
+	// ORDER BY reproduces the old "first wins" behavior as a stated fact
+	// rather than a coincidence. HAVING SUM(is_primary) = 0 makes this
+	// idempotent — once an operator picks a primary, reboots leave it be.
+	s.db.Exec(`UPDATE connections SET is_primary = 1 WHERE id IN (
+		SELECT MIN(id) FROM connections
+		GROUP BY user_id, project_id, app_slug
+		HAVING SUM(is_primary) = 0
+	)`)
+
 	// Seed new provider types on existing DBs (idempotent). The initial
 	// CREATE-TABLE seed above only fires on fresh schemas; this block
 	// catches upgrades so new provider types show up in the dashboard's
 	// "add provider" picker after a binary upgrade without requiring a
 	// DB reset.
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
-		(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16)`)
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14)`)
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
@@ -1409,7 +1433,37 @@ func (s *Store) migrate() error {
 	if err := s.repairLegacyAgentForeignKeys(); err != nil {
 		return fmt.Errorf("repair legacy agent foreign keys: %w", err)
 	}
+	if err := s.removeLegacyHostedIntegrationProvider(); err != nil {
+		return fmt.Errorf("remove legacy hosted integration provider: %w", err)
+	}
 	return s.validateMigratedSchema()
+}
+
+// removeLegacyHostedIntegrationProvider removes the retired provider-backed
+// integration path. The ordinary catalog integration remains available and
+// uses source=local like every other data-driven integration.
+func (s *Store) removeLegacyHostedIntegrationProvider() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	legacyProviderIDs := `SELECT id FROM providers WHERE provider_type_id=9`
+	legacyConnectionIDs := `SELECT id FROM connections WHERE source='composio' OR provider_id IN (` + legacyProviderIDs + `)`
+	statements := []string{
+		`DELETE FROM subscriptions WHERE connection_id IN (` + legacyConnectionIDs + `)`,
+		`DELETE FROM mcp_servers WHERE connection_id IN (` + legacyConnectionIDs + `) OR provider_id IN (` + legacyProviderIDs + `)`,
+		`DELETE FROM connections WHERE id IN (` + legacyConnectionIDs + `)`,
+		`DELETE FROM providers WHERE provider_type_id=9`,
+		`DELETE FROM provider_types WHERE id=9`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) validateMigratedSchema() error {
@@ -1444,7 +1498,7 @@ func migrateEmptySubscriptionWebhookPaths(db *sql.DB) {
 			CASE
 				WHEN COALESCE(source,'') = 'app_event' THEN 'app-event-' || id
 				WHEN COALESCE(delivery,'') = 'poll' THEN 'poll-' || id
-				WHEN COALESCE(external_webhook_id,'') != '' THEN 'composio-' || id
+				WHEN COALESCE(external_webhook_id,'') != '' THEN 'external-' || id
 				ELSE 'internal-' || id
 			END
 		WHERE webhook_path = ''

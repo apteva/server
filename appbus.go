@@ -161,6 +161,42 @@ func (b *AppEventBus) projectAllFor(projectID string) *busLane {
 	return l
 }
 
+// subscriptionLane resolves the public Subscribe(app, projectID) address to
+// its actual producer lane. Keep every operation that reasons about a
+// subscription cursor on this path so project, wildcard, project-wide _all,
+// and global _all cursors can never be applied to different counters.
+func (b *AppEventBus) subscriptionLane(app, projectID string) (*busLane, string) {
+	switch {
+	case app == allAppsLaneKey && projectID != "":
+		return b.projectAllFor(projectID), "project-all"
+	case app == allAppsLaneKey:
+		return b.allLane, "all"
+	case projectID == "":
+		return b.wildcardFor(app), "wildcard"
+	default:
+		return b.laneFor(app, projectID), "project"
+	}
+}
+
+// EnsureLaneSequenceAtLeast restores the producer-side high-water mark for a
+// subscription lane. AppEventBus rings are intentionally in memory, while
+// app-event subscription cursors survive a server restart in SQLite. Without
+// restoring the counter, a fresh bus would emit seq=1 and the dispatcher would
+// reject new events until the counter caught up with the persisted cursor.
+//
+// The lane lock is the same lock Publish uses to increment nextSeq, so seeding
+// is monotonic and safe alongside publishers. Startup still seeds before app
+// sidecars can publish; once this method returns, every later event on the lane
+// has a sequence greater than or equal to floor+1.
+func (b *AppEventBus) EnsureLaneSequenceAtLeast(app, projectID string, floor uint64) {
+	lane, _ := b.subscriptionLane(app, projectID)
+	lane.mu.Lock()
+	if lane.nextSeq < floor {
+		lane.nextSeq = floor
+	}
+	lane.mu.Unlock()
+}
+
 // Publish stamps the event with seq + time, writes it to the
 // per-project lane (if projectID is non-empty), fans out to per-
 // project subscribers, and ALSO copies the event onto the wildcard
@@ -360,22 +396,7 @@ func (b *AppEventBus) publishAll(base AppEvent) (delivered, dropped, subCount in
 // project_id. The seq + ring are wildcard-scoped so reconnect-with-
 // since works independently of any per-project lane.
 func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEvent, []AppEvent, func()) {
-	var lane *busLane
-	var laneTag string
-	switch {
-	case app == allAppsLaneKey && projectID != "":
-		lane = b.projectAllFor(projectID)
-		laneTag = "project-all"
-	case app == allAppsLaneKey:
-		lane = b.allLane
-		laneTag = "all"
-	case projectID == "":
-		lane = b.wildcardFor(app)
-		laneTag = "wildcard"
-	default:
-		lane = b.laneFor(app, projectID)
-		laneTag = "project"
-	}
+	lane, laneTag := b.subscriptionLane(app, projectID)
 	lane.mu.Lock()
 	id := b.nextID.Add(1)
 	sub := &busSubscriber{id: id, ch: make(chan AppEvent, 64)}

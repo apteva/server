@@ -151,6 +151,47 @@
         "tasks:task-overview",
         "native:activity"
       ]
+    },
+    {
+      "id": "business-webinars",
+      "category": "business",
+      "name": "Webinar studio",
+      "description": "Host live, scheduled, and replay webinars: registration funnel, reminders, live room with polls and offers, replays, and follow-up.",
+      "match": [
+        "webinar",
+        "webinars",
+        "online workshop",
+        "masterclass",
+        "virtual event",
+        "live training",
+        "product demo",
+        "virtual summit"
+      ],
+      "agents": [
+        {
+          "key": "webinar-producer",
+          "name": "Webinar Producer",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "webinars",
+            "crm",
+            "messaging",
+            "campaigns",
+            "calendar",
+            "tasks",
+            "social",
+            "analytics"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Plan and run webinars end to end: create events with sensible slots, keep the registration funnel healthy, promote via campaigns and social drafts, make sure reminders are bound and firing, run the live room (polls, scripted offers), publish replays, and report the funnel after each event (registrations, show rate, watch percentage, offer clicks). Follow up no-shows with the replay link. Draft outbound sends for approval unless explicit sending authority exists."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "native:inbox",
+        "tasks:task-overview",
+        "native:activity"
+      ]
     }
   ]
 }

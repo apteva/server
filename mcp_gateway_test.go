@@ -134,8 +134,11 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	if includeGateway {
 		t.Fatalf("expected agents_create MCP default to omit apteva-server, config=%s", created.Config)
 	}
-	if !includeChannels {
-		t.Fatalf("expected agents_create MCP default to include channels, config=%s", created.Config)
+	// Replacement default: the conversations app owns the conversation
+	// surface, so agents_create no longer injects the legacy channels
+	// MCPs unless the caller opts in.
+	if includeChannels {
+		t.Fatalf("expected agents_create MCP default to omit channels, config=%s", created.Config)
 	}
 
 	listResult, err := handleGatewayAgentTool("agents_list", map[string]any{}, "", client, s.store, "/tmp/apteva-server")
@@ -545,7 +548,7 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 		t.Fatalf("CreateMCPServerExt app: %v", err)
 	}
 	remote, err := s.store.CreateMCPServerExt(MCPServerInput{
-		UserID: 1, Name: "composio-gmail", Description: "Hosted Gmail MCP",
+		UserID: 1, Name: "hosted-gmail", Description: "Hosted Gmail MCP",
 		Source: "remote", Transport: "http", URL: "https://mcp.example.test/gmail", ProjectID: "proj-a", ToolCount: 9,
 	})
 	if err != nil {

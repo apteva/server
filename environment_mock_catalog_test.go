@@ -29,7 +29,7 @@ func TestCatalogMockResponses_Parse(t *testing.T) {
 		"facebook-api":  {"post_to_page", "post_photo_to_page", "publish_media_container", "get_page_posts", "list_pages"},
 		"youtube-api":   {"upload_video_init", "post_comment", "create_playlist", "get_my_channel", "search"},
 		"tiktok-api":    {"post_video", "post_photo", "get_publish_status", "get_user_info", "list_videos"},
-		"instagram-api": {"create_media_container", "publish_media_container", "create_comment_reply", "get_user", "get_account_media"},
+		"instagram-api": {"create_media_container", "publish_media_container", "create_comment_reply", "get_account", "get_account_media"},
 		"twitter-api":   {"post_tweet", "delete_tweet", "like_tweet", "retweet", "send_dm", "get_me"},
 		"linkedin":      {"create_post", "get_profile", "list_posts", "get_company"},
 		"pinterest":     {"create_pin", "create_board", "list_pins", "get_user_account"},

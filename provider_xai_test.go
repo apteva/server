@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -140,48 +139,6 @@ func TestFetchXAIModelsFiltersGenerationModelsAndParsesCapabilitiesAndPricing(t 
 	}
 	if got := reasoningEfforts(grok45.Capabilities.SupportedReasoningLevels); strings.Join(got, ",") != "low,medium,high" {
 		t.Fatalf("grok-4.5 reasoning = %#v", got)
-	}
-}
-
-func TestSaveXAIModelsPersistsSelectedCapabilities(t *testing.T) {
-	installTestXAIModelCatalog(t)
-	globalModelCache = &modelCache{entries: make(map[string]modelCacheEntry)}
-
-	s := newTestServer(t)
-	ensureTestAdmin(t, s)
-	s.secret = testSecret()
-	state := map[string]any{"XAI_API_KEY": "save-key"}
-	raw, _ := json.Marshal(state)
-	encrypted, _ := Encrypt(s.secret, string(raw))
-	provider, err := s.store.CreateProvider(1, 17, "llm", "xAI", encrypted)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	body, _ := json.Marshal(map[string]string{"large": "grok-4.5", "medium": "grok-4.3", "small": "grok-4.3"})
-	req := httptest.NewRequest(http.MethodPut, "/providers/"+jsonNumber(provider.ID)+"/models", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "1")
-	w := httptest.NewRecorder()
-	s.handleProviderModels(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
-	}
-
-	_, savedEncrypted, err := s.store.GetProvider(1, provider.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plaintext, _ := Decrypt(s.secret, savedEncrypted)
-	var saved map[string]any
-	if err := json.Unmarshal([]byte(plaintext), &saved); err != nil {
-		t.Fatal(err)
-	}
-	if saved["model_large"] != "grok-4.5" || saved["model_medium"] != "grok-4.3" || saved["model_small"] != "grok-4.3" || saved["XAI_API_KEY"] != "save-key" {
-		t.Fatalf("saved state = %#v", saved)
-	}
-	caps := stateMap(saved, "model_capabilities")
-	if len(caps) != 2 {
-		t.Fatalf("saved capabilities = %#v", saved["model_capabilities"])
 	}
 }
 

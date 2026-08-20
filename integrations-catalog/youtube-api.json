@@ -109,7 +109,7 @@
     },
     {
       "name": "query_analytics_report",
-      "description": "Query one official YouTube Analytics reports.query route for the authenticated channel. For owned-channel history use ids=channel==MINE. For YouTube search terms that generated views for a specific video, use dimensions=insightTrafficSourceDetail, filters=video==VIDEO_ID;insightTrafficSourceType==YT_SEARCH, metrics=views,estimatedMinutesWatched, and sort=-views. Search-term analytics describe traffic to channels you control; this is not public YouTube keyword volume.",
+      "description": "Query one official YouTube Analytics reports.query route for the authenticated channel. Use ids=channel==MINE. Common dimensions include day, deviceType, operatingSystem, country, insightTrafficSourceType, subscribedStatus, creatorContentType, sharingService, and video. Dimensions can also be filters, for example deviceType==TV. For YouTube search terms use dimensions=insightTrafficSourceDetail with filters=video==VIDEO_ID;insightTrafficSourceType==YT_SEARCH. Search-term analytics describe traffic to channels you control; this is not public YouTube keyword volume.",
       "method": "GET",
       "path": "https://youtubeanalytics.googleapis.com/v2/reports",
       "input_schema": {
@@ -135,7 +135,7 @@
           },
           "dimensions": {
             "type": "string",
-            "description": "Comma-separated dimensions. Use day for a time series or insightTrafficSourceDetail for referrer/search-term detail.",
+            "description": "Comma-separated dimensions. Examples: day for history; deviceType for TV/mobile/desktop; operatingSystem; country; insightTrafficSourceType; subscribedStatus; creatorContentType; sharingService; video; or insightTrafficSourceDetail for referrer/search-term detail.",
             "default": "day"
           },
           "filters": {

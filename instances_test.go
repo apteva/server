@@ -727,3 +727,43 @@ func TestInstanceIsolation(t *testing.T) {
 		t.Error("alice should not see bob's instance")
 	}
 }
+
+// TestCreateInstanceChannelsDefaultOff pins the replacement default:
+// new agents get include_channels=false unless explicitly opted in —
+// the conversations app owns the conversation surface, so the legacy
+// channels/agent-output system MCPs must not be injected by default.
+func TestCreateInstanceChannelsDefaultOff(t *testing.T) {
+	s := newTestServer(t)
+	registerAndLogin(t, s)
+
+	create := func(body map[string]any) string {
+		t.Helper()
+		req := authedRequest(t, "POST", "/instances", "", body)
+		w := httptest.NewRecorder()
+		s.handleCreateInstance(w, req)
+		var result struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.ID == 0 {
+			t.Fatalf("create failed: %s", w.Body.String())
+		}
+		// ListAgents omits Config; read the row directly.
+		agent, err := s.store.GetAgent(1, result.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return agent.Config
+	}
+
+	defaultCfg := create(map[string]any{"name": "no-flag", "directive": "x", "start": false})
+	if !strings.Contains(defaultCfg, `"include_channels":false`) {
+		t.Fatalf("default config = %s, want include_channels:false", defaultCfg)
+	}
+
+	// Explicit opt-in still works — existing operators can keep the
+	// legacy system MCPs per agent.
+	optIn := create(map[string]any{"name": "opted-in", "directive": "x", "start": false, "include_channels": true})
+	if !strings.Contains(optIn, `"include_channels":true`) {
+		t.Fatalf("opt-in config = %s, want include_channels:true", optIn)
+	}
+}

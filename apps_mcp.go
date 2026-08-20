@@ -28,11 +28,15 @@ package main
 //     anything that drifted)
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 
 	sdk "github.com/apteva/app-sdk"
@@ -198,6 +202,132 @@ func agentVisibleMCPTools(tools []sdk.MCPToolSpec) []sdk.MCPToolSpec {
 		out = append(out, tool)
 	}
 	return out
+}
+
+// appMCPSurfaceSnapshot is the live agent-visible tools/list contract exposed
+// by a running sidecar. available distinguishes a real empty surface from a
+// sidecar that could not be inspected.
+type appMCPSurfaceSnapshot struct {
+	Tools     []installMCPToolInfo
+	Available bool
+}
+
+func (s *Server) snapshotAppMCPSurface(installID int64) appMCPSurfaceSnapshot {
+	if s.installedApps == nil {
+		return appMCPSurfaceSnapshot{}
+	}
+	install := s.installedApps.Get(installID)
+	if install == nil || strings.TrimSpace(install.SidecarURL) == "" {
+		return appMCPSurfaceSnapshot{}
+	}
+	token, err := s.appInstallToken(installID)
+	if err != nil {
+		log.Printf("[APPS-MCP] snapshot credential install=%d: %v", installID, err)
+		return appMCPSurfaceSnapshot{}
+	}
+	tools, err := listAppMCPTools(strings.TrimRight(install.SidecarURL, "/")+"/mcp", token)
+	if err != nil {
+		log.Printf("[APPS-MCP] snapshot tools/list install=%d: %v", installID, err)
+		return appMCPSurfaceSnapshot{}
+	}
+	// The sidecar may expose tools that the current install manifest has not
+	// made agent-visible yet. Apply the same manifest exposure/name filter as
+	// registerAppMCP so the snapshot represents the surface Core can actually
+	// receive, including built-in upgrades where the new binary is already live.
+	var manifestJSON string
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(NULLIF(i.manifest_json,''),a.manifest_json)
+		 FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID,
+	).Scan(&manifestJSON); err != nil {
+		log.Printf("[APPS-MCP] snapshot manifest install=%d: %v", installID, err)
+		return appMCPSurfaceSnapshot{}
+	}
+	var manifest sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
+		log.Printf("[APPS-MCP] snapshot parse manifest install=%d: %v", installID, err)
+		return appMCPSurfaceSnapshot{}
+	}
+	allowed := make(map[string]struct{})
+	for _, tool := range agentVisibleMCPTools(manifest.Provides.MCPTools) {
+		allowed[tool.Name] = struct{}{}
+	}
+	filtered := make([]installMCPToolInfo, 0, len(tools))
+	for _, tool := range tools {
+		if _, ok := allowed[tool.Name]; ok {
+			filtered = append(filtered, tool)
+		}
+	}
+	return appMCPSurfaceSnapshot{Tools: canonicalAppMCPSurface(filtered), Available: true}
+}
+
+func canonicalAppMCPSurface(tools []installMCPToolInfo) []installMCPToolInfo {
+	out := append([]installMCPToolInfo(nil), tools...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Description < out[j].Description
+	})
+	return out
+}
+
+func appMCPSurfaceChanged(before, after appMCPSurfaceSnapshot) bool {
+	if !before.Available || !after.Available {
+		return false
+	}
+	return !reflect.DeepEqual(canonicalAppMCPSurface(before.Tools), canonicalAppMCPSurface(after.Tools))
+}
+
+// registerAppMCPAfterActivation refreshes the bridge only after the new
+// sidecar has passed health checks and become the active registry entry. A
+// changed live tool contract invalidates Core's tools/list cache, so restart
+// only enabled, bound agents that are currently running.
+func (s *Server) registerAppMCPAfterActivation(installID int64, before appMCPSurfaceSnapshot) error {
+	if err := s.registerAppMCP(installID); err != nil {
+		return err
+	}
+	after := s.snapshotAppMCPSurface(installID)
+	if !appMCPSurfaceChanged(before, after) {
+		return nil
+	}
+	return s.restartBoundRunningAgentsForAppMCPChange(installID, s.updateAgentCore)
+}
+
+func (s *Server) restartBoundRunningAgentsForAppMCPChange(
+	installID int64,
+	restart func(context.Context, int64) error,
+) error {
+	rows, err := s.store.db.Query(
+		`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1 ORDER BY agent_id`,
+		installID,
+	)
+	if err != nil {
+		return fmt.Errorf("list bound agents for install %d: %w", installID, err)
+	}
+	defer rows.Close()
+	var agentIDs []int64
+	for rows.Next() {
+		var agentID int64
+		if err := rows.Scan(&agentID); err != nil {
+			return err
+		}
+		agentIDs = append(agentIDs, agentID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	var restartErrs []error
+	for _, agentID := range agentIDs {
+		if !s.agents.IsRunning(agentID) {
+			continue
+		}
+		if err := restart(context.Background(), agentID); err != nil {
+			restartErrs = append(restartErrs, fmt.Errorf("restart agent %d after app MCP change: %w", agentID, err))
+			continue
+		}
+		log.Printf("[APPS-MCP] restarted bound agent=%d after install=%d tool surface changed", agentID, installID)
+	}
+	return errors.Join(restartErrs...)
 }
 
 // unregisterAppMCP removes the bridge row for an install. Used on

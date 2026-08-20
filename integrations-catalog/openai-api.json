@@ -610,5 +610,13 @@
   ],
   "health_check": {
     "tool": "list_models"
+  },
+  "runtime": {
+    "role": "llm",
+    "provider_key": "openai",
+    "env": {
+      "OPENAI_API_KEY": "{{credentials.token}}",
+      "OPENAI_BASE_URL": "{{config.base_url}}"
+    }
   }
 }

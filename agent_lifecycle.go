@@ -239,7 +239,7 @@ func (s *Server) updateAgentCore(ctx context.Context, agentID int64) error {
 	if !s.agents.IsRunning(agentID) {
 		return errors.New("agent is not running")
 	}
-	providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
+	providerEnv, err := s.GetAllProviderEnvVars(inst.UserID, inst.ProjectID)
 	if err != nil {
 		return fmt.Errorf("provider environment: %w", err)
 	}

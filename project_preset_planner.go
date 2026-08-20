@@ -21,7 +21,7 @@ func (s *Server) planProjectPresetWithProvider(ctx context.Context, userID int64
 	if len(pool) == 0 {
 		return projectPresetPlanChoice{}, errors.New("no LLM provider configured")
 	}
-	env, err := s.store.GetAllProviderEnvVars(userID, s.secret, projectID)
+	env, err := s.GetAllProviderEnvVars(userID, projectID)
 	if err != nil {
 		return projectPresetPlanChoice{}, err
 	}

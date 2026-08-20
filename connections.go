@@ -445,9 +445,9 @@ type Connection struct {
 	Name              string    `json:"name"`
 	AuthType          string    `json:"auth_type"`
 	Status            string    `json:"status"`
-	Source            string    `json:"source"`                // 'local' | 'composio'
+	Source            string    `json:"source"`                // 'local' for catalog integrations
 	ProviderID        int64     `json:"provider_id,omitempty"` // FK → providers (for hosted sources)
-	ExternalID        string    `json:"external_id,omitempty"` // composio connected_account_id, etc.
+	ExternalID        string    `json:"external_id,omitempty"` // upstream connection identifier, when applicable
 	ProjectID         string    `json:"project_id,omitempty"`
 	CreatedVia        string    `json:"created_via,omitempty"`
 	OwnerAppInstallID int64     `json:"owner_app_install_id,omitempty"`
@@ -456,7 +456,7 @@ type Connection struct {
 }
 
 // ConnectionInput carries the full set of fields for creating a connection via
-// any source (local, composio, ...). Use this for new code paths; the legacy
+// any source. Use this for new code paths; the legacy
 // CreateConnection(...) helper below is kept so existing tests and mcp_gateway
 // don't need to change.
 // containsString returns true when needle appears in haystack.
@@ -499,7 +499,7 @@ type ConnectionInput struct {
 	// AutoMCP — when explicitly true, an mcp_servers row is auto-
 	// created on connect so agents in the project can call the
 	// integration's tools globally. **Default is false** — apps
-	// creating connections via the SDK, composio backend, and other
+	// creating connections via the SDK and other
 	// programmatic paths typically just want a credential, not a
 	// public tool surface. The dashboard's "Add integration" flow
 	// passes auto_mcp=true explicitly so its UX is unchanged.
@@ -531,7 +531,7 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	}
 	// Default OFF: callers that want tool exposure must opt in. The
 	// dashboard's connect form sets AutoMCP=true explicitly; SDK +
-	// composio + other programmatic paths leave it nil and get no
+	// programmatic paths can leave it nil and get no
 	// auto-MCP. This stops "every connection an app creates leaks
 	// its tools as a global MCP server."
 	autoMCP := 0
@@ -546,6 +546,21 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
+	// First connection for this app in this scope becomes the runtime
+	// primary. The boot-time backfill only sees rows that already exist,
+	// so without this every connection created after startup would leave
+	// its group with no primary at all — the ordering would still work
+	// (id ASC), but "exactly one primary per scope" would quietly stop
+	// being true and the picker would show nothing selected.
+	//
+	// The WHERE guard makes this a no-op once a primary exists, so adding
+	// a second key never steals the operator's choice.
+	s.db.Exec(`UPDATE connections SET is_primary = 1 WHERE id = ? AND NOT EXISTS (
+		SELECT 1 FROM connections other
+		WHERE other.user_id = ? AND other.project_id = ? AND other.app_slug = ?
+		  AND other.is_primary = 1 AND other.id != ?
+	)`, id, in.UserID, in.ProjectID, in.AppSlug, id)
+
 	return &Connection{
 		ID: id, UserID: in.UserID, AppSlug: in.AppSlug, AppName: in.AppName, Name: in.Name,
 		AuthType: in.AuthType, Status: in.Status, Source: in.Source, ProviderID: in.ProviderID,
@@ -862,7 +877,7 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 
 	// Stable upstream_id keyed on the connection so a retry / re-OAuth
 	// updates the same row instead of multiplying entries (matches
-	// Composio's discipline).
+	// hosted-provider discipline).
 	upstreamID := fmt.Sprintf("remote_mcp:%d", conn.ID)
 
 	// Dedup against the connection_id — if this is a re-run after
@@ -1259,6 +1274,29 @@ func executeIntegrationToolWithRefresh(
 			}
 		}
 	}
+	// Proactive refresh, generalising the Codex check above to every
+	// OAuth integration that reports an expiry.
+	//
+	// On-401 refresh alone is structurally wrong for providers whose
+	// expired tokens cannot be refreshed: by the time a 401 arrives the
+	// token is already dead and only a full re-auth recovers it.
+	// Instagram is the forcing case — a 60-day token on a connection
+	// nobody touched is unrecoverable, so the only useful moment to
+	// refresh is BEFORE it lapses. Cheap to check: expires_at is a
+	// string compare, and most catalog entries never set it.
+	if app != nil && app.Auth.OAuth2 != nil &&
+		oauthTokenNeedsRefresh(credentials, oauthTokenExpirySkew) &&
+		oauthCanRefresh(app.Auth.OAuth2, credentials) {
+		if err := refreshOAuthAccessToken(app, credentials); err != nil {
+			// Non-fatal: the token may still have life left inside the
+			// skew, and the on-401 path below is the backstop.
+			fmt.Fprintf(os.Stderr, "[oauth-refresh] %s proactive refresh: %v\n", app.Slug, err)
+		} else if onRefresh != nil {
+			if perr := onRefresh(credentials); perr != nil {
+				fmt.Fprintf(os.Stderr, "[oauth-refresh] persist failed for %s: %v\n", app.Slug, perr)
+			}
+		}
+	}
 	result, err := executeIntegrationTool(app, tool, credentials, input, environmentID)
 	if err != nil {
 		return result, err
@@ -1295,11 +1333,10 @@ func executeIntegrationToolWithRefresh(
 	if app.Auth.OAuth2 == nil {
 		return result, nil
 	}
-	rt := credentials["refresh_token"]
-	if rt == "" {
-		rt = credentials["refreshToken"]
-	}
-	if rt == "" {
+	// A declared cfg.Refresh needs no refresh_token — that is the whole
+	// point of it. Without this check Instagram would never reach the
+	// refresh call at all, making the knobs above unreachable.
+	if !oauthCanRefresh(app.Auth.OAuth2, credentials) {
 		return result, nil
 	}
 	if err := refreshOAuthAccessToken(app, credentials); err != nil {
@@ -1517,9 +1554,55 @@ func addQueryValue(q neturl.Values, key string, v any) {
 // Atlassian flows) rotate the refresh_token on every refresh — we accept
 // the new one and overwrite. The merge handles both correctly: any field
 // present in the response replaces the matching field in credentials.
+// oauthClientFromCredentials resolves the client id/secret for a refresh
+// from the connection blob, falling back to env vars so headless deploys
+// without inline creds (the original env-var-only flow) still refresh.
+// Shared by the standard grant and declared cfg.Refresh calls.
+func oauthClientFromCredentials(app *AppTemplate, credentials map[string]string) (string, string) {
+	clientID := credentials["client_id"]
+	if clientID == "" {
+		clientID = credentials["clientId"]
+	}
+	clientSecret := credentials["client_secret"]
+	if clientSecret == "" {
+		clientSecret = credentials["clientSecret"]
+	}
+	if clientID == "" {
+		clientID = oauthEnvClientID(app.Slug)
+	}
+	if clientSecret == "" {
+		clientSecret = oauthEnvClientSecret(app.Slug)
+	}
+	return clientID, clientSecret
+}
+
 func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) error {
 	cfg := app.Auth.OAuth2
-	if cfg == nil || cfg.TokenURL == "" {
+	if cfg == nil {
+		return fmt.Errorf("no oauth2 config for %s", app.Slug)
+	}
+
+	// Providers that refresh outside RFC 6749 declare how. Instagram and
+	// Threads re-present the CURRENT access token to a GET endpoint and
+	// never issue a refresh_token at all, so this branch runs before the
+	// refresh_token lookup below rather than after it.
+	if cfg.Refresh != nil {
+		clientID, clientSecret := oauthClientFromCredentials(app, credentials)
+		out, err := runOAuthTokenCall(cfg.Refresh, cfg, credentials, clientID, clientSecret)
+		if err != nil {
+			return err
+		}
+		for k, v := range out {
+			if k == "refresh_token" && v == "" {
+				continue
+			}
+			credentials[k] = v
+		}
+		applyTokenExpiry(credentials, out, time.Now())
+		return nil
+	}
+
+	if cfg.TokenURL == "" {
 		return fmt.Errorf("no oauth2 token_url for %s", app.Slug)
 	}
 	rt := credentials["refresh_token"]
@@ -1529,22 +1612,7 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 	if rt == "" {
 		return fmt.Errorf("no refresh_token in credentials")
 	}
-	clientID := credentials["client_id"]
-	if clientID == "" {
-		clientID = credentials["clientId"]
-	}
-	clientSecret := credentials["client_secret"]
-	if clientSecret == "" {
-		clientSecret = credentials["clientSecret"]
-	}
-	// Fall back to env vars so headless deploys without inline creds
-	// (the original env-var-only flow) still get auto-refresh.
-	if clientID == "" {
-		clientID = oauthEnvClientID(app.Slug)
-	}
-	if clientSecret == "" {
-		clientSecret = oauthEnvClientSecret(app.Slug)
-	}
+	clientID, clientSecret := oauthClientFromCredentials(app, credentials)
 	if clientID == "" {
 		return fmt.Errorf("no client_id available for refresh")
 	}
@@ -2345,7 +2413,6 @@ func omitWalk(node any, parts []string) {
 // Source dispatch:
 //   - source=='local' (default) + auth_type=='oauth2' → startLocalOAuth, return authorize_url
 //   - source=='local' otherwise → existing api_key / basic path, return active connection
-//   - source=='composio' → InitiateConnection on Composio, return redirect_url and pending row
 func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
 	// Log the whole lifecycle under a single tag so failures are easy
 	// to locate in the server log. Follow-up lines read "[CONN] step …
@@ -2363,19 +2430,12 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		AuthType    string            `json:"auth_type"`
 		Credentials map[string]string `json:"credentials"`
 		ProjectID   string            `json:"project_id"`
-		ProviderID  int64             `json:"provider_id"` // required for source=composio
 		// Local OAuth2 only: the user's own OAuth app credentials, collected
 		// from the dashboard form on first connect to a given app+project.
 		// Folded into the connection's encrypted blob so subsequent connects
 		// to the same app skip the form entirely.
 		ClientID     string `json:"client_id"`
 		ClientSecret string `json:"client_secret"`
-		// Composio-only: which upstream auth mode to configure (OAUTH2, API_KEY, BASIC, ...)
-		// and two credential maps — one for auth_config creation and one for
-		// the per-connection link (Composio schema distinguishes them).
-		ComposioAuthMode    string            `json:"composio_auth_mode"`
-		ComposioConfigCreds map[string]string `json:"composio_config_creds"`
-		ComposioInitCreds   map[string]string `json:"composio_init_creds"`
 		// CreatedVia: 'integration' (default — top-level install via the
 		// Integrations page; auto-creates an mcp_servers row exposing the
 		// integration's tools to agents) or 'app_install' (created inside
@@ -2404,118 +2464,8 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	if body.Source == "" {
 		body.Source = "local"
 	}
-
-	// --- Composio (hosted) ---
-	if body.Source == "composio" {
-		log.Printf("[CONN] composio create: user=%d slug=%s project=%s provider=%d auth_mode=%s",
-			userID, body.AppSlug, body.ProjectID, body.ProviderID, body.ComposioAuthMode)
-		if body.ProviderID == 0 {
-			http.Error(w, "provider_id required for composio source", http.StatusBadRequest)
-			return
-		}
-		client, err := s.composioClientFor(userID, body.ProviderID)
-		if err != nil {
-			log.Printf("[CONN] composio client resolve failed user=%d provider=%d: %v", userID, body.ProviderID, err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// Dedup: each call to /api/v3/connected_accounts/link creates a fresh
-		// upstream `ca_*` on Composio, and Composio does not clean up the
-		// prior one when the user retries (old links expire instead). Result:
-		// one real attempt leaves two or more connected accounts against the
-		// same (auth_config, user_id), and the MCP endpoint may route tool
-		// calls through the stale one — which is what breaks tools for the
-		// user after a retry.
-		//
-		// Before initiating, look for an existing connection row in this
-		// (user, project, provider, app_slug) scope:
-		//   - status=active: return it as-is. The UI treats this as "already
-		//     connected" so the user doesn't double-click into a duplicate.
-		//   - status=pending: revoke the stale composio-side connected
-		//     account (best-effort) and delete the local row, then continue
-		//     with a fresh InitiateConnection.
-		existing, lerr := s.store.ListConnections(userID, body.ProjectID)
-		if lerr == nil {
-			for i := range existing {
-				c := &existing[i]
-				if c.Source != "composio" || c.ProviderID != body.ProviderID || c.AppSlug != body.AppSlug {
-					continue
-				}
-				if c.Status == "active" {
-					log.Printf("[CONN] composio reuse active connection id=%d external_id=%s", c.ID, c.ExternalID)
-					writeJSON(w, map[string]any{
-						"connection":   c,
-						"redirect_url": "",
-					})
-					return
-				}
-				if c.Status == "pending" {
-					log.Printf("[CONN] composio pruning stale pending connection id=%d external_id=%s", c.ID, c.ExternalID)
-					if c.ExternalID != "" {
-						if rerr := client.RevokeConnection(c.ExternalID); rerr != nil {
-							// Non-fatal — the upstream record may already be
-							// expired/gone. Log and continue so the user's
-							// retry still works.
-							log.Printf("[CONN] composio revoke stale external_id=%s failed (continuing): %v", c.ExternalID, rerr)
-						}
-					}
-					if derr := s.store.DeleteConnection(userID, c.ID); derr != nil {
-						log.Printf("[CONN] composio delete stale local row id=%d failed: %v", c.ID, derr)
-					}
-				}
-			}
-		}
-
-		endUserID := composioEndUserID(userID, body.ProjectID)
-		acct, redirectURL, err := client.InitiateConnection(
-			body.AppSlug, body.ComposioAuthMode, endUserID,
-			body.ComposioConfigCreds, body.ComposioInitCreds,
-		)
-		if err != nil {
-			log.Printf("[CONN] composio InitiateConnection failed slug=%s auth_mode=%s: %v", body.AppSlug, body.ComposioAuthMode, err)
-			http.Error(w, "composio initiate: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		log.Printf("[CONN] composio InitiateConnection ok slug=%s external_id=%s redirect=%v", body.AppSlug, acct.ID, redirectURL != "")
-		connName := body.Name
-		if connName == "" {
-			connName = body.AppSlug
-		}
-		// Composio's hosted flow is the source of truth for credential
-		// collection. Every new connection starts as pending and flips to
-		// active only after the user completes the Connect Link on
-		// Composio's side. Reconcile runs later in the polling path
-		// (handleGetConnection) when we observe the upstream ACTIVE state.
-		conn, err := s.store.CreateConnectionExt(ConnectionInput{
-			UserID:     userID,
-			AppSlug:    body.AppSlug,
-			AppName:    body.AppSlug,
-			Name:       connName,
-			AuthType:   "composio",
-			ProjectID:  body.ProjectID,
-			Source:     "composio",
-			Status:     "pending",
-			ProviderID: body.ProviderID,
-			ExternalID: acct.ID,
-		})
-		if err != nil {
-			// Surface the underlying DB error so the dashboard shows
-			// something actionable instead of a generic message. Most
-			// common cause: the UNIQUE (user_id, project_id, app_slug,
-			// name) index fires when the user already has a connection
-			// with this name.
-			log.Printf("[CONN] composio CreateConnectionExt failed slug=%s name=%s project=%s: %v",
-				body.AppSlug, connName, body.ProjectID, err)
-			http.Error(w, "failed to create connection: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		log.Printf("[CONN] composio connection row id=%d slug=%s status=pending external_id=%s",
-			conn.ID, conn.AppSlug, conn.ExternalID)
-		writeJSON(w, map[string]any{
-			"connection":   conn,
-			"redirect_url": redirectURL,
-		})
+	if body.Source != "local" {
+		http.Error(w, "only local catalog integrations are supported", http.StatusBadRequest)
 		return
 	}
 
@@ -2830,25 +2780,6 @@ func (s *Server) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Composio pending connections: poll upstream and flip to active on ACTIVE.
-	if conn.Source == "composio" && conn.Status == "pending" && conn.ExternalID != "" {
-		if client, cerr := s.composioClientFor(userID, conn.ProviderID); cerr == nil {
-			if acct, perr := client.GetConnectedAccount(conn.ExternalID); perr == nil {
-				switch strings.ToUpper(acct.Status) {
-				case "ACTIVE":
-					s.store.UpdateConnectionStatus(conn.ID, "active")
-					conn.Status = "active"
-					// Reconcile the project's aggregate Composio MCP server.
-					if rerr := s.reconcileComposioMCPServer(userID, conn.ProviderID, conn.ProjectID); rerr != nil {
-						fmt.Fprintf(os.Stderr, "composio reconcile: %v\n", rerr)
-					}
-				case "FAILED", "EXPIRED":
-					s.store.UpdateConnectionStatus(conn.ID, "failed")
-					conn.Status = "failed"
-				}
-			}
-		}
-	}
 	writeJSON(w, conn)
 }
 
@@ -3089,21 +3020,8 @@ func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	switch conn.Source {
-	case "composio":
-		if client, cerr := s.composioClientFor(userID, conn.ProviderID); cerr == nil && conn.ExternalID != "" {
-			if rerr := client.RevokeConnection(conn.ExternalID); rerr != nil {
-				fmt.Fprintf(os.Stderr, "composio revoke %s: %v\n", conn.ExternalID, rerr)
-			}
-		}
-		s.store.DeleteConnection(userID, connID)
-		if rerr := s.reconcileComposioMCPServer(userID, conn.ProviderID, conn.ProjectID); rerr != nil {
-			fmt.Fprintf(os.Stderr, "composio reconcile: %v\n", rerr)
-		}
-	default:
-		s.store.DeleteMCPServerByConnection(connID)
-		s.store.DeleteConnection(userID, connID)
-	}
+	s.store.DeleteMCPServerByConnection(connID)
+	s.store.DeleteConnection(userID, connID)
 
 	// A connection just disappeared — installs that had it bound
 	// could now be eligible for an opt-in nudge if their manifest

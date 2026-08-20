@@ -213,53 +213,6 @@ func TestMergeOpenAICodexProviderStatePreservesSettingsAndRotatesCredentials(t *
 	}
 }
 
-func TestSaveCodexProviderModelsPreservesOAuthState(t *testing.T) {
-	installTestCodexCatalog(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeTestCodexCatalog(t, w)
-	}))
-	s := newTestServer(t)
-	ensureTestAdmin(t, s)
-	s.secret = testSecret()
-	state := map[string]any{
-		"auth": map[string]any{"provider": openAICodexAuthProvider},
-		"credentials": map[string]any{
-			"access_token": "access-secret", "refresh_token": "refresh-secret",
-			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-		},
-		"account": map[string]any{"chatgpt_account_id": "account-a"},
-	}
-	raw, _ := json.Marshal(state)
-	encrypted, _ := Encrypt(s.secret, string(raw))
-	provider, err := s.store.CreateProvider(1, 15, "llm", "OpenAI Codex", encrypted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := json.Marshal(map[string]string{"large": "gpt-5.6-sol", "medium": "gpt-5.6-terra", "small": "gpt-5.6-terra"})
-	req := httptest.NewRequest(http.MethodPut, "/providers/"+jsonNumber(provider.ID)+"/models", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "1")
-	w := httptest.NewRecorder()
-	s.handleProviderModels(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
-	}
-
-	_, savedEncrypted, err := s.store.GetProvider(1, provider.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plaintext, _ := Decrypt(s.secret, savedEncrypted)
-	var saved map[string]any
-	if err := json.Unmarshal([]byte(plaintext), &saved); err != nil {
-		t.Fatal(err)
-	}
-	if stringFromNested(saved, "credentials", "refresh_token") != "refresh-secret" || saved["model_large"] != "gpt-5.6-sol" || saved["model_small"] != "gpt-5.6-terra" {
-		t.Fatalf("saved state = %#v", saved)
-	}
-	if caps := stateMap(saved, "model_capabilities"); len(caps) != 2 {
-		t.Fatalf("model_capabilities = %#v", saved["model_capabilities"])
-	}
-}
-
 func TestGetProviderPoolPreservesConfiguredCodexModels(t *testing.T) {
 	installTestCodexCatalog(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeTestCodexCatalog(t, w)

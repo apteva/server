@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/apteva/app-sdk"
 	"github.com/apteva/server/apps/channelchat"
 	"github.com/apteva/server/apps/framework"
 )
@@ -139,6 +140,40 @@ func TestServerResolverSpawnThreadRejectsMissingEventReceipt(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "did not acknowledge event") {
 		t.Fatalf("error=%v, want missing receipt", err)
+	}
+}
+
+func TestServerResolverSpawnOpaqueThreadAcceptsDuplicateEventReceipt(t *testing.T) {
+	eventID := "conversation:conv-1:message:9:agent:7"
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "exists",
+			"events": map[string]any{"accepted": []string{}, "duplicates": []string{eventID}},
+		})
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := (&serverResolver{}).SpawnOpaqueThreadWithEvents(
+		framework.InstanceInfo{ID: 7, Port: port}, "chat-conv-1", "suffix", nil, nil, false,
+		[]sdk.ThreadEvent{{ID: eventID, Message: "Hi"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "exists" || len(result.Events.Duplicates) != 1 || result.Events.Duplicates[0] != eventID {
+		t.Fatalf("result=%+v", result)
 	}
 }
 

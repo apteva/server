@@ -8,8 +8,11 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -145,6 +148,93 @@ func TestCallbackOpaqueThreadSpawnRequiresPermissionAndProjectScope(t *testing.T
 	// so reaching the resolver produces 502 rather than an auth rejection.
 	if rec := call(agent.ID); rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "agent is not running") {
 		t.Fatalf("authorized spawn status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCallbackThreadSpawnForwardsInitialEventsAtomically(t *testing.T) {
+	var coreCalls int
+	var coreBody map[string]any
+	eventID := "conversation:conv-42:message:99:agent:7"
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		coreCalls++
+		if r.Method != http.MethodPost || r.URL.Path != "/threads/chat-conv-42" {
+			t.Fatalf("core request=%s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&coreBody); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "created",
+			"events": map[string]any{"accepted": []string{eventID}, "duplicates": []string{}},
+		})
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	agent, err := s.store.CreateAgent(1, "atomic-target", "directive", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.agents.processes[agent.ID] = &runningAgent{port: port, coreAPIKey: "core-key", reattached: true}
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "atomic-owner",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermThreadsWrite}},
+	}
+	installID := seedInstallWithBindings(t, s, "atomic-owner", manifest, nil)
+
+	body, _ := json.Marshal(sdk.ThreadSpawnRequest{
+		AgentID: agent.ID, ThreadID: "chat-conv-42", MCP: []string{"conversations"},
+		Events: []sdk.ThreadEvent{{ID: eventID, Message: "Hello"}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/apps/callback/threads/spawn", strings.NewReader(string(body)))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if coreCalls != 1 {
+		t.Fatalf("core calls=%d, want exactly one", coreCalls)
+	}
+	events, ok := coreBody["events"].([]any)
+	if !ok || len(events) != 1 || events[0].(map[string]any)["id"] != eventID {
+		t.Fatalf("core events=%v", coreBody["events"])
+	}
+	var result sdk.ThreadSpawnResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events.Accepted) != 1 || result.Events.Accepted[0] != eventID {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestValidateThreadSpawnEventsRejectsInvalidEvents(t *testing.T) {
+	for _, events := range [][]sdk.ThreadEvent{
+		{{ID: "", Message: "hello"}},
+		{{ID: " stable-id ", Message: "hello"}},
+		{{ID: "stable-id", Message: nil}},
+		{{ID: "stable-id", Message: "  "}},
+		{{ID: "stable-id", Message: []any{}}},
+		{{ID: "bad\nseparator", Message: "hello"}},
+	} {
+		if err := validateThreadSpawnEvents(events); err == nil {
+			t.Fatalf("events=%+v accepted", events)
+		}
 	}
 }
 

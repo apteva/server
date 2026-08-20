@@ -572,22 +572,41 @@ func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, dir
 // suffix — gives channelchat the "inherit + role hint" semantic
 // without having to fetch main's directive first.
 func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, directive string, tools, mcp []string, events []channelchat.ThreadEvent) (channelchat.ThreadEventReceipt, error) {
+	sdkEvents := make([]sdk.ThreadEvent, len(events))
+	for i, event := range events {
+		sdkEvents[i] = sdk.ThreadEvent{ID: event.ID, Message: event.Message}
+	}
+	result, err := r.SpawnOpaqueThreadWithEvents(inst, threadID, directive, tools, mcp, false, sdkEvents)
+	if err != nil {
+		return channelchat.ThreadEventReceipt{}, err
+	}
+	return channelchat.ThreadEventReceipt{
+		Status: result.Status, Accepted: result.Events.Accepted, Duplicates: result.Events.Duplicates,
+	}, nil
+}
+
+// SpawnOpaqueThreadWithEvents creates a normal app-owned thread and atomically
+// queues its initial events before Core starts the first model iteration. It is
+// shared by embedded Channels and public app-sdk callers so receipt validation
+// cannot drift between the two paths.
+func (r *serverResolver) SpawnOpaqueThreadWithEvents(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool, events []sdk.ThreadEvent) (sdk.ThreadSpawnResult, error) {
 	if inst.Port == 0 {
-		return channelchat.ThreadEventReceipt{}, fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+		return sdk.ThreadSpawnResult{}, fmt.Errorf("agent %d has no core port — is it running?", inst.ID)
 	}
 	payload := map[string]any{
-		"directive_suffix": directive,
+		"directive_suffix": directiveSuffix,
 		"tools":            tools,
 		"mcp":              mcp,
+		"ephemeral":        ephemeral,
 	}
 	if len(events) > 0 {
 		payload["events"] = events
 	}
 	body, _ := json.Marshal(payload)
-	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
+	req, err := http.NewRequest(http.MethodPost, coreURL, bytes.NewReader(body))
 	if err != nil {
-		return channelchat.ThreadEventReceipt{}, err
+		return sdk.ThreadSpawnResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if inst.CoreAPIKey != "" {
@@ -595,90 +614,67 @@ func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, dire
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return channelchat.ThreadEventReceipt{}, err
+		return sdk.ThreadSpawnResult{}, err
 	}
 	defer resp.Body.Close()
 	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if readErr != nil {
-		return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: read response: %w", threadID, readErr)
+		return sdk.ThreadSpawnResult{}, fmt.Errorf("spawn thread %q: read response: %w", threadID, readErr)
 	}
 	if resp.StatusCode >= 300 {
 		detail := strings.TrimSpace(string(responseBody))
 		if detail == "" {
-			return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: HTTP %d", threadID, resp.StatusCode)
+			return sdk.ThreadSpawnResult{}, fmt.Errorf("spawn thread %q: HTTP %d", threadID, resp.StatusCode)
 		}
-		return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: HTTP %d: %s", threadID, resp.StatusCode, detail)
+		return sdk.ThreadSpawnResult{}, fmt.Errorf("spawn thread %q: HTTP %d: %s", threadID, resp.StatusCode, detail)
 	}
 	var response struct {
-		Status string `json:"status"`
-		Events struct {
-			Accepted   []string `json:"accepted"`
-			Duplicates []string `json:"duplicates"`
-		} `json:"events"`
+		Status string                 `json:"status"`
+		Events sdk.ThreadEventReceipt `json:"events"`
 	}
 	if len(responseBody) > 0 {
 		if err := json.Unmarshal(responseBody, &response); err != nil {
-			return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: decode response: %w", threadID, err)
+			return sdk.ThreadSpawnResult{}, fmt.Errorf("spawn thread %q: decode response: %w", threadID, err)
 		}
 	}
-	receipt := channelchat.ThreadEventReceipt{
-		Status:     response.Status,
-		Accepted:   response.Events.Accepted,
-		Duplicates: response.Events.Duplicates,
+	if response.Status == "" {
+		response.Status = "created"
 	}
-	if len(events) > 0 {
-		received := make(map[string]struct{}, len(receipt.Accepted)+len(receipt.Duplicates))
-		for _, id := range receipt.Accepted {
-			received[id] = struct{}{}
-		}
-		for _, id := range receipt.Duplicates {
-			received[id] = struct{}{}
-		}
-		for _, event := range events {
-			if _, ok := received[event.ID]; !ok {
-				return channelchat.ThreadEventReceipt{}, fmt.Errorf("spawn thread %q: core did not acknowledge event %q", threadID, event.ID)
-			}
-		}
+	result := sdk.ThreadSpawnResult{
+		Status: response.Status,
+		Thread: sdk.ThreadRef{AgentID: inst.ID, ThreadID: threadID},
+		Events: response.Events,
 	}
-	return receipt, nil
+	if err := verifyThreadEventReceipt(threadID, events, result.Events); err != nil {
+		return sdk.ThreadSpawnResult{}, err
+	}
+	return result, nil
 }
 
-// SpawnOpaqueThread creates a normal app-owned thread without assigning any
-// platform role to it. The app records what the thread means to its resources.
+func verifyThreadEventReceipt(threadID string, events []sdk.ThreadEvent, receipt sdk.ThreadEventReceipt) error {
+	if len(events) == 0 {
+		return nil
+	}
+	received := make(map[string]struct{}, len(receipt.Accepted)+len(receipt.Duplicates))
+	for _, id := range receipt.Accepted {
+		received[id] = struct{}{}
+	}
+	for _, id := range receipt.Duplicates {
+		received[id] = struct{}{}
+	}
+	for _, event := range events {
+		if _, ok := received[event.ID]; !ok {
+			return fmt.Errorf("spawn thread %q: core did not acknowledge event %q", threadID, event.ID)
+		}
+	}
+	return nil
+}
+
+// SpawnOpaqueThread preserves the eventless internal API for existing callers.
 func (r *serverResolver) SpawnOpaqueThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool) (string, error) {
-	if inst.Port == 0 {
-		return "", fmt.Errorf("agent %d has no core port — is it running?", inst.ID)
-	}
-	body, _ := json.Marshal(map[string]any{
-		"directive_suffix": directiveSuffix,
-		"tools":            tools,
-		"mcp":              mcp,
-		"ephemeral":        ephemeral,
-	})
-	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
-	req, err := http.NewRequest(http.MethodPost, coreURL, bytes.NewReader(body))
+	result, err := r.SpawnOpaqueThreadWithEvents(inst, threadID, directiveSuffix, tools, mcp, ephemeral, nil)
 	if err != nil {
 		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if inst.CoreAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", fmt.Errorf("spawn thread %q: HTTP %d %s", threadID, resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-	var result struct {
-		Status string `json:"status"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&result)
-	if result.Status == "" {
-		result.Status = "created"
 	}
 	return result.Status, nil
 }

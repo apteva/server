@@ -65,7 +65,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		// Agents
 		{Name: "agents_list", Description: "List Apteva agents visible to this user. Defaults to the current project when the gateway was launched for one.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}}}},
 		{Name: "agents_get", Description: "Get one Apteva agent by ID, including current running/stopped status.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
-		{Name: "agents_create", Description: "Create an Apteva agent using the same server path as the dashboard. Provide a clear name and directive. Prefer structured markdown headings such as # Role, # Goals, # Operating Rules, # Tools and Integrations, # Schedule, # Escalation and Safety, # Tone, and # Learning. By default the new agent starts immediately, receives channels, and attaches apps marked as defaults for new agents in its project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Agent directive / system instructions. Prefer structured markdown with stable sections."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn. Defaults to autonomous."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "start": {Type: "string", Description: "true/false. Defaults to true."}, "include_channels": {Type: "string", Description: "true/false. Defaults to true."}, "unconscious": {Type: "string", Description: "true/false. Optional background memory setting."}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config."}, "use_default_apps": {Type: "string", Description: "true/false. Defaults to true. Set false to create the agent without default apps."}, "bound_app_install_ids": {Type: "string", Description: "Optional comma-separated installed app IDs. When provided, this exact selection replaces app defaults."}, "bound_connection_ids": {Type: "string", Description: "Optional comma-separated integration connection IDs to attach as MCP servers."}}, Required: []string{"name", "directive"}}},
+		{Name: "agents_create", Description: "Create an Apteva agent using the same server path as the dashboard. Provide a clear name and directive. Prefer structured markdown headings such as # Role, # Goals, # Operating Rules, # Tools and Integrations, # Schedule, # Escalation and Safety, # Tone, and # Learning. By default the new agent starts immediately and attaches apps marked as defaults for new agents in its project; the legacy channels MCPs are opt-in via include_channels.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Agent directive / system instructions. Prefer structured markdown with stable sections."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn. Defaults to autonomous."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "start": {Type: "string", Description: "true/false. Defaults to true."}, "include_channels": {Type: "string", Description: "true/false. Defaults to true."}, "unconscious": {Type: "string", Description: "true/false. Optional background memory setting."}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config."}, "use_default_apps": {Type: "string", Description: "true/false. Defaults to true. Set false to create the agent without default apps."}, "bound_app_install_ids": {Type: "string", Description: "Optional comma-separated installed app IDs. When provided, this exact selection replaces app defaults."}, "bound_connection_ids": {Type: "string", Description: "Optional comma-separated integration connection IDs to attach as MCP servers."}}, Required: []string{"name", "directive"}}},
 		{Name: "agents_update", Description: "Update an Apteva agent using the normal dashboard/server handlers. Supports rename, full directive/mode/config updates, markdown directive section edits, and MCP server attachment changes via mcp_server_ids from list_mcp_servers. For empty directives, prefer directive_section/directive_content edits so the directive starts as structured Markdown instead of plain text.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "New full directive. Use only when intentionally replacing the whole directive; prefer section edits for structured Markdown."}, "directive_edit_mode": {Type: "string", Description: "Optional section edit mode: section_append, section_replace, section_replace_line, or section_remove_line. Defaults to section_append when directive_section is provided. Ignored when directive is provided."}, "directive_section": {Type: "string", Description: "Markdown section name to edit, e.g. Learning or Tools and Integrations. With directive_content and no directive_edit_mode, creates/appends this section."}, "directive_match": {Type: "string", Description: "Line substring to match for section_replace_line or section_remove_line."}, "directive_content": {Type: "string", Description: "Content to append, replace, or use as the replacement line."}, "directive_edits": {Type: "string", Description: "Optional JSON array of section edits with mode, section, match, and content fields. Use this to initialize or update several Markdown sections at once."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config"}, "mcp_server_ids": {Type: "string", Description: "Optional comma-separated MCP server IDs from list_mcp_servers"}, "mcp_action": {Type: "string", Description: "set, add, or remove MCP servers. Defaults to set when mcp_server_ids is provided."}}, Required: []string{"id"}}},
 		{Name: "agents_start", Description: "Start a stopped Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_stop", Description: "Stop a running Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
@@ -84,7 +84,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "create_connection", Description: "Create a new integration connection. Credentials are stored securely — after creating, use the returned connect_now instruction to access tools. NEVER pass API keys to threads or include them in messages/directives. Pass allowed_tools to scope the resulting MCP server row to a subset of the integration's tools (least-privilege). Omit or pass empty for all tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON string with credential fields matching the integration's auth config. Example: {\"api_key\": \"sk_...\"}"}, "allowed_tools": {Type: "string", Description: "Comma-separated list of tool names to expose. Leave empty to expose all tools. Use list_integrations + get_integration to see the full set before picking."}}, Required: []string{"slug", "credentials"}}},
 		{Name: "delete_connection", Description: "Delete an integration connection.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Connection ID"}}, Required: []string{"id"}}},
 		{Name: "create_mcp_server_from_connection", Description: "Create a second MCP server row over an existing connection with a different tool scope. Lets a team give some workers a read-only surface while others see the full tool set over the same credentials.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID to attach to"}, "name": {Type: "string", Description: "Friendly name for this scoped server (e.g. \"sheets-readonly\")"}, "allowed_tools": {Type: "string", Description: "Comma-separated list of tool names this view exposes. Required — use list_integrations/get_integration to pick."}}, Required: []string{"connection_id", "allowed_tools"}}},
-		{Name: "update_mcp_server_tools", Description: "Change the allowed_tools filter on an existing MCP server row. Pass an empty string to clear the filter (all tools re-enabled). Takes effect immediately for local MCP servers; remote (Composio) rows require a reconcile to propagate.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "MCP server ID"}, "allowed_tools": {Type: "string", Description: "Comma-separated tool names (empty = all)"}}, Required: []string{"id"}}},
+		{Name: "update_mcp_server_tools", Description: "Change the allowed_tools filter on an existing MCP server row. Pass an empty string to clear the filter (all tools re-enabled). The gateway applies the change immediately.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "MCP server ID"}, "allowed_tools": {Type: "string", Description: "Comma-separated tool names (empty = all)"}}, Required: []string{"id"}}},
 		// MCP Servers
 		{Name: "list_mcp_servers", Description: "List registered MCP servers with status, tool count, kind, source, and connection/app ownership metadata. Use kind=app to list only app MCP servers, kind=integration for integration MCP servers, kind=custom for manually registered MCP servers, or kind=remote for hosted MCP servers. Use mcp_url or proxy_config to connect to tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "kind": {Type: "string", Description: "Optional filter: app, integration, custom, remote, or all."}, "include_app_owned": {Type: "string", Description: "true/false. When false, hides app-owned MCP rows from unfiltered results. Defaults to true for backward compatibility."}}}},
 		{Name: "create_mcp_server", Description: "Register a new custom MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string"}, "command": {Type: "string"}, "args": {Type: "string", Description: "Comma-separated arguments"}, "description": {Type: "string"}}, Required: []string{"name", "command"}}},
@@ -350,7 +350,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			return map[string]any{
 				"id":            serverID,
 				"allowed_tools": allowedTools,
-				"note":          "Local MCP servers take effect immediately. Composio (remote) servers need a reconcile to propagate — call composio reconcile from the dashboard or restart the instance.",
+				"note":          "The gateway applies the tool filter immediately.",
 			}, nil
 
 		case "delete_connection":
@@ -1267,7 +1267,7 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		pid := gatewayProjectIDArg(args, defaultProjectID)
 		path := "/apps"
 		if pid != "" {
-			path += "?project_id=" + urlQueryEscape(pid)
+			path += "?project_id=" + url.QueryEscape(pid)
 		}
 		var out any
 		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
@@ -1279,10 +1279,10 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		pid := gatewayProjectIDArg(args, defaultProjectID)
 		params := []string{}
 		if pid != "" {
-			params = append(params, "project_id="+urlQueryEscape(pid))
+			params = append(params, "project_id="+url.QueryEscape(pid))
 		}
 		if registryURL, _ := args["registry_url"].(string); strings.TrimSpace(registryURL) != "" {
-			params = append(params, "registry_url="+urlQueryEscape(strings.TrimSpace(registryURL)))
+			params = append(params, "registry_url="+url.QueryEscape(strings.TrimSpace(registryURL)))
 		}
 		path := "/apps/marketplace"
 		if len(params) > 0 {
@@ -1423,7 +1423,7 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		}
 		path := "/agents"
 		if pid != "" {
-			path += "?project_id=" + urlQueryEscape(pid)
+			path += "?project_id=" + url.QueryEscape(pid)
 		}
 		var out any
 		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
@@ -1465,10 +1465,12 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			pid = projectID
 		}
 		body := map[string]any{
-			"name":             agentName,
-			"directive":        directive,
-			"project_id":       pid,
-			"include_channels": true,
+			"name":       agentName,
+			"directive":  directive,
+			"project_id": pid,
+			// Legacy system MCPs are opt-in now — the conversations
+			// app owns the conversation surface.
+			"include_channels": false,
 		}
 		if mode, _ := args["mode"].(string); mode != "" {
 			body["mode"] = mode

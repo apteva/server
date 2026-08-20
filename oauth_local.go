@@ -18,8 +18,8 @@ import (
 )
 
 // Local OAuth2 flow for connections whose source='local' and whose catalog
-// entry declares auth.oauth2. Composio connections do NOT use this module —
-// Composio hosts its own OAuth flow.
+// entry declares auth.oauth2. Hosted providers with their own OAuth flow do
+// not use this module.
 //
 // Flow:
 //  1. handleCreateConnection detects oauth2 + local source, calls
@@ -972,7 +972,15 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 		if err := json.Unmarshal(body, &raw); err != nil {
 			return nil, fmt.Errorf("json decode: %w", err)
 		}
-		for k, v := range raw {
+		// Providers that wrap the token object (Instagram returns
+		// {"data":[{...}]}) declare where it lives. Without this the
+		// range below stringifies the wrapper and access_token comes out
+		// empty, failing with the raw body and no hint about nesting.
+		unwrapped, err := unwrapTokenResponse(raw, cfg.TokenResponsePath)
+		if err != nil {
+			return nil, fmt.Errorf("%w (body: %s)", err, string(body))
+		}
+		for k, v := range unwrapped {
 			out[k] = fmt.Sprint(v)
 		}
 	} else {
@@ -987,6 +995,22 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 	if out["access_token"] == "" {
 		return nil, fmt.Errorf("no access_token in response: %s", string(body))
 	}
+
+	// Some providers hand out a deliberately short-lived token from the
+	// code grant and require a second call to get a durable one.
+	// Instagram: 1 hour → 60 days. Failing here is fatal on purpose —
+	// persisting the short-lived token yields a connection that reads
+	// "active" and dies within the hour.
+	if cfg.LongLivedExchange != nil {
+		longLived, err := runOAuthTokenCall(cfg.LongLivedExchange, cfg, out, clientID, clientSecret)
+		if err != nil {
+			return nil, fmt.Errorf("long-lived token exchange: %w", err)
+		}
+		for k, v := range longLived {
+			out[k] = v
+		}
+	}
+	applyTokenExpiry(out, out, time.Now())
 	return out, nil
 }
 

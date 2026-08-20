@@ -14,11 +14,11 @@ package main
 // distinct (app, project) pairs changes. No goroutine churn on
 // subscription edits.
 //
-// Restart recovery is free: the bus's ring buffer + since-cursor
-// reconnect is reused. We persist last_seq_delivered on every
-// successful delivery; on apteva-server boot we resubscribe with
-// since=last_seq_delivered so events emitted while we were down
-// (within the bus's 256-event ring) replay automatically.
+// The bus ring is process-local, so it cannot replay events across a server
+// restart. We do persist last_seq_delivered on every successful delivery and
+// restore each lane's producer high-water mark before subscribing. That keeps
+// newly published events deliverable after restart. Durable historical replay
+// remains the source app's responsibility.
 
 import (
 	"encoding/json"
@@ -116,6 +116,12 @@ func (d *AppEventDispatcher) Reconcile() error {
 
 	// Bring up new lanes; refresh row sets on existing ones.
 	for k, subs := range desired {
+		since, sequenceFloor := appEventLaneCursors(subs)
+		// A fresh AppEventBus starts every counter at zero, while these
+		// per-row cursors survive in SQLite. Restore the highest observed
+		// cursor before any subscriber attaches so the next Publish cannot
+		// be rejected as an old duplicate by every row in this lane.
+		d.server.appBus.EnsureLaneSequenceAtLeast(k.app, k.projectID, sequenceFloor)
 		if existing, ok := d.lanes[k]; ok {
 			existing.rows = subs
 			continue
@@ -128,23 +134,38 @@ func (d *AppEventDispatcher) Reconcile() error {
 		// applies (rows that already received a higher seq just
 		// see those replays as duplicates and skip via the
 		// last_seq_delivered guard at deliver-time).
-		var since uint64 = 0
-		first := true
-		for _, sub := range subs {
-			if first || sub.LastSeqDelivered < since {
-				since = sub.LastSeqDelivered
-				first = false
-			}
-		}
 		ch, replay, cancel := d.server.appBus.Subscribe(k.app, k.projectID, since)
 		lane.ch = ch
 		lane.cancel = cancel
 		d.lanes[k] = lane
 		go d.run(lane, replay)
-		log.Printf("[APP-SUB] lane started app=%s project=%s rows=%d since=%d replay=%d",
-			k.app, k.projectID, len(subs), since, len(replay))
+		log.Printf("[APP-SUB] lane started app=%s project=%s rows=%d since=%d floor=%d replay=%d",
+			k.app, k.projectID, len(subs), since, sequenceFloor, len(replay))
 	}
 	return nil
+}
+
+// appEventLaneCursors returns two deliberately different cursors:
+//
+//   - replaySince is the lowest delivered sequence, so an in-process
+//     reconciliation can replay anything still owed to at least one row.
+//   - sequenceFloor is the highest delivered sequence, so a newly-created bus
+//     never restarts its producer counter below any persisted row.
+func appEventLaneCursors(subs []*Subscription) (replaySince, sequenceFloor uint64) {
+	if len(subs) == 0 {
+		return 0, 0
+	}
+	replaySince = subs[0].LastSeqDelivered
+	sequenceFloor = replaySince
+	for _, sub := range subs[1:] {
+		if sub.LastSeqDelivered < replaySince {
+			replaySince = sub.LastSeqDelivered
+		}
+		if sub.LastSeqDelivered > sequenceFloor {
+			sequenceFloor = sub.LastSeqDelivered
+		}
+	}
+	return replaySince, sequenceFloor
 }
 
 // run is the per-lane goroutine. Drains the lane's channel and

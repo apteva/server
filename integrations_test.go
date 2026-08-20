@@ -164,6 +164,30 @@ func TestEmbeddedGitHubCatalogAgentCoverage(t *testing.T) {
 	}
 }
 
+func TestEmbeddedComposioRemainsAnOrdinaryCatalogIntegration(t *testing.T) {
+	raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/composio.json")
+	if err != nil {
+		t.Fatalf("read embedded catalog integration: %v", err)
+	}
+	var app AppTemplate
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatalf("decode embedded catalog integration: %v", err)
+	}
+	if app.Slug != "composio" || app.BaseURL == "" {
+		t.Fatalf("ordinary catalog integration missing: %+v", app)
+	}
+	fieldNames := map[string]bool{}
+	for _, field := range app.Auth.CredentialFields {
+		fieldNames[field.Name] = true
+	}
+	if !fieldNames["api_key"] || !fieldNames["user_id"] {
+		t.Fatalf("ordinary API-key credentials missing: %+v", app.Auth.CredentialFields)
+	}
+	if len(app.Tools) == 0 {
+		t.Fatal("ordinary catalog integration has no tools")
+	}
+}
+
 func TestEmbedded3DPrintingCatalogProductionContracts(t *testing.T) {
 	readApp := func(slug string) AppTemplate {
 		t.Helper()

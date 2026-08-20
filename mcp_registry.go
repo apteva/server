@@ -74,14 +74,9 @@ type MCPServerRecord struct {
 	// tools from the underlying source. Populated = only these names are
 	// returned by tools/list and only these are accepted by tools/call.
 	//
-	// For source=local we enforce this in mcp_http.go on every request.
-	// For source=remote (Composio) we pass the list as `actions` to the
-	// hosted MCP create endpoint; Composio then filters on its side.
+	// The gateway enforces this on every tools/list and tools/call request.
 	AllowedTools []string `json:"allowed_tools,omitempty"`
-	// UpstreamID is the external identifier for source=remote rows — e.g.
-	// the Composio MCP server id. We rotate this when the tool filter
-	// changes because the upstream create call is not idempotent for
-	// action-list updates.
+	// UpstreamID is an optional external identifier for source=remote rows.
 	UpstreamID string    `json:"upstream_id,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -101,7 +96,7 @@ type MCPServerInput struct {
 	ProjectID    string
 	ConnectionID int64    // FK into connections; 0 if not connection-backed
 	AllowedTools []string // nil/empty = all tools exposed; populated = filter
-	UpstreamID   string   // external identifier (composio server id, …)
+	UpstreamID   string   // optional external identifier
 	ToolCount    int      // initial tool_count; local rows trust the DB column
 }
 
@@ -292,7 +287,7 @@ func (s *Store) UpdateMCPServerAllowedTools(userID, serverID int64, allowed []st
 }
 
 // UpdateMCPServerUpstreamID sets the external identifier for a remote server.
-// Used by the Composio reconciler when a versioned rename rotates the id.
+// Used when an upstream registration rotates its id.
 func (s *Store) UpdateMCPServerUpstreamID(serverID int64, upstreamID string) error {
 	_, err := s.db.Exec("UPDATE mcp_servers SET upstream_id = ? WHERE id = ?", upstreamID, serverID)
 	return err
@@ -337,8 +332,7 @@ func (s *Store) findMCPServerByConnection(connectionID int64, order string) (*MC
 }
 
 // FindMCPServerByProviderProject returns an existing remote MCP server for a
-// given (user, provider, project) tuple, if one exists. Used by the Composio
-// reconciler to find the aggregate server for a project.
+// given (user, provider, project) tuple, if one exists.
 func (s *Store) FindMCPServerByProviderProject(userID, providerID int64, projectID string) (*MCPServerRecord, error) {
 	var r MCPServerRecord
 	var createdAt, allowedJSON string
@@ -853,7 +847,7 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 			es.OwnerAppInstallID = connectionOwnerInstallID(s, srv.ConnectionID)
 		}
 		if srv.Source == "remote" && srv.URL != "" {
-			// Hosted MCP endpoint (Composio, Pipedream, ...). Cores connect
+			// Hosted MCP endpoint. Cores connect
 			// directly to the upstream URL — we do not proxy.
 			es.ProxyConfig = &map[string]any{
 				"name":      srv.Name,
@@ -1048,39 +1042,7 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Composio remote rows: fetch the toolkit action list so the picker has
-	// something to render. One row = one toolkit, so we use the row Name as
-	// the slug (matches how reconcileComposioMCPServer stores it).
-	//
-	// Discriminator: ProviderID > 0. Composio rows always carry a provider
-	// foreign-key (the Composio account they were minted against). Our
-	// kind=remote_mcp rows leave provider_id at zero — without this guard,
-	// they fall through to ListToolkitActions(record.Name) and surface
-	// Composio's HubSpot/Linear/Notion toolkit catalog instead of the real
-	// upstream's tools/list result. Confusing because Composio's HubSpot
-	// catalog happens to have ~230 actions, the same order of magnitude as
-	// HubSpot's hosted MCP — picker shows the wrong tool names.
-	if len(tools) == 0 && record != nil && record.Source == "remote" && record.ProviderID > 0 {
-		if client := s.newComposioClient(userID); client != nil {
-			if actions, err := client.ListToolkitActions(record.Name); err == nil {
-				for _, a := range actions {
-					tools = append(tools, mcpToolDef{
-						Name:        a.Slug,
-						Description: a.Description,
-						InputSchema: a.InputParameters,
-					})
-				}
-				// Keep tool_count in sync with the catalog so the header
-				// pill ("N/total tools") matches the expanded list's
-				// denominator even before the reconcile probe runs again.
-				if len(tools) > 0 && len(tools) != record.ToolCount {
-					s.store.UpdateMCPServerStatus(record.ID, record.Status, len(tools), record.Pid)
-				}
-			}
-		}
-	}
-
-	// Vendor-hosted MCP rows (kind=remote_mcp connections, NOT Composio):
+	// Vendor-hosted MCP rows (kind=remote_mcp connections):
 	// re-probe the upstream now to get the live tool list. probeRemoteMCP
 	// runs the full session-id + notifications/initialized handshake, so
 	// the result reflects the user's OAuth scope. We DON'T rely on
@@ -1088,7 +1050,7 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	// when the picker first opens (a fresh connection's row sits in
 	// status=stopped until something asks for it). Each call here costs
 	// one round-trip to the vendor — acceptable for an interactive picker.
-	if len(tools) == 0 && record != nil && record.Source == "remote" && record.ProviderID == 0 && record.URL != "" {
+	if len(tools) == 0 && record != nil && record.Source == "remote" && record.URL != "" {
 		env := map[string]string{}
 		if encEnv != "" {
 			if plain, derr := Decrypt(s.secret, encEnv); derr == nil {
@@ -1134,12 +1096,8 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 // Body: {"allowed_tools": ["tool_a", "tool_b"]} — pass an empty array to
 // clear the filter (all tools re-enabled).
 //
-// For source=local servers the change takes effect immediately on the next
-// tools/list / tools/call, since handleMCPEndpoint reads the filter fresh
-// per request. For source=remote (Composio) servers, the next reconcile
-// rotates the upstream server to a new versioned name so Composio picks up
-// the new action set — the dashboard triggers /composio/reconcile after
-// writing the filter.
+// The change takes effect immediately on the next tools/list or tools/call;
+// the gateway reads the filter from the canonical row for every request.
 func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	idStr := strings.TrimSuffix(path, "/tools")
@@ -1180,59 +1138,10 @@ func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *htt
 	}
 	log.Printf("[MCP-TOOLS] user=%d server=%d allowed_tools set (%d entries)", ownerID, serverID, len(clean))
 
-	// For Composio remote rows, rotate the upstream hosted server to
-	// match the new action set. Without this, Composio keeps exposing
-	// the old tool list even though our local filter has moved on.
-	// Best-effort: if reconcile fails we still report success on the
-	// local update so the user isn't stuck; next manual reconcile or
-	// connection touch will pick it up.
-	if rec, _, err := s.store.GetMCPServer(ownerID, serverID); err == nil && rec != nil &&
-		rec.Source == "remote" && rec.ProviderID > 0 {
-		log.Printf("[MCP-TOOLS] reconciling composio provider=%d project=%s after tool-filter change",
-			rec.ProviderID, rec.ProjectID)
-		if rerr := s.reconcileComposioMCPServer(ownerID, rec.ProviderID, rec.ProjectID); rerr != nil {
-			log.Printf("[MCP-TOOLS] composio reconcile after tool change FAILED provider=%d project=%s: %v",
-				rec.ProviderID, rec.ProjectID, rerr)
-		} else {
-			log.Printf("[MCP-TOOLS] composio reconcile ok provider=%d project=%s", rec.ProviderID, rec.ProjectID)
-		}
-	}
-
 	writeJSON(w, map[string]any{
 		"status":        "updated",
 		"allowed_tools": clean,
 	})
-}
-
-// handleListComposioToolkitActions — GET /composio/toolkits/:slug/actions
-//
-// Returns the action menu for a Composio toolkit so the dashboard tool
-// picker has something to render before a connection exists. Uses the
-// per-user composio provider credentials; 404 if the user has no composio
-// provider configured.
-func (s *Server) handleListComposioToolkitActions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-	userID := getUserID(r)
-	path := strings.TrimPrefix(r.URL.Path, "/composio/toolkits/")
-	slug := strings.TrimSuffix(path, "/actions")
-	if slug == "" {
-		http.Error(w, "slug required", http.StatusBadRequest)
-		return
-	}
-	client := s.newComposioClient(userID)
-	if client == nil {
-		http.Error(w, "composio provider not configured", http.StatusNotFound)
-		return
-	}
-	actions, err := client.ListToolkitActions(slug)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	writeJSON(w, actions)
 }
 
 // POST /mcp-servers/:id/call-tool
@@ -1240,7 +1149,7 @@ func (s *Server) handleListComposioToolkitActions(w http.ResponseWriter, r *http
 // Body: {"tool": "<tool name>", "args": {...}}
 //
 // Dispatches on the server row's source:
-//   - remote (Composio, Pipedream, ...) → callRemoteMCPTool against the
+//   - remote → callRemoteMCPTool against the
 //     stored URL, using the row's decrypted env for any auth headers.
 //   - custom (stdio subprocess managed by MCPManager) → call through the
 //     already-running process's client. We use the same call() helper that
@@ -1659,7 +1568,7 @@ type jsonRPCNotification struct {
 // do not run a subprocess, we only verify the endpoint is reachable and cache
 // its tool list.
 //
-// Compatibility notes for real-environment MCP servers (observed against Composio):
+// Compatibility notes for hosted MCP servers:
 //   - Some servers return SSE-framed responses (`Content-Type: text/event-stream`
 //     with `event: message\ndata: {...}\n\n` bodies) even for POSTs. We parse
 //     both plain JSON and SSE frames.
@@ -1668,12 +1577,12 @@ type jsonRPCNotification struct {
 //     redirect behavior strips the body, so we handle the redirect ourselves
 //     by retrying against the Location.
 //   - Auth: `env["AUTHORIZATION"]` (e.g. `Bearer <token>`) and `env["API_KEY"]`
-//     are added as headers. Many hosted MCPs (Composio) embed the auth token
+//     are added as headers. Many hosted MCPs embed the auth token
 //     in the URL and need no extra headers.
 func probeRemoteMCP(rawURL string, env map[string]string) ([]mcpToolDef, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
-		// Accept both JSON and SSE — Composio returns SSE for POSTs.
+		// Accept both JSON and SSE; hosted MCPs may return either.
 		"Accept": "application/json, text/event-stream",
 	}
 	if tok, ok := env["AUTHORIZATION"]; ok && tok != "" {

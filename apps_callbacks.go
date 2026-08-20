@@ -90,6 +90,16 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackProjects(w, r, parts[1:])
 	case "threads":
 		s.handleCallbackThreads(w, r, parts[1:])
+	case "telemetry":
+		// Ephemeral, permission-gated live telemetry for sidecars —
+		// the generic replacement for the channel-chat-only
+		// liveTelemetryHook. See apps_telemetry.go.
+		installID, err := requireInstallID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		s.handleCallbackTelemetry(w, r, installID)
 	case "runtimes":
 		s.handleCallbackRuntimes(w, r, parts[1:])
 	case "platform-info":
@@ -1541,6 +1551,10 @@ func (s *Server) handleCallbackSpawnThread(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "agent_id and thread_id required", http.StatusBadRequest)
 		return
 	}
+	if err := validateThreadSpawnEvents(body.Events); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	agent, err := s.callbackAgentForInstall(r, installID, body.AgentID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
@@ -1558,12 +1572,45 @@ func (s *Server) handleCallbackSpawnThread(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	status, err := s.resolver().SpawnOpaqueThread(inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral)
+	result, err := s.resolver().SpawnOpaqueThreadWithEvents(
+		inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral, body.Events,
+	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	writeJSON(w, sdk.ThreadSpawnResult{Status: status, Thread: sdk.ThreadRef{AgentID: body.AgentID, ThreadID: body.ThreadID}})
+	writeJSON(w, result)
+}
+
+func validateThreadSpawnEvents(events []sdk.ThreadEvent) error {
+	for i, event := range events {
+		id := strings.TrimSpace(event.ID)
+		if id == "" {
+			return fmt.Errorf("events[%d].id required", i)
+		}
+		if id != event.ID {
+			return fmt.Errorf("events[%d].id must not contain surrounding whitespace", i)
+		}
+		if len(id) > 256 || strings.ContainsAny(id, "\r\n\x00") {
+			return fmt.Errorf("events[%d].id must be at most 256 bytes and contain no control separators", i)
+		}
+		if event.Message == nil {
+			return fmt.Errorf("events[%d].message required", i)
+		}
+		raw, err := json.Marshal(event.Message)
+		if err != nil || string(raw) == "null" {
+			return fmt.Errorf("events[%d].message required", i)
+		}
+		var text string
+		if json.Unmarshal(raw, &text) == nil && strings.TrimSpace(text) == "" {
+			return fmt.Errorf("events[%d].message required", i)
+		}
+		var parts []json.RawMessage
+		if len(raw) > 0 && raw[0] == '[' && (json.Unmarshal(raw, &parts) != nil || len(parts) == 0) {
+			return fmt.Errorf("events[%d].message required", i)
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Request, installID int64) {

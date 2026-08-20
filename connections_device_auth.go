@@ -20,9 +20,15 @@ const (
 	integrationOpenAICodexSlug              = "openai-codex"
 	integrationOpenAICodexIssuer            = "https://auth.openai.com"
 	integrationOpenAICodexClientID          = "app_EMoamEEZ73f0CkXaXp7hrann"
-	integrationOpenAICodexTokenURL          = "https://auth.openai.com/oauth/token"
 	integrationOpenAICodexBackendAPIBaseURL = "https://chatgpt.com/backend-api/codex"
 )
+
+// integrationOpenAICodexTokenURL is a var, not a const, so tests can
+// point the connection refresh at a local server. Without this the only
+// way to exercise refreshIntegrationOpenAICodexCredentials was to call
+// auth.openai.com for real. The provider path has had the equivalent
+// seam (openAICodexTokenEndpoint) since it was written.
+var integrationOpenAICodexTokenURL = "https://auth.openai.com/oauth/token"
 
 type connectionDeviceAuthSession struct {
 	ID           string

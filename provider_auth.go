@@ -3,10 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -17,7 +15,6 @@ import (
 	neturl "net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -55,32 +52,6 @@ type providerAuthSession struct {
 	CreatedAt      time.Time
 }
 
-type providerAuthSessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]*providerAuthSession
-}
-
-var globalProviderAuthSessions = &providerAuthSessionStore{sessions: map[string]*providerAuthSession{}}
-
-func (s *providerAuthSessionStore) put(session *providerAuthSession) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[session.ID] = session
-}
-
-func (s *providerAuthSessionStore) get(id string) (*providerAuthSession, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	session, ok := s.sessions[id]
-	return session, ok
-}
-
-func (s *providerAuthSessionStore) delete(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, id)
-}
-
 type providerAuthDriver interface {
 	Start(ctx context.Context, pt ProviderType, userID int64, projectID string) (*providerAuthSession, map[string]any, error)
 	Poll(ctx context.Context, session *providerAuthSession) (*providerAuthPollResult, error)
@@ -111,113 +82,6 @@ func providerAuthDriverFor(provider string) providerAuthDriver {
 	default:
 		return nil
 	}
-}
-
-func (s *Server) handleStartProviderAuth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	userID := getUserID(r)
-	var body providerAuthStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-	if body.ProviderTypeID == 0 {
-		http.Error(w, "provider_type_id required", http.StatusBadRequest)
-		return
-	}
-	pt, err := s.store.GetProviderType(body.ProviderTypeID)
-	if err != nil {
-		http.Error(w, "provider type not found", http.StatusNotFound)
-		return
-	}
-	if pt.AuthType != providerAuthTypeDeviceCode {
-		http.Error(w, "provider does not use device-code auth", http.StatusBadRequest)
-		return
-	}
-	driver := providerAuthDriverFor(pt.AuthProvider)
-	if driver == nil {
-		http.Error(w, "provider auth driver not available", http.StatusBadRequest)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
-	session, response, err := driver.Start(ctx, *pt, userID, body.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	globalProviderAuthSessions.put(session)
-	writeJSON(w, response)
-}
-
-func (s *Server) handlePollProviderAuth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-	sessionID := strings.TrimPrefix(r.URL.Path, "/providers/auth/")
-	sessionID = strings.Trim(sessionID, "/")
-	if sessionID == "" || sessionID == "start" {
-		http.Error(w, "session id required", http.StatusBadRequest)
-		return
-	}
-	session, ok := globalProviderAuthSessions.get(sessionID)
-	if !ok || session.UserID != getUserID(r) {
-		http.Error(w, "auth session not found", http.StatusNotFound)
-		return
-	}
-	if time.Now().After(session.ExpiresAt) {
-		globalProviderAuthSessions.delete(sessionID)
-		writeJSON(w, map[string]any{"status": providerAuthStatusExpired})
-		return
-	}
-	driver := providerAuthDriverFor(session.ProviderType.AuthProvider)
-	if driver == nil {
-		http.Error(w, "provider auth driver not available", http.StatusBadRequest)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
-	result, err := driver.Poll(ctx, session)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	if result.Status == providerAuthStatusPending {
-		writeJSON(w, map[string]any{
-			"status":            providerAuthStatusPending,
-			"next_poll_seconds": session.Interval,
-		})
-		return
-	}
-	if result.Status != providerAuthStatusConnected {
-		writeJSON(w, map[string]any{
-			"status": result.Status,
-			"error":  result.Error,
-		})
-		return
-	}
-	provider, err := s.upsertProviderAuthState(session.UserID, session.ProviderType, session.ProjectID, result.State)
-	if err != nil {
-		http.Error(w, "failed to persist provider auth", http.StatusInternalServerError)
-		return
-	}
-	globalProviderAuthSessions.delete(sessionID)
-	writeJSON(w, map[string]any{
-		"status": providerAuthStatusConnected,
-		"provider": map[string]any{
-			"id":             provider.ID,
-			"type":           provider.Type,
-			"name":           provider.Name,
-			"project_id":     provider.ProjectID,
-			"auth_status":    providerAuthStatusConnected,
-			"runtime_status": session.ProviderType.RuntimeStatus,
-		},
-		"account": result.Account,
-	})
 }
 
 func (s *Server) handleProviderAuthAction(w http.ResponseWriter, r *http.Request, action string) {
@@ -363,34 +227,6 @@ func truthyQuery(v string) bool {
 	default:
 		return false
 	}
-}
-
-func (s *Server) upsertProviderAuthState(userID int64, pt ProviderType, projectID string, state map[string]any) (*Provider, error) {
-	if existing, encryptedExisting, err := s.store.FindProviderByTypeForProject(userID, pt.ID, projectID); err == nil {
-		if plaintext, decryptErr := Decrypt(s.secret, encryptedExisting); decryptErr == nil {
-			var previous map[string]any
-			if json.Unmarshal([]byte(plaintext), &previous) == nil && pt.AuthProvider == openAICodexAuthProvider {
-				state = mergeOpenAICodexProviderState(previous, state)
-			}
-		}
-		encrypted, err := marshalEncryptProviderState(s.secret, state)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.store.UpdateProvider(userID, existing.ID, pt.Type, pt.Name, encrypted); err != nil {
-			return nil, err
-		}
-		existing.Type = pt.Type
-		existing.Name = pt.Name
-		return existing, nil
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	encrypted, err := marshalEncryptProviderState(s.secret, state)
-	if err != nil {
-		return nil, err
-	}
-	return s.store.CreateProvider(userID, pt.ID, pt.Type, pt.Name, encrypted, projectID)
 }
 
 // mergeOpenAICodexProviderState updates rotating auth material while retaining
@@ -1191,66 +1027,6 @@ func buildOpenAICodexProviderState(tokens map[string]any, source string) map[str
 		"account": account,
 		"runtime": map[string]any{"base_url": openAICodexBackendAPIBaseURL},
 	}
-}
-
-func extractOpenAICodexOutputText(body []byte) string {
-	var data map[string]any
-	if err := json.Unmarshal(body, &data); err != nil {
-		return extractOpenAICodexSSEText(body)
-	}
-	if text, _ := data["output_text"].(string); strings.TrimSpace(text) != "" {
-		return strings.TrimSpace(text)
-	}
-	output, _ := data["output"].([]any)
-	for _, item := range output {
-		obj, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		content, _ := obj["content"].([]any)
-		for _, part := range content {
-			partObj, ok := part.(map[string]any)
-			if !ok {
-				continue
-			}
-			if text, _ := partObj["text"].(string); strings.TrimSpace(text) != "" {
-				return strings.TrimSpace(text)
-			}
-		}
-	}
-	return ""
-}
-
-func extractOpenAICodexSSEText(body []byte) string {
-	var b strings.Builder
-	for _, line := range strings.Split(string(body), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		raw := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if raw == "" || raw == "[DONE]" {
-			continue
-		}
-		var event map[string]any
-		if err := json.Unmarshal([]byte(raw), &event); err != nil {
-			continue
-		}
-		if delta, _ := event["delta"].(string); delta != "" {
-			b.WriteString(delta)
-			continue
-		}
-		if text, _ := event["text"].(string); text != "" {
-			b.WriteString(text)
-			continue
-		}
-		if response, ok := event["response"].(map[string]any); ok {
-			if text := extractOpenAICodexTextFromMap(response); text != "" {
-				return text
-			}
-		}
-	}
-	return strings.TrimSpace(b.String())
 }
 
 func extractOpenAICodexTextFromMap(data map[string]any) string {

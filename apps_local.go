@@ -608,6 +608,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		return nil
 	}
 	defer s.localApps.releaseInstall(installID)
+	oldMCPSurface := s.snapshotAppMCPSurface(installID)
 
 	// Per-(app,version) lock: serialise two installs of the same
 	// app+version (e.g. one global + one project install) so they
@@ -721,7 +722,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		m.Version, string(manifestJSON), pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
 	s.reconcileAllAppDepBindings()
-	if err := s.registerAppMCP(installID); err != nil {
+	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
 		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
 	}
 	// Blue-green handoff complete: DB + registry + mcp_servers all

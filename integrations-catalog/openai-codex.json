@@ -181,5 +181,22 @@
         "required": ["prompt", "instructions"]
       }
     }
-  ]
+  ],
+  "runtime": {
+    "role": "llm",
+    "provider_key": "openai-codex",
+    "env": {
+      "OPENAI_CODEX_ACCESS_TOKEN": "{{credentials.access_token}}",
+      "OPENAI_CODEX_ACCOUNT_ID": "{{credentials.account_id}}",
+      "OPENAI_CODEX_PROVIDER_ID": "{{connection.provider_ref}}"
+    },
+    "capabilities": [
+      "llm",
+      "subscription",
+      "subscription_usage",
+      "codex_responses",
+      "streaming",
+      "native_tools"
+    ]
+  }
 }

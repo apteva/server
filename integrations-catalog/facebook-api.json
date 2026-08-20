@@ -790,6 +790,10 @@
             "description": "Metric type for IG insights",
             "default": "time_series"
           },
+          "breakdown": {
+            "type": "string",
+            "description": "Optional demographic breakdown for compatible total_value metrics, such as country, city, age, or gender. Availability is metric- and privacy-threshold-dependent."
+          },
           "period": {
             "type": "string",
             "description": "Time period for insights",

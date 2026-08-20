@@ -60,6 +60,43 @@ type AppTemplate struct {
 	// `skipped: true`. See integrations/src/types.ts AppHealthCheck.
 	HealthCheck   *AppHealthCheck          `json:"health_check,omitempty"`
 	URLProperties []IntegrationURLProperty `json:"url_properties,omitempty"`
+	// Runtime — marks this app as an agent-runtime backend whose
+	// credentials get injected into apteva-core's environment, not just
+	// called over HTTP by the server. Presence of this block is the only
+	// thing that makes a connection eligible for env injection; without
+	// it a connection is a plain integration and never reaches a core.
+	//
+	// This replaces the provider_types table: `role` supersedes its
+	// `type` column, `provider_key` supersedes the legacy
+	// `type == "llm" ? name : type` normalization, and `env` supersedes
+	// storing env var names as literal keys in the credential blob.
+	// See integrations/src/types.ts AppRuntimeConfig.
+	Runtime *AppRuntimeConfig `json:"runtime,omitempty"`
+}
+
+// AppRuntimeConfig declares how a connection's credentials become an
+// agent runtime backend. See runtime_env.go for the template renderer.
+type AppRuntimeConfig struct {
+	// Role — which runtime pool this app feeds. Only "llm" entries land
+	// in config.json's providers[]; others export env vars only.
+	Role string `json:"role"`
+	// ProviderKey — the concrete name apteva-core expects in
+	// config.json ("anthropic", "openai-codex", ...). Must be a member
+	// of the runtime pool's allow-list or the entry is skipped.
+	ProviderKey string `json:"provider_key"`
+	// Env — ENV_NAME -> template. Templates resolve against three
+	// namespaces: credentials.* (decrypted, post-refresh),
+	// config.* (the connection's runtime_config JSON), and
+	// connection.* (row metadata). A template that resolves empty is
+	// omitted from the map rather than injected as an empty string.
+	Env map[string]string `json:"env"`
+	// Capabilities — optional runtime feature flags, e.g.
+	// "subscription_usage" for providers exposing a quota endpoint.
+	Capabilities []string `json:"capabilities,omitempty"`
+	// No default model list here on purpose: model ids churn faster than
+	// the catalog ships, so a hardcoded default goes stale and fails at
+	// first inference. hydrateRuntimeModels asks the provider what it
+	// currently serves and caches that in the connection's runtime_config.
 }
 
 type IntegrationURLProperty struct {
@@ -479,6 +516,55 @@ type OAuthConfig struct {
 	// consent, and Google skips the consent screen by default for
 	// already-authorized apps.
 	ExtraAuthorizeParams map[string]string `json:"extra_authorize_params,omitempty"`
+	// TokenResponsePath addresses the token object when a provider wraps
+	// it instead of returning it at the top level. Segments are dot
+	// separated and numeric segments index arrays, so Instagram's
+	// {"data":[{"access_token":…}]} is "data.0". Empty = top level,
+	// which is the RFC 6749 shape and what every other catalog entry
+	// uses.
+	TokenResponsePath string `json:"token_response_path,omitempty"`
+	// LongLivedExchange upgrades the short-lived token the code grant
+	// returns into a durable one, when a provider makes that a separate
+	// call. Instagram's authorization_code yields a 1-hour token and
+	// requires GET graph.instagram.com/access_token?grant_type=
+	// ig_exchange_token to reach 60 days.
+	//
+	// A failure here is fatal to the connect: storing the short-lived
+	// token would produce a connection that reads "active" and stops
+	// working within the hour, which is worse than a visible failure at
+	// the moment the operator is standing at the consent screen.
+	LongLivedExchange *OAuthTokenCall `json:"long_lived_exchange,omitempty"`
+	// Refresh replaces the standard POST grant_type=refresh_token when a
+	// provider refreshes differently. Instagram has no refresh_token at
+	// all — it re-presents the current access token to
+	// GET graph.instagram.com/refresh_access_token?grant_type=
+	// ig_refresh_token. When set, the engine skips its usual
+	// "no refresh_token means we cannot refresh" guard.
+	Refresh *OAuthTokenCall `json:"refresh,omitempty"`
+}
+
+// OAuthTokenCall describes a vendor-specific token request that isn't
+// the RFC 6749 form POST — a follow-up exchange or a non-standard
+// refresh. Declarative rather than per-slug Go: Threads needs byte-
+// identical handling to Instagram, and the provider-auth file already
+// shows where per-slug special-casing leads.
+type OAuthTokenCall struct {
+	// URL is the full endpoint. Required.
+	URL string `json:"url"`
+	// Method defaults to GET — both Instagram calls are GETs, unlike the
+	// standard grant.
+	Method string `json:"method,omitempty"`
+	// Params are extra query/form values, typically the vendor's
+	// grant_type (ig_exchange_token, ig_refresh_token, th_refresh_token).
+	Params map[string]string `json:"params,omitempty"`
+	// SendClientSecret must be per-call, not per-app: Instagram's
+	// long-lived exchange requires client_secret and its refresh call
+	// rejects it.
+	SendClientSecret bool `json:"send_client_secret,omitempty"`
+	// Credential names the credential sent as access_token. Defaults to
+	// "access_token" — the refresh call re-presents the current token
+	// rather than a separate refresh_token.
+	Credential string `json:"credential,omitempty"`
 }
 
 type AppToolDef struct {
@@ -1031,6 +1117,21 @@ func (c *AppCatalog) Count() int {
 func (s *Server) handleListCatalog(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// ?runtime_role=llm — only catalog apps that can back an agent
+	// runtime. Onboarding needs this filter server-side: the catalog is
+	// 600+ entries and the "ai" category is far too broad to stand in for
+	// it (62 apps carry that tag, most of them ordinary integrations).
+	// Returns RuntimeCatalogEntry rather than AppSummary because a
+	// credential form needs auth types and credential fields.
+	if role := r.URL.Query().Get("runtime_role"); role != "" {
+		entries := s.runtimeCatalogForRole(role)
+		if entries == nil {
+			entries = []RuntimeCatalogEntry{}
+		}
+		writeJSON(w, entries)
 		return
 	}
 

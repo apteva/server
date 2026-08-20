@@ -1980,12 +1980,19 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		requiredPermissionsJSON, _ := json.Marshal(available.Requires.Permissions)
+		oldMCPSurface := s.snapshotAppMCPSurface(installID)
 		if _, err := s.store.db.Exec(
 			`UPDATE app_installs SET version = ?, manifest_json = ?, permissions_json = ? WHERE id = ?`,
 			available.Version, availableManifestJSON, string(requiredPermissionsJSON), installID,
 		); err != nil {
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if s.installedApps != nil {
+			s.LoadInstalledApps()
+		}
+		if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
+			log.Printf("[APPS] register MCP after built-in upgrade install=%d: %v", installID, err)
 		}
 		if changed, err := s.reconcileAppDepBindings(installID); err != nil {
 			log.Printf("[APPS-BIND] built-in upgrade reconcile install=%d: %v", installID, err)
@@ -2034,6 +2041,11 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal([]byte(plain), &cfg)
 		}
 	}
+	// Capture the currently active sidecar's agent-visible tools/list before
+	// replacing it. installFromSource swaps the sidecar asynchronously; the
+	// post-activation comparison must retain this pre-upgrade snapshot so
+	// bound running agents restart when a source app changes its MCP surface.
+	oldMCPSurface := s.snapshotAppMCPSurface(installID)
 
 	// Persist the new manifest immediately so the next list call
 	// reflects the in-flight version even before the build completes.
@@ -2080,13 +2092,12 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		// valid portable skills from plugin.json after the successful build.
 		// Do not register the manifest-only list again here: that would erase
 		// portable-only skills immediately after an Agent Plugin upgrade.
-		// Refresh the bridge row so a manifest that adds new tools
-		// across versions surfaces them in mcp_servers.allowed_tools.
-		// installFromSource already calls registerAppMCP on the success
-		// path, but we call it again here to make the contract obvious
-		// (upgrade => MCP refreshed) after the atomic running+version
-		// install row update.
-		_ = s.registerAppMCP(installID)
+		// installFromSource has now activated the healthy replacement.
+		// Refresh the bridge and compare the new live tools/list with the
+		// pre-upgrade snapshot; only agents bound to a changed surface restart.
+		if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
+			log.Printf("[APPS] register MCP after source upgrade install=%d: %v", installID, err)
+		}
 		// Reconcile the complete binding set against the successful
 		// live manifest: prune removed roles/app deps and backfill
 		// missing required app deps.

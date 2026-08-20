@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -215,81 +214,6 @@ func (s *Store) DeleteProvider(userID, providerID int64) error {
 	return err
 }
 
-// FindProviderByWebhookToken looks up a provider row by its webhook
-// token. Used by the unified /webhooks/:token ingress handler to
-// dispatch provider-backed trigger deliveries (Composio today, any
-// other trigger backend tomorrow) alongside per-subscription
-// deliveries. Returns the row + encrypted blob.
-func (s *Store) FindProviderByWebhookToken(token string) (*Provider, string, error) {
-	if token == "" {
-		return nil, "", sql.ErrNoRows
-	}
-	var p Provider
-	var encryptedData, createdAt, updatedAt string
-	err := s.db.QueryRow(`
-		SELECT id, user_id, type, name, encrypted_data, COALESCE(project_id,''), created_at, updated_at
-		FROM providers
-		WHERE webhook_token = ?
-		LIMIT 1
-	`, token).Scan(&p.ID, &p.UserID, &p.Type, &p.Name, &encryptedData, &p.ProjectID, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, "", err
-	}
-	p.CreatedAt, _ = parseTime(createdAt)
-	p.UpdatedAt, _ = parseTime(updatedAt)
-	return &p, encryptedData, nil
-}
-
-// SetProviderWebhookToken persists a webhook_token for a provider row.
-// Idempotent: safe to call repeatedly with the same token.
-func (s *Store) SetProviderWebhookToken(providerID int64, token string) error {
-	_, err := s.db.Exec("UPDATE providers SET webhook_token = ? WHERE id = ?", token, providerID)
-	return err
-}
-
-// FindComposioProviderForProject returns the Composio provider row that
-// owns the given (user, project) pair. Used by the webhook ingress path
-// to locate the signing secret and by the subscription create path to
-// bootstrap a per-project webhook subscription on first use.
-//
-// Pass userID=0 for the webhook ingress path, which knows only the
-// project id from the URL. We look up by project alone in that case
-// and the caller uses the resolved row's user_id for downstream
-// subscription lookups.
-//
-// Precedence: a project-scoped row wins over a global (project_id=”)
-// row of the same type — matches how ListProviders surfaces both.
-func (s *Store) FindComposioProviderForProject(userID int64, projectID string) (*Provider, string, error) {
-	var p Provider
-	var encryptedData, createdAt, updatedAt string
-	var err error
-	if userID > 0 {
-		err = s.db.QueryRow(`
-			SELECT id, user_id, type, name, encrypted_data, COALESCE(project_id,''), created_at, updated_at
-			FROM providers
-			WHERE user_id = ? AND type = 'integrations' AND name = 'Composio'
-			  AND (project_id = ? OR project_id = '')
-			ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, id DESC
-			LIMIT 1
-		`, userID, projectID, projectID).Scan(&p.ID, &p.UserID, &p.Type, &p.Name, &encryptedData, &p.ProjectID, &createdAt, &updatedAt)
-	} else {
-		err = s.db.QueryRow(`
-			SELECT id, user_id, type, name, encrypted_data, COALESCE(project_id,''), created_at, updated_at
-			FROM providers
-			WHERE type = 'integrations' AND name = 'Composio'
-			  AND (project_id = ? OR project_id = '')
-			ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, id DESC
-			LIMIT 1
-		`, projectID, projectID).Scan(&p.ID, &p.UserID, &p.Type, &p.Name, &encryptedData, &p.ProjectID, &createdAt, &updatedAt)
-	}
-	if err != nil {
-		return nil, "", err
-	}
-	p.CreatedAt, _ = parseTime(createdAt)
-	p.UpdatedAt, _ = parseTime(updatedAt)
-	return &p, encryptedData, nil
-}
-
 // GetAllProviderEnvVars decrypts all providers for a user and returns env vars
 // (UPPER_CASE keys). If projectID is provided and non-empty, only providers
 // scoped to that project (or unscoped globals) are included — matching the
@@ -349,6 +273,45 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 				}
 			}
 		}
+	}
+	return envVars, nil
+}
+
+// GetAllProviderEnvVars is the dual-read env resolver every agent-spawn
+// path calls (providers/connections fusion).
+//
+// It merges the legacy providers table with connections whose catalog
+// entry declares a `runtime` block. A connection only overrides a
+// provider-supplied var when it was migrated from that row; otherwise
+// the provider keeps it, so adding a connection never silently changes
+// which credential a running install uses. Once the last provider row is
+// migrated the first half returns empty and this becomes a thin wrapper
+// over runtimeEnvFromConnections.
+//
+// The selection rule differs between the two halves in a way worth
+// naming: the providers table WAS the filter — every row's UPPER_CASE
+// keys got injected, which is why Browserbase credentials reached every
+// core. Connections are filtered by the catalog's runtime block instead,
+// so a Stripe or Twilio credential never lands in an agent's environment
+// just because the row exists.
+func (s *Server) GetAllProviderEnvVars(userID int64, projectID ...string) (map[string]string, error) {
+	envVars, err := s.store.GetAllProviderEnvVars(userID, s.secret, projectID...)
+	if err != nil {
+		// A Codex refresh failure surfaces here and must stay fatal: booting
+		// an agent with a stale token produces a confusing 401 at first
+		// inference instead of an actionable "sign in again".
+		return nil, err
+	}
+	if envVars == nil {
+		envVars = map[string]string{}
+	}
+
+	connEnv, err := s.runtimeEnvFromConnections(userID, envVars, projectID...)
+	if err != nil {
+		return nil, err
+	}
+	for name, value := range connEnv {
+		envVars[name] = value
 	}
 	return envVars, nil
 }
@@ -515,255 +478,6 @@ func isEnvVar(s string) bool {
 
 // --- HTTP Handlers ---
 
-// GET /provider-types
-func (s *Server) handleListProviderTypes(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-	types, err := s.store.ListProviderTypes()
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	// Filter out integration providers that don't require credentials.
-	// Today there's exactly one such row — "Apteva Local" — which used
-	// to gate access to the bundled integration catalog. The catalog
-	// is now always-on (auto-downloaded on first boot, baked into the
-	// dev tree, served unconditionally), so the row no longer
-	// represents anything the operator can meaningfully configure.
-	// Composio (type=integrations + requires_credentials=1) still
-	// shows up as a real activatable provider.
-	filtered := types[:0]
-	for _, t := range types {
-		if t.Type == "integrations" && !t.RequiresCredentials {
-			continue
-		}
-		filtered = append(filtered, t)
-	}
-	if filtered == nil {
-		filtered = []ProviderType{}
-	}
-	writeJSON(w, filtered)
-}
-
-// POST /providers
-func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-
-	var body struct {
-		ProviderTypeID int64             `json:"provider_type_id"`
-		Type           string            `json:"type"`
-		Name           string            `json:"name"`
-		Data           map[string]string `json:"data"`
-		ProjectID      string            `json:"project_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-	if body.Type == "" || body.Name == "" {
-		http.Error(w, "type and name required", http.StatusBadRequest)
-		return
-	}
-
-	// Allow empty data for providers that don't require credentials
-	if body.Data == nil {
-		body.Data = map[string]string{}
-	}
-
-	// Pre-flight credential probe. Mirrors handleCreateConnection's
-	// pre-flight: refuse to persist credentials we can't authenticate
-	// against the upstream. Providers without a probe (Apteva Local,
-	// or any new provider whose probe isn't in providerProbes yet)
-	// return Skipped=true and we let the save through.
-	//
-	// On failure we return 400 with the same ProviderTestResult shape
-	// the standalone /test endpoint emits, so the dashboard renders
-	// one error-row component for both paths. Pre-flight bypass is
-	// available via ?skip_health_check=1 for the rare case where an
-	// operator wants to seed creds that won't be usable yet (e.g.
-	// during initial setup before DNS propagates).
-	skipCheck := r.URL.Query().Get("skip_health_check") == "1"
-	if !skipCheck {
-		res := runProviderHealthCheck(body.Name, body.Data)
-		if !res.OK && !res.Skipped {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(res)
-			return
-		}
-	}
-
-	dataJSON, _ := json.Marshal(body.Data)
-	encrypted, err := Encrypt(s.secret, string(dataJSON))
-	if err != nil {
-		http.Error(w, "encryption failed", http.StatusInternalServerError)
-		return
-	}
-
-	provider, err := s.store.CreateProvider(userID, body.ProviderTypeID, body.Type, body.Name, encrypted, body.ProjectID)
-	if err != nil {
-		http.Error(w, "failed to create provider", http.StatusInternalServerError)
-		return
-	}
-
-	// Composio: mirror the user's existing connected accounts + custom MCP
-	// servers into our tables so the dashboard reflects current upstream
-	// state without forcing the user to rebuild connections here.
-	// Best-effort async — failures are logged, provider create still succeeds.
-	if strings.EqualFold(provider.Name, "Composio") {
-		go s.syncComposioProviderData(userID, provider.ID, provider.ProjectID)
-	}
-
-	writeJSON(w, provider)
-}
-
-// GET /providers[?project_id=<id>]
-func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-	projectID := r.URL.Query().Get("project_id")
-	providers, err := s.store.ListProviders(userID, projectID)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if providers == nil {
-		providers = []Provider{}
-	}
-	writeJSON(w, providers)
-}
-
-// GET /providers/:id — returns provider with masked data
-func (s *Server) handleGetProvider(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-	idStr := strings.TrimPrefix(r.URL.Path, "/providers/")
-	providerID, err := atoi64(idStr)
-	if err != nil {
-		http.Error(w, "invalid provider ID", http.StatusBadRequest)
-		return
-	}
-
-	provider, encData, err := s.store.GetProvider(userID, providerID)
-	if err != nil {
-		http.Error(w, "provider not found", http.StatusNotFound)
-		return
-	}
-
-	// Decrypt and mask secrets
-	plaintext, err := Decrypt(s.secret, encData)
-	if err != nil {
-		http.Error(w, "decryption failed", http.StatusInternalServerError)
-		return
-	}
-
-	var data map[string]any
-	if err := json.Unmarshal([]byte(plaintext), &data); err != nil {
-		http.Error(w, "invalid provider data", http.StatusInternalServerError)
-		return
-	}
-
-	masked := map[string]string{}
-	for k, raw := range data {
-		v, ok := raw.(string)
-		if !ok {
-			continue
-		}
-		if isEnvVar(k) && len(v) > 8 {
-			masked[k] = v[:4] + "..." + v[len(v)-4:]
-		} else {
-			masked[k] = v
-		}
-	}
-
-	writeJSON(w, map[string]any{
-		"id":         provider.ID,
-		"type":       provider.Type,
-		"name":       provider.Name,
-		"data":       masked,
-		"created_at": provider.CreatedAt,
-		"updated_at": provider.UpdatedAt,
-	})
-}
-
-// PUT /providers/:id
-func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-	idStr := strings.TrimPrefix(r.URL.Path, "/providers/")
-	providerID, err := atoi64(idStr)
-	if err != nil {
-		http.Error(w, "invalid provider ID", http.StatusBadRequest)
-		return
-	}
-
-	// Read existing data
-	provider, encData, err := s.store.GetProvider(userID, providerID)
-	if err != nil {
-		http.Error(w, "provider not found", http.StatusNotFound)
-		return
-	}
-	_ = provider
-
-	var body struct {
-		Type string            `json:"type"`
-		Name string            `json:"name"`
-		Data map[string]string `json:"data"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-	if body.Type == "" {
-		body.Type = provider.Type
-	}
-	if body.Name == "" {
-		body.Name = provider.Name
-	}
-
-	// Decrypt existing data and merge — skip masked values (contain "***")
-	var existing map[string]any
-	if plaintext, err := Decrypt(s.secret, encData); err == nil {
-		json.Unmarshal([]byte(plaintext), &existing)
-	}
-	if existing == nil {
-		existing = map[string]any{}
-	}
-	for k, v := range body.Data {
-		// Skip masked values — keep existing secret
-		if isEnvVar(k) && strings.Contains(v, "...") {
-			continue
-		}
-		existing[k] = v
-	}
-
-	dataJSON, _ := json.Marshal(existing)
-	encrypted, err := Encrypt(s.secret, string(dataJSON))
-	if err != nil {
-		http.Error(w, "encryption failed", http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.store.UpdateProvider(userID, providerID, body.Type, body.Name, encrypted); err != nil {
-		http.Error(w, "failed to update", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, map[string]string{"status": "updated"})
-}
-
-// DELETE /providers/:id
-func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-	idStr := strings.TrimPrefix(r.URL.Path, "/providers/")
-	providerID, err := atoi64(idStr)
-	if err != nil {
-		http.Error(w, "invalid provider ID", http.StatusBadRequest)
-		return
-	}
-	s.store.DeleteProvider(userID, providerID)
-	writeJSON(w, map[string]string{"status": "deleted"})
-}
-
 // GetProviderInfo extracts provider type + model selections from the first LLM provider.
 // Kept for backward compatibility — use GetProviderPool for multi-provider support.
 func (s *Server) GetProviderInfo(userID int64, projectID ...string) ProviderInfo {
@@ -791,23 +505,42 @@ func (s *Server) GetProviderInfo(userID int64, projectID ...string) ProviderInfo
 // name) and uses it as both the pool entry's Type and the downstream
 // config.json provider name, so cores always get concrete names like
 // "fireworks" rather than the category "llm".
+// isLLMKey gates which provider names may reach apteva-core's
+// config.json. Package-level because the connections path
+// (runtimePoolFromConnections) applies the same gate to keys read from
+// catalog JSON — catalog data ships separately from the binary that has
+// to understand these names, so it is never trusted to name a provider
+// core has no factory for.
+func isLLMKey(k string) bool {
+	switch k {
+	case "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice", "xai":
+		return true
+	}
+	return false
+}
+
 func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderInfo {
+	// Dual-read (providers/connections fusion). Connections resolve first
+	// and seenProviderKeys comes back pre-seeded with what they supply,
+	// so the providers loop skips any key already claimed.
+	//
+	// A connection only displaces a provider row when it was migrated
+	// from one (legacy_provider_id set). An independently-created
+	// connection for a key the providers table still serves is skipped —
+	// otherwise connecting Gemini would silently switch which Google key
+	// every agent in the project runs on. Once the last provider row is
+	// migrated, shadowed is empty and this is just the connections half.
+	shadowed := s.providerSuppliedLLMKeys(userID, projectID...)
+	pool, codexPool, seenProviderKeys := s.runtimePoolFromConnections(userID, shadowed, projectID...)
+
 	providers, err := s.store.ListProviders(userID, projectID...)
-	if err != nil || len(providers) == 0 {
+	if err != nil {
+		providers = nil
+	}
+	if len(providers) == 0 && len(pool) == 0 && len(codexPool) == 0 {
 		return nil
 	}
 
-	isLLMKey := func(k string) bool {
-		switch k {
-		case "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice", "xai":
-			return true
-		}
-		return false
-	}
-
-	var pool []ProviderInfo
-	var codexPool []ProviderInfo
-	seenProviderKeys := map[string]bool{}
 	for _, p := range providers {
 		// Normalize across the two formats. If type == "llm" this is a
 		// new-format row and we use the name column as the provider key.
@@ -922,94 +655,6 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 	return append(combined, realtimeCompanions...)
 }
 
-// GET /providers/:id/models — fetch live model list
-func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPut {
-		s.handleSaveProviderModels(w, r)
-		return
-	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
-		return
-	}
-	userID := getUserID(r)
-
-	path := strings.TrimPrefix(r.URL.Path, "/providers/")
-	idStr := strings.TrimSuffix(path, "/models")
-	providerID, err := atoi64(idStr)
-	if err != nil {
-		http.Error(w, "invalid provider ID", http.StatusBadRequest)
-		return
-	}
-
-	provider, encData, err := s.store.GetProvider(userID, providerID)
-	if err != nil {
-		http.Error(w, "provider not found", http.StatusNotFound)
-		return
-	}
-
-	// Decrypt to get API key
-	plaintext, err := Decrypt(s.secret, encData)
-	if err != nil {
-		http.Error(w, "decryption failed", http.StatusInternalServerError)
-		return
-	}
-	var state map[string]any
-	if err := json.Unmarshal([]byte(plaintext), &state); err != nil {
-		http.Error(w, "invalid provider data", http.StatusInternalServerError)
-		return
-	}
-
-	providerKey := strings.ToLower(provider.Type)
-	if providerKey == "llm" {
-		providerKey = providerKeyFromName(provider.Name)
-	}
-	if providerKey == openAICodexAuthProvider {
-		if codexStateNeedsRefresh(state, 10*time.Minute) {
-			state, _, err = s.store.RefreshOpenAICodexProviderState(providerID, userID, s.secret, 10*time.Minute, false, "model_catalog")
-			if err != nil {
-				http.Error(w, fmt.Sprintf("failed to refresh Codex auth: %v", err), http.StatusBadGateway)
-				return
-			}
-		}
-		force := r.URL.Query().Get("refresh") == "1"
-		models, fetchErr := fetchCodexModelCatalog(r.Context(),
-			stringFromNested(state, "credentials", "access_token"), codexAccountIDFromState(state), force)
-		if fetchErr != nil {
-			http.Error(w, fmt.Sprintf("failed to fetch models: %v", fetchErr), http.StatusBadGateway)
-			return
-		}
-		if err := s.persistCodexCatalogState(userID, provider, models); err != nil {
-			http.Error(w, "failed to persist Codex model defaults", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, models)
-		return
-	}
-
-	// Find the API key
-	apiKey := ""
-	for k, raw := range state {
-		v, _ := raw.(string)
-		if strings.HasSuffix(k, "_KEY") || strings.HasSuffix(k, "_API_KEY") {
-			apiKey = v
-			break
-		}
-	}
-	if apiKey == "" {
-		http.Error(w, "no API key found in provider data", http.StatusBadRequest)
-		return
-	}
-
-	models, err := FetchModels(providerKey, apiKey)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to fetch models: %v", err), http.StatusBadGateway)
-		return
-	}
-
-	writeJSON(w, models)
-}
-
 func (s *Server) persistCodexCatalogState(userID int64, provider *Provider, models []ModelInfo) error {
 	lock := codexProviderRefreshLock(provider.ID)
 	lock.Lock()
@@ -1032,119 +677,4 @@ func (s *Server) persistCodexCatalogState(userID int64, provider *Provider, mode
 		return err
 	}
 	return s.store.UpdateProvider(userID, provider.ID, provider.Type, provider.Name, next)
-}
-
-func (s *Server) handleSaveProviderModels(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-	path := strings.TrimPrefix(r.URL.Path, "/providers/")
-	idStr := strings.TrimSuffix(path, "/models")
-	providerID, err := atoi64(idStr)
-	if err != nil {
-		http.Error(w, "invalid provider ID", http.StatusBadRequest)
-		return
-	}
-	provider, _, err := s.store.GetProvider(userID, providerID)
-	if err != nil {
-		http.Error(w, "provider not found", http.StatusNotFound)
-		return
-	}
-	var body struct {
-		Large  string `json:"large"`
-		Medium string `json:"medium"`
-		Small  string `json:"small"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	lock := codexProviderRefreshLock(providerID)
-	lock.Lock()
-	defer lock.Unlock()
-	provider, encrypted, err := s.store.GetProvider(userID, providerID)
-	if err != nil {
-		http.Error(w, "provider not found", http.StatusNotFound)
-		return
-	}
-	plaintext, err := Decrypt(s.secret, encrypted)
-	if err != nil {
-		http.Error(w, "decryption failed", http.StatusInternalServerError)
-		return
-	}
-	state := map[string]any{}
-	if err := json.Unmarshal([]byte(plaintext), &state); err != nil {
-		http.Error(w, "invalid provider data", http.StatusInternalServerError)
-		return
-	}
-	state["model_large"] = strings.TrimSpace(body.Large)
-	state["model_medium"] = strings.TrimSpace(body.Medium)
-	state["model_small"] = strings.TrimSpace(body.Small)
-
-	providerKey := strings.ToLower(provider.Type)
-	if providerKey == "llm" {
-		providerKey = providerKeyFromName(provider.Name)
-	}
-	if providerKey == openAICodexAuthProvider {
-		models, fetchErr := fetchCodexModelCatalog(r.Context(),
-			stringFromNested(state, "credentials", "access_token"), codexAccountIDFromState(state), false)
-		if fetchErr != nil {
-			http.Error(w, fmt.Sprintf("failed to validate Codex models: %v", fetchErr), http.StatusBadGateway)
-			return
-		}
-		available := map[string]bool{}
-		for _, model := range models {
-			available[model.ID] = true
-		}
-		for tier, selected := range map[string]string{"large": body.Large, "medium": body.Medium, "small": body.Small} {
-			if strings.TrimSpace(selected) != "" && !available[strings.TrimSpace(selected)] {
-				http.Error(w, fmt.Sprintf("%s model %q is not available for this Codex account", tier, selected), http.StatusBadRequest)
-				return
-			}
-		}
-		applyCodexCatalogToState(state, models)
-	} else if providerKey == "xai" {
-		apiKey := strings.TrimSpace(stringValue(state["XAI_API_KEY"]))
-		if apiKey == "" {
-			http.Error(w, "xAI provider is missing XAI_API_KEY", http.StatusBadRequest)
-			return
-		}
-		models, fetchErr := FetchModels(providerKey, apiKey)
-		if fetchErr != nil {
-			http.Error(w, fmt.Sprintf("failed to validate xAI models: %v", fetchErr), http.StatusBadGateway)
-			return
-		}
-		available := make(map[string]ModelInfo, len(models))
-		for _, model := range models {
-			available[model.ID] = model
-		}
-		selectedCapabilities := map[string]ProviderModelCapabilities{}
-		for tier, selected := range map[string]string{"large": body.Large, "medium": body.Medium, "small": body.Small} {
-			selected = strings.TrimSpace(selected)
-			if selected == "" {
-				continue
-			}
-			model, ok := available[selected]
-			if !ok {
-				http.Error(w, fmt.Sprintf("%s model %q is not available for this xAI account", tier, selected), http.StatusBadRequest)
-				return
-			}
-			selectedCapabilities[selected] = model.Capabilities
-		}
-		state["model_capabilities"] = selectedCapabilities
-	}
-	next, err := marshalEncryptProviderState(s.secret, state)
-	if err != nil {
-		http.Error(w, "encryption failed", http.StatusInternalServerError)
-		return
-	}
-	if err := s.store.UpdateProvider(userID, providerID, provider.Type, provider.Name, next); err != nil {
-		http.Error(w, "failed to update model settings", http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]any{
-		"status": "updated",
-		"large":  stringValue(state["model_large"]),
-		"medium": stringValue(state["model_medium"]),
-		"small":  stringValue(state["model_small"]),
-	})
 }

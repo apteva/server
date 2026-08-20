@@ -209,6 +209,20 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 	refreshed := make([]map[string]any, 0, len(current))
 	changed := false
 	for _, entry := range current {
+		if serverID, ok := localMCPServerIDFromConfig(entry); ok {
+			var count int
+			if err := s.store.db.QueryRow(`
+				SELECT COUNT(*) FROM mcp_servers
+				WHERE id=? AND (COALESCE(project_id,'')='' OR project_id=?)`,
+				serverID, inst.ProjectID,
+			).Scan(&count); err == nil && count == 0 {
+				// Numeric gateway URLs are references to persisted registry rows.
+				// If the row was removed by an uninstall or migration, retaining
+				// the config leaves Core attached to a permanently dead endpoint.
+				changed = true
+				continue
+			}
+		}
 		installID := appInstallIDFromMCPConfig(entry)
 		if installID <= 0 {
 			refreshed = append(refreshed, entry)
@@ -276,6 +290,25 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 		log.Printf("[MCP-ATTACH] refreshed stale app configs agent=%d", inst.ID)
 	}
 	return s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, mcpMapsAsAny(refreshed))
+}
+
+func localMCPServerIDFromConfig(config map[string]any) (int64, bool) {
+	rawURL, _ := config["url"].(string)
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed == nil {
+		return 0, false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+		return 0, false
+	}
+	path := strings.Trim(strings.TrimSpace(parsed.Path), "/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[0] != "mcp" {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	return id, err == nil && id > 0
 }
 
 func appInstallIDFromMCPConfig(config map[string]any) int64 {

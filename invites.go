@@ -22,7 +22,6 @@ import (
 //   - local API-key apps: create new connection OR update creds on an
 //     existing connection (true "swap the API key" flow)
 //   - local OAuth2 apps: create new connection (full consent screen round-trip)
-//   - composio apps: create new connection via Composio's hosted flow
 //
 // What it gives up (vs. a stored-invite table):
 //   - No pre-use revocation — a leaked link is valid until exp.
@@ -41,10 +40,9 @@ type InvitePayload struct {
 	Op             int64  `json:"op"`             // operator user_id — the invite acts on their behalf
 	Proj           string `json:"proj,omitempty"` // project_id the connection lands in
 	App            string `json:"app"`            // app_slug (e.g. "gmail")
-	Src            string `json:"src"`            // "local" | "composio"
+	Src            string `json:"src"`            // "local"
 	ConnID         int64  `json:"cid,omitempty"`  // if set, update an existing connection
 	TemplateConnID int64  `json:"tcid,omitempty"` // copy required static setup into a new OAuth connection
-	ProvID         int64  `json:"pid,omitempty"`  // composio provider_id (for src=composio)
 	Tools          string `json:"tools,omitempty"`
 	Name           string `json:"name,omitempty"`
 	Exp            int64  `json:"exp"`
@@ -108,10 +106,9 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProjectID    string `json:"project_id"`
 		AppSlug      string `json:"app_slug"`
-		Source       string `json:"source"`                 // "local" | "composio"
+		Source       string `json:"source"`                 // "local"
 		ConnectionID int64  `json:"connection_id"`          // optional — reauth an existing conn
 		TemplateID   int64  `json:"template_connection_id"` // optional — seed a separate OAuth connection
-		ProviderID   int64  `json:"provider_id,omitempty"`  // composio
 		Tools        string `json:"allowed_tools,omitempty"`
 		Name         string `json:"name,omitempty"`
 		TTLSeconds   int64  `json:"ttl_seconds,omitempty"`
@@ -126,6 +123,10 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Source == "" {
 		body.Source = "local"
+	}
+	if body.Source != "local" {
+		http.Error(w, "only local catalog integrations are supported", http.StatusBadRequest)
+		return
 	}
 	if body.ConnectionID != 0 && body.TemplateID != 0 {
 		http.Error(w, "connection_id and template_connection_id cannot be combined", http.StatusBadRequest)
@@ -172,7 +173,6 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		Src:            body.Source,
 		ConnID:         body.ConnectionID,
 		TemplateConnID: body.TemplateID,
-		ProvID:         body.ProviderID,
 		Tools:          body.Tools,
 		Name:           body.Name,
 		Exp:            time.Now().Add(ttl).Unix(),
@@ -229,8 +229,6 @@ func (s *Server) handlePublicInvite(w http.ResponseWriter, r *http.Request) {
 		resp["credential_fields"] = app.Auth.CredentialFields
 		resp["has_oauth2"] = app.Auth.OAuth2 != nil
 		resp["has_oauth1"] = app.Auth.OAuth1 != nil
-	} else if p.Src == "composio" {
-		resp["app_name"] = p.App
 	}
 
 	// If reauthing an existing connection, surface the human-readable
@@ -247,7 +245,7 @@ func (s *Server) handlePublicInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /connect/:token/fulfill — client submits credentials (api_key flow)
-// or triggers the OAuth / Composio redirect. Body:
+// or triggers the OAuth redirect. Body:
 //
 //	{ credentials?: {...}, name?: "..." }
 //
@@ -255,7 +253,7 @@ func (s *Server) handlePublicInvite(w http.ResponseWriter, r *http.Request) {
 //
 //	{ status: "connected", connection_id }         // api_key path, new
 //	{ status: "updated",   connection_id }         // api_key path, reauth
-//	{ status: "redirect",  redirect_url }          // oauth2 / composio
+//	{ status: "redirect",  redirect_url }          // oauth2
 func (s *Server) handleFulfillInvite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -285,8 +283,6 @@ func (s *Server) handleFulfillInvite(w http.ResponseWriter, r *http.Request) {
 	switch p.Src {
 	case "local":
 		s.fulfillLocalInvite(w, p, &body)
-	case "composio":
-		s.fulfillComposioInvite(w, p)
 	default:
 		http.Error(w, "unknown source", http.StatusBadRequest)
 	}
@@ -469,57 +465,4 @@ func (s *Server) inviteOAuthTemplate(app *AppTemplate, p *InvitePayload) (string
 		supplemental = nil
 	}
 	return strings.TrimSpace(credentials["client_id"]), strings.TrimSpace(credentials["client_secret"]), supplemental, nil
-}
-
-// fulfillComposioInvite kicks off the Composio hosted connect flow on
-// behalf of the operator and returns the redirect URL the client should
-// be sent to. Composio handles the callback itself; the connection flips
-// from pending→active via the existing poll path in handleGetConnection.
-func (s *Server) fulfillComposioInvite(w http.ResponseWriter, p *InvitePayload) {
-	if p.ConnID != 0 {
-		http.Error(w, "Composio reauth via invite not yet supported", http.StatusNotImplemented)
-		return
-	}
-	if p.ProvID == 0 {
-		http.Error(w, "invite missing composio provider_id", http.StatusBadRequest)
-		return
-	}
-	client, err := s.composioClientFor(p.Op, p.ProvID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	endUserID := composioEndUserID(p.Op, p.Proj)
-	// authMode + creds pass empty — the public page can't collect a custom
-	// OAuth client. Relies on Composio's default auth config for the toolkit.
-	acct, redirectURL, err := client.InitiateConnection(p.App, "", endUserID, nil, nil)
-	if err != nil {
-		http.Error(w, "composio initiate: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	connName := p.Name
-	if connName == "" {
-		connName = p.App
-	}
-	conn, err := s.store.CreateConnectionExt(ConnectionInput{
-		UserID:     p.Op,
-		AppSlug:    p.App,
-		AppName:    p.App,
-		Name:       connName,
-		AuthType:   "composio",
-		ProjectID:  p.Proj,
-		Source:     "composio",
-		Status:     "pending",
-		ProviderID: p.ProvID,
-		ExternalID: acct.ID,
-	})
-	if err != nil {
-		http.Error(w, "create failed: "+err.Error(), http.StatusConflict)
-		return
-	}
-	writeJSON(w, map[string]any{
-		"status":        "redirect",
-		"redirect_url":  redirectURL,
-		"connection_id": conn.ID,
-	})
 }

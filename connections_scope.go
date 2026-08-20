@@ -28,9 +28,6 @@ package main
 //                                            subscribes independently)
 //
 // Safety: single SQL transaction, zero DELETEs, owner-only auth.
-// Refuses for composio-source connections because Composio's hosted
-// `connected_accounts` are bound to a project on their side too and
-// we don't yet propagate scope changes through their API.
 
 import (
 	"encoding/json"
@@ -71,16 +68,12 @@ func (s *Server) handleSetConnectionScope(w http.ResponseWriter, r *http.Request
 	userID := getUserID(r)
 
 	// Load the connection. We need (a) the current project_id for the
-	// summary, (b) the source — composio gets refused — and (c) the
+	// summary, (b) the source, and (c) the
 	// owner check (GetConnection's user_id WHERE clause covers it but
 	// returning a clearer error here is friendlier than a 404).
 	conn, _, err := s.store.GetConnection(userID, connID)
 	if err != nil || conn == nil {
 		http.Error(w, "connection not found", http.StatusNotFound)
-		return
-	}
-	if conn.Source == "composio" {
-		http.Error(w, "composio connections can't be re-scoped — Composio's hosted account is bound to a project on their side", http.StatusBadRequest)
 		return
 	}
 	if conn.ProjectID == target {

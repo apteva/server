@@ -402,7 +402,7 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 		return helper, nil
 	}
 	// Cold start. Needs the user's LLM provider pool to make calls.
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, "")
+	providerEnv, err := s.GetAllProviderEnvVars(userID, "")
 	if err != nil {
 		providerEnv = map[string]string{}
 	}

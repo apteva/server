@@ -1755,7 +1755,13 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// Start() reads these from inst.Config, not from disk config.json
 	// (which core owns and rewrites on every run), so the DB row is the
 	// authoritative place for server-side flags.
-	includeChannels := body.IncludeChannels == nil || *body.IncludeChannels
+	// Replacement default (conversations app): new agents get NO
+	// auto-injected channels/agent-output MCPs — the conversations app
+	// owns the conversation surface, attaching its own MCP through the
+	// normal app-binding path. Explicit include_channels:true still
+	// opts an agent into the legacy system MCPs; existing agents keep
+	// whatever their stored flag says.
+	includeChannels := body.IncludeChannels != nil && *body.IncludeChannels
 	{
 		var instCfg map[string]any
 		if inst.Config != "" {
@@ -1793,7 +1799,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// hidden in core logs.
 	shouldStart := body.Start == nil || *body.Start
 	if shouldStart {
-		providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
+		providerEnv, err := s.GetAllProviderEnvVars(userID, inst.ProjectID)
 		if err != nil {
 			writeJSON(w, map[string]any{
 				"id":      inst.ID,
@@ -2118,7 +2124,7 @@ func (s *Server) ResumeRunningInstances() {
 				terminateRuntimePID(inst.Pid, inst.Port, inst.CoreAPIKey, 2*time.Second)
 			}
 		}
-		providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
+		providerEnv, err := s.GetAllProviderEnvVars(inst.UserID, inst.ProjectID)
 		if err != nil {
 			log.Printf("[RESUME] instance %d (%s): provider env failed: %v — leaving stopped", inst.ID, inst.Name, err)
 			inst.Status = "stopped"
@@ -2254,7 +2260,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
+	providerEnv, err := s.GetAllProviderEnvVars(userID, inst.ProjectID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -3396,7 +3402,7 @@ func (s *Server) handleBackgroundMemory(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if running && changed {
-		providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
+		providerEnv, err := s.GetAllProviderEnvVars(inst.UserID, inst.ProjectID)
 		if err != nil {
 			http.Error(w, "provider environment: "+err.Error(), http.StatusBadGateway)
 			return

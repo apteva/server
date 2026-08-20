@@ -109,5 +109,12 @@
         "required": ["model", "messages"]
       }
     }
-  ]
+  ],
+  "runtime": {
+    "role": "llm",
+    "provider_key": "opencode-go",
+    "env": {
+      "OPENCODE_GO_API_KEY": "{{credentials.api_key}}"
+    }
+  }
 }

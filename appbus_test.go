@@ -369,6 +369,96 @@ func TestAppBus_ConcurrentPublishHasUniqueSeq(t *testing.T) {
 	}
 }
 
+func TestAppBus_EnsureLaneSequenceAtLeast_AllLaneKinds(t *testing.T) {
+	tests := []struct {
+		name        string
+		seedApp     string
+		seedProj    string
+		publishApp  string
+		publishProj string
+		floor       uint64
+	}{
+		{name: "project", seedApp: "storage", seedProj: "p1", publishApp: "storage", publishProj: "p1", floor: 40},
+		{name: "app wildcard", seedApp: "storage", seedProj: "", publishApp: "storage", publishProj: "p9", floor: 50},
+		{name: "project all", seedApp: allAppsLaneKey, seedProj: "p1", publishApp: "crm", publishProj: "p1", floor: 60},
+		{name: "global all", seedApp: allAppsLaneKey, seedProj: "", publishApp: "crm", publishProj: "p2", floor: 70},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := NewAppEventBus()
+			b.EnsureLaneSequenceAtLeast(tt.seedApp, tt.seedProj, tt.floor)
+			ch, _, cancel := b.Subscribe(tt.seedApp, tt.seedProj, tt.floor)
+			defer cancel()
+
+			b.Publish(tt.publishApp, tt.publishProj, 1, "changed", json.RawMessage(`{}`))
+			select {
+			case ev := <-ch:
+				if ev.Seq != tt.floor+1 {
+					t.Fatalf("first sequence after floor = %d, want %d", ev.Seq, tt.floor+1)
+				}
+			case <-time.After(200 * time.Millisecond):
+				t.Fatal("seeded lane did not receive the published event")
+			}
+		})
+	}
+}
+
+func TestAppBus_EnsureLaneSequenceAtLeast_IsolatedByLane(t *testing.T) {
+	b := NewAppEventBus()
+	b.EnsureLaneSequenceAtLeast("storage", "p1", 99)
+
+	p1 := b.Publish("storage", "p1", 1, "changed", json.RawMessage(`{}`))
+	p2 := b.Publish("storage", "p2", 1, "changed", json.RawMessage(`{}`))
+	crm := b.Publish("crm", "p1", 1, "changed", json.RawMessage(`{}`))
+	if p1.Seq != 100 {
+		t.Fatalf("seeded lane seq = %d, want 100", p1.Seq)
+	}
+	if p2.Seq != 1 || crm.Seq != 1 {
+		t.Fatalf("seed leaked to another lane: storage/p2=%d crm/p1=%d", p2.Seq, crm.Seq)
+	}
+}
+
+func TestAppBus_EnsureLaneSequenceAtLeast_ConcurrentWithPublish(t *testing.T) {
+	b := NewAppEventBus()
+	const publishers = 12
+	const each = 40
+	var wg sync.WaitGroup
+	seqs := make(chan uint64, publishers*each)
+
+	for g := 0; g < publishers; g++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < each; i++ {
+				seqs <- b.Publish("storage", "p1", 1, "changed", json.RawMessage(`{}`)).Seq
+			}
+		}()
+		go func(base uint64) {
+			defer wg.Done()
+			for i := uint64(0); i < each; i++ {
+				b.EnsureLaneSequenceAtLeast("storage", "p1", base+i)
+			}
+		}(uint64(g+1) * 100)
+	}
+	wg.Wait()
+	close(seqs)
+
+	seen := make(map[uint64]struct{}, publishers*each)
+	for seq := range seqs {
+		if _, duplicate := seen[seq]; duplicate {
+			t.Fatalf("duplicate sequence %d during concurrent seed/publish", seq)
+		}
+		seen[seq] = struct{}{}
+	}
+
+	// Once seeding returns, its floor is authoritative even after concurrent
+	// publishes have exercised the same lock.
+	b.EnsureLaneSequenceAtLeast("storage", "p1", 5000)
+	if got := b.Publish("storage", "p1", 1, "changed", json.RawMessage(`{}`)).Seq; got != 5001 {
+		t.Fatalf("sequence after final floor = %d, want 5001", got)
+	}
+}
+
 func TestAppBus_CancelClosesChannel(t *testing.T) {
 	b := NewAppEventBus()
 	ch, _, cancel := b.Subscribe("storage", "p1", 0)
