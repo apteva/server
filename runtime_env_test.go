@@ -500,6 +500,80 @@ func TestGetProviderPoolMigratedConnectionClaimsProviderKey(t *testing.T) {
 	}
 }
 
+func TestGetProviderPoolFallsBackWhenMigratedCopyIsUnreadable(t *testing.T) {
+	s := runtimeTestServer(t)
+	registerRuntimeApp(s, "gemini", "google", map[string]string{
+		"GOOGLE_API_KEY": "{{credentials.api_key}}",
+	})
+	blob, _ := json.Marshal(map[string]string{
+		"GOOGLE_API_KEY": "provider-key", "model_large": "provider-model",
+	})
+	encrypted, _ := Encrypt(s.secret, string(blob))
+	provider, err := s.store.CreateProvider(1, 16, "llm", "Google", encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := addConnection(t, s, "gemini", "Gemini", "", map[string]string{"api_key": "copy"})
+	if _, err := s.store.db.Exec(`UPDATE connections
+		SET legacy_provider_id = ?, encrypted_credentials = 'not-valid-ciphertext'
+		WHERE id = ?`, provider.ID, conn.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := poolEntriesFor(s.GetProviderPool(1), "google")
+	if len(entries) != 1 || entries[0].ModelLarge != "provider-model" {
+		t.Fatalf("pool = %+v, want readable legacy fallback", entries)
+	}
+}
+
+func TestMigrationConflictCannotMoveLegacyDefaultBehindConnection(t *testing.T) {
+	s := runtimeTestServer(t)
+	registerRuntimeApp(s, "gemini", "google", map[string]string{
+		"GOOGLE_API_KEY": "{{credentials.api_key}}",
+	})
+	registerRuntimeApp(s, "anthropic-api", "anthropic", map[string]string{
+		"ANTHROPIC_API_KEY": "{{credentials.api_key}}",
+	})
+	seedProvider(t, s, 16, "Google", "", map[string]string{
+		"GOOGLE_API_KEY": "legacy-google", "model_large": "google-model",
+	})
+	// The same-app mismatch makes Google deliberately remain in providers.
+	addConnection(t, s, "gemini", "Gemini", "", map[string]string{"api_key": "different-google"})
+	// This unrelated connection must not jump ahead of the unresolved legacy
+	// default merely because connections are assembled first internally.
+	addConnection(t, s, "anthropic-api", "Anthropic", "", map[string]string{"api_key": "anthropic"})
+	if result := s.migrateProvidersToConnections(); result.Conflicts != 1 {
+		t.Fatalf("migration result = %+v", result)
+	}
+
+	pool := s.GetProviderPool(1)
+	if len(pool) < 2 || pool[0].Type != "google" {
+		t.Fatalf("pool order = %+v, want unresolved legacy Google first", pool)
+	}
+}
+
+func TestMigratedProjectProviderStaysAheadOfOlderGlobalAfterCleanup(t *testing.T) {
+	s := runtimeTestServer(t)
+	registerRuntimeApp(s, "gemini", "google", map[string]string{
+		"GOOGLE_API_KEY": "{{credentials.api_key}}",
+	})
+	registerRuntimeApp(s, "anthropic-api", "anthropic", map[string]string{
+		"ANTHROPIC_API_KEY": "{{credentials.api_key}}",
+	})
+	seedProvider(t, s, 16, "Google", "", map[string]string{"GOOGLE_API_KEY": "global-first-id"})
+	seedProvider(t, s, 3, "Anthropic", "project-1", map[string]string{"ANTHROPIC_API_KEY": "project-later-id"})
+	if result := s.migrateProvidersToConnections(); result.Migrated != 2 {
+		t.Fatalf("migration result = %+v", result)
+	}
+	if _, err := s.store.db.Exec(`DELETE FROM providers`); err != nil {
+		t.Fatal(err)
+	}
+	pool := s.GetProviderPool(1, "project-1")
+	if len(pool) < 2 || pool[0].Type != "anthropic" {
+		t.Fatalf("pool order = %+v, want project-scoped Anthropic first", pool)
+	}
+}
+
 func poolEntriesFor(pool []ProviderInfo, providerKey string) []ProviderInfo {
 	var out []ProviderInfo
 	for _, info := range pool {

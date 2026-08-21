@@ -1,0 +1,841 @@
+{
+  "slug": "skyfi",
+  "name": "SkyFi",
+  "description": "Search, price, order, and task optical, multispectral, SAR, stereo, aerial, and open satellite imagery from multiple providers",
+  "logo": "https://www.google.com/s2/favicons?domain=skyfi.com&sz=128",
+  "categories": [
+    "satellite-imagery",
+    "earth-observation",
+    "imagery-marketplace",
+    "remote-sensing",
+    "geospatial",
+    "sar",
+    "tasking"
+  ],
+  "base_url": "https://app.skyfi.com/platform-api",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Skyfi-Api-Key": "{{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "SkyFi API Key",
+        "description": "API key shown in the My Profile section of your SkyFi account",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "whoami"
+  },
+  "tools": [
+    {
+      "name": "whoami",
+      "description": "Get the connected SkyFi user, organization, subscription, and API access information",
+      "method": "GET",
+      "path": "/auth/whoami",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_providers",
+      "description": "List satellite and aerial providers currently available for archive search or tasking through SkyFi",
+      "method": "GET",
+      "path": "/providers",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_archives",
+      "description": "Search commercial or free open-data imagery archives by WKT area, dates, cloud cover, resolution, product type, and provider",
+      "method": "POST",
+      "path": "/archives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string",
+            "description": "Area of interest as a WKT Polygon"
+          },
+          "fromDate": {
+            "type": "string",
+            "description": "UTC ISO 8601 start timestamp"
+          },
+          "toDate": {
+            "type": "string",
+            "description": "UTC ISO 8601 end timestamp"
+          },
+          "maxCloudCoveragePercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "maxOffNadirAngle": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 50
+          },
+          "resolutions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH",
+                "VERY HIGH",
+                "SUPER HIGH",
+                "ULTRA HIGH",
+                "CM 30",
+                "CM 50",
+                "SPOT",
+                "SPOT FINE",
+                "SLEA",
+                "DWELL",
+                "DWELL FINE",
+                "STRIP",
+                "SCAN"
+              ]
+            }
+          },
+          "productTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "DAY",
+                "NIGHT",
+                "VIDEO",
+                "MULTISPECTRAL",
+                "HYPERSPECTRAL",
+                "SAR",
+                "STEREO",
+                "BASEMAP",
+                "THERMAL"
+              ]
+            }
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SATELLOGIC",
+                "UMBRA",
+                "GEOSAT",
+                "SENTINEL1_CREODIAS",
+                "SENTINEL2",
+                "SENTINEL2_CREODIAS",
+                "PLANET",
+                "IMPRO",
+                "URBAN_SKY",
+                "NSL",
+                "VEXCEL",
+                "VANTOR",
+                "ICEYE_US",
+                "SIIS",
+                "SATVU"
+              ]
+            }
+          },
+          "openData": {
+            "type": "boolean",
+            "description": "When true, return only free open-data imagery"
+          },
+          "minOverlapRatio": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 100
+          }
+        },
+        "required": [
+          "aoi"
+        ]
+      }
+    },
+    {
+      "name": "continue_archive_search",
+      "description": "Retrieve the next page of a SkyFi archive search using the opaque nextPage value from the previous response",
+      "method": "GET",
+      "path": "/archives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "string",
+            "description": "Opaque next-page hash"
+          }
+        },
+        "required": [
+          "page"
+        ]
+      }
+    },
+    {
+      "name": "get_archive_image",
+      "description": "Get footprint, capture time, provider, resolution, pricing, delivery time, and thumbnails for one archive image",
+      "method": "GET",
+      "path": "/archives/{archive_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "archive_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "archive_id"
+        ]
+      }
+    },
+    {
+      "name": "get_tasking_pricing",
+      "description": "Get currently available SkyFi tasking product, provider, and resolution pricing, optionally for a specific WKT area",
+      "method": "POST",
+      "path": "/pricing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string",
+            "description": "Optional WKT Polygon used to calculate applicable pricing"
+          }
+        }
+      }
+    },
+    {
+      "name": "check_tasking_feasibility",
+      "description": "Start a feasibility check for Planet or Umbra tasking over an area and acquisition window",
+      "method": "POST",
+      "path": "/feasibility",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string",
+            "description": "Area of interest as a WKT Polygon"
+          },
+          "productType": {
+            "type": "string",
+            "enum": [
+              "DAY",
+              "MULTISPECTRAL",
+              "SAR"
+            ]
+          },
+          "resolution": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Timezone-aware ISO 8601 start date"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Timezone-aware ISO 8601 end date"
+          },
+          "maxCloudCoveragePercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "priorityItem": {
+            "type": "boolean"
+          },
+          "requiredProvider": {
+            "type": "string",
+            "enum": [
+              "PLANET",
+              "UMBRA"
+            ]
+          },
+          "sarParameters": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "aoi",
+          "productType",
+          "resolution",
+          "startDate",
+          "endDate"
+        ]
+      }
+    },
+    {
+      "name": "get_feasibility",
+      "description": "Get the status and available satellite passes for a SkyFi feasibility check",
+      "method": "GET",
+      "path": "/feasibility/{feasibility_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feasibility_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "feasibility_id"
+        ]
+      }
+    },
+    {
+      "name": "validate_archive_order",
+      "description": "Validate an archive imagery order and delivery configuration without placing or charging for the order",
+      "method": "POST",
+      "path": "/order-archive/validate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string"
+          },
+          "archiveId": {
+            "type": "string"
+          },
+          "deliveryDriver": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "S3",
+              "GS",
+              "AZURE",
+              "DELIVERY_CONFIG",
+              "S3_SERVICE_ACCOUNT",
+              "GS_SERVICE_ACCOUNT",
+              "AZURE_SERVICE_ACCOUNT"
+            ]
+          },
+          "deliveryParams": {
+            "type": "object"
+          },
+          "label": {
+            "type": "string"
+          },
+          "orderLabel": {
+            "type": "string"
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string"
+          },
+          "surfaceReflectance": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "aoi",
+          "archiveId"
+        ]
+      }
+    },
+    {
+      "name": "order_archive_image",
+      "description": "Purchase and deliver a selected commercial archive image or order a free open-data image",
+      "method": "POST",
+      "path": "/order-archive",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string",
+            "description": "Ordered WKT Polygon"
+          },
+          "archiveId": {
+            "type": "string"
+          },
+          "deliveryDriver": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "S3",
+              "GS",
+              "AZURE",
+              "DELIVERY_CONFIG",
+              "S3_SERVICE_ACCOUNT",
+              "GS_SERVICE_ACCOUNT",
+              "AZURE_SERVICE_ACCOUNT"
+            ],
+            "default": "NONE"
+          },
+          "deliveryParams": {
+            "type": "object"
+          },
+          "label": {
+            "type": "string"
+          },
+          "orderLabel": {
+            "type": "string"
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string"
+          },
+          "surfaceReflectance": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "aoi",
+          "archiveId"
+        ]
+      }
+    },
+    {
+      "name": "validate_tasking_order",
+      "description": "Validate a new optical or SAR satellite tasking request without placing or charging for it",
+      "method": "POST",
+      "path": "/order-tasking/validate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "productType": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": "string"
+          },
+          "requiredProvider": {
+            "type": "string"
+          },
+          "priorityItem": {
+            "type": "boolean"
+          },
+          "maxCloudCoveragePercent": {
+            "type": "integer"
+          },
+          "maxOffNadirAngle": {
+            "type": "integer"
+          },
+          "providerWindowId": {
+            "type": "string"
+          },
+          "sarProductTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sarPolarisation": {
+            "type": "string"
+          },
+          "deliveryDriver": {
+            "type": "string"
+          },
+          "deliveryParams": {
+            "type": "object"
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "aoi",
+          "windowStart",
+          "windowEnd",
+          "productType",
+          "resolution"
+        ]
+      }
+    },
+    {
+      "name": "create_tasking_order",
+      "description": "Purchase a new optical, multispectral, SAR, stereo, or other satellite acquisition over a requested area and time window",
+      "method": "POST",
+      "path": "/order-tasking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string",
+            "description": "Ordered WKT Polygon"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "productType": {
+            "type": "string",
+            "enum": [
+              "DAY",
+              "NIGHT",
+              "VIDEO",
+              "MULTISPECTRAL",
+              "HYPERSPECTRAL",
+              "SAR",
+              "STEREO",
+              "BASEMAP",
+              "THERMAL"
+            ]
+          },
+          "resolution": {
+            "type": "string"
+          },
+          "requiredProvider": {
+            "type": "string"
+          },
+          "priorityItem": {
+            "type": "boolean",
+            "default": false
+          },
+          "maxCloudCoveragePercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "maxOffNadirAngle": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 45,
+            "default": 30
+          },
+          "providerWindowId": {
+            "type": "string",
+            "description": "Specific Planet pass ID returned by feasibility"
+          },
+          "sarProductTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sarPolarisation": {
+            "type": "string"
+          },
+          "sarGrazingAngleMin": {
+            "type": "number"
+          },
+          "sarGrazingAngleMax": {
+            "type": "number"
+          },
+          "sarAzimuthAngleMin": {
+            "type": "number"
+          },
+          "sarAzimuthAngleMax": {
+            "type": "number"
+          },
+          "sarNumberOfLooks": {
+            "type": "integer"
+          },
+          "surfaceReflectance": {
+            "type": "boolean"
+          },
+          "deliveryDriver": {
+            "type": "string"
+          },
+          "deliveryParams": {
+            "type": "object"
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "aoi",
+          "windowStart",
+          "windowEnd",
+          "productType",
+          "resolution"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List SkyFi archive and tasking orders with status, ownership, paging, search, and sorting filters",
+      "method": "GET",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderType": {
+            "type": "string",
+            "enum": [
+              "ARCHIVE",
+              "TASKING"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "myOrders": {
+            "type": "boolean"
+          },
+          "orgId": {
+            "type": "string"
+          },
+          "pageNumber": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 25
+          },
+          "sortColumns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sortDirections": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get one SkyFi order with status history, provider details, delivery state, and available deliverables",
+      "method": "GET",
+      "path": "/orders/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "redeliver_order",
+      "description": "Request redelivery of the imagery artifacts for an existing completed SkyFi order",
+      "method": "POST",
+      "path": "/orders/{order_id}/redelivery",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "deliveryDriver": {
+            "type": "string"
+          },
+          "deliveryParams": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_notifications",
+      "description": "List active SkyFi catalog notifications that watch for new imagery matching an area and product filter",
+      "method": "GET",
+      "path": "/notifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageNumber": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25,
+            "default": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "create_notification",
+      "description": "Create a webhook notification for newly available archive imagery matching an area, GSD, and product type",
+      "method": "POST",
+      "path": "/notifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string",
+            "description": "Watched area as a WKT Polygon"
+          },
+          "gsdMin": {
+            "type": "integer"
+          },
+          "gsdMax": {
+            "type": "integer"
+          },
+          "productType": {
+            "type": "string"
+          },
+          "webhookUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "aoi",
+          "webhookUrl"
+        ]
+      }
+    },
+    {
+      "name": "get_notification",
+      "description": "Get one SkyFi catalog notification and its delivery history",
+      "method": "GET",
+      "path": "/notifications/{notification_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "notification_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "notification_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_notification",
+      "description": "Delete an active SkyFi new-imagery catalog notification",
+      "method": "DELETE",
+      "path": "/notifications/{notification_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "notification_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "notification_id"
+        ]
+      }
+    },
+    {
+      "name": "list_saved_areas",
+      "description": "List saved SkyFi areas of interest visible to the connected user",
+      "method": "GET",
+      "path": "/saved-aois",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "save_area",
+      "description": "Save a named and tagged WKT area of interest for reuse in SkyFi searches and orders",
+      "method": "POST",
+      "path": "/saved-aois",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "aoi": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "aoi"
+        ]
+      }
+    },
+    {
+      "name": "get_saved_area",
+      "description": "Get one saved SkyFi area of interest by ID",
+      "method": "GET",
+      "path": "/saved-aois/{saved_aoi_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "saved_aoi_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "saved_aoi_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_saved_area",
+      "description": "Delete a saved SkyFi area of interest",
+      "method": "DELETE",
+      "path": "/saved-aois/{saved_aoi_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "saved_aoi_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "saved_aoi_id"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,233 @@
+{
+  "slug": "sentinel-hub",
+  "name": "Sentinel Hub",
+  "description": "Search, render, and analyze public or commercial Earth-observation imagery with the Sentinel Hub APIs on Planet Insights Platform",
+  "logo": "https://www.google.com/s2/favicons?domain=sentinel-hub.com&sz=128",
+  "categories": [
+    "satellite-imagery",
+    "earth-observation",
+    "sentinel",
+    "remote-sensing",
+    "geospatial",
+    "imagery-processing"
+  ],
+  "base_url": "https://services.sentinel-hub.com",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "client_id",
+        "label": "OAuth Client ID",
+        "description": "OAuth client ID created in Planet Insights Platform or Sentinel Hub Dashboard",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "client_secret",
+        "label": "OAuth Client Secret",
+        "description": "OAuth client secret for the Sentinel Hub deployment",
+        "required": true,
+        "type": "password"
+      }
+    ],
+    "token_exchange": {
+      "url": "https://services.sentinel-hub.com/auth/realms/main/protocol/openid-connect/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{client_id}}",
+        "client_secret": "{{client_secret}}"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    }
+  },
+  "health_check": {
+    "tool": "list_collections"
+  },
+  "tools": [
+    {
+      "name": "list_collections",
+      "description": "List public, commercial, and bring-your-own-data collections available to the connected Sentinel Hub account",
+      "method": "GET",
+      "path": "/api/v1/catalog/1.0.0/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_collection",
+      "description": "Get metadata and extents for one Sentinel Hub imagery collection",
+      "method": "GET",
+      "path": "/api/v1/catalog/1.0.0/collections/{collection_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "description": "STAC collection identifier"
+          }
+        },
+        "required": [
+          "collection_id"
+        ]
+      }
+    },
+    {
+      "name": "search_imagery",
+      "description": "Search imagery in Sentinel Hub collections by area, time, cloud cover, and other STAC criteria",
+      "method": "POST",
+      "path": "/api/v1/catalog/1.0.0/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "description": "WGS84 bounding box [west, south, east, north]",
+            "items": {
+              "type": "number"
+            }
+          },
+          "intersects": {
+            "type": "object",
+            "description": "GeoJSON geometry"
+          },
+          "datetime": {
+            "type": "string",
+            "description": "RFC 3339 instant or interval"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "filter": {
+            "type": "object",
+            "description": "CQL2 JSON filter"
+          },
+          "fields": {
+            "type": "object"
+          },
+          "sortby": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "collections"
+        ]
+      }
+    },
+    {
+      "name": "process_image",
+      "description": "Render or download satellite imagery with custom bands, mosaicking, data fusion, and Evalscript processing",
+      "method": "POST",
+      "path": "/api/v1/process",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "Bounds and one or more imagery data sources"
+          },
+          "output": {
+            "type": "object",
+            "description": "Requested dimensions or resolution and output response definitions"
+          },
+          "evalscript": {
+            "type": "string",
+            "description": "Evalscript V3 for band selection and pixel processing"
+          }
+        },
+        "required": [
+          "input",
+          "output",
+          "evalscript"
+        ]
+      },
+      "timeout_ms": 120000
+    },
+    {
+      "name": "calculate_statistics",
+      "description": "Calculate time-series statistics, histograms, percentiles, or indices over imagery without downloading raster scenes",
+      "method": "POST",
+      "path": "/api/v1/statistics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "Bounds and imagery data source"
+          },
+          "aggregation": {
+            "type": "object",
+            "description": "Time interval, aggregation interval, resolution, and evalscript"
+          },
+          "calculations": {
+            "type": "object",
+            "description": "Histogram and percentile definitions"
+          }
+        },
+        "required": [
+          "input",
+          "aggregation"
+        ]
+      },
+      "timeout_ms": 120000
+    },
+    {
+      "name": "list_data_collections",
+      "description": "List configured Sentinel Hub BYOC data collections owned by the connected account",
+      "method": "GET",
+      "path": "/api/v1/byoc/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "viewtoken": {
+            "type": "string",
+            "description": "Pagination token from the previous response"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_data_collection",
+      "description": "Get one Sentinel Hub BYOC data collection and its storage metadata",
+      "method": "GET",
+      "path": "/api/v1/byoc/collections/{collection_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection_id"
+        ]
+      }
+    }
+  ]
+}

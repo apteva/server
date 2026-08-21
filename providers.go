@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -531,7 +532,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 	// every agent in the project runs on. Once the last provider row is
 	// migrated, shadowed is empty and this is just the connections half.
 	shadowed := s.providerSuppliedLLMKeys(userID, projectID...)
-	pool, codexPool, seenProviderKeys := s.runtimePoolFromConnections(userID, shadowed, projectID...)
+	pool, codexPool, seenProviderKeys, ranks := s.runtimePoolFromConnections(userID, shadowed, projectID...)
 
 	providers, err := s.store.ListProviders(userID, projectID...)
 	if err != nil {
@@ -559,6 +560,11 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 			continue
 		}
 		seenProviderKeys[providerKey] = true
+		rank := providerPoolRank{anchored: true, id: p.ID}
+		if len(projectID) > 0 && projectID[0] != "" && p.ProjectID != projectID[0] {
+			rank.scope = 1
+		}
+		ranks[providerKey] = rank
 
 		_, encData, err := s.store.GetProvider(userID, p.ID)
 		if err != nil {
@@ -626,6 +632,21 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 		}
 		pool = append(pool, info)
 	}
+	// Merge connection-backed and unresolved provider-backed groups by the
+	// ordering the legacy providers table exposed: project before global,
+	// then provider id. Never-migrated connection-only groups come after all
+	// legacy-anchored groups, so a skipped/conflicting migration cannot move
+	// an unrelated connection into pool[0] and silently re-point agents.
+	sort.SliceStable(pool, func(i, j int) bool {
+		a, b := ranks[pool[i].Type], ranks[pool[j].Type]
+		if a.anchored != b.anchored {
+			return a.anchored
+		}
+		if a.scope != b.scope {
+			return a.scope < b.scope
+		}
+		return a.id < b.id
+	})
 	combined := append(pool, codexPool...)
 	// Realtime adapters reuse their text provider's credential but remain
 	// separate core session types. Inject companions without synthetic DB rows.

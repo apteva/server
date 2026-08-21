@@ -1,0 +1,567 @@
+{
+  "slug": "planet",
+  "name": "Planet",
+  "description": "Search, order, subscribe to, and task PlanetScope, SkySat, Pelican, Tanager, and other Planet satellite imagery",
+  "logo": "https://www.google.com/s2/favicons?domain=planet.com&sz=128",
+  "categories": [
+    "satellite-imagery",
+    "earth-observation",
+    "planetscope",
+    "skysat",
+    "remote-sensing",
+    "geospatial",
+    "tasking"
+  ],
+  "base_url": "https://api.planet.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "api-key {{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Planet API Key",
+        "description": "API key from your Planet account settings",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_item_types"
+  },
+  "tools": [
+    {
+      "name": "list_item_types",
+      "description": "List imagery item types available to the Planet account, including PlanetScope and high-resolution collections",
+      "method": "GET",
+      "path": "/data/v1/item-types",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_imagery",
+      "description": "Search the Planet imagery catalog by item type, geometry, acquisition date, cloud cover, quality, and permissions",
+      "method": "POST",
+      "path": "/data/v1/quick-search",
+      "query_params": [
+        "_page_size",
+        "_sort"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_types": {
+            "type": "array",
+            "description": "Planet item types such as PSScene, SkySatCollect, SkySatScene, PelicanScene, or TanagerScene",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filter": {
+            "type": "object",
+            "description": "Planet filter tree using GeometryFilter, DateRangeFilter, RangeFilter, StringInFilter, and AndFilter or OrFilter"
+          },
+          "_page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 250
+          },
+          "_sort": {
+            "type": "string",
+            "enum": [
+              "acquired asc",
+              "acquired desc",
+              "published asc",
+              "published desc"
+            ]
+          }
+        },
+        "required": [
+          "item_types",
+          "filter"
+        ]
+      }
+    },
+    {
+      "name": "get_item",
+      "description": "Get metadata and links for a specific Planet imagery item",
+      "method": "GET",
+      "path": "/data/v1/item-types/{item_type}/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_type",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "list_item_assets",
+      "description": "List downloadable visual, analytic, surface-reflectance, metadata, and mask assets for a Planet imagery item",
+      "method": "GET",
+      "path": "/data/v1/item-types/{item_type}/items/{item_id}/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_type",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "activate_item_asset",
+      "description": "Request activation of an imagery asset so it can be downloaded after processing completes",
+      "method": "POST",
+      "path": "/data/v1/item-types/{item_type}/items/{item_id}/assets/{asset_type}/activate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Asset key returned by list_item_assets"
+          }
+        },
+        "required": [
+          "item_type",
+          "item_id",
+          "asset_type"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List Planet scene and basemap orders and filter them by name, state, or creation time",
+      "method": "GET",
+      "path": "/compute/ops/orders/v2",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "success",
+              "failed",
+              "cancelled",
+              "partial"
+            ]
+          },
+          "created_on": {
+            "type": "string",
+            "description": "RFC 3339 creation-time filter"
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Order Planet scenes or mosaics for download, hosted delivery, or delivery to supported cloud storage",
+      "method": "POST",
+      "path": "/compute/ops/orders/v2",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable order name"
+          },
+          "products": {
+            "type": "array",
+            "description": "Products containing item_ids, item_type, and product_bundle",
+            "items": {
+              "type": "object"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "description": "Optional clip, bandmath, harmonize, composite, or other raster tools",
+            "items": {
+              "type": "object"
+            }
+          },
+          "delivery": {
+            "type": "object",
+            "description": "Optional archive or cloud delivery configuration"
+          },
+          "notifications": {
+            "type": "object",
+            "description": "Optional email or webhook notification configuration"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Optional customer metadata"
+          }
+        },
+        "required": [
+          "name",
+          "products"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get the status, delivery links, errors, and metadata for a Planet imagery order",
+      "method": "GET",
+      "path": "/compute/ops/orders/v2/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List recurring Planet imagery and planetary-variable subscriptions and their delivery status",
+      "method": "GET",
+      "path": "/subscriptions/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      }
+    },
+    {
+      "name": "create_subscription",
+      "description": "Create a continuous subscription that processes and delivers matching imagery when it enters the Planet catalog",
+      "method": "POST",
+      "path": "/subscriptions/v1/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Client-generated UUID for idempotent subscription creation"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "description": "Catalog or product source, assets, geometry, dates, and filters"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "delivery": {
+            "type": "object"
+          },
+          "hosting": {
+            "type": "object"
+          },
+          "notifications": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "subscription_id",
+          "name",
+          "source"
+        ]
+      }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Get configuration, status, and delivery statistics for a Planet subscription",
+      "method": "GET",
+      "path": "/subscriptions/v1/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "list_tasking_orders",
+      "description": "List high-resolution SkySat, Pelican, or Tanager tasking orders with status and pagination filters",
+      "method": "GET",
+      "path": "/tasking/v2/orders/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "name__icontains": {
+            "type": "string"
+          },
+          "created_time__gt": {
+            "type": "string",
+            "description": "RFC 3339 lower bound"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ordering": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "preview_tasking_price",
+      "description": "Estimate the quota or monetary cost of a high-resolution tasking request before creating an order",
+      "method": "POST",
+      "path": "/tasking/v2/pricing/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "geometry": {
+            "type": "object",
+            "description": "GeoJSON Point, LineString, or Polygon"
+          },
+          "imaging_window": {
+            "type": "string",
+            "description": "Required imaging-window UUID for assured tasking"
+          },
+          "pl_number": {
+            "type": "string",
+            "description": "Planet contract number"
+          },
+          "product": {
+            "type": "string"
+          },
+          "start_time": {
+            "type": "string"
+          },
+          "end_time": {
+            "type": "string"
+          },
+          "scheduling_type": {
+            "type": "string",
+            "enum": [
+              "FLEXIBLE",
+              "LOCK_IN",
+              "MONITORING",
+              "EXPRESS",
+              "ASSURED",
+              "ARCHIVE"
+            ]
+          },
+          "n_stereo_pov": {
+            "type": "integer",
+            "enum": [
+              2,
+              3
+            ]
+          },
+          "exclusivity_days": {
+            "type": "integer",
+            "enum": [
+              0,
+              7,
+              30
+            ]
+          }
+        },
+        "required": [
+          "geometry"
+        ]
+      }
+    },
+    {
+      "name": "create_tasking_order",
+      "description": "Task Planet high-resolution satellites to capture a new Point, LineString, Polygon, or stereo observation",
+      "method": "POST",
+      "path": "/tasking/v2/orders/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "geometry": {
+            "type": "object",
+            "description": "GeoJSON Point, two-point LineString, or Polygon"
+          },
+          "product": {
+            "type": "string"
+          },
+          "pl_number": {
+            "type": "string"
+          },
+          "start_time": {
+            "type": "string"
+          },
+          "end_time": {
+            "type": "string"
+          },
+          "scheduling_type": {
+            "type": "string",
+            "enum": [
+              "FLEXIBLE",
+              "LOCK_IN",
+              "MONITORING",
+              "EXPRESS",
+              "ASSURED",
+              "ARCHIVE"
+            ]
+          },
+          "imaging_window": {
+            "type": "string"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "MONO",
+              "STEREO"
+            ]
+          },
+          "n_stereo_pov": {
+            "type": "integer",
+            "enum": [
+              2,
+              3
+            ]
+          },
+          "cloud_cover_percentage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "name",
+          "geometry"
+        ]
+      }
+    },
+    {
+      "name": "get_tasking_order",
+      "description": "Get the current scheduling, capture, quality, and fulfillment state of a Planet tasking order",
+      "method": "GET",
+      "path": "/tasking/v2/orders/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_tasking_order_pricing",
+      "description": "Get detailed pricing and applied multipliers for an existing Planet tasking order",
+      "method": "GET",
+      "path": "/tasking/v2/orders/{order_id}/pricing/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "csv"
+            ]
+          },
+          "fields": {
+            "type": "string"
+          },
+          "omit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_tasking_order",
+      "description": "Cancel an eligible pending or in-progress Planet tasking order; cancellation charges may apply",
+      "method": "DELETE",
+      "path": "/tasking/v2/orders/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "accept_cancellation_charge": {
+            "type": "boolean",
+            "description": "Explicitly accept a cancellation charge if the free cancellation allowance is exhausted"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    }
+  ]
+}

@@ -962,6 +962,19 @@ func (s *Store) migrate() error {
 		ON connections(user_id, project_id, app_slug) WHERE is_primary = 1`)
 	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_connections_legacy_provider
 		ON connections(legacy_provider_id) WHERE legacy_provider_id != 0`)
+	// A legacy provider is represented by exactly one connection. Earlier
+	// revisions stamped this in a separate statement and did not enforce
+	// uniqueness, so repair any duplicate stamps without deleting either
+	// connection, then make future duplicates impossible at the DB boundary.
+	s.db.Exec(`UPDATE connections SET legacy_provider_id = 0
+		WHERE legacy_provider_id != 0 AND id NOT IN (
+			SELECT MIN(id) FROM connections WHERE legacy_provider_id != 0
+			GROUP BY user_id, legacy_provider_id
+		)`)
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_legacy_provider_unique
+		ON connections(user_id, legacy_provider_id) WHERE legacy_provider_id != 0`); err != nil {
+		return fmt.Errorf("create unique legacy-provider connection index: %w", err)
+	}
 	// Backfill: mark the lowest id in each group primary so the new
 	// ORDER BY reproduces the old "first wins" behavior as a stated fact
 	// rather than a coincidence. HAVING SUM(is_primary) = 0 makes this

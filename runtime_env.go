@@ -405,11 +405,30 @@ func (s *Store) UpdateConnectionRuntimeConfig(connID int64, runtimeConfig string
 // serves. A connection may only take one of those over when it carries
 // legacy_provider_id — otherwise the provider row keeps the key and the
 // operator's agents keep the credential they had.
-func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bool, projectID ...string) ([]ProviderInfo, []ProviderInfo, map[string]bool) {
+type providerPoolRank struct {
+	anchored bool
+	scope    int
+	id       int64
+}
+
+func providerRankForConnection(conn runtimeConnection, projectID ...string) providerPoolRank {
+	rank := providerPoolRank{id: conn.ID}
+	if conn.LegacyProviderID != 0 {
+		rank.anchored = true
+		rank.id = conn.LegacyProviderID
+	}
+	if len(projectID) > 0 && projectID[0] != "" && conn.ProjectID != projectID[0] {
+		rank.scope = 1
+	}
+	return rank
+}
+
+func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bool, projectID ...string) ([]ProviderInfo, []ProviderInfo, map[string]bool, map[string]providerPoolRank) {
 	claimed := map[string]bool{}
+	ranks := map[string]providerPoolRank{}
 	conns, err := s.store.ListRuntimeConnections(userID, projectID...)
 	if err != nil || len(conns) == 0 {
-		return nil, nil, claimed
+		return nil, nil, claimed, ranks
 	}
 
 	// Pool POSITION is load-bearing: providerIsDefault marks index 0 as
@@ -438,16 +457,24 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 		if shadowed[providerKey] && conn.LegacyProviderID == 0 {
 			continue
 		}
-		claimed[providerKey] = true
-
 		src, err := buildRuntimeSources(conn, s.secret)
 		if err != nil {
+			// During dual-read, a corrupted migrated copy must not hide the
+			// still-readable provider row. Once that row is deliberately gone,
+			// retain the old present-but-unconfigured behavior.
+			if shadowed[providerKey] && conn.LegacyProviderID != 0 {
+				continue
+			}
+			claimed[providerKey] = true
+			ranks[providerKey] = providerRankForConnection(conn, projectID...)
 			// Credential unreadable — still claim the key so the pool
 			// reports the provider as present-but-unconfigured, exactly
 			// as the providers path did on a decrypt failure.
 			pool = append(pool, ProviderInfo{Type: providerKey})
 			continue
 		}
+		claimed[providerKey] = true
+		ranks[providerKey] = providerRankForConnection(conn, projectID...)
 
 		state := src.config
 		if state == nil {
@@ -472,12 +499,13 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 	sort.SliceStable(pool, func(i, j int) bool {
 		return order[pool[i].Type] < order[pool[j].Type]
 	})
-	return pool, codexPool, claimed
+	return pool, codexPool, claimed, ranks
 }
 
 // runtimeGroupOrder ranks provider-key groups for pool position:
 //
-//  1. groups migrated from a provider row, in legacy provider id order —
+//  1. groups migrated from a provider row, project scope before global and
+//     then in legacy provider id order —
 //     the providers table ranked by its own id ASC, so this keeps every
 //     migrated provider in exactly the pool slot it held before the
 //     fusion. The default for unpinned agents does not move.
@@ -493,7 +521,15 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 func runtimeGroupOrder(s *Server, conns []runtimeConnection) map[string]int64 {
 	type groupInfo struct {
 		legacyID int64
-		minID    int64
+		firstID  int64
+		scope    int64
+	}
+	projectScopedView := false
+	for _, conn := range conns {
+		if conn.ProjectID != "" {
+			projectScopedView = true
+			break
+		}
 	}
 	groups := map[string]*groupInfo{}
 	for _, conn := range conns {
@@ -504,27 +540,27 @@ func runtimeGroupOrder(s *Server, conns []runtimeConnection) map[string]int64 {
 		key := app.Runtime.ProviderKey
 		g, ok := groups[key]
 		if !ok {
-			g = &groupInfo{minID: conn.ID}
+			g = &groupInfo{firstID: conn.ID, legacyID: conn.LegacyProviderID}
+			if projectScopedView && conn.ProjectID == "" {
+				g.scope = 1
+			}
 			groups[key] = g
-		}
-		if conn.ID < g.minID {
-			g.minID = conn.ID
-		}
-		if conn.LegacyProviderID != 0 && (g.legacyID == 0 || conn.LegacyProviderID < g.legacyID) {
-			g.legacyID = conn.LegacyProviderID
 		}
 	}
 
-	// Rank: legacy ids first (small numbers), then never-migrated groups
-	// offset far above any plausible provider id so the two ranges never
-	// interleave.
-	const nonMigratedOffset = int64(1) << 32
+	// Rank: effective (first) connection per provider key, project before
+	// global within each tier; legacy ids first, then never-migrated groups
+	// offset far above any plausible provider id.
+	const (
+		scopeOffset       = int64(1) << 31
+		nonMigratedOffset = int64(1) << 33
+	)
 	order := map[string]int64{}
 	for key, g := range groups {
 		if g.legacyID != 0 {
-			order[key] = g.legacyID
+			order[key] = g.scope*scopeOffset + g.legacyID
 		} else {
-			order[key] = nonMigratedOffset + g.minID
+			order[key] = nonMigratedOffset + g.scope*scopeOffset + g.firstID
 		}
 	}
 	return order

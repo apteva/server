@@ -24,6 +24,7 @@ package main
 //     which key an operator's agents authenticate with.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -97,6 +98,11 @@ func (s *Server) migrateProvidersToConnections() providerMigrationResult {
 			result.Skipped++
 			continue
 		}
+		if err != nil && err != sql.ErrNoRows {
+			log.Printf("[PROVIDER-MIGRATION] provider=%d (%s) lookup failed: %v", p.id, p.name, err)
+			result.Skipped++
+			continue
+		}
 
 		credentials, err := translateProviderBlob(s.secret, p.encrypted, app)
 		if err != nil {
@@ -109,8 +115,13 @@ func (s *Server) migrateProvidersToConnections() providerMigrationResult {
 			continue
 		}
 
-		conflict, err := s.store.conflictingConnection(s.secret, p.userID, app.Slug, p.project, credentials)
-		if err == nil && conflict != 0 {
+		existing, conflict, err := s.store.matchingConnection(s.secret, p.userID, app.Slug, p.project, credentials)
+		if err != nil {
+			log.Printf("[PROVIDER-MIGRATION] provider=%d (%s) connection lookup failed: %v", p.id, p.name, err)
+			result.Skipped++
+			continue
+		}
+		if conflict != 0 {
 			// An existing connection for the same app holds a different
 			// credential. Merging would silently repoint the operator's
 			// agents, so both rows stay and a human decides.
@@ -123,12 +134,18 @@ func (s *Server) migrateProvidersToConnections() providerMigrationResult {
 
 		// Model pins and capabilities live beside the credentials in the
 		// old blob. They move to runtime_config, not credentials.
-		runtimeConfig, cfgErr := translateProviderRuntimeConfig(s.secret, p.encrypted)
+		runtimeConfig, cfgErr := translateProviderRuntimeConfig(s.secret, p.encrypted, app)
 		if cfgErr != nil {
 			runtimeConfig = map[string]any{}
 		}
-		if err := s.createMigratedConnection(p.userID, p.id, p.project, p.name, app, credentials, runtimeConfig); err != nil {
-			log.Printf("[PROVIDER-MIGRATION] provider=%d (%s) could not be migrated: %v", p.id, p.name, err)
+		var migrateErr error
+		if existing != 0 {
+			migrateErr = s.store.adoptMigratedConnection(p.userID, p.id, existing, runtimeConfig)
+		} else {
+			migrateErr = s.createMigratedConnection(p.userID, p.id, p.project, p.name, app, credentials, runtimeConfig)
+		}
+		if migrateErr != nil {
+			log.Printf("[PROVIDER-MIGRATION] provider=%d (%s) could not be migrated: %v", p.id, p.name, migrateErr)
 			result.Skipped++
 			continue
 		}
@@ -162,6 +179,30 @@ func translateProviderBlob(secret []byte, encrypted string, app *AppTemplate) (m
 	}
 
 	credentials := map[string]string{}
+	// Legacy Codex rows predate env-var-shaped provider blobs. Their OAuth
+	// state is nested under credentials/account, while connections keep the
+	// refreshable credential bundle flat. Preserve the whole rotating token
+	// set, not just the access token rendered into the core environment.
+	if app != nil && app.Runtime != nil && app.Runtime.ProviderKey == openAICodexAuthProvider {
+		for _, field := range []string{"access_token", "refresh_token", "expires_at", "last_refresh"} {
+			if value := strings.TrimSpace(stringFromNested(blob, "credentials", field)); value != "" {
+				credentials[field] = value
+			}
+		}
+		if token := credentials["access_token"]; token != "" {
+			credentials["token"] = token
+			credentials["bearer_token"] = token
+			credentials["auth_provider"] = integrationOpenAICodexSlug
+			credentials["auth_type"] = connectionAuthTypeDeviceCode
+			credentials["runtime_base_url"] = integrationOpenAICodexBackendAPIBaseURL
+		}
+		if expires := credentials["expires_at"]; expires != "" {
+			credentials["token_expires_at"] = expires
+		}
+		if accountID := strings.TrimSpace(codexAccountIDFromState(blob)); accountID != "" {
+			credentials["account_id"] = accountID
+		}
+	}
 	for envName, tmpl := range app.Runtime.Env {
 		field, ok := credentialFieldForTemplate(tmpl)
 		if !ok {
@@ -190,7 +231,7 @@ var runtimeConfigKeys = []string{
 // blob into runtime_config. Key names are unchanged — GetProviderPool
 // reads model_large et al. identically from either store — so this is a
 // move between columns, not a rename.
-func translateProviderRuntimeConfig(secret []byte, encrypted string) (map[string]any, error) {
+func translateProviderRuntimeConfig(secret []byte, encrypted string, apps ...*AppTemplate) (map[string]any, error) {
 	plaintext, err := Decrypt(secret, encrypted)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
@@ -201,6 +242,25 @@ func translateProviderRuntimeConfig(secret []byte, encrypted string) (map[string
 	}
 
 	config := map[string]any{}
+	// Invert config.* runtime templates just like credentials.* templates.
+	// This carries provider-specific values such as OPENAI_BASE_URL and the
+	// Ollama model/embed settings into their semantic runtime_config keys.
+	if len(apps) > 0 && apps[0] != nil && apps[0].Runtime != nil {
+		for envName, tmpl := range apps[0].Runtime.Env {
+			field, ok := templateFieldForNamespace(tmpl, "config")
+			if !ok {
+				continue
+			}
+			value, present := blob[envName]
+			if !present || value == nil {
+				continue
+			}
+			if str, ok := value.(string); ok && strings.TrimSpace(str) == "" {
+				continue
+			}
+			config[field] = value
+		}
+	}
 	for _, key := range runtimeConfigKeys {
 		value, present := blob[key]
 		if !present || value == nil {
@@ -219,6 +279,10 @@ func translateProviderRuntimeConfig(secret []byte, encrypted string) (map[string
 // single, whole-string credentials reference — a composite like
 // "Bearer {{credentials.token}}" has no unambiguous inverse.
 func credentialFieldForTemplate(tmpl string) (string, bool) {
+	return templateFieldForNamespace(tmpl, "credentials")
+}
+
+func templateFieldForNamespace(tmpl, namespace string) (string, bool) {
 	trimmed := strings.TrimSpace(tmpl)
 	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
 		return "", false
@@ -227,14 +291,13 @@ func credentialFieldForTemplate(tmpl string) (string, bool) {
 	if strings.Count(ref, "{{") > 0 {
 		return "", false
 	}
-	const prefix = "credentials."
+	prefix := namespace + "."
 	if !strings.HasPrefix(ref, prefix) {
 		return "", false
 	}
 	field := strings.TrimPrefix(ref, prefix)
 	if field == "" || strings.Contains(field, ".") {
-		// Nested paths describe OAuth token state the device-auth flow
-		// mints; there is no flat blob field to migrate.
+		// Nested paths do not have an unambiguous flat destination.
 		return "", false
 	}
 	return field, true
@@ -254,44 +317,45 @@ func (s *Store) connectionForLegacyProvider(userID, providerID int64) (int64, er
 	return id, nil
 }
 
-// conflictingConnection finds an existing connection for the same app
-// and scope whose credentials differ from what we are about to migrate.
-// An identical one is not a conflict — it's the same key already moved
-// across by hand, and the migration can safely treat the provider row as
-// redundant.
-func (s *Store) conflictingConnection(
+// matchingConnection distinguishes a reusable identical connection from a
+// conflicting one. Only an unstamped identical row can be adopted: a row
+// already tied to another provider must retain that legacy id for old cores.
+func (s *Store) matchingConnection(
 	secret []byte, userID int64, appSlug, projectID string, incoming map[string]string,
-) (int64, error) {
+) (identicalID, conflictID int64, err error) {
 	rows, err := s.db.Query(
-		`SELECT id, encrypted_credentials FROM connections
+		`SELECT id, COALESCE(legacy_provider_id,0), encrypted_credentials FROM connections
 		 WHERE user_id = ? AND app_slug = ? AND COALESCE(project_id,'') = ?`,
 		userID, appSlug, projectID)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var id int64
+		var id, legacyProviderID int64
 		var encrypted string
-		if err := rows.Scan(&id, &encrypted); err != nil {
-			continue
+		if err := rows.Scan(&id, &legacyProviderID, &encrypted); err != nil {
+			return 0, 0, err
 		}
 		plaintext, err := Decrypt(secret, encrypted)
 		if err != nil {
 			// Unreadable is treated as conflicting: we cannot prove it is
 			// the same credential, so we must not assume it away.
-			return id, nil
+			return 0, id, nil
 		}
 		existing := map[string]string{}
 		if err := json.Unmarshal([]byte(plaintext), &existing); err != nil {
-			return id, nil
+			return 0, id, nil
 		}
 		if !sameCredentials(existing, incoming) {
-			return id, nil
+			return 0, id, nil
+		}
+		if legacyProviderID == 0 && identicalID == 0 {
+			identicalID = id
 		}
 	}
-	return 0, rows.Err()
+	return identicalID, 0, rows.Err()
 }
 
 // sameCredentials compares only the fields the migration would write —
@@ -329,30 +393,74 @@ func (s *Server) createMigratedConnection(
 	if len(app.Auth.Types) > 0 {
 		authType = app.Auth.Types[0]
 	}
-	autoMCP := false
-	conn, err := s.store.CreateConnectionExt(ConnectionInput{
-		UserID: userID, AppSlug: app.Slug, AppName: app.Name,
-		Name:           providerName,
-		AuthType:       authType,
-		EncryptedCreds: encrypted,
-		ProjectID:      projectID,
-		Status:         "active",
-		CreatedVia:     "integration",
-		AutoMCP:        &autoMCP,
-	})
+	encodedConfig, err := json.Marshal(runtimeConfig)
 	if err != nil {
 		return err
 	}
-	if _, err := s.store.db.Exec(
-		`UPDATE connections SET legacy_provider_id = ? WHERE id = ?`, providerID, conn.ID); err != nil {
+	tx, err := s.store.db.Begin()
+	if err != nil {
 		return err
 	}
-	if len(runtimeConfig) > 0 {
-		encodedConfig, err := json.Marshal(runtimeConfig)
-		if err != nil {
-			return err
-		}
-		return s.store.UpdateConnectionRuntimeConfig(conn.ID, string(encodedConfig))
+	defer tx.Rollback()
+	primary := 0
+	var primaryCount int
+	if err := tx.QueryRow(`SELECT count(*) FROM connections
+		WHERE user_id = ? AND COALESCE(project_id,'') = ? AND app_slug = ? AND is_primary = 1`,
+		userID, projectID, app.Slug).Scan(&primaryCount); err != nil {
+		return err
 	}
-	return nil
+	if primaryCount == 0 {
+		primary = 1
+	}
+	_, err = tx.Exec(`INSERT INTO connections
+		(user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status,
+		 project_id, source, provider_id, external_id, created_via, owner_app_install_id,
+		 auto_mcp, runtime_config, is_primary, legacy_provider_id)
+		VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 'local', 0, '', 'integration', 0, 0, ?, ?, ?)`,
+		userID, app.Slug, app.Name, providerName, authType, encrypted, projectID,
+		string(encodedConfig), primary, providerID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// adoptMigratedConnection reuses a manually-created connection when its
+// credentials are byte-for-byte equivalent to the provider being migrated.
+// Provider runtime settings win because that row was the active runtime before
+// migration; unrelated existing config keys are retained.
+func (s *Store) adoptMigratedConnection(userID, providerID, connID int64, incoming map[string]any) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var raw string
+	var legacyProviderID int64
+	if err := tx.QueryRow(`SELECT COALESCE(runtime_config,'{}'), COALESCE(legacy_provider_id,0)
+		FROM connections WHERE id = ? AND user_id = ?`, connID, userID).Scan(&raw, &legacyProviderID); err != nil {
+		return err
+	}
+	if legacyProviderID != 0 && legacyProviderID != providerID {
+		return fmt.Errorf("connection %d already belongs to legacy provider %d", connID, legacyProviderID)
+	}
+	merged := map[string]any{}
+	_ = json.Unmarshal([]byte(raw), &merged)
+	for key, value := range incoming {
+		merged[key] = value
+	}
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	result, err := tx.Exec(`UPDATE connections SET legacy_provider_id = ?, runtime_config = ?
+		WHERE id = ? AND user_id = ? AND COALESCE(legacy_provider_id,0) IN (0, ?)`,
+		providerID, string(encoded), connID, userID, providerID)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return fmt.Errorf("connection %d could not be adopted", connID)
+	}
+	return tx.Commit()
 }
