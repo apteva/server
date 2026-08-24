@@ -619,6 +619,25 @@ func (s *Store) migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
+		-- presets is intentionally generic. kind selects the consumer while
+		-- definition_json carries that kind's versioned, portable definition.
+		-- Bundled system presets remain embedded and read-only; this table holds
+		-- user-authored personal and server-wide shared presets.
+		CREATE TABLE IF NOT EXISTS presets (
+			id              TEXT PRIMARY KEY,
+			user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			kind            TEXT NOT NULL,
+			scope           TEXT NOT NULL CHECK (scope IN ('personal','shared')),
+			schema_version  INTEGER NOT NULL DEFAULT 1,
+			name            TEXT NOT NULL,
+			description     TEXT NOT NULL DEFAULT '',
+			definition_json TEXT NOT NULL,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_presets_catalog
+			ON presets(kind, scope, user_id, updated_at DESC);
+
 		-- agent_templates — pre-canned starter configs surfaced in the
 		-- "build your first agent" wizard. Three sources, sharing one
 		-- table:
@@ -1211,6 +1230,50 @@ func (s *Store) migrate() error {
 		SET ref = COALESCE((SELECT ref FROM apps WHERE apps.id = app_installs.app_id), '')
 		WHERE ref = ''`)
 	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_installs_token_hash ON app_installs(app_token_hash) WHERE app_token_hash != ''`)
+	// Browser origins registered by an app for its own public HTTP surface.
+	// registration_key is the app-owned client identifier (for example an
+	// OAuth client id). Keeping every row tied to an install prevents one app
+	// from granting cross-origin access to another app's routes, while a
+	// replace-by-key callback lets changes take effect without a server restart.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS app_cors_origins (
+			install_id       INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
+			registration_key TEXT NOT NULL,
+			origin           TEXT NOT NULL,
+			preflight_mode   TEXT NOT NULL DEFAULT 'platform',
+			credentials      INTEGER NOT NULL DEFAULT 1,
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (install_id, registration_key, origin)
+		);
+		CREATE INDEX IF NOT EXISTS idx_app_cors_origins_lookup
+			ON app_cors_origins(install_id, origin);
+	`); err != nil {
+		return fmt.Errorf("create app CORS origin registry: %w", err)
+	}
+	// Forward-add policy metadata for registries created by the origin-only
+	// implementation. Ignoring duplicate-column errors matches the existing
+	// additive SQLite migration style used throughout this store.
+	s.db.Exec(`ALTER TABLE app_cors_origins ADD COLUMN preflight_mode TEXT NOT NULL DEFAULT 'platform'`)
+	s.db.Exec(`ALTER TABLE app_cors_origins ADD COLUMN credentials INTEGER NOT NULL DEFAULT 1`)
+	// Server-wide live CORS origins managed through the admin API. These are
+	// intentionally separate from app_cors_origins: an administrator may grant
+	// an exact origin access to the whole authenticated API, while an app may
+	// only grant access to its own proxy routes.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS platform_cors_origins (
+			registration_key TEXT NOT NULL,
+			origin           TEXT NOT NULL,
+			created_by       INTEGER NOT NULL DEFAULT 0,
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (registration_key, origin)
+		);
+		CREATE INDEX IF NOT EXISTS idx_platform_cors_origins_lookup
+			ON platform_cors_origins(origin);
+	`); err != nil {
+		return fmt.Errorf("create platform CORS origin registry: %w", err)
+	}
 	// Forward-add the column for installs created before this field existed.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN sidecar_url_override TEXT NOT NULL DEFAULT ''`)
 	// Local-spawn supervisor state: PID of the running child + path to
@@ -2249,15 +2312,9 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 	return &inst, nil
 }
 
-// GetOrCreatePlatformHelper returns the singleton platform-owned
-// meta-agent row for a user, creating it on first call. Used by the
-// dashboard helper path so apteva-server always has a real
-// apteva-core process to dispatch platform work to.
-//
-// Idempotent: subsequent calls for the same user return the existing
-// row. The directive is the canonical user-facing platform-helper prompt.
-func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agent, error) {
-	// Look up existing helper for this user.
+// GetPlatformHelper returns the singleton platform-owned Helper without
+// creating it. A missing row means the operator has not activated Helper.
+func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 	var ag Agent
 	err := s.db.QueryRow(
 		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'),
@@ -2270,8 +2327,23 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	).Scan(&ag.ID, &ag.UserID, &ag.Name, &ag.Directive, &ag.Mode,
 		&ag.Config, &ag.Port, &ag.Pid, &ag.CoreAPIKey, &ag.Status, &ag.ProjectID,
 		&ag.CoreVersion, &ag.CoreBuildTime, &ag.CoreStartedAt, &ag.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	ag.Kind = "platform_helper"
+	return &ag, nil
+}
+
+// GetOrCreatePlatformHelper returns the singleton platform-owned meta-agent
+// row for a user, creating it on explicit activation. Read-only dashboard
+// paths use GetPlatformHelper so merely viewing status never creates one.
+//
+// Idempotent: subsequent calls for the same user return the existing
+// row. The directive is the canonical user-facing platform-helper prompt.
+func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agent, error) {
+	// Look up existing helper for this user.
+	ag, err := s.GetPlatformHelper(userID)
 	if err == nil {
-		ag.Kind = "platform_helper"
 		if ag.Name == "__platform_helper__" || strings.TrimSpace(ag.Name) == "" {
 			s.db.Exec(`UPDATE agents SET name = ? WHERE id = ?`, "Apteva Helper", ag.ID)
 			ag.Name = "Apteva Helper"
@@ -2282,7 +2354,7 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 			s.db.Exec(`UPDATE agents SET directive = ? WHERE id = ?`, directive, ag.ID)
 			ag.Directive = directive
 		}
-		return &ag, nil
+		return ag, nil
 	}
 	if err != sql.ErrNoRows {
 		return nil, err

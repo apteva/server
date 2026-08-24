@@ -148,6 +148,10 @@ type Server struct {
 	// routes.changed events. See routes_cache.go.
 	routeCache  *RouteCache
 	primaryHost string // APTEVA_PRIMARY_HOST — never matched by route cache (dashboard wins).
+	// corsConfig is shared by the path router and HostRouter so custom
+	// app:// ingress hosts enforce the same live browser-origin policy as
+	// /api/apps/<slug>/ routes.
+	corsConfig *corsConfig
 
 	// ingressCerts is the server-native ACME manager. It is backed by
 	// the ingress_routes table for host policy and falls back to the
@@ -204,6 +208,9 @@ type Server struct {
 	// Production uses the caller's configured LLM provider when available;
 	// tests can replace it without starting Core or creating a durable thread.
 	projectPresetPlanner projectPresetPlannerFunc
+	// Narrow lifecycle seam for Helper activation tests. Production leaves it
+	// nil and starts the real managed Core through ensureMetaAgentRunning.
+	platformHelperStarter func(int64) (*Agent, error)
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -656,6 +663,11 @@ func main() {
 	apiMux.HandleFunc("/ui-layout/projects/", s.authMiddleware(s.handleUILayoutSurface))
 	apiMux.HandleFunc("/ui/surfaces/", s.authMiddleware(s.handleUISurfaceResolution))
 	apiMux.HandleFunc("/ui/contributions", s.authMiddleware(s.handleUIContributions))
+	apiMux.HandleFunc("/presets", s.authMiddleware(s.handlePresets))
+	apiMux.HandleFunc("/presets/capture", s.authMiddleware(s.handlePresetCapture))
+	apiMux.HandleFunc("/presets/", s.authMiddleware(s.handlePresetByID))
+	// Compatibility catalog for older dashboards and SDK clients. New code
+	// should use the generic /presets envelope.
 	apiMux.HandleFunc("/project-presets", s.authMiddleware(s.handleProjectPresets))
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
 	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
@@ -802,6 +814,10 @@ func main() {
 	// /admin/users — platform-admin only. List + role changes.
 	apiMux.HandleFunc("/admin/users", s.authMiddleware(s.handleAdminUsers))
 	apiMux.HandleFunc("/admin/users/", s.authMiddleware(s.handleAdminUsers))
+	// Live, server-wide CORS origin registry. The handler enforces platform
+	// admin access; there is intentionally no dashboard UI dependency.
+	apiMux.HandleFunc("/admin/cors-origins", s.authMiddleware(s.handleAdminCORSOrigins))
+	apiMux.HandleFunc("/admin/cors-origins/", s.authMiddleware(s.handleAdminCORSOrigins))
 
 	// Integration catalog routes
 	apiMux.HandleFunc("/integrations/usage", s.authMiddleware(s.handleIntegrationUsage))
@@ -1174,6 +1190,9 @@ func main() {
 	apiMux.HandleFunc("/agent-templates/", s.authMiddleware(s.handleAgentTemplateByID))
 
 	apiMux.HandleFunc("/platform/helper", s.authMiddleware(s.handlePlatformHelper))
+	apiMux.HandleFunc("/platform/helper/status", s.authMiddleware(s.handlePlatformHelperStatus))
+	apiMux.HandleFunc("/platform/helper/activate", s.authMiddleware(s.handlePlatformHelperActivate))
+	apiMux.HandleFunc("/platform/helper/deactivate", s.authMiddleware(s.handlePlatformHelperDeactivate))
 	apiMux.HandleFunc("/platform/helper/capabilities", s.authMiddleware(s.handlePlatformHelperCapabilities))
 	// Private capability-token gateway used by temporary runtime agents to
 	// reach dynamic MCP sessions exposed by the runtime-owning app.
@@ -1338,8 +1357,9 @@ func main() {
 	// Set CORS_ORIGIN to a comma-separated allowlist for trusted remote UIs,
 	// "*" for credential-free public clients, or "off" explicitly.
 	corsCfg := newCORSConfig(os.Getenv("CORS_ORIGIN"))
+	s.corsConfig = corsCfg
 	crossOriginCookies = corsCfg.needsCrossOriginCookies()
-	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middlewareWithDynamicOrigin(apiMux, s.delegatedAppCORSOriginAllowed)))))
+	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middlewareWithDynamicPolicy(apiMux, s.dynamicAppCORSPolicy)))))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found.

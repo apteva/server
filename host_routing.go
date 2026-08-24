@@ -97,6 +97,22 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://"+r.Host+r.RequestURI, http.StatusMovedPermanently)
 		return
 	}
+	// app:// ingress bypasses the /api mux, so enforce the owning
+	// installation's live browser-origin policy here. The shared config is a
+	// fallback only; a matching app registration remains authoritative.
+	if hit.OriginApp != "" && hit.OwnerInstallID > 0 && hr.server != nil {
+		next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			hr.serveRoute(rw, req, hit)
+		})
+		hr.server.corsConfig.middlewareWithDynamicPolicy(next, func(_ *http.Request, origin string) dynamicCORSPolicy {
+			return hr.server.dynamicIngressCORSPolicy(hit.OwnerInstallID, origin)
+		}).ServeHTTP(w, r)
+		return
+	}
+	hr.serveRoute(w, r, hit)
+}
+
+func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit RouteHit) {
 	isUpgrade := requestIsProtocolUpgrade(r)
 	// Edge cache: serve fresh public assets without touching the origin.
 	// Protocol upgrades must retain the original ResponseWriter's Hijacker;
@@ -192,7 +208,42 @@ func (hr *HostRouter) resolveTarget(hit RouteHit) (*url.URL, bool) {
 	if err != nil || u.Host == "" {
 		return nil, false
 	}
+	if hit.Target != nil {
+		u.Path, u.RawPath = joinRouteURLPath(u, hit.Target)
+	}
 	return u, true
+}
+
+// joinRouteURLPath mirrors ReverseProxy's path joining semantics. app:// URI
+// query parameters are server routing controls and intentionally are not
+// copied; only the declared path prefix is mounted ahead of the visitor path.
+func joinRouteURLPath(base, appTarget *url.URL) (path, rawPath string) {
+	if base.RawPath == "" && appTarget.RawPath == "" {
+		return singleJoiningSlash(base.Path, appTarget.Path), ""
+	}
+	basePath := base.EscapedPath()
+	targetPath := appTarget.EscapedPath()
+	baseSlash := strings.HasSuffix(basePath, "/")
+	targetSlash := strings.HasPrefix(targetPath, "/")
+	switch {
+	case baseSlash && targetSlash:
+		return base.Path + appTarget.Path[1:], basePath + targetPath[1:]
+	case !baseSlash && !targetSlash:
+		return base.Path + "/" + appTarget.Path, basePath + "/" + targetPath
+	}
+	return base.Path + appTarget.Path, basePath + targetPath
+}
+
+func singleJoiningSlash(left, right string) string {
+	leftSlash := strings.HasSuffix(left, "/")
+	rightSlash := strings.HasPrefix(right, "/")
+	switch {
+	case leftSlash && rightSlash:
+		return left + right[1:]
+	case !leftSlash && !rightSlash:
+		return left + "/" + right
+	}
+	return left + right
 }
 
 func (hr *HostRouter) resolveAppToken(hit RouteHit) string {

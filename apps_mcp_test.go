@@ -369,18 +369,34 @@ func TestInjectProjectIntoMCPRequestOverridesSpoofedProjectID(t *testing.T) {
 func TestExtractCallerThreadFromMCPRequestCreatesTrustedHeader(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/apps/example/mcp", strings.NewReader(`{
 		"jsonrpc":"2.0","id":1,"method":"tools/call",
-		"params":{"name":"work_create","arguments":{"title":"x","_apteva_caller_thread":"thread-a"}}
+		"params":{"name":"work_create","arguments":{"title":"x","_apteva_caller_thread":"chat-room-a","_apteva_tool_call_id":"call-stable-9"}}
 	}`))
 	req.Header.Set("X-Apteva-Caller-Agent", "42")
 	if err := extractCallerThreadFromMCPRequest(req); err != nil {
 		t.Fatal(err)
 	}
-	if got := req.Header.Get("X-Apteva-Caller-Thread"); got != "thread-a" {
+	if got := req.Header.Get("X-Apteva-Caller-Thread"); got != "chat-room-a" {
 		t.Fatalf("thread header=%q", got)
 	}
+	if got := req.Header.Get("X-Apteva-Caller-Thread-Role"); got != "conversation" {
+		t.Fatalf("thread role=%q", got)
+	}
+	if got := req.Header.Get("X-Apteva-Tool-Call-ID"); got != "call-stable-9" {
+		t.Fatalf("tool call id=%q", got)
+	}
 	body, _ := io.ReadAll(req.Body)
-	if strings.Contains(string(body), "_apteva_caller_thread") {
+	if strings.Contains(string(body), "_apteva_caller_thread") || strings.Contains(string(body), "_apteva_tool_call_id") {
 		t.Fatalf("hidden caller leaked to sidecar args: %s", body)
+	}
+}
+
+func TestCallerThreadRoleClassification(t *testing.T) {
+	for threadID, want := range map[string]string{
+		"main": "main", "chat-conversation-7": "conversation", "worker-9": "worker",
+	} {
+		if got := callerThreadRole(threadID); got != want {
+			t.Fatalf("callerThreadRole(%q)=%q, want %q", threadID, got, want)
+		}
 	}
 }
 
@@ -389,11 +405,20 @@ func TestExtractCallerThreadRejectsUntrustedArgument(t *testing.T) {
 		"jsonrpc":"2.0","id":1,"method":"tools/call",
 		"params":{"name":"work_create","arguments":{"_apteva_caller_thread":"forged"}}
 	}`))
+	req.Header.Set("X-Apteva-Caller-Thread", "spoofed")
+	req.Header.Set("X-Apteva-Caller-Thread-Role", "main")
+	req.Header.Set("X-Apteva-Tool-Call-ID", "spoofed-call")
 	if err := extractCallerThreadFromMCPRequest(req); err != nil {
 		t.Fatal(err)
 	}
 	if got := req.Header.Get("X-Apteva-Caller-Thread"); got != "" {
 		t.Fatalf("accepted untrusted thread %q", got)
+	}
+	if got := req.Header.Get("X-Apteva-Caller-Thread-Role"); got != "" {
+		t.Fatalf("accepted untrusted thread role %q", got)
+	}
+	if got := req.Header.Get("X-Apteva-Tool-Call-ID"); got != "" {
+		t.Fatalf("accepted untrusted tool call id %q", got)
 	}
 }
 
@@ -460,6 +485,49 @@ func TestRegisterAppMCP_AppOnlyToolsStayOutOfAgentBridge(t *testing.T) {
 	allowed := row["allowed_tools"].(string)
 	if !strings.Contains(allowed, "browser_session") || strings.Contains(allowed, "browser_extract") {
 		t.Fatalf("agent allowed_tools leaked app-only tool: %s", allowed)
+	}
+}
+
+func TestRegisterAppMCP_RemainsOneSurfacePerApp(t *testing.T) {
+	s := newTestServer(t)
+	installID := seedAppWithTools(t, s, "conversations", "proj-1", []string{"send", "request_approval", "report", "alert"})
+
+	// A manifest left over from the abandoned profile experiment must still
+	// register exactly one app MCP. Unknown manifest fields are ignored.
+	manifest := map[string]any{
+		"schema": "apteva-app/v1", "name": "conversations", "display_name": "Conversations", "version": "1.0.0",
+		"provides": map[string]any{"mcp_tools": []any{
+			map[string]any{"name": "send"}, map[string]any{"name": "request_approval"},
+			map[string]any{"name": "report"}, map[string]any{"name": "alert"},
+		}},
+	}
+	provides := manifest["provides"].(map[string]any)
+	provides["mcp_profiles"] = []any{
+		map[string]any{"name": "conversation", "tools": []string{"send"}},
+		map[string]any{"name": "agent-output", "tools": []string{"report", "alert"}},
+	}
+	encoded, _ := json.Marshal(manifest)
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET manifest_json=? WHERE id=?`, string(encoded), installID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.registerAppMCP(installID); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	var name, allowedJSON string
+	if err := s.store.db.QueryRow(`SELECT COUNT(*), MIN(name), MIN(allowed_tools) FROM mcp_servers WHERE upstream_id LIKE ?`,
+		appMCPUpstreamID(installID)+"%").Scan(&count, &name, &allowedJSON); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || name != "conversations" {
+		t.Fatalf("app MCP surfaces count=%d name=%q", count, name)
+	}
+	var allowed []string
+	if err := json.Unmarshal([]byte(allowedJSON), &allowed); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(allowed, ",") != "send,request_approval,report,alert" {
+		t.Fatalf("single conversations MCP tools=%v", allowed)
 	}
 }
 

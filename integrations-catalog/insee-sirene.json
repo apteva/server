@@ -1,0 +1,126 @@
+{
+  "slug": "insee-sirene",
+  "name": "INSEE SIRENE",
+  "description": "Official French registry of legal units and establishments, updated daily. Look up SIREN/SIRET records or search by creation date, activity, geography, legal category, employer status, and other SIRENE fields. Free public plan with a self-service INSEE API key.",
+  "logo": "https://www.google.com/s2/favicons?domain=insee.fr&sz=128",
+  "categories": [
+    "france",
+    "companies",
+    "business-registry",
+    "prospecting",
+    "open-data"
+  ],
+  "base_url": "https://api.insee.fr/api-sirene/3.11",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-INSEE-Api-Key-Integration": "{{api_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "INSEE public API key",
+        "description": "Create a free application at portail-api.insee.fr, subscribe it to API Sirene's Public plan, and copy the generated API key.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_service_information"
+  },
+  "tools": [
+    {
+      "name": "get_service_information",
+      "description": "Get SIRENE API service status, dataset dates, and version information.",
+      "method": "GET",
+      "path": "/informations",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_legal_unit",
+      "description": "Get one French legal unit and its current/historical periods by nine-digit SIREN.",
+      "method": "GET",
+      "path": "/siren/{siren}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siren": {"type": "string", "pattern": "^[0-9]{9}$", "description": "Nine-digit SIREN."},
+          "date": {"type": "string", "description": "Optional historical date YYYY-MM-DD."},
+          "champs": {"type": "string", "description": "Optional comma-separated response fields."}
+        },
+        "required": ["siren"]
+      }
+    },
+    {
+      "name": "search_legal_units",
+      "description": "Search French legal units using SIRENE query syntax. Useful for recent creations, ceased companies, legal categories, activity codes, employer status, and denomination searches.",
+      "method": "GET",
+      "path": "/siren",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {"type": "string", "description": "SIRENE query, for example `dateCreationUniteLegale:[2026-08-01 TO 2026-08-22] AND etatAdministratifUniteLegale:A`."},
+          "date": {"type": "string", "description": "Optional historical date YYYY-MM-DD."},
+          "champs": {"type": "string", "description": "Comma-separated fields to return."},
+          "nombre": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+          "debut": {"type": "integer", "minimum": 0, "default": 0},
+          "tri": {"type": "string", "description": "Sort expression documented by SIRENE."},
+          "curseur": {"type": "string", "description": "Cursor returned by a previous large-result request."}
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "get_establishment",
+      "description": "Get one establishment and its current/historical periods by fourteen-digit SIRET.",
+      "method": "GET",
+      "path": "/siret/{siret}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siret": {"type": "string", "pattern": "^[0-9]{14}$", "description": "Fourteen-digit SIRET."},
+          "date": {"type": "string", "description": "Optional historical date YYYY-MM-DD."},
+          "champs": {"type": "string", "description": "Optional comma-separated response fields."}
+        },
+        "required": ["siret"]
+      }
+    },
+    {
+      "name": "search_establishments",
+      "description": "Search establishments using SIRENE query syntax. Use this for location-level lead generation such as new establishments in a commune, relocated sites, activity codes, head offices, or hiring-size proxies.",
+      "method": "GET",
+      "path": "/siret",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {"type": "string", "description": "SIRENE query, for example `codeCommuneEtablissement:75056 AND etatAdministratifEtablissement:A`."},
+          "date": {"type": "string", "description": "Optional historical date YYYY-MM-DD."},
+          "champs": {"type": "string", "description": "Comma-separated fields to return."},
+          "nombre": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+          "debut": {"type": "integer", "minimum": 0, "default": 0},
+          "tri": {"type": "string"},
+          "curseur": {"type": "string", "description": "Cursor returned by a previous request."}
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "search_establishment_links",
+      "description": "Search establishment succession links, useful for identifying predecessor/successor sites and relocation-like changes.",
+      "method": "GET",
+      "path": "/siret/liensSuccession",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {"type": "string", "description": "Succession-link query using the API's indexed fields."},
+          "nombre": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+          "debut": {"type": "integer", "minimum": 0, "default": 0},
+          "curseur": {"type": "string"}
+        },
+        "required": ["q"]
+      }
+    }
+  ]
+}

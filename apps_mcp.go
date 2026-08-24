@@ -169,23 +169,22 @@ func (s *Server) registerAppMCP(installID int64) error {
 		}
 		log.Printf("[APPS-MCP] refreshed %s install=%d server_id=%d tools=%d",
 			appName, installID, existingID, len(toolNames))
-		return nil
+	} else {
+		res, err := s.store.db.Exec(
+			`INSERT INTO mcp_servers
+				(user_id, name, description, status, tool_count,
+				 source, transport, url, project_id, allowed_tools, upstream_id)
+			 VALUES (?, ?, ?, 'running', ?, 'app', 'http', ?, ?, ?, ?)`,
+			ownerID, appName, desc, len(toolNames),
+			mcpURL, projectID, string(allowedJSON), upstream,
+		)
+		if err != nil {
+			return fmt.Errorf("insert mcp_servers: %w", err)
+		}
+		newID, _ := res.LastInsertId()
+		log.Printf("[APPS-MCP] registered %s install=%d server_id=%d tools=%d project=%q",
+			appName, installID, newID, len(toolNames), projectID)
 	}
-
-	res, err := s.store.db.Exec(
-		`INSERT INTO mcp_servers
-			(user_id, name, description, status, tool_count,
-			 source, transport, url, project_id, allowed_tools, upstream_id)
-		 VALUES (?, ?, ?, 'running', ?, 'app', 'http', ?, ?, ?, ?)`,
-		ownerID, appName, desc, len(toolNames),
-		mcpURL, projectID, string(allowedJSON), upstream,
-	)
-	if err != nil {
-		return fmt.Errorf("insert mcp_servers: %w", err)
-	}
-	newID, _ := res.LastInsertId()
-	log.Printf("[APPS-MCP] registered %s install=%d server_id=%d tools=%d project=%q",
-		appName, installID, newID, len(toolNames), projectID)
 	return nil
 }
 
@@ -355,10 +354,7 @@ func (s *Server) unregisterAppMCP(installID int64) error {
 // One-shot at boot. Failures for one install don't stop others.
 func (s *Server) backfillAppMCPs() {
 	rows, err := s.store.db.Query(
-		`SELECT i.id, COALESCE(i.app_token_hash,''), COALESCE(m.url,'')
-		 FROM app_installs i
-		 LEFT JOIN mcp_servers m ON m.upstream_id = 'app:' || i.id
-		 WHERE i.status = 'running'`,
+		`SELECT i.id FROM app_installs i WHERE i.status = 'running'`,
 	)
 	if err != nil {
 		log.Printf("[APPS-MCP] backfill query failed: %v", err)
@@ -366,38 +362,25 @@ func (s *Server) backfillAppMCPs() {
 	}
 	defer rows.Close()
 	type candidate struct {
-		id        int64
-		tokenHash string
-		mcpURL    string
+		id int64
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var item candidate
-		if err := rows.Scan(&item.id, &item.tokenHash, &item.mcpURL); err == nil {
+		if err := rows.Scan(&item.id); err == nil {
 			candidates = append(candidates, item)
 		}
 	}
 	registered := 0
-	skipped := 0
 	for _, item := range candidates {
-		// A bridge row is only reusable when its embedded capability is
-		// still the install's current token. Older releases used dev-<id>
-		// URLs, and a lazily rotated encrypted token can also make an
-		// otherwise present row unusable. Merely checking row existence
-		// left both new selections and persisted agents pointing at a URL
-		// that returned HTTP 401.
-		if appMCPURLMatchesTokenHash(item.mcpURL, item.tokenHash) {
-			skipped++
-			continue
-		}
 		if err := s.registerAppMCP(item.id); err != nil {
 			log.Printf("[APPS-MCP] backfill install=%d failed: %v", item.id, err)
 			continue
 		}
 		registered++
 	}
-	if registered > 0 || skipped > 0 {
-		log.Printf("[APPS-MCP] backfill complete: registered=%d already_present=%d", registered, skipped)
+	if registered > 0 {
+		log.Printf("[APPS-MCP] backfill complete: refreshed=%d", registered)
 	}
 }
 

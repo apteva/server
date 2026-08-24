@@ -1,0 +1,72 @@
+{
+  "slug": "meteo-france-vigilance",
+  "name": "Météo-France Vigilance",
+  "description": "Official real-time Météo-France vigilance feed for mainland France and French overseas territories. Retrieves the current JSON warning map and explanatory bulletins. Access is free after self-service portal signup and API subscription; the integration automatically exchanges the portal application identifier for a one-hour OAuth token.",
+  "logo": "https://www.google.com/s2/favicons?domain=meteofrance.fr&sz=128",
+  "categories": [
+    "france",
+    "weather",
+    "storms",
+    "alerts",
+    "wind",
+    "open-data"
+  ],
+  "base_url": "https://public-api.meteofrance.fr/public/DPVigilance/v1",
+  "auth": {
+    "types": ["custom"],
+    "token_exchange": {
+      "url": "https://portail-api.meteofrance.fr/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "headers": {
+        "Authorization": "Basic {{application_id}}"
+      },
+      "body_params": {
+        "grant_type": "client_credentials"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "application_id",
+        "label": "Météo-France application identifier",
+        "description": "Create an application at portail-api.meteofrance.fr, subscribe it to Bulletin Vigilance, and copy the APPLICATION_ID value used with HTTP Basic authentication.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_current_warning_map"
+  },
+  "tools": [
+    {
+      "name": "get_current_warning_map",
+      "description": "Get the latest mainland-France vigilance map as structured JSON, including warning color and phenomenon timelines for each department and coastline domain for day J and J+1.",
+      "method": "GET",
+      "path": "/cartevigilance/encours",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_current_warning_texts",
+      "description": "Get the latest explanatory vigilance bulletins as JSON. This product is not emitted on every map update, so compare meta.product_datetime with get_current_warning_map before using it.",
+      "method": "GET",
+      "path": "/textesvigilance/encours",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_overseas_control",
+      "description": "Get the latest overseas-vigilance control file metadata used to detect whether the DROM vigilance bundle changed.",
+      "method": "GET",
+      "path": "/vigilanceom/controle/dernier",
+      "headers": {"Accept": "text/plain"},
+      "input_schema": {"type": "object", "properties": {}}
+    }
+  ]
+}

@@ -223,6 +223,80 @@ func TestCallbackThreadSpawnForwardsInitialEventsAtomically(t *testing.T) {
 	}
 }
 
+func TestCallbackThreadEnsureReconcilesExistingProfileAndEvents(t *testing.T) {
+	eventID := "conversation:conv-42:message:100:agent:7"
+	var calls []string
+	var updateBody map[string]any
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/threads":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"id": "main", "directive": "main"},
+				{"id": "chat-conv-42", "directive": "main old", "mcp_names": []string{"conversations"}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/config":
+			_ = json.NewEncoder(w).Encode(map[string]any{"directive": "main"})
+		case r.Method == http.MethodPut && r.URL.Path == "/threads/chat-conv-42":
+			if err := json.NewDecoder(r.Body).Decode(&updateBody); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "updated", "events": map[string]any{"accepted": []string{eventID}},
+			})
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer core.Close()
+	parsed, _ := url.Parse(core.URL)
+	_, portText, _ := net.SplitHostPort(parsed.Host)
+	port, _ := strconv.Atoi(portText)
+
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	agent, err := s.store.CreateAgent(1, "ensure-target", "main", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.agents.processes[agent.ID] = &runningAgent{port: port, coreAPIKey: "core-key", reattached: true}
+	manifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "ensure-owner",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermThreadsWrite}}}
+	installID := seedInstallWithBindings(t, s, "ensure-owner", manifest, nil)
+	body, _ := json.Marshal(sdk.ThreadEnsureRequest{
+		ThreadSpawnRequest: sdk.ThreadSpawnRequest{
+			AgentID: agent.ID, ThreadID: "chat-conv-42", DirectiveSuffix: " conversation",
+			MCP: []string{"conversations"}, Events: []sdk.ThreadEvent{{ID: eventID, Message: "Hello again"}},
+		},
+		ProfileHash: "profile-v2",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/apps/callback/threads/ensure", strings.NewReader(string(body)))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Join(calls, ",") != "GET /threads,GET /config,PUT /threads/chat-conv-42" {
+		t.Fatalf("core calls=%v", calls)
+	}
+	if got := updateBody["mcp"].([]any); len(got) != 1 || got[0] != "conversations" {
+		t.Fatalf("updated MCP=%v", updateBody["mcp"])
+	}
+	if got := updateBody["events"].([]any); len(got) != 1 || got[0].(map[string]any)["id"] != eventID {
+		t.Fatalf("updated events=%v", updateBody["events"])
+	}
+	var result sdk.ThreadEnsureResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "updated" || !result.Reconciled || result.ProfileHash != "profile-v2" ||
+		len(result.Events.Accepted) != 1 || result.Events.Accepted[0] != eventID {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestValidateThreadSpawnEventsRejectsInvalidEvents(t *testing.T) {
 	for _, events := range [][]sdk.ThreadEvent{
 		{{ID: "", Message: "hello"}},

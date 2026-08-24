@@ -16,6 +16,7 @@ package main
 //   POST /channels/send                  — send a message to a named channel
 //   POST /integrations/:connID/execute   — call an integration tool (binding-gated)
 //   POST /apps/:appName/call             — call another app's MCP tool (binding-gated)
+//   PUT  /cors-origins/:key              — replace this install's browser origins for a client
 //   GET  /platform/snapshot              — stream a full platform snapshot (privileged global installs only)
 //   POST /platform/restore               — restore a platform snapshot (separate destructive permission)
 //
@@ -112,6 +113,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackPlatformBackup(w, r, parts[1:])
 	case "delegated-keys":
 		s.handleCallbackDelegatedKeys(w, r, parts[1:])
+	case "cors-origins":
+		s.handleCallbackCORSOrigins(w, r, parts[1:])
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}
@@ -1490,6 +1493,9 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 // Surface for app-spawned sub-threads, including realtime (voice/audio)
 // threads bridged by the calling app:
 //
+//   POST   /threads/ensure         — create a thread or reconcile its live
+//                                    directive/tool/MCP profile, atomically
+//                                    queueing stable events in either case.
 //   POST   /threads/spawn-realtime — create a realtime thread inside
 //                                    a target agent; return the audio
 //                                    bridge URL the app dials to pipe
@@ -1511,6 +1517,12 @@ func (s *Server) handleCallbackThreads(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	switch {
+	case len(parts) == 1 && parts[0] == "ensure" && r.Method == http.MethodPost:
+		if !installHasPermission(s, installID, sdk.PermThreadsWrite) {
+			http.Error(w, "missing permission: "+string(sdk.PermThreadsWrite), http.StatusForbidden)
+			return
+		}
+		s.handleCallbackEnsureThread(w, r, installID)
 	case len(parts) == 1 && parts[0] == "spawn" && r.Method == http.MethodPost:
 		if !installHasPermission(s, installID, sdk.PermThreadsWrite) {
 			http.Error(w, "missing permission: "+string(sdk.PermThreadsWrite), http.StatusForbidden)
@@ -1539,6 +1551,47 @@ func (s *Server) handleCallbackThreads(w http.ResponseWriter, r *http.Request, p
 	default:
 		http.Error(w, "unsupported threads operation", http.StatusNotFound)
 	}
+}
+
+func (s *Server) handleCallbackEnsureThread(w http.ResponseWriter, r *http.Request, installID int64) {
+	var body sdk.ThreadEnsureRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.AgentID <= 0 || strings.TrimSpace(body.ThreadID) == "" {
+		http.Error(w, "agent_id and thread_id required", http.StatusBadRequest)
+		return
+	}
+	if err := validateThreadSpawnEvents(body.Events); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	agent, err := s.callbackAgentForInstall(r, installID, body.AgentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	inst := framework.InstanceInfo{
+		ID: agent.ID, Name: agent.Name, UserID: agent.UserID, ProjectID: agent.ProjectID,
+		Port: s.agents.GetPort(agent.ID), CoreAPIKey: s.agents.GetCoreAPIKey(agent.ID),
+	}
+	mcps := body.MCP
+	if mcps == nil {
+		mcps, err = s.agentSpawnableMCPNames(agent.ID)
+		if err != nil {
+			http.Error(w, "load agent capabilities: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
+	result, err := s.resolver().EnsureOpaqueThread(
+		inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral, body.Events, body.ProfileHash,
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, result)
 }
 
 func (s *Server) handleCallbackSpawnThread(w http.ResponseWriter, r *http.Request, installID int64) {

@@ -32,13 +32,19 @@ type ProjectPresetAgent struct {
 }
 
 type ProjectPreset struct {
-	ID          string               `json:"id"`
-	Category    string               `json:"category"`
-	Name        string               `json:"name"`
-	Description string               `json:"description"`
-	Match       []string             `json:"match,omitempty"`
-	Agents      []ProjectPresetAgent `json:"agents"`
-	Dashboard   []string             `json:"dashboard,omitempty"`
+	ID              string                    `json:"id"`
+	Kind            string                    `json:"kind,omitempty"`
+	Scope           string                    `json:"scope,omitempty"`
+	Source          string                    `json:"source,omitempty"`
+	SchemaVersion   int                       `json:"schema_version,omitempty"`
+	OwnerID         int64                     `json:"owner_id,omitempty"`
+	Category        string                    `json:"category"`
+	Name            string                    `json:"name"`
+	Description     string                    `json:"description"`
+	Match           []string                  `json:"match,omitempty"`
+	Agents          []ProjectPresetAgent      `json:"agents"`
+	Dashboard       []string                  `json:"dashboard,omitempty"`
+	DashboardLayout []dashboardWidgetInstance `json:"dashboard_layout,omitempty"`
 }
 
 type projectPresetFile struct {
@@ -56,6 +62,43 @@ var (
 	loadedProjectPresets     projectPresetCatalog
 	loadedProjectPresetsErr  error
 )
+
+const (
+	defaultConversationsApp    = "conversations"
+	defaultConversationsWidget = "conversations:inbox-overview"
+)
+
+// applyBundledPresetDefaults gives every server-shipped setup the platform's
+// durable conversation surface. Keep this normalization limited to embedded
+// presets: personal/shared presets remain an exact representation of what the
+// operator authored or captured.
+func applyBundledPresetDefaults(preset ProjectPreset) ProjectPreset {
+	for index := range preset.Agents {
+		if !containsString(preset.Agents[index].Apps, defaultConversationsApp) {
+			preset.Agents[index].Apps = append(preset.Agents[index].Apps, defaultConversationsApp)
+		}
+	}
+
+	dashboard := make([]string, 0, len(preset.Dashboard)+1)
+	hasConversations := false
+	for _, component := range preset.Dashboard {
+		if component == "native:inbox" {
+			component = defaultConversationsWidget
+		}
+		if component == defaultConversationsWidget {
+			if hasConversations {
+				continue
+			}
+			hasConversations = true
+		}
+		dashboard = append(dashboard, component)
+	}
+	if !hasConversations {
+		dashboard = append(dashboard, defaultConversationsWidget)
+	}
+	preset.Dashboard = dashboard
+	return preset
+}
 
 func loadProjectPresetCatalog() (projectPresetCatalog, error) {
 	projectPresetCatalogOnce.Do(func() {
@@ -82,6 +125,7 @@ func loadProjectPresetCatalog() (projectPresetCatalog, error) {
 				return
 			}
 			for _, preset := range file.Presets {
+				preset = applyBundledPresetDefaults(preset)
 				if err := validateProjectPreset(preset); err != nil {
 					loadedProjectPresetsErr = fmt.Errorf("%s: %w", name, err)
 					return
@@ -115,8 +159,11 @@ func validateProjectPreset(preset ProjectPreset) error {
 	}
 	seenAgents := map[string]bool{}
 	for _, agent := range preset.Agents {
-		if !validPresetIdentifier(agent.Key) || seenAgents[agent.Key] || agent.Name == "" || agent.Directive == "" {
+		if !validPresetIdentifier(agent.Key) || seenAgents[agent.Key] || agent.Name == "" || agent.Directive == "" || len(agent.Name) > 160 || len(agent.Directive) > 32000 {
 			return fmt.Errorf("preset %q has invalid agent %q", preset.ID, agent.Key)
+		}
+		if agent.Mode != "autonomous" && agent.Mode != "cautious" && agent.Mode != "learn" {
+			return fmt.Errorf("preset %q agent %q has invalid mode %q", preset.ID, agent.Key, agent.Mode)
 		}
 		seenAgents[agent.Key] = true
 		seenApps := map[string]bool{}
@@ -147,12 +194,12 @@ func (s *Server) handleProjectPresets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	catalog, err := loadProjectPresetCatalog()
+	catalog, err := s.projectPresetCatalog(getUserID(r))
 	if err != nil {
 		http.Error(w, "load project presets", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"schema_version": 1, "presets": catalog.Presets})
+	writeJSON(w, map[string]any{"schema_version": 2, "presets": catalog.Presets})
 }
 
 type ProjectPresetPreviewRequest struct {
@@ -220,7 +267,7 @@ func (s *Server) handleProjectPresetPreview(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, projectID string, request ProjectPresetPreviewRequest) (*ProjectPresetPreview, error) {
-	catalog, err := loadProjectPresetCatalog()
+	catalog, err := s.projectPresetCatalog(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -272,13 +319,13 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 		agents = append(agents, agent)
 	}
 
-	layout, layoutWarnings := s.compileProjectPresetLayout(projectID, preset.Dashboard)
+	layout, layoutWarnings := s.compileProjectPresetDashboardLayout(projectID, preset)
 	warnings = append(warnings, layoutWarnings...)
 	return &ProjectPresetPreview{
 		Preset: preset, Planner: planner, Confidence: confidence,
 		Project: map[string]string{"name": project.Name, "description": description, "color": project.Color},
 		Apps:    appPreviews, Agents: agents, Layout: layout, Warnings: warnings,
-		NextSteps: []string{"Review app access before enabling external actions.", "Add or remove dashboard widgets at any time.", "Create durable tasks only when real work is requested."},
+		NextSteps: []string{"Review app access before enabling external actions.", "Preset Home widgets are added automatically and remain editable.", "Create durable tasks only when real work is requested."},
 	}, nil
 }
 
@@ -492,7 +539,7 @@ func (s *Server) visibleProjectPresetApps(projectID string) (map[string]visibleP
 
 func (s *Server) compileProjectPresetLayout(projectID string, requested []string) ([]dashboardWidgetInstance, []string) {
 	definitions := append([]dashboardWidgetDefinition(nil), dashboardHomeBuiltins...)
-	definitions = append(definitions, s.nativeDashboardWidgetDefinitions(projectID)...)
+	definitions = append(definitions, s.installedDashboardWidgetDefinitions(projectID, false)...)
 	byComponent := map[string]dashboardWidgetDefinition{}
 	for _, definition := range definitions {
 		byComponent[definition.Component] = definition
@@ -501,6 +548,9 @@ func (s *Server) compileProjectPresetLayout(projectID string, requested []string
 	warnings := []string{}
 	seen := map[string]bool{}
 	for _, component := range requested {
+		if retiredDashboardHomeWidget(component) {
+			continue
+		}
 		if seen[component] {
 			continue
 		}
@@ -518,6 +568,131 @@ func (s *Server) compileProjectPresetLayout(projectID string, requested []string
 		})
 	}
 	return layout, warnings
+}
+
+// compileProjectPresetDashboardLayout preserves schema-v2 captured widget
+// order, size, and settings. Bundled schema-v1 presets continue through the
+// compact component-list compiler above.
+func (s *Server) compileProjectPresetDashboardLayout(projectID string, preset ProjectPreset) ([]dashboardWidgetInstance, []string) {
+	if len(preset.DashboardLayout) == 0 {
+		return s.compileProjectPresetLayout(projectID, preset.Dashboard)
+	}
+	definitions := append([]dashboardWidgetDefinition(nil), dashboardHomeBuiltins...)
+	definitions = append(definitions, s.installedDashboardWidgetDefinitions(projectID, false)...)
+	available := map[string]dashboardWidgetDefinition{}
+	for _, definition := range definitions {
+		available[definition.Component] = definition
+	}
+	layout := make([]dashboardWidgetInstance, 0, len(preset.DashboardLayout))
+	warnings := []string{}
+	for index, captured := range preset.DashboardLayout {
+		if retiredDashboardHomeWidget(captured.Component) {
+			continue
+		}
+		definition, ok := available[captured.Component]
+		if !ok {
+			warnings = append(warnings, fmt.Sprintf("dashboard widget %s is unavailable until its app is installed", captured.Component))
+			continue
+		}
+		if captured.Size != "full" {
+			captured.Size = "half"
+		}
+		if captured.ID == "" {
+			captured.ID = "captured:" + itoa(int64(index+1))
+		}
+		// A stable preset-owned id makes reapplication idempotent while still
+		// allowing a captured layout to contain multiple instances of the same
+		// component with different settings.
+		captured.ID = "preset:" + preset.ID + ":" + captured.ID
+		if captured.Settings == nil {
+			captured.Settings = definition.DefaultSettings
+		}
+		layout = append(layout, captured)
+	}
+	return layout, warnings
+}
+
+// mergeProjectPresetDashboardLayout adds the preset's available widgets to
+// the user's existing Home layout without replacing user choices. The
+// revision check prevents a concurrent browser edit from being overwritten;
+// conflicts are re-read and merged again.
+func (s *Server) mergeProjectPresetDashboardLayout(userID int64, projectID string, preset []dashboardWidgetInstance) error {
+	if len(preset) == 0 {
+		return nil
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		document, revision := s.store.GetUserUILayoutWithRevision(userID)
+		current := resolvedDashboardHomeLayout(document, projectID)
+		merged, changed := mergeDashboardWidgetLayouts(current, preset)
+		if !changed {
+			return nil
+		}
+		raw, err := json.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		if _, _, err = s.store.PatchUserUILayoutSurface(userID, projectID, sdk.UIComponentSlotDashboardHome, raw, &revision); err == nil {
+			return nil
+		} else if !errors.Is(err, errUILayoutConflict) {
+			return err
+		}
+	}
+	return errUILayoutConflict
+}
+
+func mergeDashboardWidgetLayouts(current, preset []dashboardWidgetInstance) ([]dashboardWidgetInstance, bool) {
+	merged := append([]dashboardWidgetInstance(nil), current...)
+	components := make(map[string]bool, len(current)+len(preset))
+	ids := make(map[string]bool, len(current)+len(preset))
+	existingCapturedShapes := make(map[string]int, len(current))
+	for _, widget := range current {
+		components[widget.Component] = true
+		ids[widget.ID] = true
+		if !strings.HasPrefix(widget.ID, "preset:") {
+			existingCapturedShapes[dashboardWidgetFingerprint(widget)]++
+		}
+	}
+	changed := false
+	for _, widget := range preset {
+		captured := strings.HasPrefix(widget.ID, "preset:usr-") || strings.HasPrefix(widget.ID, "preset:shared-")
+		if widget.Component == "" || retiredDashboardHomeWidget(widget.Component) || (captured && ids[widget.ID]) || (!captured && components[widget.Component]) {
+			continue
+		}
+		if captured {
+			fingerprint := dashboardWidgetFingerprint(widget)
+			if existingCapturedShapes[fingerprint] > 0 {
+				existingCapturedShapes[fingerprint]--
+				continue
+			}
+		}
+		widget.ID = availablePresetWidgetID(widget.ID, widget.Component, ids)
+		merged = append(merged, widget)
+		components[widget.Component] = true
+		ids[widget.ID] = true
+		changed = true
+	}
+	return merged, changed
+}
+
+func dashboardWidgetFingerprint(widget dashboardWidgetInstance) string {
+	settings, _ := json.Marshal(widget.Settings)
+	return widget.Component + "\x00" + widget.Size + "\x00" + string(settings)
+}
+
+func availablePresetWidgetID(preferred, component string, used map[string]bool) string {
+	base := strings.TrimSpace(preferred)
+	if base == "" {
+		base = "preset:" + component
+	}
+	if !used[base] {
+		return base
+	}
+	for suffix := int64(2); ; suffix++ {
+		candidate := base + ":" + itoa(suffix)
+		if !used[candidate] {
+			return candidate
+		}
+	}
 }
 
 type ProjectPresetApplyRequest struct {
@@ -551,7 +726,7 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 	// behavior rather than a privilege escalation.
 	installWarnings := []string{}
 	if userID := getUserID(r); s.store.GetPlatformRole(userID) == PlatformAdmin {
-		if catalog, err := loadProjectPresetCatalog(); err == nil {
+		if catalog, err := s.projectPresetCatalog(userID); err == nil {
 			if preset, ok := catalog.ByID[body.PresetID]; ok {
 				if visible, err := s.visibleProjectPresetApps(projectID); err == nil {
 					installWarnings = s.installMissingPresetApps(
@@ -591,9 +766,8 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		return
 	}
 	warnings := append([]string(nil), preview.Warnings...)
-	raw, _ := json.Marshal(preview.Layout)
-	if _, _, err := s.store.PatchUserUILayoutSurface(getUserID(r), projectID, "dashboard.home", raw, nil); err != nil {
-		warnings = append(warnings, "dashboard layout was not applied: "+err.Error())
+	if err := s.mergeProjectPresetDashboardLayout(getUserID(r), projectID, preview.Layout); err != nil {
+		warnings = append(warnings, "dashboard widgets were not applied: "+err.Error())
 	}
 
 	created := []Agent{}

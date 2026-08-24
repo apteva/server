@@ -658,6 +658,13 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		s.LoadInstalledApps()
 		s.reconcileAllAppDepBindings()
 		s.RemountStaticApps()
+		// Keep the app-to-agent attachment contract consistent across all
+		// runtime kinds. Most static apps are UI-only, so this is normally a
+		// no-op; if a server-backed static app declares MCP tools, refresh its
+		// bridge exactly as the source and binary activation paths do.
+		if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
+			log.Printf("[APPS] register MCP for static install=%d: %v", installID, err)
+		}
 		if !filepath.IsAbs(strings.TrimSpace(m.Runtime.StaticDir)) {
 			if removed := s.pruneUnreferencedAppVersions(m.Name, m.Version); len(removed) > 0 {
 				log.Printf("[APPS-LOCAL] reclaimed %d stale static version dir(s) for %s: %v", len(removed), m.Name, removed)

@@ -17,6 +17,9 @@ func createHelperCapabilityTestUser(t *testing.T, s *Server) int64 {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	if _, err := s.store.GetOrCreatePlatformHelper(user.ID, platformHelperSystemPrompt); err != nil {
+		t.Fatalf("activate helper fixture: %v", err)
+	}
 	return user.ID
 }
 

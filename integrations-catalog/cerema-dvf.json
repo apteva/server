@@ -1,0 +1,108 @@
+{
+  "slug": "cerema-dvf",
+  "name": "Cerema DVF+ Open Data",
+  "description": "Official French property-sale transactions from the Cerema DVF+ open-data API. Search mutations by commune, small bounding box, date, property type, area, or sale value, with optional GeoJSON geometry. DVF identifies what sold, where, when, and for how much; it does not expose buyer or seller identity. The Cerema API is currently beta.",
+  "logo": "https://www.google.com/s2/favicons?domain=cerema.fr&sz=128",
+  "categories": [
+    "france",
+    "real-estate",
+    "property-sales",
+    "transactions",
+    "geospatial",
+    "open-data"
+  ],
+  "base_url": "https://apidf-preprod.cerema.fr",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "search_mutations",
+      "description": "Search DVF+ property transactions and return normalized mutation rows. A location constraint is expected: one or more INSEE commune codes, a small bounding box, or a point. Use ordering=-datemut to prioritize the newest recorded sales.",
+      "method": "GET",
+      "path": "/dvf_opendata/mutations/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code_insee": {
+            "type": "string",
+            "description": "One INSEE commune code or up to ten comma-separated codes."
+          },
+          "in_bbox": {
+            "type": "string",
+            "description": "Small WGS84 bounding box `west,south,east,north`; API maximum width/height is approximately 0.02 degrees."
+          },
+          "contains_geom": {
+            "type": "string",
+            "description": "WGS84 point `longitude,latitude`; return transactions whose geometry contains it."
+          },
+          "anneemut": {
+            "type": "string",
+            "description": "Exact transaction year in YYYY format."
+          },
+          "anneemut_min": {"type": "string", "description": "Minimum transaction year YYYY."},
+          "anneemut_max": {"type": "string", "description": "Maximum transaction year YYYY."},
+          "codtypbien": {
+            "type": "string",
+            "description": "DVF+ property-type code, for example 111 for a house or 121 for an apartment."
+          },
+          "idnatmut": {"type": "string", "description": "National mutation identifier."},
+          "vefa": {"type": "string", "description": "Filter sale-before-completion (VEFA) status."},
+          "sbati_min": {"type": "number", "description": "Minimum built floor area in square metres."},
+          "sbati_max": {"type": "number", "description": "Maximum built floor area in square metres."},
+          "sterr_min": {"type": "number", "description": "Minimum land area in square metres."},
+          "sterr_max": {"type": "number", "description": "Maximum land area in square metres."},
+          "valeurfonc_min": {"type": "number", "description": "Minimum transaction value in euros."},
+          "valeurfonc_max": {"type": "number", "description": "Maximum transaction value in euros."},
+          "fields": {"type": "string", "description": "Use `all` to request every available field."},
+          "ordering": {"type": "string", "description": "Ordering expression, for example `-datemut`."},
+          "page": {"type": "integer", "minimum": 1},
+          "page_size": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
+        },
+        "anyOf": [
+          {"required": ["code_insee"]},
+          {"required": ["in_bbox"]},
+          {"required": ["contains_geom"]}
+        ]
+      }
+    },
+    {
+      "name": "search_geomutations",
+      "description": "Search DVF+ transactions with their GeoJSON geometries. Use this for parcel mapping and spatial joins; use search_mutations when geometry is not needed.",
+      "method": "GET",
+      "path": "/dvf_opendata/geomutations/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code_insee": {"type": "string", "description": "One INSEE commune code or comma-separated codes."},
+          "in_bbox": {"type": "string", "description": "Small WGS84 bounding box `west,south,east,north`."},
+          "contains_geom": {"type": "string", "description": "WGS84 point `longitude,latitude`."},
+          "anneemut": {"type": "string", "description": "Exact transaction year YYYY."},
+          "anneemut_min": {"type": "string"},
+          "anneemut_max": {"type": "string"},
+          "codtypbien": {"type": "string"},
+          "idnatmut": {"type": "string"},
+          "sbati_min": {"type": "number"},
+          "sbati_max": {"type": "number"},
+          "sterr_min": {"type": "number"},
+          "sterr_max": {"type": "number"},
+          "valeurfonc_min": {"type": "number"},
+          "valeurfonc_max": {"type": "number"},
+          "fields": {"type": "string"},
+          "ordering": {"type": "string"},
+          "page": {"type": "integer", "minimum": 1},
+          "page_size": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
+        },
+        "anyOf": [
+          {"required": ["code_insee"]},
+          {"required": ["in_bbox"]},
+          {"required": ["contains_geom"]}
+        ]
+      }
+    }
+  ]
+}

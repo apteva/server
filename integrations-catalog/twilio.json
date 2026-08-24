@@ -66,8 +66,19 @@
             "description": "JSON string of template variables, e.g. {\"1\":\"John\",\"2\":\"tomorrow\"}"
           },
           "MediaUrl": {
-            "type": "string",
-            "description": "URL of media to include (for MMS)"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "One public media URL or an array of public media URLs to include for MMS. Array values are sent as repeated MediaUrl form fields."
           },
           "StatusCallback": {
             "type": "string",
@@ -113,11 +124,11 @@
           },
           "Body": {
             "type": "string",
-            "description": "Message text. Only works within 24h window after user messages you first. For business-initiated, use ContentSid instead."
+            "description": "Optional free-form message text within the 24-hour customer service window. It may accompany supported image media, but WhatsApp may ignore or reject text combined with other media types. For business-initiated conversations, use ContentSid instead."
           },
           "ContentSid": {
             "type": "string",
-            "description": "Content template SID (HXxxxxxxxx) for sending approved WhatsApp templates. Required for business-initiated conversations."
+            "description": "Content template SID (HXxxxxxxxx) for sending approved WhatsApp templates. Required for business-initiated conversations. Do not combine with Body or MediaUrl; template text and media are defined by the content template and ContentVariables."
           },
           "ContentVariables": {
             "type": "string",
@@ -125,7 +136,7 @@
           },
           "MediaUrl": {
             "type": "string",
-            "description": "URL of media to include"
+            "description": "One publicly accessible media URL for a free-form WhatsApp message. WhatsApp supports only one media object per message. Do not combine with ContentSid."
           },
           "StatusCallback": {
             "type": "string",
@@ -135,7 +146,40 @@
         "required": [
           "To",
           "From"
-        ]
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "Body"
+            ]
+          },
+          {
+            "required": [
+              "MediaUrl"
+            ]
+          },
+          {
+            "required": [
+              "ContentSid"
+            ]
+          }
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ContentSid",
+                "Body"
+              ]
+            },
+            {
+              "required": [
+                "ContentSid",
+                "MediaUrl"
+              ]
+            }
+          ]
+        }
       },
       "mock_response": {
         "sid": "SM00000000000000000000000000000002",

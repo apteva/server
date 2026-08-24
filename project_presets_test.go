@@ -33,7 +33,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	}
 	counts := map[string]int{}
 	knownApps := map[string]bool{
-		"tasks": true, "todo": true, "notes": true, "calendar": true,
+		"conversations": true,
+		"tasks":         true, "todo": true, "notes": true, "calendar": true,
 		"pantry": true, "recipes": true, "health": true, "content": true,
 		"social": true, "media-studio": true, "storage": true, "analytics": true,
 		"docs": true, "crm": true, "web": true, "email-checker": true,
@@ -69,6 +70,14 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 			t.Fatalf("preset %s has no starter agent", preset.ID)
 		}
 		presetApps := projectPresetApps(preset)
+		if !containsString(presetApps, defaultConversationsApp) {
+			t.Fatalf("preset %s is missing the Conversations app: %v", preset.ID, presetApps)
+		}
+		for _, agent := range preset.Agents {
+			if !containsString(agent.Apps, defaultConversationsApp) {
+				t.Fatalf("preset %s agent %s is missing Conversations: %v", preset.ID, agent.Key, agent.Apps)
+			}
+		}
 		for _, app := range presetApps {
 			if !knownApps[app] {
 				t.Fatalf("preset %s assigns unknown app %q", preset.ID, app)
@@ -79,10 +88,20 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 				t.Fatalf("preset %s must assign its domain app %q: %v", preset.ID, required, presetApps)
 			}
 		}
+		conversationWidgets := 0
 		for _, component := range preset.Dashboard {
+			if component == "native:inbox" {
+				t.Fatalf("preset %s still exposes the retired native inbox", preset.ID)
+			}
+			if component == defaultConversationsWidget {
+				conversationWidgets++
+			}
 			if strings.HasPrefix(component, "tasks:") && component != "tasks:task-overview" {
 				t.Fatalf("preset %s uses an unknown Tasks widget %q", preset.ID, component)
 			}
+		}
+		if conversationWidgets != 1 {
+			t.Fatalf("preset %s has %d Conversations widgets, want 1: %v", preset.ID, conversationWidgets, preset.Dashboard)
 		}
 	}
 	// business grew a fifth preset (webinars); the other categories stay at 4.
@@ -222,15 +241,58 @@ func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) 
 		t.Fatalf("project=%+v err=%v", project, err)
 	}
 	layout := string(s.store.GetUserUILayout(1))
-	if !strings.Contains(layout, `"dashboard.home"`) || !strings.Contains(layout, `"native:inbox"`) {
-		t.Fatalf("dashboard layout was not applied: %s", layout)
+	if !strings.Contains(layout, `"dashboard.home"`) || !strings.Contains(layout, `"native:usage"`) || !strings.Contains(layout, `"native:activity"`) {
+		t.Fatalf("preset dashboard widgets were not applied: %s", layout)
 	}
+	if strings.Contains(layout, `"native:inbox"`) {
+		t.Fatalf("retired inbox widget was applied: %s", layout)
+	}
+	_, firstLayoutRevision := s.store.GetUserUILayoutWithRevision(1)
 	second := apply()
 	if got := len(second["created_agents"].([]any)); got != 0 {
 		t.Fatalf("second apply created %d duplicate agents: %#v", got, second)
 	}
 	if got := len(second["existing_agents"].([]any)); got != 1 {
 		t.Fatalf("second apply existing_agents=%d, want 1", got)
+	}
+	_, secondLayoutRevision := s.store.GetUserUILayoutWithRevision(1)
+	if secondLayoutRevision != firstLayoutRevision {
+		t.Fatalf("idempotent reapply changed layout revision from %d to %d", firstLayoutRevision, secondLayoutRevision)
+	}
+}
+
+func TestMergeProjectPresetDashboardLayoutPreservesExistingWidgets(t *testing.T) {
+	s := newTestServer(t)
+	seedPresetProject(t, s, "merge-layout-project")
+	existing := json.RawMessage(`{"projects":{"merge-layout-project":{"slots":{"dashboard.home":[{"id":"custom","component":"custom:overview","size":"half","settings":{"mode":"mine"}},{"id":"usage","component":"native:usage","size":"full"}]}}}}`)
+	if err := s.store.SetUserUILayout(1, existing); err != nil {
+		t.Fatal(err)
+	}
+	preset := []dashboardWidgetInstance{
+		{ID: "preset:native:usage", Component: "native:usage", Size: "full"},
+		{ID: "custom", Component: "native:activity", Size: "full"},
+		{ID: "preset:native:inbox", Component: "native:inbox", Size: "half"},
+	}
+	if err := s.mergeProjectPresetDashboardLayout(1, "merge-layout-project", preset); err != nil {
+		t.Fatal(err)
+	}
+	document, revision := s.store.GetUserUILayoutWithRevision(1)
+	got := resolvedDashboardHomeLayout(document, "merge-layout-project")
+	if len(got) != 3 {
+		t.Fatalf("layout=%+v", got)
+	}
+	if got[0].Component != "custom:overview" || got[0].Settings["mode"] != "mine" || got[1].Component != "native:usage" || got[2].Component != "native:activity" {
+		t.Fatalf("layout order or settings changed: %+v", got)
+	}
+	if got[2].ID == "custom" {
+		t.Fatalf("preset widget reused an existing id: %+v", got)
+	}
+	if err := s.mergeProjectPresetDashboardLayout(1, "merge-layout-project", preset); err != nil {
+		t.Fatal(err)
+	}
+	_, secondRevision := s.store.GetUserUILayoutWithRevision(1)
+	if secondRevision != revision {
+		t.Fatalf("idempotent merge changed revision from %d to %d", revision, secondRevision)
 	}
 }
 
@@ -276,15 +338,43 @@ name: webinars
 display_name: Webinars
 version: 0.1.1
 scopes: [project, global]
+provides:
+  mcp_tools:
+    - { name: webinar_list, description: List webinars. }
 runtime:
   kind: static
   static_dir: %s
 `, staticDir)
 	}))
 	defer manifest.Close()
+	conversationsManifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `schema: apteva-app/v1
+name: conversations
+display_name: Conversations
+version: 0.8.0
+scopes: [global]
+provides:
+  mcp_tools:
+    - { name: send, description: Send a conversation message. }
+  ui_components:
+    - name: inbox-overview
+      label: Inbox
+      entry: /ui/InboxWidget.mjs
+      slots: [dashboard.home]
+      supported_sizes: [half, full]
+      default_size: half
+runtime:
+  kind: static
+  static_dir: %s
+`, staticDir)
+	}))
+	defer conversationsManifest.Close()
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"apps": []map[string]any{{"name": "webinars", "manifest_url": manifest.URL}},
+			"apps": []map[string]any{
+				{"name": "webinars", "manifest_url": manifest.URL},
+				{"name": "conversations", "manifest_url": conversationsManifest.URL},
+			},
 		})
 	}))
 	defer registry.Close()
@@ -314,6 +404,20 @@ runtime:
 	if status != "running" {
 		t.Fatalf("install status = %q, want running", status)
 	}
+	var conversationsInstallID int64
+	if err := s.store.db.QueryRow(`
+		SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id
+		WHERE a.name='conversations' AND COALESCE(i.project_id,'')='' AND i.status='running'`).
+		Scan(&conversationsInstallID); err != nil {
+		t.Fatalf("Conversations was not installed globally: %v", err)
+	}
+	var conversationsBindings int
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE install_id=? AND enabled=1`, conversationsInstallID).Scan(&conversationsBindings); err != nil || conversationsBindings != 1 {
+		t.Fatalf("Conversations bindings=%d err=%v", conversationsBindings, err)
+	}
+	if layout := string(s.store.GetUserUILayout(1)); !strings.Contains(layout, defaultConversationsWidget) {
+		t.Fatalf("Conversations widget was not added: %s", layout)
+	}
 
 	var result map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
@@ -323,7 +427,7 @@ runtime:
 	// the informative warning instead of failing the apply — the exact
 	// pre-auto-install behavior, minus the apps we could fix.
 	warnings, _ := result["warnings"].([]any)
-	sawRegistryMiss, sawWebinarsWarning := false, false
+	sawRegistryMiss, sawWebinarsWarning, sawConversationsWarning := false, false, false
 	for _, raw := range warnings {
 		text, _ := raw.(string)
 		if strings.Contains(text, "could not be installed from the registry") {
@@ -332,12 +436,18 @@ runtime:
 		if strings.Contains(text, "webinars") {
 			sawWebinarsWarning = true
 		}
+		if strings.Contains(text, "conversations") || strings.Contains(text, "Conversations") {
+			sawConversationsWarning = true
+		}
 	}
 	if !sawRegistryMiss {
 		t.Fatalf("expected registry-miss warnings for uninstallable apps: %#v", warnings)
 	}
 	if sawWebinarsWarning {
 		t.Fatalf("webinars installed fine and must not be warned about: %#v", warnings)
+	}
+	if sawConversationsWarning {
+		t.Fatalf("Conversations installed fine and must not be warned about: %#v", warnings)
 	}
 }
 

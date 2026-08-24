@@ -55,11 +55,15 @@ func TestDashboardHomeSurfaceResolvesNativeAppsAndPortableLayout(t *testing.T) {
 	if response.Revision != 1 {
 		t.Fatalf("revision=%d", response.Revision)
 	}
-	if got := []string{response.Layout[0].Component, response.Layout[1].Component, response.Layout[2].Component, response.Layout[3].Component}; got[0] != "native:usage" || got[1] != "native:inbox" || got[2] != "tasks:overview" || got[3] != "native:activity" {
+	if len(response.Layout) != 1 || response.Layout[0].Component != "tasks:overview" {
 		t.Fatalf("layout=%+v", response.Layout)
 	}
+	builtins := map[string]bool{}
 	var tasks *dashboardWidgetDefinition
 	for index := range response.Definitions {
+		if response.Definitions[index].Kind == "builtin" {
+			builtins[response.Definitions[index].Component] = true
+		}
 		if response.Definitions[index].Component == "tasks:overview" {
 			tasks = &response.Definitions[index]
 		}
@@ -70,12 +74,38 @@ func TestDashboardHomeSurfaceResolvesNativeAppsAndPortableLayout(t *testing.T) {
 	if len(tasks.ProjectSurfaces) != 1 || tasks.ProjectSurfaces[0].ID != "tasks" {
 		t.Fatalf("tasks project surfaces=%+v", tasks.ProjectSurfaces)
 	}
+	if !builtins["native:usage"] || !builtins["native:activity"] || builtins["native:inbox"] {
+		t.Fatalf("builtins=%+v", builtins)
+	}
+}
+
+func TestDashboardHomeSurfaceDefaultsToEmpty(t *testing.T) {
+	for name, document := range map[string]json.RawMessage{
+		"empty document":   json.RawMessage(`{}`),
+		"missing project":  json.RawMessage(`{"projects":{"other":{}}}`),
+		"missing slot":     json.RawMessage(`{"projects":{"project-a":{"slots":{}}}}`),
+		"invalid document": json.RawMessage(`[]`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := resolvedDashboardHomeLayout(document, "project-a"); len(got) != 0 {
+				t.Fatalf("layout=%+v", got)
+			}
+		})
+	}
 }
 
 func TestDashboardHomeSurfaceKeepsExplicitEmptyLayout(t *testing.T) {
 	projectID := "project-a"
 	document := json.RawMessage(`{"projects":{"project-a":{"slots":{"dashboard.home":[]}}}}`)
 	if got := resolvedDashboardHomeLayout(document, projectID); len(got) != 0 {
+		t.Fatalf("layout=%+v", got)
+	}
+}
+
+func TestDashboardHomeSurfacePreservesExplicitLayoutWithoutMergingDefaults(t *testing.T) {
+	document := json.RawMessage(`{"projects":{"project-a":{"slots":{"dashboard.home":["native:inbox",{"id":"tasks","component":"tasks:overview","size":"full"}]}}}}`)
+	got := resolvedDashboardHomeLayout(document, "project-a")
+	if len(got) != 1 || got[0].Component != "tasks:overview" || got[0].Size != "full" {
 		t.Fatalf("layout=%+v", got)
 	}
 }

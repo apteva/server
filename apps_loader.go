@@ -492,7 +492,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "app credential does not match target install", http.StatusForbidden)
 			return
 		}
-	} else if !appProxyRouteIsNoAuth(entry, tail, r.Method) {
+	} else if !appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r)) {
 		need := ProjectViewer
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			need = ProjectEditor
@@ -528,7 +528,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	publicRoute := appProxyRouteIsNoAuth(entry, tail, r.Method)
+	publicRoute := appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r))
 	// Rewrite path so the sidecar sees its own routes (without the
 	// /apps/<name> prefix). The token swap happens in Director.
 	originalDirector := proxy.Director
@@ -544,6 +544,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		// /apps/callback/apps/:name/call bridge may mint this identity.
 		req.Header.Del(sdk.HeaderBoundCallerInstallID)
 		req.Header.Del(sdk.HeaderBoundCallerAppName)
+		// Named app MCP profiles were abandoned. Scrub the old header so
+		// sidecars built with the short-lived SDK implementation cannot split
+		// their tool surface when reached through a current server.
+		req.Header.Del("X-Apteva-MCP-Profile")
 		req.Header.Del("X-Apteva-Project-ID")
 		if effectiveProjectID != "" {
 			req.Header.Set("X-Apteva-Project-ID", effectiveProjectID)
@@ -553,7 +557,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			req.Header.Set("X-Apteva-Original-Authorization", originalAuth)
 		}
 		if entry.Token != "" {
-			if originalAuth != "" && appProxyRouteIsNoAuth(entry, tail, req.Method) {
+			if originalAuth != "" && appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(req)) {
 				req.Header.Set("X-Apteva-App-Token", entry.Token)
 			} else {
 				req.Header.Set("Authorization", "Bearer "+entry.Token)
@@ -668,6 +672,10 @@ func injectProjectIntoMCPRequest(r *http.Request, projectID string) error {
 // tool arguments. The value is accepted only alongside the authenticated
 // caller-agent header; dashboard/API callers cannot forge thread identity.
 func extractCallerThreadFromMCPRequest(r *http.Request) error {
+	incomingToolCallID := strings.TrimSpace(r.Header.Get("X-Apteva-Tool-Call-ID"))
+	r.Header.Del("X-Apteva-Caller-Thread")
+	r.Header.Del("X-Apteva-Caller-Thread-Role")
+	r.Header.Del("X-Apteva-Tool-Call-ID")
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return err
@@ -698,10 +706,18 @@ func extractCallerThreadFromMCPRequest(r *http.Request) error {
 	}
 	threadID, _ := args["_apteva_caller_thread"].(string)
 	delete(args, "_apteva_caller_thread")
+	toolCallID, _ := args["_apteva_tool_call_id"].(string)
+	delete(args, "_apteva_tool_call_id")
+	if strings.TrimSpace(toolCallID) == "" {
+		toolCallID = incomingToolCallID
+	}
 	if strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Agent")) != "" && strings.TrimSpace(threadID) != "" {
-		r.Header.Set("X-Apteva-Caller-Thread", strings.TrimSpace(threadID))
-	} else {
-		r.Header.Del("X-Apteva-Caller-Thread")
+		threadID = strings.TrimSpace(threadID)
+		r.Header.Set("X-Apteva-Caller-Thread", threadID)
+		r.Header.Set("X-Apteva-Caller-Thread-Role", callerThreadRole(threadID))
+		if validTrustedMCPIdentity(toolCallID) {
+			r.Header.Set("X-Apteva-Tool-Call-ID", strings.TrimSpace(toolCallID))
+		}
 	}
 	rewritten, err := json.Marshal(rpc)
 	if err != nil {
@@ -709,4 +725,21 @@ func extractCallerThreadFromMCPRequest(r *http.Request) error {
 	}
 	nextBody = rewritten
 	return nil
+}
+
+func callerThreadRole(threadID string) string {
+	threadID = strings.TrimSpace(threadID)
+	switch {
+	case threadID == "main":
+		return "main"
+	case strings.HasPrefix(threadID, "chat-"):
+		return "conversation"
+	default:
+		return "worker"
+	}
+}
+
+func validTrustedMCPIdentity(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && len(value) <= 256 && !strings.ContainsAny(value, "\r\n\x00")
 }

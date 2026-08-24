@@ -40,15 +40,8 @@ type dashboardWidgetDefinition struct {
 	ProjectSurfaces []sdk.UISurface                `json:"project_surfaces,omitempty"`
 }
 
-var dashboardHomeDefaults = []dashboardWidgetInstance{
-	{ID: "native:usage", Component: "native:usage", Size: "full"},
-	{ID: "native:inbox", Component: "native:inbox", Size: "half"},
-	{ID: "native:activity", Component: "native:activity", Size: "full"},
-}
-
 var dashboardHomeBuiltins = []dashboardWidgetDefinition{
 	{Component: "native:usage", Kind: "builtin", Label: "Usage summary", Description: "Agents, calls, tokens, errors, and cost for the last 24 hours.", SupportedSizes: []string{"full"}, DefaultSize: "full"},
-	{Component: "native:inbox", Kind: "builtin", Label: "Inbox", Description: "Approvals, reports, and alerts from your agents.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
 	{Component: "native:activity", Kind: "builtin", Label: "Recent activity", Description: "Significant agent actions and tool events.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
 }
 
@@ -92,6 +85,14 @@ func (s *Server) handleUISurfaceResolution(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) nativeDashboardWidgetDefinitions(projectID string) []dashboardWidgetDefinition {
+	return s.installedDashboardWidgetDefinitions(projectID, true)
+}
+
+// installedDashboardWidgetDefinitions resolves installed app contributions
+// for dashboard.home. Preset compilation needs the full web catalog, while
+// the native surface endpoint requests only definitions with a declarative
+// native renderer.
+func (s *Server) installedDashboardWidgetDefinitions(projectID string, nativeOnly bool) []dashboardWidgetDefinition {
 	if s.installedApps == nil {
 		return nil
 	}
@@ -112,7 +113,7 @@ func (s *Server) nativeDashboardWidgetDefinitions(projectID string) []dashboardW
 	definitions := make([]dashboardWidgetDefinition, 0)
 	for _, app := range apps {
 		for _, component := range app.Manifest.Provides.UIComponents {
-			if component.Native == nil || !containsString(component.Slots, sdk.UIComponentSlotDashboardHome) {
+			if !containsString(component.Slots, sdk.UIComponentSlotDashboardHome) || (nativeOnly && component.Native == nil) {
 				continue
 			}
 			sizes := normalizedDashboardWidgetSizes(component)
@@ -120,7 +121,7 @@ func (s *Server) nativeDashboardWidgetDefinitions(projectID string) []dashboardW
 			if label == "" {
 				label = component.Name
 			}
-			definitions = append(definitions, dashboardWidgetDefinition{
+			definition := dashboardWidgetDefinition{
 				Component: app.AppName + ":" + component.Name,
 				Kind:      "app", App: app.AppName, InstallID: app.InstallID,
 				Label: label, Description: component.Description,
@@ -130,9 +131,12 @@ func (s *Server) nativeDashboardWidgetDefinitions(projectID string) []dashboardW
 				DefaultSettings: dashboardWidgetDefaultSettings(component.SettingsSchema),
 				SettingsSchema:  component.SettingsSchema,
 				RefreshTopics:   component.RefreshTopics, Suggested: component.Suggested,
-				Native:          &dashboardWidgetNativeRenderer{Schema: component.Native.Schema, Entry: component.Native.Entry},
 				ProjectSurfaces: app.Manifest.Provides.UISurfaces,
-			})
+			}
+			if component.Native != nil {
+				definition.Native = &dashboardWidgetNativeRenderer{Schema: component.Native.Schema, Entry: component.Native.Entry}
+			}
+			definitions = append(definitions, definition)
 		}
 	}
 	return definitions
@@ -187,15 +191,15 @@ func resolvedDashboardHomeLayout(document json.RawMessage, projectID string) []d
 		} `json:"projects"`
 	}
 	if json.Unmarshal(document, &parsed) != nil {
-		return cloneDashboardWidgetInstances(dashboardHomeDefaults)
+		return []dashboardWidgetInstance{}
 	}
 	project, ok := parsed.Projects[projectID]
 	if !ok {
-		return cloneDashboardWidgetInstances(dashboardHomeDefaults)
+		return []dashboardWidgetInstance{}
 	}
 	raw, explicit := project.Slots[sdk.UIComponentSlotDashboardHome]
 	if !explicit {
-		return cloneDashboardWidgetInstances(dashboardHomeDefaults)
+		return []dashboardWidgetInstance{}
 	}
 	var entries []json.RawMessage
 	if json.Unmarshal(raw, &entries) != nil {
@@ -205,11 +209,17 @@ func resolvedDashboardHomeLayout(document json.RawMessage, projectID string) []d
 	for index, entry := range entries {
 		var legacy string
 		if json.Unmarshal(entry, &legacy) == nil && legacy != "" {
+			if retiredDashboardHomeWidget(legacy) {
+				continue
+			}
 			layout = append(layout, dashboardWidgetInstance{ID: "legacy:" + itoa(int64(index)) + ":" + legacy, Component: legacy, Size: "half"})
 			continue
 		}
 		var widget dashboardWidgetInstance
 		if json.Unmarshal(entry, &widget) != nil || widget.Component == "" {
+			continue
+		}
+		if retiredDashboardHomeWidget(widget.Component) {
 			continue
 		}
 		if widget.ID == "" {
@@ -220,26 +230,9 @@ func resolvedDashboardHomeLayout(document json.RawMessage, projectID string) []d
 		}
 		layout = append(layout, widget)
 	}
-	if len(layout) > 0 {
-		hasBuiltin := false
-		for _, widget := range layout {
-			if strings.HasPrefix(widget.Component, "native:") {
-				hasBuiltin = true
-				break
-			}
-		}
-		if !hasBuiltin {
-			merged := cloneDashboardWidgetInstances(dashboardHomeDefaults[:len(dashboardHomeDefaults)-1])
-			merged = append(merged, layout...)
-			merged = append(merged, dashboardHomeDefaults[len(dashboardHomeDefaults)-1])
-			layout = merged
-		}
-	}
 	return layout
 }
 
-func cloneDashboardWidgetInstances(source []dashboardWidgetInstance) []dashboardWidgetInstance {
-	result := make([]dashboardWidgetInstance, len(source))
-	copy(result, source)
-	return result
+func retiredDashboardHomeWidget(component string) bool {
+	return component == "native:inbox"
 }

@@ -18,6 +18,44 @@ type corsConfig struct {
 	origins map[string]bool
 }
 
+// dynamicCORSPolicy is the live decision returned by server-managed origin
+// registries. Platform preflight keeps the historical behavior: the outer
+// middleware writes the standard Apteva CORS headers and terminates OPTIONS.
+// App preflight only authorizes the origin at this layer; OPTIONS and the
+// eventual response are delegated to the owning sidecar so route-specific
+// methods and headers are preserved.
+type dynamicCORSPolicy struct {
+	Allowed           bool
+	Credentials       bool
+	DelegatePreflight bool
+}
+
+// corsCredentialGuardWriter treats Credentials=false as a hard ceiling for an
+// app-managed response. The sidecar still owns every other CORS header, but it
+// cannot accidentally turn a credential-free registration into a
+// credentialed browser policy.
+type corsCredentialGuardWriter struct {
+	http.ResponseWriter
+}
+
+func (w *corsCredentialGuardWriter) sanitize() {
+	w.Header().Del("Access-Control-Allow-Credentials")
+}
+
+func (w *corsCredentialGuardWriter) WriteHeader(status int) {
+	w.sanitize()
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *corsCredentialGuardWriter) Write(body []byte) (int, error) {
+	w.sanitize()
+	return w.ResponseWriter.Write(body)
+}
+
+func (w *corsCredentialGuardWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func newCORSConfig(env string) *corsConfig {
 	env = strings.TrimSpace(env)
 	lower := strings.ToLower(env)
@@ -56,11 +94,42 @@ func (c *corsConfig) middleware(next http.Handler) http.Handler {
 // delegated-key records by origin; the subsequent request still passes full
 // authentication and authorization.
 func (c *corsConfig) middlewareWithDynamicOrigin(next http.Handler, dynamic func(*http.Request, string) bool) http.Handler {
+	var policy func(*http.Request, string) dynamicCORSPolicy
+	if dynamic != nil {
+		policy = func(r *http.Request, origin string) dynamicCORSPolicy {
+			allowed := dynamic(r, origin)
+			return dynamicCORSPolicy{Allowed: allowed, Credentials: allowed}
+		}
+	}
+	return c.middlewareWithDynamicPolicy(next, policy)
+}
+
+// middlewareWithDynamicPolicy is the policy-aware form used by the server.
+// The bool callback above remains as a compatibility wrapper for focused tests
+// and callers that only need the original exact-origin behavior.
+func (c *corsConfig) middlewareWithDynamicPolicy(next http.Handler, dynamic func(*http.Request, string) dynamicCORSPolicy) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		allow := ""
 		credentials := false
-		if c != nil {
+		delegatePreflight := false
+		// A matching install-scoped policy is authoritative for its app
+		// surface. Evaluate it before static/global CORS so an app can require
+		// delegated preflight or forbid credentials even when the operator also
+		// permits the same origin globally.
+		dynamicMatched := false
+		if origin != "" && dynamic != nil {
+			decision := dynamic(r, origin)
+			if decision.Allowed {
+				dynamicMatched = true
+				credentials = decision.Credentials
+				delegatePreflight = decision.DelegatePreflight
+				if !delegatePreflight {
+					allow = origin
+				}
+			}
+		}
+		if !dynamicMatched && c != nil {
 			switch c.mode {
 			case "permissive":
 				if origin != "" {
@@ -76,9 +145,6 @@ func (c *corsConfig) middlewareWithDynamicOrigin(next http.Handler, dynamic func
 				}
 			}
 		}
-		if allow == "" && origin != "" && dynamic != nil && dynamic(r, origin) {
-			allow = origin
-		}
 
 		if allow != "" {
 			w.Header().Set("Access-Control-Allow-Origin", allow)
@@ -92,8 +158,12 @@ func (c *corsConfig) middlewareWithDynamicOrigin(next http.Handler, dynamic func
 			w.Header().Set("Access-Control-Max-Age", "600")
 		}
 
-		if r.Method == http.MethodOptions {
+		if r.Method == http.MethodOptions && !delegatePreflight {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if delegatePreflight && !credentials {
+			next.ServeHTTP(&corsCredentialGuardWriter{ResponseWriter: w}, r)
 			return
 		}
 		next.ServeHTTP(w, r)

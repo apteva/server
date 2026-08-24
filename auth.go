@@ -135,7 +135,15 @@ func setSessionCookieForDuration(w http.ResponseWriter, r *http.Request, token s
 		MaxAge:   int(duration.Seconds()),
 		Secure:   requestIsTLS(r),
 	}
-	if crossOriginCookies && requestIsTLS(r) {
+	// Static CORS policy is captured at boot, while exact origins registered
+	// through the live admin/app APIs are resolved by the outer middleware on
+	// every request. That middleware writes these headers before invoking the
+	// auth handler, so dynamic origins can opt into the SameSite=None cookie
+	// required by a cross-origin dashboard without a process restart.
+	dynamicCredentialedOrigin := r.Header.Get("Origin") != "" &&
+		w.Header().Get("Access-Control-Allow-Origin") == r.Header.Get("Origin") &&
+		w.Header().Get("Access-Control-Allow-Credentials") == "true"
+	if (crossOriginCookies || dynamicCredentialedOrigin) && requestIsTLS(r) {
 		c.SameSite = http.SameSiteNoneMode
 		c.Secure = true
 	}
@@ -351,7 +359,7 @@ func (s *Server) anonymousAppRouteAllowed(r *http.Request) bool {
 		if entry == nil || entry.AppName != appName {
 			return false
 		}
-		return appProxyRouteIsNoAuth(entry, strippedPath, r.Method)
+		return appProxyRouteIsNoAuth(entry, strippedPath, corsRequestedMethod(r))
 	}
 	return s.anonymousAppNoAuthRouteAllowed(r, appName, appPath)
 }
@@ -394,7 +402,7 @@ func (s *Server) anonymousAppNoAuthRouteAllowed(r *http.Request, appName, appPat
 	if entry == nil {
 		return false
 	}
-	return appProxyRouteIsNoAuth(entry, appPath, r.Method)
+	return appProxyRouteIsNoAuth(entry, appPath, corsRequestedMethod(r))
 }
 
 func (s *Server) installedAppForRequest(appName string, r *http.Request) *InstalledApp {

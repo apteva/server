@@ -338,6 +338,20 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 	if info, ok := deprecatedApp(manifest.Name); ok {
 		return 0, fmt.Errorf("%s is deprecated and can no longer be installed: %s", manifest.Name, info.Message)
 	}
+	// A project-scoped parent may require a global-only dependency (notably
+	// Conversations). Install that dependency once globally instead of writing
+	// an invalid project install that its own manifest would reject through the
+	// ordinary install endpoint.
+	installProjectID := projectID
+	if installProjectID != "" && !manifestAllowsScope(manifest, sdk.ScopeProject) {
+		if !manifestAllowsScope(manifest, sdk.ScopeGlobal) {
+			return 0, fmt.Errorf("app %s supports neither project nor global dependency scope", manifest.Name)
+		}
+		installProjectID = ""
+	}
+	if installProjectID == "" && !manifestAllowsScope(manifest, sdk.ScopeGlobal) {
+		return 0, fmt.Errorf("app %s does not support global dependency scope", manifest.Name)
+	}
 	manifestJSON, _ := json.Marshal(manifest)
 
 	var appID int64
@@ -359,7 +373,7 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by)
 		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'registry', '', '', ?, ?)`,
-		appID, projectID, manifest.Version, string(manifestJSON), string(permsJSON), userID)
+		appID, installProjectID, manifest.Version, string(manifestJSON), string(permsJSON), userID)
 	if err != nil {
 		return 0, fmt.Errorf("create install row: %w", err)
 	}
@@ -372,9 +386,9 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 	// installLocally reject it gracefully there.
 	switch manifest.Runtime.Kind {
 	case "source":
-		return installID, s.installFromSource(installID, manifest, projectID, nil)
+		return installID, s.installFromSource(installID, manifest, installProjectID, nil)
 	default:
-		return installID, s.installLocally(installID, manifest, projectID, nil)
+		return installID, s.installLocally(installID, manifest, installProjectID, nil)
 	}
 }
 

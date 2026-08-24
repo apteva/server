@@ -71,6 +71,19 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "app not in environment: "+app, http.StatusNotFound)
 		return
 	}
+	// The agent id is a server-owned path capability. Set it before extracting
+	// Core's hidden tool metadata so the shared app gateway can mint trusted
+	// thread-role and tool-call headers for runtime sidecars too.
+	r.Header.Del("X-Apteva-Caller-Agent")
+	if callerAgentID > 0 {
+		r.Header.Set("X-Apteva-Caller-Agent", strconv.FormatInt(callerAgentID, 10))
+	}
+	if tail == "/mcp" && r.Method == http.MethodPost {
+		if err := extractCallerThreadFromMCPRequest(r); err != nil {
+			http.Error(w, "invalid MCP caller context: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	target, err := url.Parse(inst.SidecarURL)
 	if err != nil {
 		http.Error(w, "invalid sidecar url", http.StatusInternalServerError)
@@ -87,11 +100,10 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 		orig(req)
 		req.URL.Path = tail
 		req.Header.Set("Authorization", "Bearer "+token)
-		// The caller header is server-attributed, never client-supplied:
-		// scrub inbound values, then set from the URL's agent segment.
+		// Caller-agent identity is server-attributed from the URL segment.
 		req.Header.Del("X-Apteva-Caller-Agent")
-		req.Header.Del("X-Apteva-Caller-Thread")
 		req.Header.Del("X-Apteva-Project-ID")
+		req.Header.Del("X-Apteva-MCP-Profile")
 		if callerAgentID > 0 {
 			req.Header.Set("X-Apteva-Caller-Agent", strconv.FormatInt(callerAgentID, 10))
 			req.Header.Set("X-Apteva-Project-ID", environmentID)

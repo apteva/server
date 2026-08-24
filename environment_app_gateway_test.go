@@ -148,16 +148,21 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 	s.environments.server = s
 
 	type seen struct {
-		auth, caller, thread, project string
+		auth, caller, thread, role, toolCall, project, deprecatedProfile, body string
 	}
 	var got seen
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = seen{
-			auth:    r.Header.Get("Authorization"),
-			caller:  r.Header.Get("X-Apteva-Caller-Agent"),
-			thread:  r.Header.Get("X-Apteva-Caller-Thread"),
-			project: r.Header.Get("X-Apteva-Project-ID"),
+			auth:              r.Header.Get("Authorization"),
+			caller:            r.Header.Get("X-Apteva-Caller-Agent"),
+			thread:            r.Header.Get("X-Apteva-Caller-Thread"),
+			role:              r.Header.Get("X-Apteva-Caller-Thread-Role"),
+			toolCall:          r.Header.Get("X-Apteva-Tool-Call-ID"),
+			project:           r.Header.Get("X-Apteva-Project-ID"),
+			deprecatedProfile: r.Header.Get("X-Apteva-MCP-Profile"),
 		}
+		payload, _ := io.ReadAll(r.Body)
+		got.body = string(payload)
 		w.WriteHeader(200)
 	}))
 	defer backend.Close()
@@ -181,9 +186,10 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 	}
 	s.environments.environments["env-attr"] = environment
 
-	do := func(path, spoofCaller string) int {
-		r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+	do := func(path, spoofCaller, body string) int {
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:54321" // the gateway is loopback-only
+		r.Header.Set("X-Apteva-MCP-Profile", "conversation")
 		if spoofCaller != "" {
 			r.Header.Set("X-Apteva-Caller-Agent", spoofCaller)
 			r.Header.Set("X-Apteva-Caller-Thread", "spoof-thread")
@@ -194,18 +200,24 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 	}
 
 	// Attributed form: header set from URL, spoof scrubbed.
-	if code := do("/environment-app-gateway/env-attr/agent-42/a2a/mcp", "999"); code != 200 {
+	if code := do("/environment-app-gateway/env-attr/agent-42/a2a/mcp", "999", `{
+		"jsonrpc":"2.0","id":1,"method":"tools/call",
+		"params":{"name":"reply","arguments":{"_apteva_caller_thread":"chat-room-7","_apteva_tool_call_id":"call-7"}}
+	}`); code != 200 {
 		t.Fatalf("attributed call status %d", code)
 	}
-	if got.caller != "42" || got.project != "env-attr" || got.thread != "" {
-		t.Fatalf("attributed headers = %+v, want caller 42, project env-attr, no thread", got)
+	if got.caller != "42" || got.project != "env-attr" || got.thread != "chat-room-7" || got.role != "conversation" || got.toolCall != "call-7" || got.deprecatedProfile != "" {
+		t.Fatalf("attributed headers = %+v", got)
+	}
+	if strings.Contains(got.body, "_apteva_caller") || strings.Contains(got.body, "_apteva_tool_call_id") {
+		t.Fatalf("hidden metadata leaked to runtime sidecar: %s", got.body)
 	}
 	if got.auth == "" {
 		t.Fatal("install token not injected")
 	}
 
 	// Plain form: caller-less, spoof still scrubbed.
-	if code := do("/environment-app-gateway/env-attr/a2a/mcp", "999"); code != 200 {
+	if code := do("/environment-app-gateway/env-attr/a2a/mcp", "999", `{}`); code != 200 {
 		t.Fatalf("plain call status %d", code)
 	}
 	if got.caller != "" || got.thread != "" {
@@ -213,7 +225,7 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 	}
 
 	// Malformed agent segment is rejected.
-	if code := do("/environment-app-gateway/env-attr/agent-x/a2a/mcp", ""); code != http.StatusBadRequest {
+	if code := do("/environment-app-gateway/env-attr/agent-x/a2a/mcp", "", `{}`); code != http.StatusBadRequest {
 		t.Fatalf("malformed agent segment status %d, want 400", code)
 	}
 }

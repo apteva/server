@@ -29,7 +29,6 @@ func TestAppMCPSurfaceChangedComparesNamesDescriptionsAndSchemas(t *testing.T) {
 	if !appMCPSurfaceChanged(base, schemaChanged) {
 		t.Fatal("input schema change was not detected")
 	}
-
 	if appMCPSurfaceChanged(base, appMCPSurfaceSnapshot{}) {
 		t.Fatal("an unavailable post-upgrade snapshot must not trigger speculative restarts")
 	}

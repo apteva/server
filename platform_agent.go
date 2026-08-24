@@ -10,6 +10,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,9 +22,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 const helperGlobalMCPServerIDsKey = "helper_global_mcp_server_ids"
+const helperActivatedKey = "helper_activated"
 
 var reservedPlatformHelperMCPNames = map[string]bool{
 	"apteva-server":   true,
@@ -67,6 +71,14 @@ func (s *Server) bootMetaAgents() {
 		return
 	}
 	for _, u := range users {
+		helper, err := s.store.GetPlatformHelper(u.ID)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !platformHelperActivated(helper)) {
+			continue
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[boot] platform helper lookup for user=%d: %v\n", u.ID, err)
+			continue
+		}
 		pool := s.GetProviderPool(u.ID, "")
 		if len(pool) == 0 {
 			// Skip — lazy start handles this user when they add a
@@ -140,6 +152,24 @@ func helperConfigMap(helper *Agent) map[string]any {
 		cfg = map[string]any{}
 	}
 	return cfg
+}
+
+// Existing Helper rows predate explicit activation and are grandfathered in.
+// Only an explicit false disables a preserved Helper row.
+func platformHelperActivated(helper *Agent) bool {
+	if helper == nil {
+		return false
+	}
+	value, present := helperConfigMap(helper)[helperActivatedKey].(bool)
+	return !present || value
+}
+
+func setPlatformHelperActivated(helper *Agent, activated bool) {
+	cfg := helperConfigMap(helper)
+	cfg[helperActivatedKey] = activated
+	if out, err := json.Marshal(cfg); err == nil {
+		helper.Config = string(out)
+	}
 }
 
 func helperSelectedGlobalMCPServerIDs(helper *Agent) []int64 {
@@ -364,9 +394,15 @@ func helperHasRequiredRuntimeConfig(helper *Agent) bool {
 // First-call latency: ~2-3s (spawn + listener wait). Subsequent
 // calls in the same server lifetime are no-ops.
 func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
-	helper, err := s.store.GetOrCreatePlatformHelper(userID, platformHelperSystemPrompt)
+	helper, err := s.store.GetPlatformHelper(userID)
 	if err != nil {
-		return nil, fmt.Errorf("ensure platform helper row: %w", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("platform helper is not activated")
+		}
+		return nil, fmt.Errorf("load platform helper row: %w", err)
+	}
+	if !platformHelperActivated(helper) {
+		return nil, errors.New("platform helper is deactivated")
 	}
 	wasRunning := s.agents.IsRunning(helper.ID)
 	needsRestart := wasRunning && !helperHasRequiredRuntimeConfig(helper)
@@ -598,9 +634,17 @@ func (s *Server) platformHelperCapabilitiesApplied(helper *Agent, validIDs []int
 // app/integration rows only. Mandatory Helper system MCPs are never writable.
 func (s *Server) handlePlatformHelperCapabilities(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
-	helper, err := s.store.GetOrCreatePlatformHelper(userID, platformHelperSystemPrompt)
+	helper, err := s.store.GetPlatformHelper(userID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "platform helper is not activated", "code": "helper_not_activated"})
+			return
+		}
 		http.Error(w, "platform helper: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !platformHelperActivated(helper) {
+		writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "platform helper is deactivated", "code": "helper_not_activated"})
 		return
 	}
 	switch r.Method {
@@ -694,9 +738,199 @@ func (s *Server) refreshPlatformHelperDirective(helper *Agent) error {
 	return nil
 }
 
-// handlePlatformHelper exposes the current user's platform helper as a
-// sanitized chat target. It does not include the helper in normal agent
-// listings; callers opt in via this endpoint.
+type platformHelperStatusResponse struct {
+	Activated              bool   `json:"activated"`
+	State                  string `json:"state"`
+	ProviderConfigured     bool   `json:"provider_configured"`
+	ConversationsInstalled bool   `json:"conversations_installed"`
+	ConversationsInstallID int64  `json:"conversations_install_id,omitempty"`
+	Agent                  *Agent `json:"agent,omitempty"`
+}
+
+func sanitizedPlatformHelper(helper *Agent, running bool) *Agent {
+	if helper == nil {
+		return nil
+	}
+	copy := *helper
+	if running {
+		copy.Status = "running"
+	} else {
+		copy.Status = "stopped"
+	}
+	copy.Name = "Apteva Helper"
+	copy.Directive = "Platform assistant for dashboard help, agent design, and quick agent creation."
+	copy.Kind = "platform_helper"
+	return &copy
+}
+
+func (s *Server) platformHelperConversationsInstall(userID int64) (installID, mcpServerID int64, ok bool) {
+	err := s.store.db.QueryRow(`
+		SELECT i.id, COALESCE(m.id,0)
+		FROM app_installs i
+		JOIN apps a ON a.id=i.app_id
+		LEFT JOIN mcp_servers m ON m.upstream_id='app:' || i.id AND m.user_id=?
+		WHERE a.name=? AND i.status='running' AND COALESCE(i.project_id,'')=''
+		ORDER BY CASE WHEN i.installed_by=? THEN 0 ELSE 1 END, i.id
+		LIMIT 1`, userID, defaultConversationsApp, userID).Scan(&installID, &mcpServerID)
+	return installID, mcpServerID, err == nil && installID > 0
+}
+
+func (s *Server) ensurePlatformHelperConversations(userID int64, allowInstall bool) (int64, int64, error) {
+	installID, mcpServerID, installed := s.platformHelperConversationsInstall(userID)
+	if !installed {
+		if !allowInstall {
+			return 0, 0, errors.New("Conversations must be installed before activating Helper")
+		}
+		if s.store.GetPlatformRole(userID) != PlatformAdmin {
+			return 0, 0, errors.New("an administrator must install Conversations before Helper can be activated")
+		}
+		manifest := &sdk.Manifest{}
+		manifest.Requires.Apps = []sdk.RequiredAppRef{{Name: defaultConversationsApp}}
+		resolved, err := s.installDependencies(userID, manifest, "", nil)
+		if err != nil {
+			return 0, 0, fmt.Errorf("install Conversations: %w", err)
+		}
+		installID = resolved[defaultConversationsApp]
+		if installID <= 0 {
+			return 0, 0, errors.New("Conversations installation did not produce a running install")
+		}
+	}
+	if mcpServerID <= 0 {
+		if err := s.registerAppMCP(installID); err != nil {
+			return 0, 0, fmt.Errorf("register Conversations tools: %w", err)
+		}
+		_, mcpServerID, installed = s.platformHelperConversationsInstall(userID)
+	}
+	if !installed || mcpServerID <= 0 {
+		return 0, 0, errors.New("Conversations is running but its Helper capability is unavailable")
+	}
+	return installID, mcpServerID, nil
+}
+
+func (s *Server) currentPlatformHelperStatus(userID int64) platformHelperStatusResponse {
+	installID, _, conversationsInstalled := s.platformHelperConversationsInstall(userID)
+	response := platformHelperStatusResponse{
+		State: "inactive", ProviderConfigured: len(s.GetProviderPool(userID, "")) > 0,
+		ConversationsInstalled: conversationsInstalled, ConversationsInstallID: installID,
+	}
+	helper, err := s.store.GetPlatformHelper(userID)
+	if err != nil || !platformHelperActivated(helper) {
+		return response
+	}
+	response.Activated = true
+	running := s.agents.IsRunning(helper.ID)
+	response.State = "stopped"
+	if running {
+		response.State = "running"
+	}
+	response.Agent = sanitizedPlatformHelper(helper, running)
+	return response
+}
+
+func (s *Server) handlePlatformHelperStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, s.currentPlatformHelperStatus(getUserID(r)))
+}
+
+func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		InstallConversations bool `json:"install_conversations"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+	}
+	userID := getUserID(r)
+	if len(s.GetProviderPool(userID, "")) == 0 {
+		writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "an LLM provider is required before activating Helper", "code": "provider_required"})
+		return
+	}
+	if body.InstallConversations && s.store.GetPlatformRole(userID) != PlatformAdmin {
+		if _, _, installed := s.platformHelperConversationsInstall(userID); !installed {
+			writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "an administrator must install Conversations before Helper can be activated", "code": "admin_required"})
+			return
+		}
+	}
+	installID, conversationsMCPID, err := s.ensurePlatformHelperConversations(userID, body.InstallConversations)
+	if err != nil {
+		status := http.StatusConflict
+		if body.InstallConversations {
+			status = http.StatusBadGateway
+		}
+		writeJSONStatus(w, status, map[string]any{"error": err.Error(), "code": "conversations_required"})
+		return
+	}
+
+	helper, err := s.store.GetOrCreatePlatformHelper(userID, platformHelperSystemPrompt)
+	if err != nil {
+		http.Error(w, "create platform helper: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	setPlatformHelperActivated(helper, true)
+	selected := append(helperSelectedGlobalMCPServerIDs(helper), conversationsMCPID)
+	setHelperSelectedGlobalMCPServerIDs(helper, selected)
+	if _, err := s.ensurePlatformHelperRuntimeConfig(helper); err != nil {
+		http.Error(w, "configure platform helper: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.UpdateAgent(helper); err != nil {
+		http.Error(w, "persist platform helper", http.StatusInternalServerError)
+		return
+	}
+	if _, err := s.store.db.Exec(`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES(?,?,1)
+		ON CONFLICT(install_id,agent_id) DO UPDATE SET enabled=1`, installID, helper.ID); err != nil {
+		http.Error(w, "attach Conversations to platform helper", http.StatusInternalServerError)
+		return
+	}
+	starter := s.platformHelperStarter
+	if starter == nil {
+		starter = s.ensureMetaAgentRunning
+	}
+	helper, err = starter(userID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error(), "code": "helper_start_failed"})
+		return
+	}
+	writeJSON(w, s.currentPlatformHelperStatus(userID))
+}
+
+func (s *Server) handlePlatformHelperDeactivate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	helper, err := s.store.GetPlatformHelper(userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, s.currentPlatformHelperStatus(userID))
+		return
+	}
+	if err != nil {
+		http.Error(w, "load platform helper", http.StatusInternalServerError)
+		return
+	}
+	s.agents.Stop(helper.ID)
+	setPlatformHelperActivated(helper, false)
+	helper.Status, helper.Pid, helper.Port, helper.CoreAPIKey = "stopped", 0, 0, ""
+	if err := s.store.UpdateAgent(helper); err != nil {
+		http.Error(w, "deactivate platform helper", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, s.currentPlatformHelperStatus(userID))
+}
+
+// handlePlatformHelper exposes an already-activated Helper as a sanitized
+// chat target. A read never creates a Helper row.
 func (s *Server) handlePlatformHelper(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -704,18 +938,14 @@ func (s *Server) handlePlatformHelper(w http.ResponseWriter, r *http.Request) {
 	}
 	helper, err := s.ensureMetaAgentRunning(getUserID(r))
 	if err != nil {
-		http.Error(w, "platform helper: "+err.Error(), http.StatusServiceUnavailable)
+		status := http.StatusServiceUnavailable
+		if strings.Contains(err.Error(), "not activated") || strings.Contains(err.Error(), "deactivated") {
+			status = http.StatusNotFound
+		}
+		writeJSONStatus(w, status, map[string]any{"error": "platform helper: " + err.Error(), "code": "helper_not_activated"})
 		return
 	}
-	if s.agents.IsRunning(helper.ID) {
-		helper.Status = "running"
-	} else {
-		helper.Status = "stopped"
-	}
-	helper.Name = "Apteva Helper"
-	helper.Directive = "Platform assistant for dashboard help, agent design, and quick agent creation."
-	helper.Kind = "platform_helper"
-	writeJSON(w, helper)
+	writeJSON(w, sanitizedPlatformHelper(helper, s.agents.IsRunning(helper.ID)))
 }
 
 const platformHelperSystemPrompt = `You are Apteva Helper, the platform assistant for the Apteva dashboard.

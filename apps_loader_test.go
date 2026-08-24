@@ -4,10 +4,38 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 
 	sdk "github.com/apteva/app-sdk"
 )
+
+func TestAppProxy_StripsDeprecatedMCPProfileHeader(t *testing.T) {
+	s := newTestServer(t)
+	apiKey := testPrivateAPIKey(t, s)
+	s.installedApps = NewInstalledAppsRegistry()
+	seen := "not-called"
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("X-Apteva-MCP-Profile")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer sidecar.Close()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 77, AppName: "conversations", SidecarURL: sidecar.URL, Token: "app-token",
+		Manifest: sdk.Manifest{Provides: sdk.Provides{MCPTools: []sdk.MCPToolSpec{{Name: "send"}}}},
+	})
+	apiMux := http.NewServeMux()
+	s.registerAppRuntimeRoutes(apiMux)
+	req := httptest.NewRequest(http.MethodPost, "/apps/conversations/mcp?install_id=77",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("X-Apteva-MCP-Profile", "conversation")
+	rec := httptest.NewRecorder()
+	apiMux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || seen != "" {
+		t.Fatalf("status=%d forwarded deprecated profile=%q", rec.Code, seen)
+	}
+}
 
 func TestAppProxy_NoAuthRoutePreservesCallerAuthorization(t *testing.T) {
 	s := newTestServer(t)

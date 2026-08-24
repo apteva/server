@@ -651,6 +651,171 @@ func (r *serverResolver) SpawnOpaqueThreadWithEvents(inst framework.InstanceInfo
 	return result, nil
 }
 
+// EnsureOpaqueThread creates a missing thread or reconciles an existing
+// thread's complete app-owned profile without discarding its history. Core's
+// PUT surface applies the profile and stable inbox events in one request; a
+// missing thread continues to use the atomic POST spawn path above.
+func (r *serverResolver) EnsureOpaqueThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool, events []sdk.ThreadEvent, profileHash string) (sdk.ThreadEnsureResult, error) {
+	if inst.Port == 0 {
+		return sdk.ThreadEnsureResult{}, fmt.Errorf("agent %d has no core port — is it running?", inst.ID)
+	}
+	current, found, err := r.inspectOpaqueThread(inst, threadID)
+	if err != nil {
+		return sdk.ThreadEnsureResult{}, err
+	}
+	if !found {
+		spawned, err := r.SpawnOpaqueThreadWithEvents(inst, threadID, directiveSuffix, tools, mcp, ephemeral, events)
+		if err != nil {
+			return sdk.ThreadEnsureResult{}, err
+		}
+		result := sdk.ThreadEnsureResult{
+			Status: spawned.Status, Thread: spawned.Thread, Events: spawned.Events,
+			ProfileHash: profileHash, Reconciled: true,
+		}
+		// A concurrent caller may have created the thread after our inspect.
+		// Core correctly reports exists and queues the stable events, but POST's
+		// legacy contract does not alter that winner's profile. Re-enter once
+		// without events so the live profile is authoritative too.
+		if spawned.Status == "exists" {
+			reconciled, err := r.EnsureOpaqueThread(inst, threadID, directiveSuffix, tools, mcp, ephemeral, nil, profileHash)
+			if err != nil {
+				return sdk.ThreadEnsureResult{}, err
+			}
+			reconciled.Events = spawned.Events
+			return reconciled, nil
+		}
+		return result, nil
+	}
+
+	mainDirective, err := r.MainDirective(inst)
+	if err != nil {
+		return sdk.ThreadEnsureResult{}, fmt.Errorf("inspect desired thread directive: %w", err)
+	}
+	desiredDirective := mainDirective + directiveSuffix
+	profileChanged := current.Directive != desiredDirective ||
+		tools != nil ||
+		!sameStringSet(current.MCPNames, mcp)
+
+	result := sdk.ThreadEnsureResult{
+		Status: "unchanged", Thread: sdk.ThreadRef{AgentID: inst.ID, ThreadID: threadID},
+		ProfileHash: profileHash, Reconciled: true,
+	}
+	if profileChanged {
+		receipt, status, err := r.updateOpaqueThreadWithEvents(inst, threadID, directiveSuffix, tools, mcp, events)
+		if err != nil {
+			return sdk.ThreadEnsureResult{}, err
+		}
+		result.Status = status
+		if result.Status == "" {
+			result.Status = "updated"
+		}
+		result.Events = receipt
+		return result, nil
+	}
+
+	if len(events) > 0 {
+		queued, err := r.SpawnOpaqueThreadWithEvents(inst, threadID, directiveSuffix, tools, mcp, ephemeral, events)
+		if err != nil {
+			return sdk.ThreadEnsureResult{}, err
+		}
+		result.Events = queued.Events
+	}
+	return result, nil
+}
+
+func (r *serverResolver) inspectOpaqueThread(inst framework.InstanceInfo, threadID string) (threadIDRow, bool, error) {
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads", inst.Port)
+	req, err := http.NewRequest(http.MethodGet, coreURL, nil)
+	if err != nil {
+		return threadIDRow{}, false, err
+	}
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return threadIDRow{}, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return threadIDRow{}, false, fmt.Errorf("inspect thread %q: HTTP %d", threadID, resp.StatusCode)
+	}
+	var rows []threadIDRow
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return threadIDRow{}, false, fmt.Errorf("inspect thread %q: %w", threadID, err)
+	}
+	for _, row := range rows {
+		if row.ID == threadID {
+			return row, true, nil
+		}
+	}
+	return threadIDRow{}, false, nil
+}
+
+func (r *serverResolver) updateOpaqueThreadWithEvents(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, events []sdk.ThreadEvent) (sdk.ThreadEventReceipt, string, error) {
+	payload := map[string]any{
+		"directive_suffix": directiveSuffix,
+		"tools":            tools,
+		"mcp":              mcp,
+	}
+	if len(events) > 0 {
+		payload["events"] = events
+	}
+	body, _ := json.Marshal(payload)
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
+	req, err := http.NewRequest(http.MethodPut, coreURL, bytes.NewReader(body))
+	if err != nil {
+		return sdk.ThreadEventReceipt{}, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return sdk.ThreadEventReceipt{}, "", err
+	}
+	defer resp.Body.Close()
+	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if readErr != nil {
+		return sdk.ThreadEventReceipt{}, "", fmt.Errorf("update thread %q: read response: %w", threadID, readErr)
+	}
+	if resp.StatusCode >= 300 {
+		detail := strings.TrimSpace(string(responseBody))
+		return sdk.ThreadEventReceipt{}, "", fmt.Errorf("update thread %q: HTTP %d: %s", threadID, resp.StatusCode, detail)
+	}
+	var response struct {
+		Status string                 `json:"status"`
+		Events sdk.ThreadEventReceipt `json:"events"`
+	}
+	if len(responseBody) > 0 {
+		if err := json.Unmarshal(responseBody, &response); err != nil {
+			return sdk.ThreadEventReceipt{}, "", fmt.Errorf("update thread %q: decode response: %w", threadID, err)
+		}
+	}
+	if err := verifyThreadEventReceipt(threadID, events, response.Events); err != nil {
+		return sdk.ThreadEventReceipt{}, "", err
+	}
+	return response.Events, response.Status, nil
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, value := range a {
+		seen[value]++
+	}
+	for _, value := range b {
+		if seen[value] == 0 {
+			return false
+		}
+		seen[value]--
+	}
+	return true
+}
+
 func verifyThreadEventReceipt(threadID string, events []sdk.ThreadEvent, receipt sdk.ThreadEventReceipt) error {
 	if len(events) == 0 {
 		return nil
@@ -908,9 +1073,11 @@ func (r *serverResolver) removePersistedThreadDefinition(instanceID int64, threa
 }
 
 type threadIDRow struct {
-	ID       string   `json:"id"`
-	Tools    []string `json:"tools,omitempty"`
-	MCPNames []string `json:"mcp_names,omitempty"`
+	ID        string   `json:"id"`
+	Directive string   `json:"directive,omitempty"`
+	Tools     []string `json:"tools,omitempty"`
+	MCPNames  []string `json:"mcp_names,omitempty"`
+	Ephemeral bool     `json:"ephemeral,omitempty"`
 }
 
 // ThreadTools returns Core's live effective allowlist for one thread. It is

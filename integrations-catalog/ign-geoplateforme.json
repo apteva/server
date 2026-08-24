@@ -1,0 +1,150 @@
+{
+  "slug": "ign-geoplateforme",
+  "name": "IGN Géoplateforme",
+  "description": "Official French national geospatial services from IGN. Geocode addresses and cadastral parcels, retrieve BD TOPO buildings and cadastral parcels as GeoJSON, discover public WFS/WMS layers, and download high-resolution orthophoto images for a bounding box. Public read services require no account or API key.",
+  "logo": "https://www.google.com/s2/favicons?domain=ign.fr&sz=128",
+  "categories": [
+    "france",
+    "geospatial",
+    "aerial-imagery",
+    "buildings",
+    "cadastre",
+    "geocoding",
+    "open-data"
+  ],
+  "base_url": "https://data.geopf.fr",
+  "auth": {
+    "types": ["none"],
+    "headers": {},
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "get_geocoding_capabilities"
+  },
+  "tools": [
+    {
+      "name": "get_geocoding_capabilities",
+      "description": "Discover the current IGN geocoding resources, operations, indexes, and supported options.",
+      "method": "GET",
+      "path": "/geocodage/getcapabilities",
+      "headers": {"Accept": "application/json"},
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "search_locations",
+      "description": "Geocode a French address, place, or cadastral parcel to GeoJSON coordinates using BAN, BD TOPO, and Parcellaire Express data.",
+      "method": "GET",
+      "path": "/geocodage/search",
+      "headers": {"Accept": "application/json"},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {"type": "string", "description": "Free-form French address, place name, or parcel query."},
+          "index": {"type": "string", "description": "Optional resource/index selector from get_geocoding_capabilities."},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+          "autocomplete": {"type": "boolean"},
+          "returntruegeometry": {"type": "boolean", "description": "Return source geometry where supported."}
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "reverse_geocode",
+      "description": "Resolve WGS84 coordinates to the nearest French address, place, or parcel.",
+      "method": "GET",
+      "path": "/geocodage/reverse",
+      "headers": {"Accept": "application/json"},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lon": {"type": "number", "minimum": -180, "maximum": 180},
+          "lat": {"type": "number", "minimum": -90, "maximum": 90},
+          "index": {"type": "string"},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+          "returntruegeometry": {"type": "boolean"}
+        },
+        "required": ["lon", "lat"]
+      }
+    },
+    {
+      "name": "get_buildings",
+      "description": "Return current BD TOPO building footprints and attributes as GeoJSON inside a WGS84 bounding box. Attributes can include use, nature, construction dates, heights/elevations, and identifiers when present.",
+      "method": "GET",
+      "path": "/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&typeNames=BDTOPO_V3:batiment&outputFormat=application/json&srsName=EPSG:4326",
+      "headers": {"Accept": "application/json"},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bbox": {"type": "string", "description": "WGS84 `west,south,east,north,EPSG:4326`."},
+          "count": {"type": "integer", "minimum": 1, "maximum": 5000, "default": 1000},
+          "startIndex": {"type": "integer", "minimum": 0, "default": 0},
+          "CQL_FILTER": {"type": "string", "description": "Optional GeoServer CQL filter on building attributes."},
+          "propertyName": {"type": "string", "description": "Optional comma-separated response properties."}
+        },
+        "required": ["bbox"]
+      }
+    },
+    {
+      "name": "get_cadastral_parcels",
+      "description": "Return Parcellaire Express cadastral parcels as GeoJSON within a WGS84 bounding box.",
+      "method": "GET",
+      "path": "/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&typeNames=CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle&outputFormat=application/json&srsName=EPSG:4326",
+      "headers": {"Accept": "application/json"},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bbox": {"type": "string", "description": "WGS84 `west,south,east,north,EPSG:4326`."},
+          "count": {"type": "integer", "minimum": 1, "maximum": 5000, "default": 1000},
+          "startIndex": {"type": "integer", "minimum": 0, "default": 0},
+          "CQL_FILTER": {"type": "string", "description": "Optional parcel attribute filter."},
+          "propertyName": {"type": "string"}
+        },
+        "required": ["bbox"]
+      }
+    },
+    {
+      "name": "get_orthophoto",
+      "description": "Render a high-resolution IGN orthophoto for a WGS84 bounding box. The image is returned as JPEG. Capture dates vary by territory; this is authoritative aerial coverage, not a guaranteed recent image.",
+      "method": "GET",
+      "path": "/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=HR.ORTHOIMAGERY.ORTHOPHOTOS&STYLES=&CRS=CRS:84&FORMAT=image/jpeg",
+      "headers": {"Accept": "image/jpeg"},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BBOX": {"type": "string", "description": "WGS84 `west,south,east,north`. Keep the area small for property-level detail."},
+          "WIDTH": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1024},
+          "HEIGHT": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1024}
+        },
+        "required": ["BBOX", "WIDTH", "HEIGHT"]
+      }
+    },
+    {
+      "name": "get_wfs_capabilities",
+      "description": "List every current public IGN vector feature layer and supported WFS operation. Use this to discover additional building, address, transport, land-cover, or administrative layers.",
+      "method": "GET",
+      "path": "/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetCapabilities",
+      "headers": {"Accept": "application/xml"},
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_download_resources",
+      "description": "Discover downloadable IGN datasets and editions from the public Géoplateforme download API.",
+      "method": "GET",
+      "path": "/telechargement/capabilities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {"type": "integer", "minimum": 1, "default": 1},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
+          "polygon": {"type": "string", "description": "Optional EPSG:4326 polygon `x1,y1;x2,y2;...`."},
+          "updatedFrom": {"type": "string", "description": "Minimum resource update date YYYY-MM-DD."},
+          "editionDateFrom": {"type": "string", "description": "Minimum edition date YYYY-MM-DD."},
+          "thematic": {"type": "string"},
+          "zone": {"type": "string", "description": "FRA or a department code such as D075."},
+          "format": {"type": "string"},
+          "lang": {"type": "string", "enum": ["fre", "eng"], "default": "fre"}
+        }
+      }
+    }
+  ]
+}
