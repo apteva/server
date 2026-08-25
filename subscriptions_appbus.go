@@ -324,34 +324,44 @@ func subscriptionPayloadMatches(sub *Subscription, payload json.RawMessage) bool
 	}
 	for key, wantValue := range want {
 		gotValue, ok := got[key]
-		if !ok || !jsonScalarEqual(gotValue, wantValue) {
+		if !ok || !jsonFieldValueMatches(gotValue, wantValue) {
 			return false
 		}
 	}
 	return true
 }
 
+// jsonFieldValueMatches is intentionally small: scalar event fields compare
+// directly, while array fields match when any element equals the requested
+// scalar. This keeps the public filter shape to {"field": value} even for
+// common identifiers such as {"list_ids": 2}.
+func jsonFieldValueMatches(got, want any) bool {
+	if values, ok := got.([]any); ok {
+		for _, value := range values {
+			if jsonScalarEqual(value, want) {
+				return true
+			}
+		}
+		return false
+	}
+	return jsonScalarEqual(got, want)
+}
+
 func jsonScalarEqual(a, b any) bool {
 	switch av := a.(type) {
+	case nil:
+		return b == nil
 	case float64:
-		switch bv := b.(type) {
-		case float64:
-			return av == bv
-		case int:
-			return av == float64(bv)
-		case int64:
-			return av == float64(bv)
-		case json.Number:
-			f, _ := bv.Float64()
-			return av == f
-		}
+		bv, ok := b.(float64)
+		return ok && av == bv
 	case string:
-		return av == fmt.Sprint(b)
+		bv, ok := b.(string)
+		return ok && av == bv
 	case bool:
 		bv, ok := b.(bool)
 		return ok && av == bv
 	}
-	return fmt.Sprint(a) == fmt.Sprint(b)
+	return false
 }
 
 // matchTopic — the topic pattern grammar:

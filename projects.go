@@ -84,6 +84,10 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 			s.handleProjectPresetApply(w, r, id[:i])
 			return
 		}
+		if seg == "templates" || seg == "templates/capture" {
+			s.handleProjectTemplates(w, r, id[:i], seg)
+			return
+		}
 	}
 
 	switch r.Method {

@@ -1,0 +1,226 @@
+{
+  "slug": "unity-build-automation",
+  "name": "Unity Build Automation",
+  "description": "Unity DevOps Build Automation API for discovering projects and build targets, starting and cancelling cloud builds, and retrieving build status, logs, failures, steps, and artifacts for iOS and other supported platforms.",
+  "logo": "https://www.google.com/s2/favicons?domain=unity.com&sz=128",
+  "categories": ["game-development", "unity", "ci", "build-automation", "ios", "mobile"],
+  "base_url": "https://build-api.cloud.unity3d.com/api/v1",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Authorization": "Basic {{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Build Automation API Key",
+        "description": "API key copied from Unity DevOps > Build Automation > Settings. Unity expects this key directly after the Basic scheme.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": { "tool": "list_projects" },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List Unity Build Automation projects visible to the authenticated API key.",
+      "method": "GET",
+      "path": "/projects",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_project_by_upid",
+      "description": "Get a Unity project using its globally unique Unity project identifier.",
+      "method": "GET",
+      "path": "/projects/{projectupid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectupid": { "type": "string", "description": "Unity project UPID." } },
+        "required": ["projectupid"]
+      }
+    },
+    {
+      "name": "list_organization_projects",
+      "description": "List Build Automation projects in a Unity organization.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": { "orgid": { "type": "string", "description": "Unity organization ID." } },
+        "required": ["orgid"]
+      }
+    },
+    {
+      "name": "get_organization_project",
+      "description": "Get one Build Automation project in a Unity organization.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "orgid": { "type": "string" }, "projectid": { "type": "string" } },
+        "required": ["orgid", "projectid"]
+      }
+    },
+    {
+      "name": "list_build_targets",
+      "description": "List configured cloud build targets, including iOS targets, for a Unity project.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets",
+      "input_schema": {
+        "type": "object",
+        "properties": { "orgid": { "type": "string" }, "projectid": { "type": "string" } },
+        "required": ["orgid", "projectid"]
+      }
+    },
+    {
+      "name": "get_build_target",
+      "description": "Get the configuration and repository settings for one Unity cloud build target.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" }
+        },
+        "required": ["orgid", "projectid", "buildtargetid"]
+      }
+    },
+    {
+      "name": "list_builds",
+      "description": "List recent builds for one Unity Build Automation target with optional page controls.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds",
+      "query_params": ["page", "per_page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 }, "per_page": { "type": "integer", "minimum": 1, "maximum": 100 }
+        },
+        "required": ["orgid", "projectid", "buildtargetid"]
+      }
+    },
+    {
+      "name": "start_build",
+      "description": "Queue a Unity cloud build for a configured target, optionally selecting a branch, commit, clean build, machine class, or platform SDK.",
+      "method": "POST",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orgid": { "type": "string" },
+          "projectid": { "type": "string" },
+          "buildtargetid": { "type": "string" },
+          "clean": { "type": "boolean" },
+          "delay": { "type": "number", "minimum": 0, "description": "Optional queue delay in milliseconds." },
+          "commit": { "type": ["string", "null"] },
+          "branch": { "type": ["string", "null"] },
+          "operatingSystemSelected": { "type": "string" },
+          "operatingSystemVersion": { "type": "string" },
+          "buildTargetGroupIds": { "type": "array", "items": { "type": "string" } },
+          "groupBuildId": { "type": "string", "format": "uuid" },
+          "machineTypeLabel": { "type": "string", "enum": ["win_premium_v1", "win_standard_v1", "mac_standard_v1", "mac_premium_v1"] },
+          "architecture": { "type": "string" },
+          "androidSDKVersion": { "type": "string" }
+        },
+        "required": ["orgid", "projectid", "buildtargetid"]
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get the status and metadata of a numbered Unity cloud build.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds/{number}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" }, "number": { "type": "integer" }
+        },
+        "required": ["orgid", "projectid", "buildtargetid", "number"]
+      }
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancel a queued or running Unity cloud build.",
+      "method": "DELETE",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds/{number}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" }, "number": { "type": "integer" }
+        },
+        "required": ["orgid", "projectid", "buildtargetid", "number"]
+      }
+    },
+    {
+      "name": "get_build_log",
+      "description": "Retrieve the complete log output for a numbered Unity cloud build.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds/{number}/log",
+      "input_schema": {
+        "type": "object",
+        "properties": { "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" }, "number": { "type": "integer" } },
+        "required": ["orgid", "projectid", "buildtargetid", "number"]
+      }
+    },
+    {
+      "name": "list_build_failures",
+      "description": "List parsed compiler and build failures for a numbered Unity cloud build.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds/{number}/failures",
+      "input_schema": {
+        "type": "object",
+        "properties": { "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" }, "number": { "type": "integer" } },
+        "required": ["orgid", "projectid", "buildtargetid", "number"]
+      }
+    },
+    {
+      "name": "list_build_steps",
+      "description": "List the execution steps and timing for a numbered Unity cloud build.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds/{number}/steps",
+      "input_schema": {
+        "type": "object",
+        "properties": { "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" }, "number": { "type": "integer" } },
+        "required": ["orgid", "projectid", "buildtargetid", "number"]
+      }
+    },
+    {
+      "name": "download_build_artifact",
+      "description": "Download a named artifact file produced by a numbered Unity cloud build.",
+      "method": "GET",
+      "path": "/orgs/{orgid}/projects/{projectid}/buildtargets/{buildtargetid}/builds/{number}/download/{filename}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orgid": { "type": "string" }, "projectid": { "type": "string" }, "buildtargetid": { "type": "string" }, "number": { "type": "integer" }, "filename": { "type": "string" }
+        },
+        "required": ["orgid", "projectid", "buildtargetid", "number", "filename"]
+      }
+    },
+    {
+      "name": "list_unity_versions",
+      "description": "List Unity Editor versions currently available to Build Automation workers.",
+      "method": "GET",
+      "path": "/versions/unity",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_xcode_versions",
+      "description": "List Xcode versions currently available for Unity iOS cloud builds.",
+      "method": "GET",
+      "path": "/versions/xcode",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_supported_platforms",
+      "description": "List platforms and target types supported by Unity Build Automation.",
+      "method": "GET",
+      "path": "/platforms/supported",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

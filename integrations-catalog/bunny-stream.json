@@ -148,33 +148,6 @@
       }
     },
     {
-      "name": "get_library",
-      "description": "Get account-level details for the configured video library. This is a Core API endpoint and requires accountApiKey, not streamApiKey.",
-      "method": "GET",
-      "path": "/videolibrary/{{credential.libraryId}}",
-      "headers": {
-        "AccessKey": "{{accountApiKey}}"
-      },
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      },
-      "mock_response": {
-        "Id": 12345,
-        "Name": "My Library",
-        "VideoCount": 27,
-        "TrafficUsage": 1048576,
-        "StorageUsage": 524288000,
-        "DateCreated": "2025-01-01T00:00:00",
-        "ReplicationRegions": [
-          "DE"
-        ],
-        "EnabledResolutions": "240p,360p,480p,720p,1080p",
-        "PullZoneId": 67890,
-        "StorageZoneId": 98765
-      }
-    },
-    {
       "name": "create_library",
       "description": "Create a new video library for organizing and hosting videos. This is a Core API endpoint and requires accountApiKey, not streamApiKey. The response includes the new library Id and ApiKey; use those as libraryId and streamApiKey for Stream tools.",
       "method": "POST",

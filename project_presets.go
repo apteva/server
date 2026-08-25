@@ -38,6 +38,8 @@ type ProjectPreset struct {
 	Source          string                    `json:"source,omitempty"`
 	SchemaVersion   int                       `json:"schema_version,omitempty"`
 	OwnerID         int64                     `json:"owner_id,omitempty"`
+	OwnerProjectID  string                    `json:"owner_project_id,omitempty"`
+	Revision        int                       `json:"revision,omitempty"`
 	Category        string                    `json:"category"`
 	Name            string                    `json:"name"`
 	Description     string                    `json:"description"`

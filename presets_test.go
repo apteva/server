@@ -198,3 +198,68 @@ func TestCaptureProjectPresetIsPortableAndExcludesRuntimeData(t *testing.T) {
 		t.Fatalf("reapply changed revision %d -> %d", targetRevision, targetRevisionAfter)
 	}
 }
+
+func TestProjectTemplatesAreProjectOwnedAndOnboardingIsSystemOnly(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	seedPresetProject(t, s, "template-owner")
+
+	capture := authedRequest(t, http.MethodPost, "/projects/template-owner/templates/capture", "", map[string]any{
+		"name": "Client delivery", "description": "Project-owned setup", "category": "business",
+	})
+	w := httptest.NewRecorder()
+	s.handleProjectTemplates(w, capture, "template-owner", "templates/capture")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("capture status=%d body=%s", w.Code, w.Body.String())
+	}
+	var created Preset
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Scope != "project" || created.OwnerProjectID != "template-owner" || created.Revision != 1 {
+		t.Fatalf("template ownership=%+v", created)
+	}
+	if _, err := s.store.db.Exec(`INSERT INTO users(id,email,password_hash,role) VALUES(2,'viewer@test.local','hash','user')`); err != nil {
+		t.Fatal(err)
+	}
+	blocked := authedRequest(t, http.MethodGet, "/templates/"+created.ID, "", nil)
+	blocked.Header.Set("X-User-ID", "2")
+	w = httptest.NewRecorder()
+	s.handlePresetByID(w, blocked)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("non-member read status=%d", w.Code)
+	}
+	if _, err := s.store.db.Exec(`INSERT INTO project_members(project_id,user_id,role,added_by) VALUES('template-owner',2,'viewer',1)`); err != nil {
+		t.Fatal(err)
+	}
+	viewerEdit := authedRequest(t, http.MethodPatch, "/templates/"+created.ID, "", map[string]any{"name": "Nope"})
+	viewerEdit.Header.Set("X-User-ID", "2")
+	w = httptest.NewRecorder()
+	s.handlePresetByID(w, viewerEdit)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("viewer edit status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	list := authedRequest(t, http.MethodGet, "/projects/template-owner/templates", "", nil)
+	w = httptest.NewRecorder()
+	s.handleProjectTemplates(w, list, "template-owner", "templates")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), created.ID) || !strings.Contains(w.Body.String(), `"source":"system"`) {
+		t.Fatalf("project catalog status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	onboarding := authedRequest(t, http.MethodGet, "/templates?system_only=true", "", nil)
+	w = httptest.NewRecorder()
+	s.handlePresets(w, onboarding)
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), created.ID) || !strings.Contains(w.Body.String(), `"templates"`) {
+		t.Fatalf("onboarding catalog status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	globalCreate := authedRequest(t, http.MethodPost, "/templates", "", map[string]any{
+		"name": "Unowned", "definition": testPresetDefinition(),
+	})
+	w = httptest.NewRecorder()
+	s.handlePresets(w, globalCreate)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unowned create status=%d body=%s", w.Code, w.Body.String())
+	}
+}

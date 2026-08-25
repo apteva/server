@@ -582,6 +582,7 @@ func main() {
 	if !quarantined {
 		go s.platformStatus.Run()
 		go s.startTelemetryRetention()
+		go s.startDelegatedAPIKeyRetention()
 	}
 
 	// Platform helpers are lazy by default. Eagerly booting one helper
@@ -666,6 +667,9 @@ func main() {
 	apiMux.HandleFunc("/presets", s.authMiddleware(s.handlePresets))
 	apiMux.HandleFunc("/presets/capture", s.authMiddleware(s.handlePresetCapture))
 	apiMux.HandleFunc("/presets/", s.authMiddleware(s.handlePresetByID))
+	// Canonical product API. /presets remains an alias for older clients.
+	apiMux.HandleFunc("/templates", s.authMiddleware(s.handlePresets))
+	apiMux.HandleFunc("/templates/", s.authMiddleware(s.handlePresetByID))
 	// Compatibility catalog for older dashboards and SDK clients. New code
 	// should use the generic /presets envelope.
 	apiMux.HandleFunc("/project-presets", s.authMiddleware(s.handleProjectPresets))

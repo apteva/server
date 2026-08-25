@@ -171,6 +171,77 @@ func TestListAPIKeys(t *testing.T) {
 	}
 }
 
+func TestListAPIKeysOnlyReturnsActiveUserManagedKeys(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("managed-keys@test.com", "hash")
+	now := time.Now().UTC()
+	privateKey, _ := store.CreateAPIKey(user.ID, "private", HashAPIKey("private"), "sk-private")
+	publicKey, _ := store.CreateAPIKey(user.ID, "public", HashAPIKey("public"), "pk_public", APIKeyCreateOptions{
+		Kind: "public_client", ProjectID: "project", ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+	})
+	store.CreateAPIKey(user.ID, "delegated", HashAPIKey("delegated"), "uk_deleg", APIKeyCreateOptions{
+		Kind: "delegated_user", ProjectID: "project", ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+	})
+	store.CreateAPIKey(user.ID, "expired", HashAPIKey("expired"), "pk_expire", APIKeyCreateOptions{
+		Kind: "public_client", ProjectID: "project", ExpiresAt: now.Add(-time.Hour).Format(time.RFC3339),
+	})
+	revoked, _ := store.CreateAPIKey(user.ID, "revoked", HashAPIKey("revoked"), "sk-revoke")
+	if _, err := store.db.Exec(`UPDATE api_keys SET revoked_at=? WHERE id=?`, now.Format(time.RFC3339), revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	keys, err := store.ListAPIKeys(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || keys[0].ID != publicKey.ID || keys[1].ID != privateKey.ID {
+		t.Fatalf("listed keys=%+v, want only active public/private keys", keys)
+	}
+}
+
+func TestCleanInactiveDelegatedAPIKeysHonorsRetention(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("delegated-retention@test.com", "hash")
+	now := time.Now().UTC()
+	create := func(name string, expires time.Time) *APIKey {
+		key, err := store.CreateAPIKey(user.ID, name, HashAPIKey(name), "uk_"+name, APIKeyCreateOptions{
+			Kind: "delegated_user", ProjectID: "project", ExpiresAt: expires.Format(time.RFC3339),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return key
+	}
+	create("old-expired", now.Add(-48*time.Hour))
+	create("recent-expired", now.Add(-time.Hour))
+	create("active", now.Add(time.Hour))
+	oldRevoked := create("old-revoked", now.Add(time.Hour))
+	if _, err := store.db.Exec(`UPDATE api_keys SET revoked_at=? WHERE id=?`, now.Add(-48*time.Hour).Format(time.RFC3339), oldRevoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	store.CreateAPIKey(user.ID, "old-private", HashAPIKey("old-private"), "sk_old", APIKeyCreateOptions{
+		Kind: "private", ExpiresAt: now.Add(-48 * time.Hour).Format(time.RFC3339),
+	})
+
+	deleted, err := store.CleanInactiveDelegatedAPIKeys(now, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 2 {
+		t.Fatalf("deleted=%d, want 2", deleted)
+	}
+	var delegated, private int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM api_keys WHERE kind='delegated_user'`).Scan(&delegated); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM api_keys WHERE kind='private'`).Scan(&private); err != nil {
+		t.Fatal(err)
+	}
+	if delegated != 2 || private != 1 {
+		t.Fatalf("remaining delegated=%d private=%d, want 2 and 1", delegated, private)
+	}
+}
+
 func TestDeleteAPIKey(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")

@@ -27,30 +27,33 @@ type ProjectSetupPresetDefinition struct {
 // Preset is the generic public envelope. New consumers add a kind and their
 // own versioned definition without creating another top-level preset table.
 type Preset struct {
-	ID            string                       `json:"id"`
-	Kind          string                       `json:"kind"`
-	Scope         string                       `json:"scope"`
-	Source        string                       `json:"source"`
-	SchemaVersion int                          `json:"schema_version"`
-	Name          string                       `json:"name"`
-	Description   string                       `json:"description"`
-	OwnerID       int64                        `json:"owner_id,omitempty"`
-	Definition    ProjectSetupPresetDefinition `json:"definition"`
-	CreatedAt     *time.Time                   `json:"created_at,omitempty"`
-	UpdatedAt     *time.Time                   `json:"updated_at,omitempty"`
+	ID             string                       `json:"id"`
+	Kind           string                       `json:"kind"`
+	Scope          string                       `json:"scope"`
+	Source         string                       `json:"source"`
+	SchemaVersion  int                          `json:"schema_version"`
+	Name           string                       `json:"name"`
+	Description    string                       `json:"description"`
+	OwnerID        int64                        `json:"owner_id,omitempty"`
+	OwnerProjectID string                       `json:"owner_project_id,omitempty"`
+	Revision       int                          `json:"revision,omitempty"`
+	Definition     ProjectSetupPresetDefinition `json:"definition"`
+	CreatedAt      *time.Time                   `json:"created_at,omitempty"`
+	UpdatedAt      *time.Time                   `json:"updated_at,omitempty"`
 }
 
 type storedPreset struct {
-	ID, Kind, Scope, Name, Description string
-	UserID, SchemaVersion              int64
-	Definition                         json.RawMessage
-	CreatedAt, UpdatedAt               time.Time
+	ID, ProjectID, Kind, Scope, Name, Description string
+	UserID, SchemaVersion                         int64
+	Revision                                      int64
+	Definition                                    json.RawMessage
+	CreatedAt, UpdatedAt                          time.Time
 }
 
 func scanStoredPreset(scanner interface{ Scan(...any) error }) (storedPreset, error) {
 	var row storedPreset
 	var definition, createdAt, updatedAt string
-	err := scanner.Scan(&row.ID, &row.UserID, &row.Kind, &row.Scope, &row.SchemaVersion,
+	err := scanner.Scan(&row.ID, &row.UserID, &row.ProjectID, &row.Kind, &row.Scope, &row.SchemaVersion, &row.Revision,
 		&row.Name, &row.Description, &definition, &createdAt, &updatedAt)
 	if err != nil {
 		return row, err
@@ -61,12 +64,14 @@ func scanStoredPreset(scanner interface{ Scan(...any) error }) (storedPreset, er
 	return row, nil
 }
 
-func (s *Store) listPresets(userID int64, kind string) ([]storedPreset, error) {
+func (s *Store) listPresets(userID int64, kind string, admin ...bool) ([]storedPreset, error) {
+	isAdmin := len(admin) > 0 && admin[0]
 	rows, err := s.db.Query(`
-		SELECT id,user_id,kind,scope,schema_version,name,description,definition_json,created_at,updated_at
+		SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
 		FROM presets
-		WHERE kind=? AND (scope='shared' OR user_id=?)
-		ORDER BY scope, name COLLATE NOCASE, id`, kind, userID)
+		WHERE kind=? AND (?=1 OR scope='shared' OR (scope='personal' AND user_id=?) OR (scope='project' AND EXISTS(
+			SELECT 1 FROM project_members pm WHERE pm.project_id=presets.project_id AND pm.user_id=?)))
+		ORDER BY scope, name COLLATE NOCASE, id`, kind, isAdmin, userID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,16 +87,34 @@ func (s *Store) listPresets(userID int64, kind string) ([]storedPreset, error) {
 	return result, rows.Err()
 }
 
-func (s *Store) getPreset(userID int64, id string) (storedPreset, error) {
+func (s *Store) listProjectTemplates(projectID, kind string) ([]storedPreset, error) {
+	rows, err := s.db.Query(`SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
+		FROM presets WHERE kind=? AND scope='project' AND project_id=? ORDER BY name COLLATE NOCASE,id`, kind, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []storedPreset
+	for rows.Next() {
+		row, err := scanStoredPreset(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) getPreset(_ int64, id string) (storedPreset, error) {
 	return scanStoredPreset(s.db.QueryRow(`
-		SELECT id,user_id,kind,scope,schema_version,name,description,definition_json,created_at,updated_at
-		FROM presets WHERE id=? AND (scope='shared' OR user_id=?)`, id, userID))
+		SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
+		FROM presets WHERE id=?`, id))
 }
 
 func (s *Store) insertPreset(row storedPreset) (storedPreset, error) {
 	_, err := s.db.Exec(`
-		INSERT INTO presets(id,user_id,kind,scope,schema_version,name,description,definition_json)
-		VALUES(?,?,?,?,?,?,?,?)`, row.ID, row.UserID, row.Kind, row.Scope, row.SchemaVersion,
+		INSERT INTO presets(id,user_id,project_id,kind,scope,schema_version,revision,name,description,definition_json)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, row.ID, row.UserID, nullablePresetProjectID(row.ProjectID), row.Kind, row.Scope, row.SchemaVersion, 1,
 		row.Name, row.Description, string(row.Definition))
 	if err != nil {
 		return storedPreset{}, err
@@ -99,11 +122,18 @@ func (s *Store) insertPreset(row storedPreset) (storedPreset, error) {
 	return s.getPreset(row.UserID, row.ID)
 }
 
+func nullablePresetProjectID(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 func (s *Store) updatePreset(userID int64, row storedPreset) (storedPreset, error) {
 	result, err := s.db.Exec(`
-		UPDATE presets SET scope=?,schema_version=?,name=?,description=?,definition_json=?,updated_at=CURRENT_TIMESTAMP
-		WHERE id=? AND user_id=?`, row.Scope, row.SchemaVersion, row.Name, row.Description,
-		string(row.Definition), row.ID, userID)
+		UPDATE presets SET project_id=?,scope=?,schema_version=?,revision=revision+1,name=?,description=?,definition_json=?,updated_at=CURRENT_TIMESTAMP
+		WHERE id=?`, nullablePresetProjectID(row.ProjectID), row.Scope, row.SchemaVersion, row.Name, row.Description,
+		string(row.Definition), row.ID)
 	if err != nil {
 		return storedPreset{}, err
 	}
@@ -113,8 +143,8 @@ func (s *Store) updatePreset(userID int64, row storedPreset) (storedPreset, erro
 	return s.getPreset(userID, row.ID)
 }
 
-func (s *Store) deletePreset(userID int64, id string) error {
-	result, err := s.db.Exec(`DELETE FROM presets WHERE id=? AND user_id=?`, id, userID)
+func (s *Store) deletePreset(_ int64, id string) error {
+	result, err := s.db.Exec(`DELETE FROM presets WHERE id=?`, id)
 	if err != nil {
 		return err
 	}
@@ -136,7 +166,7 @@ func presetFromStored(row storedPreset) (Preset, error) {
 	return Preset{
 		ID: row.ID, Kind: row.Kind, Scope: row.Scope, Source: "user",
 		SchemaVersion: int(row.SchemaVersion), Name: row.Name, Description: row.Description,
-		OwnerID: row.UserID, Definition: definition, CreatedAt: &createdAt, UpdatedAt: &updatedAt,
+		OwnerID: row.UserID, OwnerProjectID: row.ProjectID, Revision: int(row.Revision), Definition: definition, CreatedAt: &createdAt, UpdatedAt: &updatedAt,
 	}, nil
 }
 
@@ -153,7 +183,7 @@ func systemPresetEnvelope(preset ProjectPreset) Preset {
 func projectPresetFromEnvelope(preset Preset) ProjectPreset {
 	return ProjectPreset{
 		ID: preset.ID, Kind: preset.Kind, Scope: preset.Scope, Source: preset.Source,
-		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID,
+		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID, OwnerProjectID: preset.OwnerProjectID, Revision: preset.Revision,
 		Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
 		Match: preset.Definition.Match, Agents: preset.Definition.Agents,
 		Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout,
@@ -168,8 +198,11 @@ func validatePresetEnvelope(preset Preset) error {
 	if preset.SchemaVersion != 2 {
 		return fmt.Errorf("unsupported schema_version %d", preset.SchemaVersion)
 	}
-	if preset.Scope != "personal" && preset.Scope != "shared" {
-		return errors.New("scope must be personal or shared")
+	if preset.Scope != "personal" && preset.Scope != "shared" && preset.Scope != "project" {
+		return errors.New("scope must be personal, shared, or project")
+	}
+	if preset.Scope == "project" && preset.OwnerProjectID == "" {
+		return errors.New("owner_project_id is required for project templates")
 	}
 	if preset.Name == "" || len(preset.Name) > 120 || len(preset.Description) > 1000 {
 		return errors.New("name is required and preset text is too long")
@@ -217,10 +250,12 @@ func presetSlug(value string) string {
 	return value
 }
 
-func (s *Store) availablePresetID(userID int64, scope, name string) string {
+func (s *Store) availablePresetID(userID int64, scope, projectID, name string) string {
 	prefix := "usr-" + i64s(userID) + "-"
 	if scope == "shared" {
 		prefix = "shared-"
+	} else if scope == "project" {
+		prefix = "tpl-" + presetSlug(projectID) + "-"
 	}
 	base := prefix + presetSlug(name)
 	for suffix := int64(1); ; suffix++ {
@@ -244,7 +279,7 @@ func (s *Server) genericPresetCatalog(userID int64) ([]Preset, error) {
 	for _, preset := range bundled.Presets {
 		result = append(result, systemPresetEnvelope(preset))
 	}
-	rows, err := s.store.listPresets(userID, projectSetupPresetKind)
+	rows, err := s.store.listPresets(userID, projectSetupPresetKind, s.store.GetPlatformRole(userID) == PlatformAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +292,7 @@ func (s *Server) genericPresetCatalog(userID int64) ([]Preset, error) {
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].Scope != result[j].Scope {
-			order := map[string]int{"personal": 0, "shared": 1, "system": 2}
+			order := map[string]int{"project": 0, "personal": 1, "shared": 2, "system": 3}
 			return order[result[i].Scope] < order[result[j].Scope]
 		}
 		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
@@ -279,6 +314,39 @@ func (s *Server) projectPresetCatalog(userID int64) (projectPresetCatalog, error
 	return catalog, nil
 }
 
+func filterSystemTemplates(catalog []Preset) []Preset {
+	result := make([]Preset, 0, len(catalog))
+	for _, template := range catalog {
+		if template.Source == "system" {
+			result = append(result, template)
+		}
+	}
+	return result
+}
+
+func (s *Server) projectTemplateCatalog(projectID string) ([]Preset, error) {
+	bundled, err := loadProjectPresetCatalog()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Preset, 0, len(bundled.Presets))
+	for _, preset := range bundled.Presets {
+		result = append(result, systemPresetEnvelope(preset))
+	}
+	rows, err := s.store.listProjectTemplates(projectID, projectSetupPresetKind)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		preset, err := presetFromStored(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, preset)
+	}
+	return result, nil
+}
+
 type presetWriteRequest struct {
 	Kind          string                        `json:"kind"`
 	Scope         string                        `json:"scope"`
@@ -295,6 +363,119 @@ type presetPatchRequest struct {
 	Definition  *ProjectSetupPresetDefinition `json:"definition"`
 }
 
+func (s *Server) createProjectTemplate(userID int64, projectID string, body presetWriteRequest) (Preset, error) {
+	if body.Definition == nil {
+		return Preset{}, errors.New("definition is required")
+	}
+	template := Preset{Kind: body.Kind, Scope: "project", Source: "user", SchemaVersion: body.SchemaVersion,
+		Name: strings.TrimSpace(body.Name), Description: strings.TrimSpace(body.Description), OwnerProjectID: projectID, Definition: *body.Definition}
+	if template.Kind == "" {
+		template.Kind = projectSetupPresetKind
+	}
+	if template.SchemaVersion == 0 {
+		template.SchemaVersion = 2
+	}
+	template.ID = s.store.availablePresetID(userID, template.Scope, projectID, template.Name)
+	if err := validatePresetEnvelope(template); err != nil {
+		return Preset{}, err
+	}
+	definition, _ := json.Marshal(template.Definition)
+	row, err := s.store.insertPreset(storedPreset{ID: template.ID, UserID: userID, ProjectID: projectID, Kind: template.Kind,
+		Scope: "project", SchemaVersion: int64(template.SchemaVersion), Name: template.Name, Description: template.Description, Definition: definition})
+	if err != nil {
+		return Preset{}, err
+	}
+	return presetFromStored(row)
+}
+
+// handleProjectTemplates owns custom template lifecycle. The owning project is
+// explicit in the URL and controls read/write permissions; applying it to a
+// different target remains a separate editor-authorized setup operation.
+func (s *Server) handleProjectTemplates(w http.ResponseWriter, r *http.Request, projectID, rest string) {
+	need := ProjectViewer
+	if r.Method != http.MethodGet {
+		need = ProjectEditor
+	}
+	userID, _, ok := s.requireProjectAccess(w, r, projectID, need)
+	if !ok {
+		return
+	}
+	if rest == "templates" {
+		switch r.Method {
+		case http.MethodGet:
+			catalog, err := s.projectTemplateCatalog(projectID)
+			if err != nil {
+				http.Error(w, "load templates", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"templates": catalog})
+		case http.MethodPost:
+			var body presetWriteRequest
+			r.Body = http.MaxBytesReader(w, r.Body, 300<<10)
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "invalid template", http.StatusBadRequest)
+				return
+			}
+			created, err := s.createProjectTemplate(userID, projectID, body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(w, http.StatusCreated, created)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	if rest == "templates/capture" && r.Method == http.MethodPost {
+		var body presetCaptureRequest
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid template", http.StatusBadRequest)
+			return
+		}
+		body.ProjectID, body.Scope, body.OwnerProjectID = projectID, "project", projectID
+		template, err := s.captureProjectPreset(userID, body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		definition, _ := json.Marshal(template.Definition)
+		row, err := s.store.insertPreset(storedPreset{ID: template.ID, UserID: userID, ProjectID: projectID, Kind: template.Kind,
+			Scope: "project", SchemaVersion: 2, Name: template.Name, Description: template.Description, Definition: definition})
+		if err != nil {
+			http.Error(w, "create template", http.StatusConflict)
+			return
+		}
+		created, _ := presetFromStored(row)
+		writeJSONStatus(w, http.StatusCreated, created)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+func (s *Server) canReadStoredPreset(userID int64, row storedPreset) bool {
+	if s.store.GetPlatformRole(userID) == PlatformAdmin || row.Scope == "shared" || (row.Scope == "personal" && row.UserID == userID) {
+		return true
+	}
+	if row.Scope != "project" || row.ProjectID == "" {
+		return false
+	}
+	role, err := s.store.GetProjectRole(row.ProjectID, userID)
+	return err == nil && role.Rank() >= ProjectViewer.Rank()
+}
+
+func (s *Server) canEditStoredPreset(userID int64, row storedPreset) bool {
+	if s.store.GetPlatformRole(userID) == PlatformAdmin {
+		return true
+	}
+	if row.Scope != "project" {
+		return row.UserID == userID
+	}
+	role, err := s.store.GetProjectRole(row.ProjectID, userID)
+	return err == nil && role.Rank() >= ProjectEditor.Rank()
+}
+
 func (s *Server) handlePresets(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 	switch r.Method {
@@ -304,8 +485,19 @@ func (s *Server) handlePresets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "load presets", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"presets": catalog})
+		if r.URL.Query().Get("system_only") == "true" {
+			catalog = filterSystemTemplates(catalog)
+		}
+		key := "presets"
+		if strings.HasPrefix(r.URL.Path, "/templates") {
+			key = "templates"
+		}
+		writeJSON(w, map[string]any{key: catalog})
 	case http.MethodPost:
+		if strings.HasPrefix(r.URL.Path, "/templates") {
+			http.Error(w, "create custom templates under /projects/:id/templates", http.StatusBadRequest)
+			return
+		}
 		var body presetWriteRequest
 		r.Body = http.MaxBytesReader(w, r.Body, 300<<10)
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Definition == nil {
@@ -327,7 +519,7 @@ func (s *Server) handlePresets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "admin required for shared presets", http.StatusForbidden)
 			return
 		}
-		preset.ID = s.store.availablePresetID(userID, preset.Scope, preset.Name)
+		preset.ID = s.store.availablePresetID(userID, preset.Scope, preset.OwnerProjectID, preset.Name)
 		if err := validatePresetEnvelope(preset); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -348,7 +540,11 @@ func (s *Server) handlePresets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePresetByID(w http.ResponseWriter, r *http.Request) {
-	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/presets/"), "/")
+	id := strings.TrimPrefix(r.URL.Path, "/presets/")
+	if strings.HasPrefix(r.URL.Path, "/templates/") {
+		id = strings.TrimPrefix(r.URL.Path, "/templates/")
+	}
+	id = strings.Trim(id, "/")
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
 		return
@@ -369,6 +565,10 @@ func (s *Server) handlePresetByID(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "system presets are read-only", http.StatusForbidden)
 		return
 	}
+	if !s.canReadStoredPreset(userID, row) {
+		http.Error(w, "template not found", http.StatusNotFound)
+		return
+	}
 	preset, err := presetFromStored(row)
 	if err != nil {
 		http.Error(w, "invalid stored preset", http.StatusInternalServerError)
@@ -378,8 +578,8 @@ func (s *Server) handlePresetByID(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, preset)
 	case http.MethodPatch:
-		if row.UserID != userID {
-			http.Error(w, "only the preset owner can edit it", http.StatusForbidden)
+		if !s.canEditStoredPreset(userID, row) {
+			http.Error(w, "project editor required", http.StatusForbidden)
 			return
 		}
 		var body presetPatchRequest
@@ -418,8 +618,8 @@ func (s *Server) handlePresetByID(w http.ResponseWriter, r *http.Request) {
 		result, _ := presetFromStored(updated)
 		writeJSON(w, result)
 	case http.MethodDelete:
-		if row.UserID != userID {
-			http.Error(w, "only the preset owner can delete it", http.StatusForbidden)
+		if !s.canEditStoredPreset(userID, row) {
+			http.Error(w, "project editor required", http.StatusForbidden)
 			return
 		}
 		if err := s.store.deletePreset(userID, id); err != nil {
@@ -433,11 +633,12 @@ func (s *Server) handlePresetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 type presetCaptureRequest struct {
-	ProjectID   string `json:"project_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Category    string `json:"category"`
-	Scope       string `json:"scope"`
+	ProjectID      string `json:"project_id"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Category       string `json:"category"`
+	Scope          string `json:"scope"`
+	OwnerProjectID string `json:"-"`
 }
 
 func (s *Server) handlePresetCapture(w http.ResponseWriter, r *http.Request) {
@@ -542,9 +743,9 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 		layout[i].ID = "captured:" + i64s(int64(i+1))
 	}
 	preset := Preset{Kind: projectSetupPresetKind, Scope: scope, Source: "user", SchemaVersion: 2,
-		Name: name, Description: strings.TrimSpace(body.Description),
+		Name: name, Description: strings.TrimSpace(body.Description), OwnerProjectID: body.OwnerProjectID,
 		Definition: ProjectSetupPresetDefinition{Category: category, Agents: agents, DashboardLayout: layout}}
-	preset.ID = s.store.availablePresetID(userID, scope, name)
+	preset.ID = s.store.availablePresetID(userID, scope, preset.OwnerProjectID, name)
 	if err := validatePresetEnvelope(preset); err != nil {
 		return Preset{}, err
 	}

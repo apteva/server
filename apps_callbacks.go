@@ -17,6 +17,7 @@ package main
 //   POST /integrations/:connID/execute   — call an integration tool (binding-gated)
 //   POST /apps/:appName/call             — call another app's MCP tool (binding-gated)
 //   PUT  /cors-origins/:key              — replace this install's browser origins for a client
+//   GET  /templates[/:id]                 — read project setup templates (permission + project scoped)
 //   GET  /platform/snapshot              — stream a full platform snapshot (privileged global installs only)
 //   POST /platform/restore               — restore a platform snapshot (separate destructive permission)
 //
@@ -89,6 +90,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackDNS(w, r, parts[1:])
 	case "projects":
 		s.handleCallbackProjects(w, r, parts[1:])
+	case "templates":
+		s.handleCallbackProjectTemplates(w, r, parts[1:])
 	case "threads":
 		s.handleCallbackThreads(w, r, parts[1:])
 	case "telemetry":

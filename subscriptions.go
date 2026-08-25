@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -33,21 +34,22 @@ type Subscription struct {
 	// Source: 'webhook' (default — ingress via /webhooks/<token>) or
 	// 'app_event' (ingress via the in-process AppEventBus, slug
 	// carries '<app>:<topic_pattern>').
-	Source           string    `json:"source,omitempty"`
-	Delivery         string    `json:"delivery,omitempty"`
-	PollConfigJSON   string    `json:"-"`
-	PollStateJSON    string    `json:"-"`
-	LastRunAt        string    `json:"last_run_at,omitempty"`
-	NextRunAt        string    `json:"next_run_at,omitempty"`
-	LastError        string    `json:"last_error,omitempty"`
-	FailureCount     int       `json:"failure_count,omitempty"`
-	LastSeqDelivered uint64    `json:"last_seq_delivered,omitempty"`
-	Kind             string    `json:"kind,omitempty"`
-	MatchJSON        string    `json:"match_json,omitempty"`
-	WaitGroupID      string    `json:"wait_group_id,omitempty"`
-	ExpiresAt        string    `json:"expires_at,omitempty"`
-	DeleteOnMatch    bool      `json:"delete_on_match,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	Source           string         `json:"source,omitempty"`
+	Delivery         string         `json:"delivery,omitempty"`
+	PollConfigJSON   string         `json:"-"`
+	PollStateJSON    string         `json:"-"`
+	LastRunAt        string         `json:"last_run_at,omitempty"`
+	NextRunAt        string         `json:"next_run_at,omitempty"`
+	LastError        string         `json:"last_error,omitempty"`
+	FailureCount     int            `json:"failure_count,omitempty"`
+	LastSeqDelivered uint64         `json:"last_seq_delivered,omitempty"`
+	Kind             string         `json:"kind,omitempty"`
+	MatchJSON        string         `json:"-"`
+	Filters          map[string]any `json:"filters,omitempty"`
+	WaitGroupID      string         `json:"wait_group_id,omitempty"`
+	ExpiresAt        string         `json:"expires_at,omitempty"`
+	DeleteOnMatch    bool           `json:"delete_on_match,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
 }
 
 // ListAllAppEventSubscriptions returns every source='app_event' row
@@ -92,6 +94,7 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 		if eventsJSON != "" {
 			_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
 		}
+		hydrateSubscriptionFilters(sub)
 		out = append(out, sub)
 	}
 	return out, nil
@@ -219,6 +222,21 @@ func (s *Store) CreatePollSubscription(userID, instanceID, connectionID int64, n
 // single row can subscribe to multiple app topics.
 func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug, description, threadID, projectID string, events []string, notifyAgentOpt ...bool) (*Subscription, error) {
 	notifyAgent := len(notifyAgentOpt) > 0 && notifyAgentOpt[0]
+	return s.CreateAppEventSubscriptionWithFilters(
+		userID, instanceID, name, slug, description, threadID, projectID,
+		events, nil, notifyAgent,
+	)
+}
+
+// CreateAppEventSubscriptionWithFilters persists a user-facing app-event
+// subscription with an optional flat field/value filter. match_json predates
+// public filters and remains the storage representation so this is backwards
+// compatible and requires no schema migration.
+func (s *Store) CreateAppEventSubscriptionWithFilters(userID, instanceID int64, name, slug, description, threadID, projectID string, events []string, filters map[string]any, notifyAgent bool) (*Subscription, error) {
+	filters, matchJSON, err := normalizeSubscriptionFilters(filters)
+	if err != nil {
+		return nil, err
+	}
 	id := generateID()
 	webhookPath := internalSubscriptionWebhookPath("app-event")
 	events = compactSubscriptionEvents(events)
@@ -234,12 +252,14 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 	// literal 0 and there was no slot for connection_id/events) so the INSERT
 	// errored with "12 values for 13 columns" the moment the dashboard
 	// tried to subscribe to an app event.
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT INTO subscriptions
 				(id, user_id, agent_id, connection_id, name, slug, description,
-				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events, source, notify_agent)
-			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', ?)`,
-		id, userID, instanceID, name, slug, description, webhookPath, threadID, projectID, eventsJSON, boolToInt(notifyAgent),
+				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
+				 source, delivery, notify_agent, match_json)
+			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', 'app_event', ?, ?)`,
+		id, userID, instanceID, name, slug, description, webhookPath, threadID,
+		projectID, eventsJSON, boolToInt(notifyAgent), matchJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -248,8 +268,62 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 		ID: id, UserID: userID, AgentID: instanceID,
 		Name: name, Slug: slug, Description: description, WebhookPath: webhookPath,
 		Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID,
-		Events: events, Source: "app_event", Delivery: "app_event", CreatedAt: time.Now(),
+		Events: events, Source: "app_event", Delivery: "app_event",
+		MatchJSON: matchJSON, Filters: filters, CreatedAt: time.Now(),
 	}, nil
+}
+
+const (
+	maxSubscriptionFilters     = 20
+	maxSubscriptionFiltersJSON = 8 * 1024
+)
+
+func normalizeSubscriptionFilters(filters map[string]any) (map[string]any, string, error) {
+	if len(filters) == 0 {
+		return nil, "", nil
+	}
+	if len(filters) > maxSubscriptionFilters {
+		return nil, "", fmt.Errorf("filters: at most %d fields are allowed", maxSubscriptionFilters)
+	}
+	normalized := make(map[string]any, len(filters))
+	for rawKey, value := range filters {
+		key := strings.TrimSpace(rawKey)
+		if key == "" {
+			return nil, "", errors.New("filters: field names cannot be empty")
+		}
+		if len(key) > 128 {
+			return nil, "", fmt.Errorf("filters: field name %q is too long", key)
+		}
+		if _, exists := normalized[key]; exists {
+			return nil, "", fmt.Errorf("filters: field %q is duplicated", key)
+		}
+		switch value.(type) {
+		case nil, string, bool, float64, float32, int, int32, int64, uint, uint32, uint64, json.Number:
+			// Flat scalar values only. When the event field is an array the
+			// dispatcher treats this scalar as a membership test.
+		default:
+			return nil, "", fmt.Errorf("filters.%s: value must be a string, number, boolean, or null", key)
+		}
+		normalized[key] = value
+	}
+	b, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, "", fmt.Errorf("filters: %w", err)
+	}
+	if len(b) > maxSubscriptionFiltersJSON {
+		return nil, "", fmt.Errorf("filters: encoded value exceeds %d bytes", maxSubscriptionFiltersJSON)
+	}
+	return normalized, string(b), nil
+}
+
+func hydrateSubscriptionFilters(sub *Subscription) {
+	if sub == nil || strings.TrimSpace(sub.MatchJSON) == "" {
+		return
+	}
+	var filters map[string]any
+	if json.Unmarshal([]byte(sub.MatchJSON), &filters) == nil && len(filters) > 0 {
+		sub.Filters = filters
+	}
 }
 
 // CreateEphemeralAppEventSubscription creates a hidden, one-shot
@@ -324,7 +398,8 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 		COALESCE(project_id,''), COALESCE(external_webhook_id,''),
 		COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
 		COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
-		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at`
+		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0),
+		COALESCE(match_json,''), created_at`
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
 			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND COALESCE(kind,'user') != 'ephemeral' AND (project_id = ? OR project_id = '') ORDER BY created_at, id", userID, projectID[0])
@@ -347,7 +422,7 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 			&sub.WebhookPath, &enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
 			&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
 			&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
-			&sub.LastSeqDelivered, &createdAt,
+			&sub.LastSeqDelivered, &sub.MatchJSON, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -358,6 +433,7 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 		if eventsJSON != "" {
 			_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
 		}
+		hydrateSubscriptionFilters(&sub)
 		subs = append(subs, sub)
 	}
 	return subs, rows.Err()
@@ -369,7 +445,8 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 		COALESCE(project_id,''), COALESCE(external_webhook_id,''),
 		COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
 		COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
-		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at`
+		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0),
+		COALESCE(match_json,''), created_at`
 	rows, err := s.db.Query(
 		"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND agent_id = ? AND COALESCE(kind,'user') != 'ephemeral' ORDER BY created_at, id",
 		userID, agentID,
@@ -390,7 +467,7 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 			&enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
 			&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
 			&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
-			&sub.LastSeqDelivered, &createdAt,
+			&sub.LastSeqDelivered, &sub.MatchJSON, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -400,6 +477,7 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 		if eventsJSON != "" {
 			_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
 		}
+		hydrateSubscriptionFilters(&sub)
 		subs = append(subs, sub)
 	}
 	return subs, rows.Err()
@@ -415,7 +493,8 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 			COALESCE(project_id,''), COALESCE(external_webhook_id,''),
 			COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
 			COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
-			COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at
+			COALESCE(failure_count,0), COALESCE(last_seq_delivered,0),
+			COALESCE(match_json,''), created_at
 		 FROM subscriptions WHERE id = ? AND user_id = ?`,
 		id, userID,
 	).Scan(
@@ -424,7 +503,7 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 		&notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
 		&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
 		&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
-		&sub.LastSeqDelivered, &createdAt,
+		&sub.LastSeqDelivered, &sub.MatchJSON, &createdAt,
 	)
 	if err != nil {
 		return nil, err
@@ -436,6 +515,7 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 	if eventsJSON != "" {
 		_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
 	}
+	hydrateSubscriptionFilters(&sub)
 	return &sub, nil
 }
 
@@ -834,6 +914,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		// share this handler so the dashboard's create form can
 		// switch between them without learning two URLs.
 		Source          string         `json:"source"`
+		Filters         map[string]any `json:"filters"`
 		IntervalSeconds int            `json:"interval_seconds"`
 		PollInput       map[string]any `json:"poll_input"`
 	}
@@ -860,16 +941,21 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 			return
 		}
 		events := compactSubscriptionEvents(body.Events)
-		sub, err := s.store.CreateAppEventSubscription(
+		filters, _, err := normalizeSubscriptionFilters(body.Filters)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		sub, err := s.store.CreateAppEventSubscriptionWithFilters(
 			userID, body.AgentID, body.Name, body.Slug, body.Description,
-			body.ThreadID, body.ProjectID, events, body.NotifyAgent,
+			body.ThreadID, body.ProjectID, events, filters, body.NotifyAgent,
 		)
 		if err != nil {
 			http.Error(w, "failed to create: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q events=%v agent=%d project=%q",
-			sub.ID, body.Slug, events, body.AgentID, body.ProjectID)
+		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q events=%v filters=%d agent=%d project=%q",
+			sub.ID, body.Slug, events, len(filters), body.AgentID, body.ProjectID)
 		if s.appEventDispatcher != nil {
 			if err := s.appEventDispatcher.Reconcile(); err != nil {
 				log.Printf("[SUB-CREATE] dispatcher reconcile after create: %v", err)
@@ -1318,6 +1404,44 @@ func (s *Server) handleTestSubscription(w http.ResponseWriter, r *http.Request) 
 	json.NewDecoder(r.Body).Decode(&reqBody) // ignore errors — all fields optional
 	log.Printf("[SUB-TEST] request body event=%q custom_payload=%v", reqBody.Event, reqBody.Payload != nil)
 
+	// App-event tests run through the same topic + payload matchers as live
+	// delivery. A filtered test is useful even when the target agent is stopped,
+	// and must never wake it or move the real subscription cursor.
+	appName, legacyPattern, isAppEvent := splitAppEventSlug(sub.Slug)
+	eventType := strings.TrimSpace(reqBody.Event)
+	if eventType == "" && len(sub.Events) > 0 {
+		eventType = sub.Events[0]
+	}
+	if eventType == "" && isAppEvent && legacyPattern != "*" && !strings.HasSuffix(legacyPattern, ".*") {
+		eventType = legacyPattern
+	}
+	if eventType == "" {
+		eventType = "test.event"
+	}
+	appPayload := reqBody.Payload
+	if appPayload == nil {
+		appPayload = map[string]any{
+			"message":           "This is a test event.",
+			"subscription_id":   sub.ID,
+			"subscription_name": sub.Name,
+		}
+	}
+	appPayloadBytes, _ := json.Marshal(appPayload)
+	if sub.Source == "app_event" {
+		matched := isAppEvent &&
+			appEventSubscriptionTopicMatches(sub, legacyPattern, eventType) &&
+			subscriptionPayloadMatches(sub, appPayloadBytes)
+		if !matched {
+			writeJSON(w, map[string]any{
+				"status":  "filtered",
+				"matched": false,
+				"event":   eventType,
+				"payload": appPayload,
+			})
+			return
+		}
+	}
+
 	if sub.AgentID == 0 {
 		log.Printf("[SUB-TEST] sub=%s has no agent_id configured", sub.ID)
 		http.Error(w, "no instance configured", http.StatusBadRequest)
@@ -1339,10 +1463,8 @@ func (s *Server) handleTestSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 	log.Printf("[SUB-TEST] instance %d local port=%d", inst.ID, testPort)
 
-	// Use provided event type, or fall back to first from app config
-	eventType := reqBody.Event
-	if eventType == "" {
-		eventType = "test.event"
+	// Webhook subscriptions retain their catalog fallback.
+	if reqBody.Event == "" && sub.Source != "app_event" {
 		if app := s.catalog.Get(sub.Slug); app != nil && app.Webhooks != nil && len(app.Webhooks.Events) > 0 {
 			eventType = app.Webhooks.Events[0].Name
 		}
@@ -1366,8 +1488,12 @@ func (s *Server) handleTestSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 
 	payloadBytes, _ := json.Marshal(testPayload)
-
 	eventMsg := fmt.Sprintf("[webhook:%s] %s", sub.Slug, string(payloadBytes))
+	responsePayload := any(testPayload)
+	if sub.Source == "app_event" {
+		eventMsg = fmt.Sprintf("[app:%s:%s] %s", appName, eventType, string(appPayloadBytes))
+		responsePayload = appPayload
+	}
 	testEventPayload := map[string]string{"message": eventMsg}
 	if sub.ThreadID != "" {
 		testEventPayload["thread_id"] = sub.ThreadID
@@ -1399,8 +1525,9 @@ func (s *Server) handleTestSubscription(w http.ResponseWriter, r *http.Request) 
 	log.Printf("[SUB-TEST] delivered sub=%s event=%q", sub.ID, eventType)
 	writeJSON(w, map[string]any{
 		"status":  "delivered",
+		"matched": true,
 		"event":   eventType,
-		"payload": testPayload,
+		"payload": responsePayload,
 	})
 }
 

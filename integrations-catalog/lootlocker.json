@@ -1,0 +1,228 @@
+{
+  "slug": "lootlocker",
+  "name": "LootLocker",
+  "description": "LootLocker Server API for managed game backends. Read player inventories and progressions, add progression points, create and operate leaderboards, submit scores, inspect member rankings, and create wallets.",
+  "logo": "https://www.google.com/s2/favicons?domain=lootlocker.com&sz=128",
+  "categories": ["game-development", "backend-as-a-service", "leaderboards", "player-progression", "inventory"],
+  "base_url": "https://api.lootlocker.io",
+  "auth": {
+    "types": ["custom"],
+    "token_exchange": {
+      "url": "https://api.lootlocker.io/server/session",
+      "method": "POST",
+      "content_type": "application/json",
+      "headers": {
+        "x-server-key": "{{credential.server_key}}",
+        "LL-Version": "2021-03-01"
+      },
+      "body_params": { "game_version": "{{credential.game_version}}" },
+      "access_token_path": "token",
+      "expiry_skew_seconds": 30
+    },
+    "headers": {
+      "x-auth-token": "{{access_token}}",
+      "LL-Version": "2021-03-01",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "server_key",
+        "label": "Server API Key",
+        "description": "Server API key created in the LootLocker web console. Use a server-side key, not a client game key.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "game_version",
+        "label": "Game Version",
+        "description": "Game version sent when creating the temporary server session.",
+        "required": true,
+        "default": "1.0.0",
+        "type": "text",
+        "exposure": "public"
+      }
+    ]
+  },
+  "health_check": { "tool": "ping_server" },
+  "tools": [
+    {
+      "name": "ping_server",
+      "description": "Check that the LootLocker Server API session and project configuration are valid.",
+      "method": "GET",
+      "path": "/server/ping",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_assets",
+      "description": "List assets configured in the LootLocker game with cursor pagination.",
+      "method": "GET",
+      "path": "/server/assets",
+      "query_params": ["count", "after"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer", "minimum": 1, "maximum": 200 },
+          "after": { "type": "string", "description": "Cursor returned by the preceding response." }
+        }
+      }
+    },
+    {
+      "name": "get_player_inventory",
+      "description": "List inventory items belonging to a LootLocker player using cursor pagination.",
+      "method": "GET",
+      "path": "/server/player/{player_id}/inventory",
+      "query_params": ["count", "after"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "player_id": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 200 },
+          "after": { "type": "string" }
+        },
+        "required": ["player_id"]
+      }
+    },
+    {
+      "name": "list_player_progressions",
+      "description": "List all progression records currently assigned to a LootLocker player.",
+      "method": "GET",
+      "path": "/server/players/{player_id}/progressions",
+      "query_params": ["count", "after"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "player_id": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "after": { "type": "string" }
+        },
+        "required": ["player_id"]
+      }
+    },
+    {
+      "name": "get_player_progression",
+      "description": "Get the points, tier, and rewards state for one player progression key.",
+      "method": "GET",
+      "path": "/server/players/{player_id}/progressions/{progression_key}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "player_id": { "type": "string" }, "progression_key": { "type": "string" } },
+        "required": ["player_id", "progression_key"]
+      }
+    },
+    {
+      "name": "add_progression_points",
+      "description": "Add a positive number of points to a player's LootLocker progression.",
+      "method": "POST",
+      "path": "/server/players/{player_id}/progressions/{progression_key}/points/add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "player_id": { "type": "string" },
+          "progression_key": { "type": "string" },
+          "amount": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["player_id", "progression_key", "amount"]
+      }
+    },
+    {
+      "name": "create_leaderboard",
+      "description": "Create a player or generic LootLocker leaderboard and configure its ranking direction, write policy, overwrite behavior, and metadata support.",
+      "method": "POST",
+      "path": "/server/leaderboards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "description": "Optional stable leaderboard key; LootLocker can generate one when omitted." },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["player", "generic"] },
+          "direction_method": { "type": "string", "enum": ["ascending", "descending"] },
+          "enable_game_api_writes": { "type": "boolean" },
+          "overwrite_score_on_submit": { "type": "boolean" },
+          "has_metadata": { "type": "boolean" }
+        },
+        "required": ["name", "type", "direction_method", "enable_game_api_writes", "overwrite_score_on_submit", "has_metadata"]
+      }
+    },
+    {
+      "name": "update_leaderboard",
+      "description": "Update the mutable settings of an existing LootLocker leaderboard.",
+      "method": "PUT",
+      "path": "/server/leaderboards/{leaderboard}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leaderboard": { "type": "string", "description": "Leaderboard key or ID accepted by the Server API." },
+          "name": { "type": "string" },
+          "direction_method": { "type": "string", "enum": ["ascending", "descending"] },
+          "enable_game_api_writes": { "type": "boolean" },
+          "overwrite_score_on_submit": { "type": "boolean" },
+          "has_metadata": { "type": "boolean" }
+        },
+        "required": ["leaderboard"]
+      }
+    },
+    {
+      "name": "submit_leaderboard_score",
+      "description": "Submit a score for a player or generic member to a LootLocker leaderboard.",
+      "method": "POST",
+      "path": "/server/leaderboards/{leaderboard}/submit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leaderboard": { "type": "string" },
+          "member_id": { "type": "string" },
+          "score": { "type": "integer" },
+          "metadata": { "type": "string", "description": "Optional metadata string when the leaderboard has metadata enabled." }
+        },
+        "required": ["leaderboard", "member_id", "score"]
+      }
+    },
+    {
+      "name": "list_leaderboard_entries",
+      "description": "List ranked entries in a LootLocker leaderboard with cursor pagination.",
+      "method": "GET",
+      "path": "/server/leaderboards/{leaderboard}/list",
+      "query_params": ["count", "after"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leaderboard": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 2000 },
+          "after": { "type": "string" }
+        },
+        "required": ["leaderboard"]
+      }
+    },
+    {
+      "name": "list_member_rankings",
+      "description": "List all LootLocker leaderboard rankings associated with one member identifier.",
+      "method": "GET",
+      "path": "/server/leaderboards/member/{member_id}",
+      "query_params": ["count", "after"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "member_id": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 200 },
+          "after": { "type": "string" }
+        },
+        "required": ["member_id"]
+      }
+    },
+    {
+      "name": "create_wallet",
+      "description": "Create a LootLocker wallet for a supported player, group, or entity holder.",
+      "method": "POST",
+      "path": "/server/wallet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "holder_id": { "type": "string" },
+          "holder_type": { "type": "string", "description": "Holder type documented by the LootLocker wallet API." }
+        },
+        "required": ["holder_id", "holder_type"]
+      }
+    }
+  ]
+}

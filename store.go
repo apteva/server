@@ -435,6 +435,8 @@ func (s *Store) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_delegated_access_policy_lookup
 			ON delegated_access_policies(issuer_install_id, project_id, oauth_client_id);
+		CREATE INDEX IF NOT EXISTS idx_api_keys_delegated_retention
+			ON api_keys(kind, revoked_at, expires_at);
 		CREATE TABLE IF NOT EXISTS sessions (
 			token TEXT PRIMARY KEY,
 			user_id INTEGER NOT NULL REFERENCES users(id),
@@ -622,13 +624,16 @@ func (s *Store) migrate() error {
 		-- presets is intentionally generic. kind selects the consumer while
 		-- definition_json carries that kind's versioned, portable definition.
 		-- Bundled system presets remain embedded and read-only; this table holds
-		-- user-authored personal and server-wide shared presets.
+		-- user-authored project templates. Legacy personal/shared rows remain
+		-- readable through the compatibility preset API.
 		CREATE TABLE IF NOT EXISTS presets (
 			id              TEXT PRIMARY KEY,
 			user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			project_id      TEXT REFERENCES projects(id) ON DELETE CASCADE,
 			kind            TEXT NOT NULL,
-			scope           TEXT NOT NULL CHECK (scope IN ('personal','shared')),
+			scope           TEXT NOT NULL CHECK (scope IN ('personal','shared','project')),
 			schema_version  INTEGER NOT NULL DEFAULT 1,
+			revision        INTEGER NOT NULL DEFAULT 1,
 			name            TEXT NOT NULL,
 			description     TEXT NOT NULL DEFAULT '',
 			definition_json TEXT NOT NULL,
@@ -636,7 +641,7 @@ func (s *Store) migrate() error {
 			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_presets_catalog
-			ON presets(kind, scope, user_id, updated_at DESC);
+			ON presets(kind, scope, project_id, user_id, updated_at DESC);
 
 		-- agent_templates — pre-canned starter configs surfaced in the
 		-- "build your first agent" wizard. Three sources, sharing one
@@ -721,6 +726,9 @@ func (s *Store) migrate() error {
 		);
 	`)
 	if err != nil {
+		return err
+	}
+	if err := s.migrateProjectTemplateStorage(); err != nil {
 		return err
 	}
 
@@ -2229,6 +2237,9 @@ func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 		        created_at
 		   FROM api_keys
 		  WHERE user_id = ?
+		    AND COALESCE(kind,'private') IN ('private','public_client')
+		    AND revoked_at IS NULL
+		    AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
 		  ORDER BY created_at DESC, id DESC`, userID,
 	)
 	if err != nil {
@@ -3055,6 +3066,49 @@ func columnExists(db *sql.DB, table, col string) bool {
 		}
 	}
 	return false
+}
+
+// migrateProjectTemplateStorage upgrades the former user-scoped preset table
+// without assigning legacy rows to an arbitrary project. New custom templates
+// are project-owned; old personal/shared presets stay available through the
+// compatibility endpoints until an owner deliberately recreates them.
+func (s *Store) migrateProjectTemplateStorage() error {
+	if columnExists(s.db, "presets", "project_id") {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	statements := []string{
+		`ALTER TABLE presets RENAME TO presets_legacy_project_templates`,
+		`CREATE TABLE presets (
+			id TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL,
+			scope TEXT NOT NULL CHECK (scope IN ('personal','shared','project')),
+			schema_version INTEGER NOT NULL DEFAULT 1,
+			revision INTEGER NOT NULL DEFAULT 1,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			definition_json TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO presets(id,user_id,project_id,kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at)
+		 SELECT id,user_id,NULL,kind,scope,schema_version,1,name,description,definition_json,created_at,updated_at
+		 FROM presets_legacy_project_templates`,
+		`DROP TABLE presets_legacy_project_templates`,
+		`CREATE INDEX idx_presets_catalog ON presets(kind,scope,project_id,user_id,updated_at DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate presets to project templates: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 // --- Channels ---
