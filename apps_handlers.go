@@ -1347,6 +1347,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		}
 		skillRows.Close()
 	}
+	detachPlan := s.captureAppToolsDetachPlan(installID)
 	s.cleanupInactiveIntegrationWebhooks(installID, true)
 	tx, err := s.store.db.Begin()
 	if err != nil {
@@ -1376,6 +1377,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 
 	// Runtime side effects only happen after every authorization/dependency
 	// check and the database transaction has committed.
+	s.detachUninstalledAppTools(detachPlan)
 	s.installedApps.Remove(installID)
 	s.RemountStaticApps()
 	if s.localApps != nil {

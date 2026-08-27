@@ -80,6 +80,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackIntegrationWebhooks(w, r, parts[1:])
 	case "apps":
 		s.handleCallbackApps(w, r, parts[1:])
+	case "agent-tools":
+		s.handleCallbackAgentTools(w, r, parts[1:])
 	case "oauth":
 		s.handleCallbackOAuth(w, r, parts[1:])
 	case "grants":
