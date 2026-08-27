@@ -20,12 +20,41 @@
     },
     "credential_fields": [
       {
+        "name": "access_key",
+        "label": "Access Key",
+        "description": "Scaleway Access Key paired with the Secret Key. Used to load the API key's default Project automatically.",
+        "type": "text",
+        "exposure": "public"
+      },
+      {
         "name": "token",
-        "label": "Secret Key"
+        "label": "Secret Key",
+        "description": "Scaleway Secret Key paired with the Access Key"
+      },
+      {
+        "name": "project_id",
+        "label": "Default Project ID",
+        "description": "Optional Scaleway Project ID used for provisioning. Recommended when the account has more than one project.",
+        "type": "text",
+        "required": false,
+        "exposure": "public"
       }
     ]
   },
   "tools": [
+    {
+      "name": "api_key_get",
+      "description": "Get the current Scaleway API key metadata, including its default project",
+      "method": "GET",
+      "path": "/iam/v1alpha1/api-keys/{access_key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access_key": { "type": "string" }
+        },
+        "required": ["access_key"]
+      }
+    },
     {
       "name": "server_list",
       "description": "List all Scaleway servers/instances in a zone. Returns server details including ID, name, state, IP addresses, and type.",
@@ -467,7 +496,7 @@
       "name": "security_group_list",
       "description": "List all security groups in a Scaleway zone",
       "method": "GET",
-      "path": "/security-group-list",
+      "path": "/instance/v1/zones/{zone}/security_groups",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -491,8 +520,13 @@
           "project": {
             "type": "string",
             "description": "Filter by project ID"
+          },
+          "project_default": {
+            "type": "boolean",
+            "description": "Only return the default security group for each project"
           }
-        }
+        },
+        "required": ["zone"]
       }
     },
     {
@@ -898,9 +932,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
+          "organization_id": { "type": "string" },
+          "name": { "type": "string" },
           "page": { "type": "integer" },
-          "page_size": { "type": "integer" }
-        }
+          "page_size": { "type": "integer" },
+          "order_by": { "type": "string" },
+          "project_ids": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["organization_id"]
       }
     },
     {
@@ -920,7 +959,7 @@
     {
       "name": "server_set_cloud_init",
       "description": "Set cloud-init user data before starting a Scaleway server",
-      "method": "PUT",
+      "method": "PATCH",
       "path": "/instance/v1/zones/{zone}/servers/{server_id}/user_data/cloud-init",
       "headers": { "Content-Type": "text/plain" },
       "body_root_param": "content",

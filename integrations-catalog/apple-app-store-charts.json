@@ -1,0 +1,45 @@
+{
+  "slug": "apple-app-store-charts",
+  "name": "Apple App Store Charts",
+  "description": "Apple's public, unauthenticated JSON feeds for current Top Free and Top Paid App Store charts by storefront. These are chart positions, not download or revenue estimates.",
+  "logo": "https://www.google.com/s2/favicons?domain=apple.com&sz=128",
+  "categories": ["app-intelligence", "mobile-apps", "ios", "app-store", "rankings", "market-research"],
+  "base_url": "https://rss.marketingtools.apple.com/api/v2",
+  "auth": {
+    "types": ["none"],
+    "headers": { "Accept": "application/json" },
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "get_top_apps",
+    "input": { "country": "us", "chart": "top-free", "limit": 10 }
+  },
+  "tools": [
+    {
+      "name": "get_top_apps",
+      "description": "Get Apple's current official Top Free or Top Paid apps for a two-letter country storefront. Apple does not publish a top-grossing feed here, and the response does not contain sales, download, or revenue estimates.",
+      "method": "GET",
+      "path": "/{country}/apps/{chart}/{limit}/apps.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string", "pattern": "^[a-zA-Z]{2}$", "description": "Two-letter App Store storefront code, for example us, gb, fr, de, or jp." },
+          "chart": { "type": "string", "enum": ["top-free", "top-paid"], "description": "Official Apple app chart." },
+          "limit": { "type": "integer", "enum": [10, 25, 50, 100], "description": "Number of ranked apps to return." }
+        },
+        "required": ["country", "chart", "limit"],
+        "additionalProperties": false
+      },
+      "mock_response": {
+        "feed": {
+          "title": "Top Free Apps",
+          "country": "us",
+          "updated": "Wed, 26 Aug 2026 04:48:42 +0000",
+          "results": [
+            { "artistName": "Example Developer", "id": "123456789", "name": "Example App", "kind": "apps", "url": "https://apps.apple.com/us/app/example/id123456789" }
+          ]
+        }
+      }
+    }
+  ]
+}

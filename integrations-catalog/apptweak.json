@@ -1,0 +1,173 @@
+{
+  "slug": "apptweak",
+  "name": "AppTweak",
+  "description": "App Store and Google Play intelligence for top charts, app metadata, category rankings, download and revenue estimates, ratings, and category market size.",
+  "logo": "https://www.google.com/s2/favicons?domain=apptweak.com&sz=128",
+  "categories": ["app-intelligence", "mobile-apps", "ios", "android", "aso", "rankings", "market-research"],
+  "base_url": "https://public-api.apptweak.com/api/public/store",
+  "auth": {
+    "types": ["api_key"],
+    "headers": { "x-apptweak-key": "{{api_key}}", "Accept": "application/json" },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Token", "description": "AppTweak API token from the API dashboard. AppTweak offers a 7-day API trial; requests consume credits according to endpoint and date range.", "type": "password", "required": true }
+    ]
+  },
+  "health_check": null,
+  "tools": [
+    {
+      "name": "get_top_charts_current",
+      "description": "Get the latest free, paid, or grossing chart for an App Store or Google Play category. iOS free/paid charts can return up to 500 apps and grossing charts up to 200.",
+      "method": "GET",
+      "path": "/charts/top-results/current.json",
+      "query_params": ["categories", "types", "country", "device", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categories": { "type": "string", "description": "AppTweak category ID, for example 6014 for iOS Games." },
+          "types": { "type": "string", "enum": ["free", "paid", "grossing"] },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500 },
+          "offset": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["categories", "types", "country", "device"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_top_charts_history",
+      "description": "Get historical free, paid, or grossing charts over a date range for an App Store or Google Play category.",
+      "method": "GET",
+      "path": "/charts/top-results/history",
+      "query_params": ["categories", "start_date", "end_date", "types", "country", "device", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categories": { "type": "string" },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "types": { "type": "string", "enum": ["free", "paid", "grossing"] },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500 },
+          "offset": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["categories", "start_date", "end_date", "types", "country", "device"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_app_metadata",
+      "description": "Get daily-refreshed App Store or Google Play metadata for up to five app IDs.",
+      "method": "GET",
+      "path": "/apps/metadata.json",
+      "query_params": ["apps", "country", "language", "device"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apps": { "type": "string", "description": "Comma-separated app IDs; maximum five." },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "language": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] }
+        },
+        "required": ["apps", "country", "device"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_app_metrics_current",
+      "description": "Get current estimated downloads, revenues, ratings, daily ratings, or App Power for up to ten apps. Download and revenue values are modeled estimates and consume substantially more credits.",
+      "method": "GET",
+      "path": "/apps/metrics/current.json",
+      "query_params": ["apps", "metrics", "country", "device"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apps": { "type": "string", "description": "Comma-separated app IDs; maximum ten." },
+          "metrics": { "type": "string", "description": "Comma-separated values from downloads, revenues, ratings, daily-ratings, app-power." },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] }
+        },
+        "required": ["apps", "metrics", "country", "device"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_app_metrics_history",
+      "description": "Get historical estimated downloads, revenues, ratings, daily ratings, or App Power for up to five apps over a date range.",
+      "method": "GET",
+      "path": "/apps/metrics/history.json",
+      "query_params": ["apps", "metrics", "start_date", "end_date", "country", "device"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apps": { "type": "string", "description": "Comma-separated app IDs; maximum five." },
+          "metrics": { "type": "string", "description": "Comma-separated values from downloads, revenues, ratings, daily-ratings, app-power." },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] }
+        },
+        "required": ["apps", "metrics", "start_date", "end_date", "country", "device"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_app_category_rankings_current",
+      "description": "Get the latest category-chart ranking for up to five apps.",
+      "method": "GET",
+      "path": "/apps/category-rankings/current.json",
+      "query_params": ["apps", "country", "device"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apps": { "type": "string", "description": "Comma-separated app IDs; maximum five." },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] }
+        },
+        "required": ["apps", "country", "device"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_app_category_rankings_history",
+      "description": "Get historical category rankings for up to five apps over a date range.",
+      "method": "GET",
+      "path": "/apps/category-rankings/history.json",
+      "query_params": ["apps", "country", "device", "start_date", "end_date"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apps": { "type": "string", "description": "Comma-separated app IDs; maximum five." },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" }
+        },
+        "required": ["apps", "country", "device", "start_date", "end_date"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_category_metrics",
+      "description": "Get estimated category-level downloads or revenue by country and date. This Market Intelligence endpoint is credit-intensive; revenue is returned in USD.",
+      "method": "GET",
+      "path": "/categories/metrics",
+      "query_params": ["metric", "categories", "countries", "start_date", "end_date", "type", "device"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "metric": { "type": "string", "enum": ["downloads", "revenues"] },
+          "categories": { "type": "string", "description": "Comma-separated category IDs; maximum five." },
+          "countries": { "type": "string", "description": "Comma-separated two-letter country codes; maximum five." },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "type": { "type": "string", "enum": ["free", "paid"] },
+          "device": { "type": "string", "enum": ["iphone", "ipad", "android"] }
+        },
+        "required": ["metric", "categories", "countries", "start_date", "end_date", "type", "device"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

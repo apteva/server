@@ -28,7 +28,10 @@
         "type": "object",
         "properties": {
           "email": { "type": "string" },
-          "ip_address": { "type": "string", "description": "Optional IP to also geolocate" }
+          "ip_address": { "type": "string", "description": "Optional signup IP to also geolocate" },
+          "timeout": { "type": "integer", "minimum": 3, "maximum": 60, "default": 30 },
+          "activity_data": { "type": "boolean", "description": "Append recent email-activity data" },
+          "verify_plus": { "type": "boolean", "description": "Use ZeroBounce Verify+ for this request" }
         },
         "required": ["email"]
       }

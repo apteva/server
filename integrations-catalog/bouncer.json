@@ -1,0 +1,71 @@
+{
+  "slug": "bouncer",
+  "name": "Bouncer",
+  "description": "Real-time and batch email verification with normalized deliverability, risk, catch-all, disposable, role-account, and toxicity signals.",
+  "logo": "https://www.google.com/s2/favicons?domain=usebouncer.com&sz=128",
+  "categories": ["email", "verification", "deliverability"],
+  "base_url": "https://api.usebouncer.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Bouncer API key from app.usebouncer.com",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "verify",
+      "description": "Verify one email synchronously. Returns deliverable, risky, undeliverable, or unknown plus reason, score, domain, account, DNS, and toxicity signals.",
+      "method": "GET",
+      "path": "/v1.1/email/verify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "description": "Email address to verify" },
+          "timeout": { "type": "integer", "minimum": 1, "maximum": 30, "default": 10 }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "verify_batch_sync",
+      "description": "Verify up to 10,000 email addresses synchronously through Bouncer's batch queue. Requests should be sent sequentially.",
+      "method": "POST",
+      "path": "/v1.1/email/verify/batch/sync",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 10000,
+            "description": "Raw JSON array of email addresses"
+          }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "verify_domain",
+      "description": "Verify one domain's MX, provider, catch-all, disposable, free, and toxicity signals.",
+      "method": "GET",
+      "path": "/v1.1/domain",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string" }
+        },
+        "required": ["domain"]
+      }
+    }
+  ]
+}

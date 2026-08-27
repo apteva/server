@@ -4,7 +4,7 @@
   "description": "Email verification — single-email and bulk list verification with deliverability scoring. Use to clean an Apollo/Hunter list before sending.",
   "logo": "https://www.google.com/s2/favicons?domain=neverbounce.com&sz=128",
   "categories": ["email", "verification", "deliverability"],
-  "base_url": "https://api.neverbounce.com/v4",
+  "base_url": "https://api.neverbounce.com/v4.2",
   "auth": {
     "types": ["api_key"],
     "query_params": {
