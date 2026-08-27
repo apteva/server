@@ -664,6 +664,11 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "missing permission: "+string(sdk.PermThreadsWrite), http.StatusForbidden)
 			return
 		}
+		agent, err = s.ensureCallbackDeliveryTargetRunning(installID, agent)
+		if err != nil {
+			http.Error(w, "platform helper: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		port := s.agents.GetPort(id)
 		if port == 0 {
 			http.Error(w, "agent is not running", http.StatusBadGateway)
@@ -1577,6 +1582,18 @@ func (s *Server) handleCallbackEnsureThread(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	scopeCreated, ok := s.bindCallbackThreadProject(w, r, installID, agent, body.ThreadID, body.ProjectID)
+	if !ok {
+		return
+	}
+	agent, err = s.ensureCallbackDeliveryTargetRunning(installID, agent)
+	if err != nil {
+		if scopeCreated {
+			_ = s.store.DeleteAgentThreadScope(agent.ID, body.ThreadID)
+		}
+		http.Error(w, "platform helper: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	inst := framework.InstanceInfo{
 		ID: agent.ID, Name: agent.Name, UserID: agent.UserID, ProjectID: agent.ProjectID,
 		Port: s.agents.GetPort(agent.ID), CoreAPIKey: s.agents.GetCoreAPIKey(agent.ID),
@@ -1593,6 +1610,9 @@ func (s *Server) handleCallbackEnsureThread(w http.ResponseWriter, r *http.Reque
 		inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral, body.Events, body.ProfileHash,
 	)
 	if err != nil {
+		if scopeCreated {
+			_ = s.store.DeleteAgentThreadScope(agent.ID, body.ThreadID)
+		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -1618,6 +1638,18 @@ func (s *Server) handleCallbackSpawnThread(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	scopeCreated, ok := s.bindCallbackThreadProject(w, r, installID, agent, body.ThreadID, body.ProjectID)
+	if !ok {
+		return
+	}
+	agent, err = s.ensureCallbackDeliveryTargetRunning(installID, agent)
+	if err != nil {
+		if scopeCreated {
+			_ = s.store.DeleteAgentThreadScope(agent.ID, body.ThreadID)
+		}
+		http.Error(w, "platform helper: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	inst := framework.InstanceInfo{
 		ID: agent.ID, Name: agent.Name, UserID: agent.UserID, ProjectID: agent.ProjectID,
 		Port: s.agents.GetPort(agent.ID), CoreAPIKey: s.agents.GetCoreAPIKey(agent.ID),
@@ -1634,10 +1666,42 @@ func (s *Server) handleCallbackSpawnThread(w http.ResponseWriter, r *http.Reques
 		inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral, body.Events,
 	)
 	if err != nil {
+		if scopeCreated {
+			_ = s.store.DeleteAgentThreadScope(agent.ID, body.ThreadID)
+		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, result)
+}
+
+// bindCallbackThreadProject turns an app-supplied project hint into durable,
+// server-owned thread context. The install owner must be a member of the
+// project, and a project-scoped ordinary agent cannot be rebound elsewhere.
+// Empty project_id remains backward compatible and creates no scope.
+func (s *Server) bindCallbackThreadProject(w http.ResponseWriter, r *http.Request, installID int64, agent *Agent, threadID, requestedProjectID string) (bool, bool) {
+	requestedProjectID = strings.TrimSpace(requestedProjectID)
+	if requestedProjectID == "" {
+		return false, true
+	}
+	_, projectID, ok := s.runtimeCallerProject(w, r, installID, requestedProjectID, ProjectViewer)
+	if !ok {
+		return false, false
+	}
+	if agent == nil {
+		http.Error(w, "agent not found", http.StatusNotFound)
+		return false, false
+	}
+	if agent.ProjectID != "" && agent.ProjectID != projectID {
+		http.Error(w, "thread project does not match target agent project", http.StatusForbidden)
+		return false, false
+	}
+	created, err := s.store.BindAgentThreadScope(agent.ID, threadID, projectID, installID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return false, false
+	}
+	return created, true
 }
 
 func validateThreadSpawnEvents(events []sdk.ThreadEvent) error {
@@ -1850,6 +1914,9 @@ func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	if err := s.store.DeleteAgentThreadScope(agentID, threadID); err != nil {
+		log.Printf("[THREAD-SCOPE] delete agent=%d thread=%q: %v", agentID, threadID, err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1983,6 +2050,44 @@ func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int
 		return nil, errors.New("agent does not belong to the app installation project")
 	}
 	return agent, nil
+}
+
+// ensureCallbackDeliveryTargetRunning gives platform-owned Helper the same
+// lazy-start behavior as its first-party chat surface. Ordinary agents retain
+// their existing explicit lifecycle: a stopped ordinary agent still produces
+// "agent is not running" at the delivery site.
+//
+// The binding check is the capability boundary. Merely owning a global app
+// with thread permission is not enough to wake Helper; the app must have been
+// explicitly attached to that Helper through app_agent_bindings.
+func (s *Server) ensureCallbackDeliveryTargetRunning(installID int64, agent *Agent) (*Agent, error) {
+	if agent == nil || agent.Kind != "platform_helper" {
+		return agent, nil
+	}
+	var enabled int
+	if err := s.store.db.QueryRow(`
+		SELECT enabled
+		  FROM app_agent_bindings
+		 WHERE install_id=? AND agent_id=?`,
+		installID, agent.ID,
+	).Scan(&enabled); err != nil || enabled != 1 {
+		return nil, errors.New("calling app is not attached to platform helper")
+	}
+	if s.agents.IsRunning(agent.ID) {
+		return agent, nil
+	}
+	starter := s.platformHelperStarter
+	if starter == nil {
+		starter = s.ensureMetaAgentRunning
+	}
+	started, err := starter(agent.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if started == nil || started.ID != agent.ID {
+		return nil, errors.New("platform helper identity changed while starting")
+	}
+	return started, nil
 }
 
 func (s *Server) runtimeContainsInstallAndAgent(installID, agentID int64) bool {

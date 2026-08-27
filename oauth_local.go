@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -651,29 +652,64 @@ func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, strin
 	return conn, s.localOAuthAuthorizeURL(app, state, challenge, clientID), nil
 }
 
-// POST /connections/:id/oauth/reauth — start a provider OAuth flow that writes
-// the resulting tokens back onto the existing connection row.
+// POST /connections/:id/reauth — start the connection's catalog-declared auth
+// flow and write fresh tokens back onto the existing row. The legacy
+// /oauth/reauth route remains an alias for browser-OAuth callers.
 func (s *Server) handleReauthConnection(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
 	userID := getUserID(r)
-	idStr := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/connections/"), "/oauth/reauth")
+	idStr := strings.TrimPrefix(r.URL.Path, "/connections/")
+	idStr = strings.TrimSuffix(idStr, "/oauth/reauth")
+	idStr = strings.TrimSuffix(idStr, "/reauth")
 	connID, err := atoi64(idStr)
 	if err != nil {
 		http.Error(w, "invalid ID", http.StatusBadRequest)
 		return
 	}
-	conn, authURL, err := s.startLocalOAuthReauth(userID, connID)
+	conn, _, err := s.store.GetConnection(userID, connID)
 	if err != nil {
-		http.Error(w, "oauth reauth: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "connection not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, map[string]any{
-		"connection":   conn,
-		"redirect_url": authURL,
-	})
+	if conn.Source != "" && conn.Source != "local" {
+		http.Error(w, "reauth is only supported for local connections", http.StatusBadRequest)
+		return
+	}
+
+	switch conn.AuthType {
+	case "oauth1", "oauth2":
+		conn, authURL, err := s.startLocalOAuthReauth(userID, connID)
+		if err != nil {
+			http.Error(w, "oauth reauth: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"connection":   conn,
+			"redirect_url": authURL,
+		})
+	case connectionAuthTypeDeviceCode:
+		app := s.catalog.Get(conn.AppSlug)
+		if !supportsConnectionDeviceAuth(app) {
+			http.Error(w, "device-code reauth is not supported for this connection", http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		deviceAuth, err := s.startConnectionDeviceAuth(ctx, userID, app, conn, true)
+		if err != nil {
+			http.Error(w, "device auth start: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"connection":  conn,
+			"device_auth": deviceAuth,
+		})
+	default:
+		http.Error(w, "connection auth type requires credential replacement", http.StatusBadRequest)
+	}
 }
 
 func (s *Server) localOAuthAuthorizeURL(app *AppTemplate, state, challenge, clientID string) string {

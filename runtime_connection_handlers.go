@@ -409,6 +409,7 @@ type runtimeConnectionSummary struct {
 	Name         string         `json:"name"`
 	AppSlug      string         `json:"app_slug"`
 	AppName      string         `json:"app_name"`
+	AuthType     string         `json:"auth_type"`
 	ProviderKey  string         `json:"provider_key"`
 	Role         string         `json:"role"`
 	ProjectID    string         `json:"project_id"`
@@ -473,7 +474,7 @@ func (s *Server) handleListRuntimeConnections(w http.ResponseWriter, r *http.Req
 		}
 		out = append(out, runtimeConnectionSummary{
 			ID: conn.ID, Name: conn.Name,
-			AppSlug: conn.AppSlug, AppName: app.Name,
+			AppSlug: conn.AppSlug, AppName: app.Name, AuthType: conn.AuthType,
 			ProviderKey: app.Runtime.ProviderKey, Role: app.Runtime.Role,
 			ProjectID: conn.ProjectID, Scope: scope,
 			IsPrimary:    conn.IsPrimary,

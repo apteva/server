@@ -1342,6 +1342,18 @@ func (s *Store) migrate() error {
 		)
 	`)
 	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS agent_thread_scopes (
+			agent_id          INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+			thread_id         TEXT NOT NULL,
+			project_id        TEXT NOT NULL,
+			source_install_id INTEGER NOT NULL DEFAULT 0,
+			created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (agent_id, thread_id)
+		)
+	`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_thread_scopes_project ON agent_thread_scopes(project_id)`)
+	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS delegated_provider_usage (
 			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 			grant_id             TEXT NOT NULL DEFAULT '',
@@ -2309,6 +2321,25 @@ func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
 	return &inst, nil
 }
 
+// GetRunningAgentUserByCoreAPIKey resolves the identity behind a per-core
+// credential. Callers must still restrict what that identity may do; today the
+// only permitted use is the loopback Codex runtime-token callback in
+// authMiddleware.
+func (s *Store) GetRunningAgentUserByCoreAPIKey(coreAPIKey string) (int64, error) {
+	if !strings.HasPrefix(coreAPIKey, "core_") {
+		return 0, sql.ErrNoRows
+	}
+	var userID int64
+	err := s.db.QueryRow(`
+		SELECT user_id
+		  FROM agents
+		 WHERE core_api_key = ?
+		   AND status = 'running'
+		   AND COALESCE(core_api_key,'') != ''
+		 LIMIT 1`, coreAPIKey).Scan(&userID)
+	return userID, err
+}
+
 func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
@@ -2787,8 +2818,9 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		"DELETE FROM telemetry             WHERE agent_id = ?",
 		"DELETE FROM channels              WHERE agent_id = ?",
 		"DELETE FROM subscriptions         WHERE agent_id = ?",
-		"DELETE FROM app_agent_bindings WHERE agent_id = ?",
-		"DELETE FROM agents             WHERE id = ? AND user_id = ?",
+		"DELETE FROM app_agent_bindings    WHERE agent_id = ?",
+		"DELETE FROM agent_thread_scopes   WHERE agent_id = ?",
+		"DELETE FROM agents                 WHERE id = ? AND user_id = ?",
 	}
 	for i, q := range stmts {
 		var err error

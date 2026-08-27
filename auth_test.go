@@ -181,6 +181,77 @@ func TestAuthMiddleware_NoToken(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_CoreKeyIsScopedToLoopbackRuntimeToken(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("core-runtime-token@test.local", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(user.ID, "Codex agent", "directive", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const coreKey = "core_runtime_token_test"
+	if _, err := s.store.db.Exec(`UPDATE agents SET status='running', core_api_key=?, pid=42, port=4242 WHERE id=?`, coreKey, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	gotUserID := ""
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		gotUserID = r.Header.Get("X-User-ID")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	request := func(method, path, remoteAddr string) *httptest.ResponseRecorder {
+		t.Helper()
+		called = false
+		gotUserID = ""
+		req := httptest.NewRequest(method, path, nil)
+		req.RemoteAddr = remoteAddr
+		req.Header.Set("Authorization", "Bearer "+coreKey)
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		return rec
+	}
+
+	for _, path := range []string{
+		"/providers/7/auth/runtime-token",
+		"/api/providers/7/auth/runtime-token",
+	} {
+		rec := request(http.MethodPost, path, "127.0.0.1:43123")
+		if rec.Code != http.StatusNoContent || !called || gotUserID != itoa(user.ID) {
+			t.Fatalf("core callback %s status=%d called=%v user=%q", path, rec.Code, called, gotUserID)
+		}
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		remote string
+	}{
+		{http.MethodPost, "/connections/1/reauth", "127.0.0.1:43123"},
+		{http.MethodPost, "/apiproviders/7/auth/runtime-token", "127.0.0.1:43123"},
+		{http.MethodPost, "/providers/7/auth/runtime-token/extra", "127.0.0.1:43123"},
+		{http.MethodPost, "/providers/not-a-number/auth/runtime-token", "127.0.0.1:43123"},
+		{http.MethodDelete, "/providers/7/auth/runtime-token", "127.0.0.1:43123"},
+		{http.MethodPost, "/providers/7/auth/runtime-token", "203.0.113.9:43123"},
+	} {
+		rec := request(tc.method, tc.path, tc.remote)
+		if rec.Code != http.StatusUnauthorized || called {
+			t.Errorf("core key escaped scope: %s %s from %s status=%d called=%v", tc.method, tc.path, tc.remote, rec.Code, called)
+		}
+	}
+
+	if _, err := s.store.db.Exec(`UPDATE agents SET status='stopped' WHERE id=?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(http.MethodPost, "/providers/7/auth/runtime-token", "127.0.0.1:43123")
+	if rec.Code != http.StatusUnauthorized || called {
+		t.Fatalf("stopped core key remained valid: status=%d called=%v", rec.Code, called)
+	}
+}
+
 func TestAuthMiddleware_AnonymousAppGETRequiresManifestDeclaration(t *testing.T) {
 	s := newTestServer(t)
 	called := false

@@ -272,6 +272,58 @@
       "body_root_param": "tasks"
     },
     {
+      "name": "serp_organic_task_post",
+      "description": "Submit Google organic SERP tasks to the lower-cost DataForSEO Standard Queue. Results are collected later by task ID.",
+      "method": "POST",
+      "path": "/serp/google/organic/task_post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g. 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g. en)"
+          },
+          "device": {
+            "type": "string",
+            "enum": ["desktop", "mobile"],
+            "default": "desktop"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        },
+        "required": ["keyword"]
+      },
+      "body_root_param": "tasks"
+    },
+    {
+      "name": "serp_organic_task_get",
+      "description": "Collect one completed Google organic SERP Standard Queue task in advanced format. Collection is free for retained tasks.",
+      "method": "GET",
+      "path": "/serp/google/organic/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID returned by serp_organic_task_post"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
       "name": "serp_maps",
       "description": "Get Google Maps local search results for a keyword with business listings, ratings, and locations",
       "method": "POST",

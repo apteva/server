@@ -324,3 +324,71 @@ func TestGlobalAppProxyInjectsEffectiveProjectIntoMCP(t *testing.T) {
 		t.Fatalf("MCP _project_id=%q want %q", seenProjectArg, projectID)
 	}
 }
+
+func TestGlobalAppProxyUsesTrustedAppSpawnedThreadProject(t *testing.T) {
+	s, userID, projectID := newAppProxyProjectUser(t, ProjectEditor)
+	agent, err := s.store.CreateAgent(userID, "global helper", "help", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.BindAgentThreadScope(agent.ID, "chat-project-thread", projectID, 91); err != nil {
+		t.Fatal(err)
+	}
+
+	var seenHeader, seenProjectArg string
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenHeader = r.Header.Get("X-Apteva-Project-ID")
+		var rpc struct {
+			Params struct {
+				Arguments map[string]any `json:"arguments"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&rpc); err != nil {
+			t.Errorf("decode proxied MCP body: %v", err)
+		}
+		seenProjectArg, _ = rpc.Params.Arguments["_project_id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[]}}`))
+	}))
+	defer sidecar.Close()
+	s.installedApps.Add(&InstalledApp{InstallID: 790, AppName: "thread-scoped-app", SidecarURL: sidecar.URL})
+
+	request := func(path, callerAgent, callerThread, argumentProject string, requestUserID int64) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"example","arguments":{"_project_id":"` + argumentProject + `","_apteva_caller_thread":"` + callerThread + `"}}}`
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("X-User-ID", itoa64(requestUserID))
+		req.Header.Set("X-Apteva-Caller-Agent", callerAgent)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.handleAppProxy(rec, req)
+		return rec
+	}
+
+	// No project query is present. The server-owned (agent, thread) binding
+	// supplies it and overwrites the model-supplied project argument.
+	rec := request("/apps/thread-scoped-app/mcp", itoa64(agent.ID), "chat-project-thread", "spoofed-project", userID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("thread-scoped MCP status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if seenHeader != projectID || seenProjectArg != projectID {
+		t.Fatalf("thread project header=%q arg=%q want %q", seenHeader, seenProjectArg, projectID)
+	}
+
+	// An explicit conflicting URL scope cannot override the thread binding.
+	rec = request("/apps/thread-scoped-app/mcp?project_id=other-project", itoa64(agent.ID), "chat-project-thread", projectID, userID)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("conflicting project status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The same agent/thread headers under another authenticated user do not
+	// resolve the stored scope and therefore cannot reach the sidecar.
+	outsider, err := s.store.CreateUser("thread-scope-outsider@test.local", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = request("/apps/thread-scoped-app/mcp", itoa64(agent.ID), "chat-project-thread", projectID, outsider.ID)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("foreign user scope status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}

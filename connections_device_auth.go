@@ -30,6 +30,14 @@ const (
 // seam (openAICodexTokenEndpoint) since it was written.
 var integrationOpenAICodexTokenURL = "https://auth.openai.com/oauth/token"
 
+// Device endpoints are variables so the complete connection lifecycle can be
+// exercised against httptest servers. Production keeps the ChatGPT device-auth
+// endpoints; tests replace only the network edge.
+var (
+	integrationOpenAICodexDeviceUserCodeURL = integrationOpenAICodexIssuer + "/api/accounts/deviceauth/usercode"
+	integrationOpenAICodexDeviceTokenURL    = integrationOpenAICodexIssuer + "/api/accounts/deviceauth/token"
+)
+
 type connectionDeviceAuthSession struct {
 	ID           string
 	UserID       int64
@@ -39,6 +47,7 @@ type connectionDeviceAuthSession struct {
 	UserCode     string
 	ExpiresAt    time.Time
 	Interval     int
+	Reauth       bool
 	CreatedAt    time.Time
 }
 
@@ -92,7 +101,7 @@ func supportsConnectionDeviceAuth(app *AppTemplate) bool {
 	return app != nil && app.Slug == integrationOpenAICodexSlug && containsString(app.Auth.Types, connectionAuthTypeDeviceCode)
 }
 
-func (s *Server) startConnectionDeviceAuth(ctx context.Context, userID int64, app *AppTemplate, conn *Connection) (map[string]any, error) {
+func (s *Server) startConnectionDeviceAuth(ctx context.Context, userID int64, app *AppTemplate, conn *Connection, reauth bool) (map[string]any, error) {
 	if !supportsConnectionDeviceAuth(app) {
 		return nil, fmt.Errorf("%s does not support device-code auth", app.Slug)
 	}
@@ -102,7 +111,7 @@ func (s *Server) startConnectionDeviceAuth(ctx context.Context, userID int64, ap
 		ExpiresIn    connectionDeviceLooseInt `json:"expires_in"`
 		Interval     connectionDeviceLooseInt `json:"interval"`
 	}
-	if err := postConnectionDeviceJSON(ctx, integrationOpenAICodexIssuer+"/api/accounts/deviceauth/usercode", map[string]string{"client_id": integrationOpenAICodexClientID}, &payload); err != nil {
+	if err := postConnectionDeviceJSON(ctx, integrationOpenAICodexDeviceUserCodeURL, map[string]string{"client_id": integrationOpenAICodexClientID}, &payload); err != nil {
 		return nil, err
 	}
 	if payload.UserCode == "" || payload.DeviceAuthID == "" {
@@ -125,6 +134,7 @@ func (s *Server) startConnectionDeviceAuth(ctx context.Context, userID int64, ap
 		UserCode:     payload.UserCode,
 		ExpiresAt:    time.Now().Add(time.Duration(expiresIn) * time.Second),
 		Interval:     interval,
+		Reauth:       reauth,
 		CreatedAt:    time.Now(),
 	}
 	globalConnectionDeviceAuthSessions.put(session)
@@ -157,7 +167,9 @@ func (s *Server) handlePollConnectionDeviceAuth(w http.ResponseWriter, r *http.R
 	}
 	if time.Now().After(session.ExpiresAt) {
 		globalConnectionDeviceAuthSessions.delete(sessionID)
-		_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
+		if !session.Reauth {
+			_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
+		}
 		writeJSON(w, map[string]any{"status": "expired"})
 		return
 	}
@@ -172,7 +184,7 @@ func (s *Server) handlePollConnectionDeviceAuth(w http.ResponseWriter, r *http.R
 		AuthorizationCode string `json:"authorization_code"`
 		CodeVerifier      string `json:"code_verifier"`
 	}
-	status, body, err := postConnectionDeviceJSONStatus(ctx, integrationOpenAICodexIssuer+"/api/accounts/deviceauth/token", reqBody, &codeResp)
+	status, body, err := postConnectionDeviceJSONStatus(ctx, integrationOpenAICodexDeviceTokenURL, reqBody, &codeResp)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -186,7 +198,9 @@ func (s *Server) handlePollConnectionDeviceAuth(w http.ResponseWriter, r *http.R
 	}
 	if status < 200 || status >= 300 {
 		globalConnectionDeviceAuthSessions.delete(sessionID)
-		_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
+		if !session.Reauth {
+			_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
+		}
 		writeJSON(w, map[string]any{
 			"status": "failed",
 			"error":  strings.TrimSpace(string(body)),
@@ -195,7 +209,9 @@ func (s *Server) handlePollConnectionDeviceAuth(w http.ResponseWriter, r *http.R
 	}
 	if codeResp.AuthorizationCode == "" || codeResp.CodeVerifier == "" {
 		globalConnectionDeviceAuthSessions.delete(sessionID)
-		_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
+		if !session.Reauth {
+			_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
+		}
 		writeJSON(w, map[string]any{
 			"status": "failed",
 			"error":  "OpenAI Codex device auth response was incomplete",

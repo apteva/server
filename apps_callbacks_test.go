@@ -110,6 +110,172 @@ func TestCallbackAgentForInstallEnforcesOwnerAndProject(t *testing.T) {
 	}
 }
 
+func TestCallbackDeliveryTargetRequiresHelperBinding(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	helper, err := s.store.CreateAgent(1, "callback-helper", "help", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper.Kind = "platform_helper"
+	if _, err := s.store.db.Exec(`UPDATE agents SET kind='platform_helper' WHERE id=?`, helper.ID); err != nil {
+		t.Fatal(err)
+	}
+	manifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "helper-binding-test"}
+	installID := seedInstallWithBindings(t, s, "helper-binding-test", manifest, nil)
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, installID); err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	s.platformHelperStarter = func(userID int64) (*Agent, error) {
+		starts++
+		return helper, nil
+	}
+
+	if _, err := s.ensureCallbackDeliveryTargetRunning(installID, helper); err == nil || !strings.Contains(err.Error(), "not attached") {
+		t.Fatalf("unbound helper wake error=%v, want attachment rejection", err)
+	}
+	if starts != 0 {
+		t.Fatalf("unbound helper invoked starter %d time(s)", starts)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO app_agent_bindings (install_id,agent_id,enabled) VALUES (?,?,1)`,
+		installID, helper.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ensureCallbackDeliveryTargetRunning(installID, helper); err != nil || got.ID != helper.ID {
+		t.Fatalf("bound helper wake got=%+v err=%v", got, err)
+	}
+	if starts != 1 {
+		t.Fatalf("bound helper starter calls=%d, want 1", starts)
+	}
+
+	ordinary, err := s.store.CreateAgent(1, "ordinary", "work", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ensureCallbackDeliveryTargetRunning(installID, ordinary); err != nil || got.ID != ordinary.ID {
+		t.Fatalf("ordinary target got=%+v err=%v", got, err)
+	}
+	if starts != 1 {
+		t.Fatalf("ordinary target unexpectedly invoked Helper starter; calls=%d", starts)
+	}
+}
+
+func TestCallbackDeliveryLazilyStartsBoundHelper(t *testing.T) {
+	eventID := "conversation:helper:message:1:agent:1"
+	threadCalls, eventCalls := 0, 0
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/threads/chat-helper":
+			threadCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "created",
+				"events": map[string]any{"accepted": []string{eventID}, "duplicates": []string{}},
+			})
+		case "/event":
+			eventCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": true})
+		default:
+			http.Error(w, "unexpected core path", http.StatusNotFound)
+		}
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	helper, err := s.store.CreateAgent(1, "delivery-helper", "help", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper.Kind = "platform_helper"
+	if _, err := s.store.db.Exec(`UPDATE agents SET kind='platform_helper' WHERE id=?`, helper.ID); err != nil {
+		t.Fatal(err)
+	}
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "helper-delivery-test",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermThreadsWrite}},
+	}
+	installID := seedInstallWithBindings(t, s, "helper-delivery-test", manifest, nil)
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, installID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO app_agent_bindings (install_id,agent_id,enabled) VALUES (?,?,1)`,
+		installID, helper.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	s.platformHelperStarter = func(userID int64) (*Agent, error) {
+		starts++
+		s.agents.processes[helper.ID] = &runningAgent{port: port, coreAPIKey: "core-key", reattached: true}
+		return helper, nil
+	}
+
+	// Metadata lookup must remain read-only.
+	metadataReq := httptest.NewRequest(http.MethodGet, "/apps/callback/agents/"+itoa(helper.ID), nil)
+	metadataReq.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	metadataReq.Header.Set("X-User-ID", "1")
+	metadataRec := httptest.NewRecorder()
+	s.handleAppCallback(metadataRec, metadataReq)
+	if metadataRec.Code != http.StatusOK || starts != 0 {
+		t.Fatalf("metadata status=%d starts=%d body=%s", metadataRec.Code, starts, metadataRec.Body.String())
+	}
+
+	spawnBody, _ := json.Marshal(sdk.ThreadSpawnRequest{
+		AgentID: helper.ID, ThreadID: "chat-helper", ProjectID: "proj-thread", MCP: []string{"conversations"},
+		Events: []sdk.ThreadEvent{{ID: eventID, Message: "Build this"}},
+	})
+	spawnReq := httptest.NewRequest(http.MethodPost, "/apps/callback/threads/spawn", strings.NewReader(string(spawnBody)))
+	spawnReq.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	spawnReq.Header.Set("X-User-ID", "1")
+	spawnRec := httptest.NewRecorder()
+	s.handleAppCallback(spawnRec, spawnReq)
+	if spawnRec.Code != http.StatusOK || starts != 1 || threadCalls != 1 {
+		t.Fatalf("spawn status=%d starts=%d thread_calls=%d body=%s", spawnRec.Code, starts, threadCalls, spawnRec.Body.String())
+	}
+	if projectID, err := s.store.AgentThreadProjectForUser(1, helper.ID, "chat-helper"); err != nil || projectID != "proj-thread" {
+		t.Fatalf("persisted thread project=%q err=%v", projectID, err)
+	}
+
+	// Simulate a later Helper stop. Event delivery wakes it once, while the
+	// following event reuses the running process without another start.
+	delete(s.agents.processes, helper.ID)
+	sendEvent := func(message string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/apps/callback/agents/"+itoa(helper.ID)+"/event",
+			strings.NewReader(`{"message":`+strconv.Quote(message)+`,"thread_id":"chat-helper"}`))
+		req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+		req.Header.Set("X-User-ID", "1")
+		rec := httptest.NewRecorder()
+		s.handleAppCallback(rec, req)
+		return rec
+	}
+	if rec := sendEvent("continue"); rec.Code != http.StatusOK {
+		t.Fatalf("cold event status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := sendEvent("continue again"); rec.Code != http.StatusOK {
+		t.Fatalf("warm event status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if starts != 2 || eventCalls != 2 {
+		t.Fatalf("after events starts=%d event_calls=%d, want 2 and 2", starts, eventCalls)
+	}
+}
+
 func TestCallbackOpaqueThreadSpawnRequiresPermissionAndProjectScope(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)

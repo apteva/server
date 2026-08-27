@@ -2570,7 +2570,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		deviceAuth, err := s.startConnectionDeviceAuth(ctx, userID, app, conn)
+		deviceAuth, err := s.startConnectionDeviceAuth(ctx, userID, app, conn, false)
 		if err != nil {
 			_ = s.store.DeleteConnection(userID, conn.ID)
 			http.Error(w, "device auth start: "+err.Error(), http.StatusBadGateway)

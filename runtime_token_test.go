@@ -89,6 +89,47 @@ func TestRuntimeTokenResolvesConnectionID(t *testing.T) {
 	}
 }
 
+func TestRuntimeTokenAcceptsOwningRunningCoreKey(t *testing.T) {
+	s := runtimeTestServer(t)
+	conn := codexConnection(t, s, 0)
+	user, err := s.store.CreateUser("runtime-core@test.local", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(user.ID, "runtime core", "wait", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The connection helper creates its fixture for the default test user.
+	// Move it to the agent owner so the handler's normal ownership check is
+	// exercised after core-key authentication succeeds.
+	if _, err := s.store.db.Exec(`UPDATE connections SET user_id=? WHERE id=?`, user.ID, conn.ID); err != nil {
+		t.Fatal(err)
+	}
+	const coreKey = "core_runtime_token_end_to_end"
+	if _, err := s.store.db.Exec(`UPDATE agents SET status='running', core_api_key=?, pid=77, port=7777 WHERE id=?`, coreKey, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/providers/%d/auth/runtime-token", conn.ID), nil)
+	req.RemoteAddr = "127.0.0.1:43777"
+	req.Header.Set("Authorization", "Bearer "+coreKey)
+	rec := httptest.NewRecorder()
+	s.authMiddleware(s.handleRuntimeToken)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.AccessToken != "tok-live" {
+		t.Fatalf("access_token = %q, want tok-live", payload.AccessToken)
+	}
+}
+
 // TestRuntimeTokenPrefersProviderRow pins the dual-read precedence for
 // this endpoint: while a provider row still exists the behavior must be
 // bit-identical to before the fusion, so the connection path can be

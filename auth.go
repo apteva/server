@@ -233,6 +233,19 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		if token != "" {
+			// A core process has its own high-entropy key for its local HTTP API.
+			// It is not a user API key and must never authorize ordinary platform
+			// routes. Codex cores do, however, need one narrowly scoped callback
+			// to retrieve the owning user's current runtime token. Resolve that
+			// identity only for the exact loopback runtime-token route; ownership
+			// is enforced again by handleRuntimeToken's user-scoped lookup.
+			if strings.HasPrefix(token, "core_") && coreRuntimeTokenRequestAllowed(r) {
+				if userID, err := s.store.GetRunningAgentUserByCoreAPIKey(token); err == nil {
+					r.Header.Set("X-User-ID", itoa(userID))
+					next(w, r)
+					return
+				}
+			}
 			keyHash := HashAPIKey(token)
 			if strings.HasPrefix(token, "uk_") {
 				appName, appPath, ok := splitAppProxyPath(r.URL.Path)
@@ -329,6 +342,26 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
+}
+
+// coreRuntimeTokenRequestAllowed deliberately recognizes one route only.
+// authMiddleware normally sees the /api prefix already stripped, while direct
+// middleware tests and a few internal callers may retain it, so accept either
+// canonical spelling without accepting suffixes or non-numeric IDs.
+func coreRuntimeTokenRequestAllowed(r *http.Request) bool {
+	if r == nil || !requestFromLoopback(r) || (r.Method != http.MethodGet && r.Method != http.MethodPost) {
+		return false
+	}
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/api/") {
+		path = strings.TrimPrefix(path, "/api")
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "providers" || parts[2] != "auth" || parts[3] != "runtime-token" {
+		return false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	return err == nil && id > 0
 }
 
 func apiKeyQueryAllowed(r *http.Request) bool {

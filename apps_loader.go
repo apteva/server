@@ -410,6 +410,17 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	//
 	// An absent project_id may only resolve a global install. Picking an
 	// arbitrary project install here would cross tenant boundaries.
+	isAppMCPCall := tail == "/mcp" && r.Method == http.MethodPost
+	if isAppMCPCall {
+		// Core carries the active thread as a hidden tools/call argument. Lift
+		// it into a server-owned header before project routing so a validated
+		// app-spawned thread scope can select a global app safely.
+		if err := extractCallerThreadFromMCPRequest(r); err != nil {
+			http.Error(w, "invalid MCP caller context: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	rawQuery := r.URL.Query()
 	_, hasProjectIDKey := rawQuery["project_id"]
 	requestedProjectID := strings.TrimSpace(rawQuery.Get("project_id"))
@@ -433,6 +444,24 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			requestedProjectID = trustedProjectID
 			rawQuery.Set("project_id", requestedProjectID)
 			r.URL.RawQuery = rawQuery.Encode()
+		}
+	}
+	if isAppMCPCall {
+		threadProjectID, err := s.appMCPThreadProject(r)
+		if err != nil {
+			http.Error(w, "resolve MCP thread project: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if threadProjectID != "" {
+			if requestedProjectID != "" && requestedProjectID != threadProjectID {
+				http.Error(w, "project_id does not match trusted thread project", http.StatusForbidden)
+				return
+			}
+			if requestedProjectID == "" && !hasProjectIDKey {
+				requestedProjectID = threadProjectID
+				rawQuery.Set("project_id", requestedProjectID)
+				r.URL.RawQuery = rawQuery.Encode()
+			}
 		}
 	}
 	if hasProjectIDKey && requestedProjectID == "" {
@@ -511,11 +540,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if tail == "/mcp" && r.Method == http.MethodPost {
-		if err := extractCallerThreadFromMCPRequest(r); err != nil {
-			http.Error(w, "invalid MCP caller context: "+err.Error(), http.StatusBadRequest)
-			return
-		}
+	if isAppMCPCall {
 		s.applyChannelChatSubjectContext(r)
 	}
 	var asyncReq *appMCPAsyncRequest

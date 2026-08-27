@@ -1,7 +1,7 @@
 {
   "slug": "scaleway",
   "name": "Scaleway Cloud",
-  "description": "Manage Scaleway cloud infrastructure - virtual instances, Apple silicon Mac minis, volumes, IPs, security groups, images, snapshots, and SSH keys",
+  "description": "Manage Scaleway cloud infrastructure - virtual instances, Dedibox dedicated servers, Apple silicon Mac minis, volumes, IPs, security groups, images, snapshots, and SSH keys",
   "logo": "https://www.google.com/s2/favicons?domain=scaleway.com&sz=128",
   "categories": [
     "cloud",
@@ -1139,6 +1139,167 @@
           "server_id": { "type": "string" },
           "os_id": { "type": "string" },
           "enable_kext": { "type": "boolean" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_offers_list",
+      "description": "List currently orderable Scaleway Dedibox physical-server offers in a zone",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "project_id": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "order_by": { "type": "string", "enum": ["created_at_asc", "created_at_desc", "name_asc", "name_desc", "price_asc", "price_desc"] },
+          "catalog": { "type": "string", "enum": ["all", "default", "beta", "reseller", "premium", "volume", "admin", "inactive"] },
+          "sold_in": { "type": "string", "description": "Optional Dedibox datacenter name" },
+          "available_only": { "type": "boolean", "default": true }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "dedibox_server_create",
+      "description": "Order a Scaleway Dedibox physical server. Returns a service ID while the hardware is being delivered.",
+      "method": "POST",
+      "path": "/dedibox/v1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "offer_id": { "type": "integer" },
+          "project_id": { "type": "string" },
+          "server_option_ids": { "type": "array", "items": { "type": "integer" }, "default": [] },
+          "datacenter_name": { "type": "string" }
+        },
+        "required": ["zone", "offer_id", "project_id", "server_option_ids"]
+      }
+    },
+    {
+      "name": "dedibox_service_get",
+      "description": "Get a Dedibox order/service and its physical server resource ID once delivered",
+      "method": "PATCH",
+      "path": "/dedibox/v1/zones/{zone}/services/{service_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "service_id": { "type": "integer" }
+        },
+        "required": ["zone", "service_id"]
+      }
+    },
+    {
+      "name": "dedibox_service_delete",
+      "description": "Terminate a Dedibox order or subscription by service ID",
+      "method": "DELETE",
+      "path": "/dedibox/v1/zones/{zone}/services/{service_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "service_id": { "type": "integer" }
+        },
+        "required": ["zone", "service_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_get",
+      "description": "Get a delivered Dedibox physical server, including status and public IP addresses",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_delete",
+      "description": "Delete and terminate a delivered Dedibox physical server",
+      "method": "DELETE",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_os_list",
+      "description": "List operating systems compatible with a delivered Dedibox server",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/os",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" },
+          "project_id": { "type": "string" },
+          "type": { "type": "string", "enum": ["server", "virtu", "panel", "desktop", "custom", "rescue"] },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "order_by": { "type": "string", "enum": ["created_at_asc", "created_at_desc", "released_at_asc", "released_at_desc"] }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_install",
+      "description": "Install an operating system on a delivered Dedibox physical server",
+      "method": "POST",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}/install",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" },
+          "os_id": { "type": "integer" },
+          "hostname": { "type": "string" },
+          "user_login": { "type": "string" },
+          "user_password": { "type": "string" },
+          "root_password": { "type": "string" },
+          "ssh_key_ids": { "type": "array", "items": { "type": "string" } },
+          "partitions": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["zone", "server_id", "os_id", "hostname"]
+      }
+    },
+    {
+      "name": "dedibox_install_get",
+      "description": "Get the current Dedibox operating-system installation status",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}/install",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_reboot",
+      "description": "Reboot a delivered Dedibox physical server",
+      "method": "POST",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
         },
         "required": ["zone", "server_id"]
       }

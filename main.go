@@ -948,7 +948,12 @@ func main() {
 			s.handleTestConnection(w, r)
 		} else if strings.HasSuffix(path, "/oauth/reauth") {
 			// POST /api/connections/:id/oauth/reauth — start an OAuth
-			// popup that refreshes tokens on the same connection row.
+			// popup that refreshes tokens on the same connection row. Kept
+			// as a backward-compatible alias for browser-OAuth clients.
+			s.handleReauthConnection(w, r)
+		} else if strings.HasSuffix(path, "/reauth") {
+			// POST /api/connections/:id/reauth — refresh credentials on the
+			// same connection row, dispatching by its catalog auth type.
 			s.handleReauthConnection(w, r)
 		} else if strings.HasSuffix(path, "/scope") && r.Method == http.MethodPatch {
 			// PATCH /api/connections/:id/scope — move a connection

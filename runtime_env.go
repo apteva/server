@@ -57,6 +57,7 @@ type runtimeConnection struct {
 	ID               int64
 	AppSlug          string
 	Name             string
+	AuthType         string
 	ProjectID        string
 	Status           string
 	IsPrimary        bool
@@ -80,7 +81,7 @@ type runtimeConnection struct {
 // injecting a half-finished blob into a core would surface as a confusing
 // 401 at first inference rather than as "not connected".
 func (s *Store) ListRuntimeConnections(userID int64, projectID ...string) ([]runtimeConnection, error) {
-	const cols = `id, app_slug, name, COALESCE(project_id,''), COALESCE(status,'active'),
+	const cols = `id, app_slug, name, COALESCE(auth_type,''), COALESCE(project_id,''), COALESCE(status,'active'),
 	              COALESCE(is_primary,0), COALESCE(legacy_provider_id,0),
 	              COALESCE(runtime_config,'{}'), encrypted_credentials`
 
@@ -117,7 +118,7 @@ func (s *Store) ListRuntimeConnections(userID int64, projectID ...string) ([]run
 	for rows.Next() {
 		var c runtimeConnection
 		var isPrimary int
-		if err := rows.Scan(&c.ID, &c.AppSlug, &c.Name, &c.ProjectID, &c.Status,
+		if err := rows.Scan(&c.ID, &c.AppSlug, &c.Name, &c.AuthType, &c.ProjectID, &c.Status,
 			&isPrimary, &c.LegacyProviderID, &c.RuntimeConfig, &c.EncryptedCreds); err != nil {
 			continue
 		}

@@ -2081,7 +2081,7 @@ func (s *Server) ResumeRunningInstances() {
 	reattachEnabled := resumePolicy != "restart"
 	if providerAuthRefreshEnvEnabled() && s.store.RunningAgentsUseCodexProvider() {
 		result := s.refreshExpiringCodexProviders(context.Background(), codexProviderRefreshSkew, false)
-		if result.ProvidersRefreshed > 0 && disableCoreReattachForCodexRefresh() {
+		if result.ProvidersRefreshed+result.ConnectionsRefreshed > 0 && disableCoreReattachForCodexRefresh() {
 			reattachEnabled = false
 			log.Printf("[RESUME] OpenAI Codex provider refreshed before resume; forcing fresh core spawn for updated token env")
 		}
