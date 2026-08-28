@@ -5,6 +5,30 @@ import (
 	"testing"
 )
 
+func TestEnvironmentAgentProviderEnvIncludesRuntimeConnections(t *testing.T) {
+	s := runtimeTestServer(t)
+	registerRuntimeApp(s, "anthropic-api", "anthropic", map[string]string{
+		"ANTHROPIC_API_KEY": "{{credentials.api_key}}",
+	})
+	addConnection(t, s, "anthropic-api", "Anthropic", "project-a", map[string]string{
+		"api_key": "connection-backed-key",
+	})
+
+	env, err := s.environmentAgentProviderEnv(1, "project-a", "http://environment-proxy.test")
+	if err != nil {
+		t.Fatalf("environmentAgentProviderEnv: %v", err)
+	}
+	if got := env["ANTHROPIC_API_KEY"]; got != "connection-backed-key" {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want connection-backed credential", got)
+	}
+	if got := env["HTTP_PROXY"]; got != "http://environment-proxy.test" {
+		t.Errorf("HTTP_PROXY = %q", got)
+	}
+	if got := env["HTTPS_PROXY"]; got != "http://environment-proxy.test" {
+		t.Errorf("HTTPS_PROXY = %q", got)
+	}
+}
+
 func testEnvironmentWithInstalls(names ...string) *Environment {
 	installs := map[string]*localInstall{}
 	for _, name := range names {

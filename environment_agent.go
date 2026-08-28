@@ -284,16 +284,11 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	wAgent.Config = string(cfgJSON)
 	_ = s.store.UpdateAgent(wAgent)
 
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, src.ProjectID)
+	providerEnv, err := s.environmentAgentProviderEnv(userID, src.ProjectID, environment.ProxyURL())
 	if err != nil {
-		providerEnv = map[string]string{}
+		teardown()
+		return nil, err
 	}
-	// Route the core's own egress through the Environment edge so any direct
-	// outbound HTTP it makes lands on the same cassette/mock policy as the
-	// sidecars. LLM hosts are in the edge's default allowlist, so the
-	// provider call still reaches its API.
-	providerEnv["HTTP_PROXY"] = environment.ProxyURL()
-	providerEnv["HTTPS_PROXY"] = environment.ProxyURL()
 
 	if err := s.agents.PreSeedConfig(wAgent.ID, wAgent.Config); err != nil {
 		teardown()
@@ -333,6 +328,21 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("install environment subscriptions: %w", err)
 	}
 	return wa, nil
+}
+
+// environmentAgentProviderEnv resolves providers through the same dual-read
+// path used by ordinary agents. In particular, this includes runtime-backed
+// connections after credentials have migrated out of the legacy providers
+// table. The environment proxy is additive: it must never replace or hide the
+// credentials required to boot the cloned core.
+func (s *Server) environmentAgentProviderEnv(userID int64, projectID, proxyURL string) (map[string]string, error) {
+	providerEnv, err := s.GetAllProviderEnvVars(userID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("load environment agent providers: %w", err)
+	}
+	providerEnv["HTTP_PROXY"] = proxyURL
+	providerEnv["HTTPS_PROXY"] = proxyURL
+	return providerEnv, nil
 }
 
 func isEnvironmentConnectionMCPURL(raw string) bool {
