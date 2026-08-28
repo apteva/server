@@ -649,8 +649,10 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 	}
 	if len(parts) == 2 && parts[1] == "event" && r.Method == http.MethodPost {
 		var body struct {
-			Message  json.RawMessage `json:"message"`
-			ThreadID string          `json:"thread_id,omitempty"`
+			Message        json.RawMessage `json:"message"`
+			ThreadID       string          `json:"thread_id,omitempty"`
+			SourceEventID  string          `json:"source_event_id,omitempty"`
+			TrackLifecycle bool            `json:"track_lifecycle,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -660,7 +662,19 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "message required", http.StatusBadRequest)
 			return
 		}
-		if strings.TrimSpace(body.ThreadID) != "" && !installHasPermission(s, installID, sdk.PermThreadsWrite) {
+		tracked := body.TrackLifecycle || strings.TrimSpace(body.SourceEventID) != ""
+		if tracked {
+			if !body.TrackLifecycle || strings.TrimSpace(body.SourceEventID) == "" {
+				http.Error(w, "tracked events require source_event_id and track_lifecycle=true", http.StatusBadRequest)
+				return
+			}
+			if !installHasPermission(s, installID, sdk.PermInstancesWrite) {
+				http.Error(w, "missing permission: "+string(sdk.PermInstancesWrite), http.StatusForbidden)
+				return
+			}
+		}
+		requestedThreadID := strings.TrimSpace(body.ThreadID)
+		if requestedThreadID != "" && requestedThreadID != "main" && !installHasPermission(s, installID, sdk.PermThreadsWrite) {
 			http.Error(w, "missing permission: "+string(sdk.PermThreadsWrite), http.StatusForbidden)
 			return
 		}
@@ -677,6 +691,22 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 		message, err := normalizeCallbackEventMessage(body.Message)
 		if err != nil {
 			http.Error(w, "invalid message", http.StatusBadRequest)
+			return
+		}
+		if tracked {
+			receipt, err := s.sendTrackedAgentEvent(r.Context(), agent, installID, body.SourceEventID, body.ThreadID, message)
+			if err != nil {
+				switch {
+				case errors.Is(err, errAgentEventInvalid):
+					http.Error(w, err.Error(), http.StatusBadRequest)
+				case errors.Is(err, errAgentEventConflict):
+					http.Error(w, err.Error(), http.StatusConflict)
+				default:
+					http.Error(w, err.Error(), http.StatusBadGateway)
+				}
+				return
+			}
+			writeJSON(w, receipt)
 			return
 		}
 		payload := map[string]any{"message": message}

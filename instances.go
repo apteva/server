@@ -696,6 +696,25 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		"INSTANCE_SECRET="+instanceSecret,
 		"AGENT_SECRET="+instanceSecret,
 	)
+	// The platform Helper discovers project-scoped app MCPs through the
+	// authenticated apteva-server gateway and connects to them only when a
+	// dashboard conversation authorizes project work. Those server-minted URLs
+	// use this process's loopback origin, which Core otherwise rejects as an
+	// unconfigured runtime MCP destination. Trust the broker origin for Helper
+	// only; the app proxy still validates its per-install capability and project
+	// context before forwarding a call.
+	if inst.Kind == "platform_helper" {
+		localServerOrigin := "http://127.0.0.1:" + serverPort
+		connectAllowlist := strings.TrimSpace(os.Getenv("APTEVA_MCP_CONNECT_ALLOWLIST"))
+		if connectAllowlist == "" {
+			connectAllowlist = localServerOrigin
+		} else {
+			connectAllowlist = localServerOrigin + "," + connectAllowlist
+		}
+		env = childEnvWithOverrides(env, map[string]string{
+			"APTEVA_MCP_CONNECT_ALLOWLIST": connectAllowlist,
+		})
+	}
 	for k, v := range providerEnv {
 		env = append(env, k+"="+v)
 	}

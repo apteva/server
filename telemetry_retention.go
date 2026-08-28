@@ -39,6 +39,11 @@ func (s *Server) startTelemetryRetention() {
 		return
 	}
 	cleanup := func() {
+		deliveriesDeleted, err := s.store.cleanDeliveredAgentEventDeliveries(retention)
+		if err != nil {
+			log.Printf("[AGENT-EVENTS] delivery retention cleanup failed: %v", err)
+			return
+		}
 		deleted, err := s.store.CleanOldTelemetry(retention)
 		if err != nil {
 			log.Printf("[TELEMETRY] retention cleanup failed: %v", err)
@@ -46,6 +51,9 @@ func (s *Server) startTelemetryRetention() {
 		}
 		if deleted > 0 {
 			log.Printf("[TELEMETRY] retention removed %d event(s) older than %s", deleted, retention)
+		}
+		if deliveriesDeleted > 0 {
+			log.Printf("[AGENT-EVENTS] retention removed %d delivered transition(s) older than %s", deliveriesDeleted, retention)
 		}
 	}
 	cleanup()

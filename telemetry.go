@@ -583,7 +583,11 @@ func jsonInt(data map[string]any, key string) int {
 
 func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-maxAge).UTC().Format(time.RFC3339)
-	result, err := s.db.Exec("DELETE FROM telemetry WHERE time < ?", cutoff)
+	result, err := s.db.Exec(`DELETE FROM telemetry
+		WHERE time < ?
+		  AND id NOT IN (
+			SELECT telemetry_id FROM agent_event_deliveries WHERE delivered_at IS NULL
+		  )`, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -637,6 +641,7 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "telemetry batch too large", http.StatusRequestEntityTooLarge)
 		return
 	}
+	normalizeAgentLifecycleTelemetryIDs(events)
 	sanitizeStoredToolResultTelemetry(events)
 
 	// Enrich llm.done events with server-side cost calculation.

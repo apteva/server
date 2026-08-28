@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -70,7 +69,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "agents_update", Description: "Update an Apteva agent using the normal dashboard/server handlers. Supports rename, full directive/mode/config updates, markdown directive section edits, and MCP server attachment changes via mcp_server_ids from list_mcp_servers. For empty directives, prefer directive_section/directive_content edits so the directive starts as structured Markdown instead of plain text.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "New full directive. Use only when intentionally replacing the whole directive; prefer section edits for structured Markdown."}, "directive_edit_mode": {Type: "string", Description: "Optional section edit mode: section_append, section_replace, section_replace_line, or section_remove_line. Defaults to section_append when directive_section is provided. Ignored when directive is provided."}, "directive_section": {Type: "string", Description: "Markdown section name to edit, e.g. Learning or Tools and Integrations. With directive_content and no directive_edit_mode, creates/appends this section."}, "directive_match": {Type: "string", Description: "Line substring to match for section_replace_line or section_remove_line."}, "directive_content": {Type: "string", Description: "Content to append, replace, or use as the replacement line."}, "directive_edits": {Type: "string", Description: "Optional JSON array of section edits with mode, section, match, and content fields. Use this to initialize or update several Markdown sections at once."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config"}, "mcp_server_ids": {Type: "string", Description: "Optional comma-separated MCP server IDs from list_mcp_servers"}, "mcp_action": {Type: "string", Description: "set, add, or remove MCP servers. Defaults to set when mcp_server_ids is provided."}}, Required: []string{"id"}}},
 		{Name: "agents_start", Description: "Start a stopped Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_stop", Description: "Stop a running Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
-		{Name: "agents_send_event", Description: "Send a work instruction to a running Apteva agent through the server's normal Core event delivery. The target must belong to the trusted current project, or project_id must be supplied explicitly when this gateway has no project context. Pass a stable non-main thread_id and event_id for idempotent retries; without event_id, delivery uses the target agent's ordinary /event path and defaults to main.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Target agent ID"}, "message": {Type: "string", Description: "Work instruction to deliver"}, "project_id": {Type: "string", Description: "Target project ID. Required when the gateway has no trusted project context."}, "thread_id": {Type: "string", Description: "Optional target thread ID. Defaults to main when event_id is omitted; must be a non-main thread when event_id is supplied."}, "event_id": {Type: "string", Description: "Optional stable idempotency key. Requires a non-main thread_id. Reusing it with the same message returns duplicate=true without waking another turn."}}, Required: []string{"id", "message"}}},
+		{Name: "agents_send_event", Description: "Send a work instruction to a running Apteva agent through the server's normal Core event delivery. The target must belong to the trusted current project, or project_id must be supplied explicitly when this gateway has no project context. Pass a stable event_id to opt into idempotent delivery and a lifecycle-tracked execution receipt; tracked and untracked events both default to main when thread_id is omitted.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Target agent ID"}, "message": {Type: "string", Description: "Work instruction to deliver"}, "project_id": {Type: "string", Description: "Target project ID. Required when the gateway has no trusted project context."}, "thread_id": {Type: "string", Description: "Optional target thread ID. Defaults to main."}, "event_id": {Type: "string", Description: "Optional stable idempotency key. Reusing it with the same message returns duplicate=true and the same execution_id without waking another turn."}}, Required: []string{"id", "message"}}},
 		{Name: "agents_delete", Description: "Delete an Apteva agent using the same server cleanup path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agent_list_activity", Description: "List recent agent activity actions from stored telemetry. Returns merged thought, tool, thread, event, and error rows; chat reply actions are omitted. Use include_payloads=true for built thought text and tool args/results, include_raw=true only for debugging.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "agent_id": {Type: "string", Description: "Optional agent ID. Omit to list activity for all agents in the project."}, "thread_id": {Type: "string", Description: "Optional thread ID filter, e.g. main."}, "kind": {Type: "string", Description: "Optional filter: all, thought, tool, thread, event, or error."}, "status": {Type: "string", Description: "Optional filter: all, running, success, error, or info."}, "period": {Type: "string", Description: "Lookback window such as 1h, 24h, 7d, 30d, or a Go duration like 15m. Defaults to 24h."}, "since": {Type: "string", Description: "Optional RFC3339 timestamp; overrides period."}, "limit": {Type: "string", Description: "Maximum action rows to return, up to 320. Defaults to 100."}, "query": {Type: "string", Description: "Optional text search across agent, thread, title, detail, and included payloads."}, "include_payloads": {Type: "string", Description: "true/false. When true, includes built thought text and tool args/results. Defaults to false."}, "include_raw": {Type: "string", Description: "true/false. Include raw telemetry events used to build each row. Defaults to false."}}}},
 		// Apps
@@ -1658,35 +1657,29 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		eventID, _ := args["event_id"].(string)
 		eventID = strings.TrimSpace(eventID)
 		if eventID != "" {
-			if threadID == "" || threadID == "main" {
-				return nil, fmt.Errorf("event_id requires a non-main thread_id")
-			}
 			if len(eventID) > 256 || strings.ContainsAny(eventID, "\r\n\x00") {
 				return nil, fmt.Errorf("event_id must be at most 256 bytes and contain no control separators")
 			}
-			body := map[string]any{"events": []map[string]any{{"id": eventID, "message": message}}}
-			if mcpNames := gatewayAgentMCPNames(target); len(mcpNames) > 0 {
-				// Idempotent delivery uses Core's durable thread-event API. Make
-				// that work thread see the target agent's own attached MCPs; it
-				// must never inherit Helper's global capability surface.
-				body["mcp"] = mcpNames
+			if threadID == "" {
+				threadID = "main"
 			}
-			path := fmt.Sprintf("/agents/%d/threads/%s", id, url.PathEscape(threadID))
-			var threadOut map[string]any
-			if err := serverAPI.do(http.MethodPut, path, body, &threadOut); err != nil {
-				var apiErr *gatewayAPIError
-				if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
-					return nil, err
-				}
-				threadOut = nil
-				if err := serverAPI.do(http.MethodPost, path, body, &threadOut); err != nil {
-					return nil, err
-				}
+			// Namespace the caller's key with the authenticated MCP user. Core
+			// never receives an untrusted globally-routable event identifier.
+			coreEventID := fmt.Sprintf("mcp:%d:%s", serverAPI.userID, eventID)
+			body := map[string]any{
+				"message": message, "thread_id": threadID,
+				"event_id": coreEventID, "track_lifecycle": true,
 			}
-			accepted, duplicate := gatewayThreadEventReceipt(threadOut, eventID)
+			var eventOut map[string]any
+			if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/agents/%d/event", id), body, &eventOut); err != nil {
+				return nil, err
+			}
+			accepted, duplicate := gatewayThreadEventReceipt(eventOut, coreEventID)
+			executionID := gatewayEventExecutionID(eventOut, coreEventID)
 			return map[string]any{
 				"accepted": accepted, "duplicate": duplicate, "agent_id": id,
-				"project_id": target.ProjectID, "thread_id": threadID, "event_id": eventID,
+				"project_id": target.ProjectID, "thread_id": threadID,
+				"event_id": eventID, "execution_id": executionID,
 			}, nil
 		}
 		body := map[string]any{"message": message}
@@ -1740,29 +1733,11 @@ func gatewayThreadEventReceipt(out map[string]any, eventID string) (accepted, du
 	return accepted, duplicate
 }
 
-func gatewayAgentMCPNames(agent *Agent) []string {
-	if agent == nil || strings.TrimSpace(agent.Config) == "" {
-		return nil
-	}
-	var config struct {
-		MCPServers []struct {
-			Name string `json:"name"`
-		} `json:"mcp_servers"`
-	}
-	if json.Unmarshal([]byte(agent.Config), &config) != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var names []string
-	for _, server := range config.MCPServers {
-		name := strings.TrimSpace(server.Name)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	return names
+func gatewayEventExecutionID(out map[string]any, eventID string) string {
+	events, _ := out["events"].(map[string]any)
+	executions, _ := events["executions"].(map[string]any)
+	executionID, _ := executions[eventID].(string)
+	return executionID
 }
 
 func directiveEditsForGatewayAgent(agentID int64, args map[string]any, serverAPI gatewayAPIClient) (string, bool, error) {

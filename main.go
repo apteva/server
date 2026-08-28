@@ -186,6 +186,9 @@ type Server struct {
 	// delivery='poll'. Rows remain source='webhook' so this is an
 	// alternate delivery mode, not a separate subscription source.
 	pollingDispatcher *PollingSubscriptionDispatcher
+	// agentEventLifecycle relays Core's durable tracked-event outbox into
+	// telemetry and retries delivery to the originating app's /events handler.
+	agentEventLifecycle *AgentEventLifecycleService
 
 	// liveTelemetryHook is an optional callback invoked for every
 	// batch of events received on /telemetry/live, after enrichment
@@ -1618,6 +1621,8 @@ func main() {
 	}
 	s.LoadInstalledApps()
 	if !quarantined {
+		s.agentEventLifecycle = NewAgentEventLifecycleService(s)
+		s.agentEventLifecycle.Start()
 		s.RemountStaticApps()
 		s.backfillAppMCPs()
 		// Reconstruct integration MCP rows synchronously before cores resume.
@@ -1671,6 +1676,9 @@ func main() {
 			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
 		}
 		s.stopMobilePushWorker()
+		if s.agentEventLifecycle != nil {
+			s.agentEventLifecycle.Stop()
+		}
 		if s.geoCountry != nil {
 			if err := s.geoCountry.Close(); err != nil {
 				log.Printf("[GEOIP] close country database: %v", err)

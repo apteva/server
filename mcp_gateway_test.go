@@ -557,7 +557,7 @@ func TestGatewayAgentSendEventRequiresEditorForProjectAgent(t *testing.T) {
 	}
 }
 
-func TestGatewayAgentSendEventIdempotentThreadDelivery(t *testing.T) {
+func TestGatewayAgentSendEventTrackedDeliverySupportsMain(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
 	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`); err != nil {
@@ -568,37 +568,37 @@ func TestGatewayAgentSendEventIdempotentThreadDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var created bool
-	var methods []string
+	var requests int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		methods = append(methods, r.Method)
-		var body struct {
-			MCP    []string `json:"mcp"`
-			Events []struct {
-				ID      string `json:"id"`
-				Message string `json:"message"`
-			} `json:"events"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.MCP) != 1 || body.MCP[0] != "tables" || len(body.Events) != 1 || body.Events[0].ID != "goal-1:count" || body.Events[0].Message != "Count rows." {
+		requests++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid event body", http.StatusBadRequest)
 			return
 		}
-		if r.Method == http.MethodPut && !created {
-			http.Error(w, "thread not found", http.StatusNotFound)
+		coreEventID := "mcp:1:goal-1:count"
+		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/"+strconv.FormatInt(agent.ID, 10)+"/event" ||
+			body["event_id"] != coreEventID || body["message"] != "Count rows." || body["thread_id"] != "main" || body["track_lifecycle"] != true {
+			http.Error(w, "invalid event body", http.StatusBadRequest)
 			return
 		}
-		if r.Method == http.MethodPost {
-			created = true
-			writeJSON(w, map[string]any{"events": map[string]any{"accepted": []string{"goal-1:count"}, "duplicates": []string{}}})
+		if requests == 1 {
+			writeJSON(w, map[string]any{"events": map[string]any{
+				"accepted": []string{coreEventID}, "duplicates": []string{},
+				"executions": map[string]string{coreEventID: "exe_goal_1"},
+			}})
 			return
 		}
-		writeJSON(w, map[string]any{"events": map[string]any{"accepted": []string{}, "duplicates": []string{"goal-1:count"}}})
+		writeJSON(w, map[string]any{"events": map[string]any{
+			"accepted": []string{}, "duplicates": []string{coreEventID},
+			"executions": map[string]string{coreEventID: "exe_goal_1"},
+		}})
 	}))
 	defer ts.Close()
 	client := gatewayAPIClient{baseURL: ts.URL + "/api", userID: 1, instanceSecret: "test-secret"}
 	args := map[string]any{
 		"id": agent.ID, "message": "Count rows.", "project_id": "proj-a",
-		"thread_id": "builder-goal-1", "event_id": "goal-1:count",
+		"event_id": "goal-1:count",
 	}
 
 	first, err := handleGatewayAgentTool("agents_send_event", args, "", client, s.store, "/tmp/apteva-server")
@@ -606,7 +606,7 @@ func TestGatewayAgentSendEventIdempotentThreadDelivery(t *testing.T) {
 		t.Fatalf("first idempotent delivery: %v", err)
 	}
 	firstReceipt := first.(map[string]any)
-	if firstReceipt["accepted"] != true || firstReceipt["duplicate"] != false {
+	if firstReceipt["accepted"] != true || firstReceipt["duplicate"] != false || firstReceipt["execution_id"] != "exe_goal_1" || firstReceipt["thread_id"] != "main" {
 		t.Fatalf("unexpected first receipt: %#v", firstReceipt)
 	}
 	second, err := handleGatewayAgentTool("agents_send_event", args, "", client, s.store, "/tmp/apteva-server")
@@ -614,18 +614,11 @@ func TestGatewayAgentSendEventIdempotentThreadDelivery(t *testing.T) {
 		t.Fatalf("duplicate idempotent delivery: %v", err)
 	}
 	secondReceipt := second.(map[string]any)
-	if secondReceipt["accepted"] != false || secondReceipt["duplicate"] != true {
+	if secondReceipt["accepted"] != false || secondReceipt["duplicate"] != true || secondReceipt["execution_id"] != "exe_goal_1" {
 		t.Fatalf("unexpected duplicate receipt: %#v", secondReceipt)
 	}
-	if got := strings.Join(methods, ","); got != "PUT,POST,PUT" {
-		t.Fatalf("unexpected thread delivery method sequence: %s", got)
-	}
-
-	_, err = handleGatewayAgentTool("agents_send_event", map[string]any{
-		"id": agent.ID, "message": "Count rows.", "project_id": "proj-a", "event_id": "goal-1:main",
-	}, "", client, s.store, "/tmp/apteva-server")
-	if err == nil || !strings.Contains(err.Error(), "non-main thread_id") {
-		t.Fatalf("expected event_id/main rejection, got %v", err)
+	if requests != 2 {
+		t.Fatalf("tracked event requests = %d, want 2", requests)
 	}
 }
 

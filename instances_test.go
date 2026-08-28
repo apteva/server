@@ -495,6 +495,47 @@ while :; do sleep 1 & wait $!; done
 	}
 }
 
+func TestAgentManagerStartAllowsHelperToConnectToLocalServerMCPs(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "core-env.txt")
+	core := filepath.Join(dir, "fake-core")
+	script := `#!/bin/sh
+trap 'exit 0' TERM INT
+env | sort > "$APTEVA_ENV_CAPTURE"
+while :; do sleep 1 & wait $!; done
+`
+	if err := os.WriteFile(core, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake core: %v", err)
+	}
+	t.Setenv("APTEVA_ENV_CAPTURE", envFile)
+	t.Setenv("APTEVA_MCP_CONNECT_ALLOWLIST", "https://operator-approved.example")
+
+	im := NewAgentManager(filepath.Join(dir, "agents"), core)
+	inst := &Agent{
+		ID: 79, UserID: 1, Name: "helper", Mode: "autonomous",
+		Config: `{}`, Kind: "platform_helper",
+	}
+	if err := im.Start(inst, nil, "5280", nil, "agent-secret"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { im.Stop(inst.ID) })
+
+	var lines []string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(envFile)
+		if err == nil && len(data) > 0 {
+			lines = strings.Split(strings.TrimSpace(string(data)), "\n")
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(lines) == 0 {
+		t.Fatal("fake core did not write env file")
+	}
+	assertEnvValue(t, lines, "APTEVA_MCP_CONNECT_ALLOWLIST", "http://127.0.0.1:5280,https://operator-approved.example")
+}
+
 func TestAgentManagerReattachRefreshesChannelsConfig(t *testing.T) {
 	var sawAuth string
 	var sawConfig map[string]any

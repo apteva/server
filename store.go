@@ -1248,6 +1248,73 @@ func (s *Store) migrate() error {
 		SET ref = COALESCE((SELECT ref FROM apps WHERE apps.id = app_installs.app_id), '')
 		WHERE ref = ''`)
 	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_installs_token_hash ON app_installs(app_token_hash) WHERE app_token_hash != ''`)
+	// Durable app-owned agent executions. This is operational ownership and
+	// idempotency state, deliberately separate from retention-managed telemetry.
+	// The app-facing event id is scoped to the authenticated installation; Core
+	// receives the server-derived core_event_id instead of caller-controlled
+	// routing metadata.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS agent_event_executions (
+			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			agent_id            INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+			project_id          TEXT NOT NULL DEFAULT '',
+			source_app          TEXT NOT NULL,
+			source_install_id   INTEGER NOT NULL,
+			source_event_id     TEXT NOT NULL,
+			core_event_id       TEXT NOT NULL,
+			core_execution_id   TEXT NOT NULL DEFAULT '',
+			thread_id           TEXT NOT NULL DEFAULT 'main',
+			payload_hash        TEXT NOT NULL,
+			state               TEXT NOT NULL DEFAULT 'queued',
+			last_sequence       INTEGER NOT NULL DEFAULT 0,
+			created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(agent_id, source_install_id, source_event_id),
+			UNIQUE(agent_id, core_event_id)
+		)
+	`); err != nil {
+		return fmt.Errorf("create agent_event_executions: %w", err)
+	}
+	// Forward-compatible with development databases created by an earlier
+	// iteration of this migration.
+	s.db.Exec(`ALTER TABLE agent_event_executions ADD COLUMN source_app TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`UPDATE agent_event_executions
+		SET source_app=COALESCE((SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id
+			WHERE i.id=agent_event_executions.source_install_id), '')
+		WHERE source_app=''`)
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_event_core_execution
+		ON agent_event_executions(agent_id, core_execution_id) WHERE core_execution_id != ''`); err != nil {
+		return fmt.Errorf("index agent event executions: %w", err)
+	}
+	// Retry state for direct delivery to the originating sidecar's /events
+	// endpoint. payload_json makes pending delivery independent of telemetry
+	// retention and lets the worker retry after a server restart.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS agent_event_deliveries (
+			transition_id      TEXT PRIMARY KEY,
+			telemetry_id       TEXT NOT NULL UNIQUE,
+			execution_id       TEXT NOT NULL,
+			sequence           INTEGER NOT NULL,
+			source_install_id  INTEGER NOT NULL,
+			payload_json       TEXT NOT NULL,
+			attempts           INTEGER NOT NULL DEFAULT 0,
+			next_attempt_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_error         TEXT NOT NULL DEFAULT '',
+			delivered_at       DATETIME,
+			created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		return fmt.Errorf("create agent_event_deliveries: %w", err)
+	}
+	s.db.Exec(`ALTER TABLE agent_event_deliveries ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`UPDATE agent_event_deliveries
+		SET sequence=COALESCE(json_extract(payload_json, '$.data.sequence'), 0)
+		WHERE sequence=0`)
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_event_deliveries_due
+		ON agent_event_deliveries(delivered_at, next_attempt_at)`); err != nil {
+		return fmt.Errorf("index agent event deliveries: %w", err)
+	}
 	// Browser origins registered by an app for its own public HTTP surface.
 	// registration_key is the app-owned client identifier (for example an
 	// OAuth client id). Keeping every row tied to an install prevents one app
