@@ -171,3 +171,29 @@ func TestEffectiveSigners_ToolOverride(t *testing.T) {
 		t.Errorf("per-tool signing not applied: %+v", specs)
 	}
 }
+
+func TestAWSSigV4Signer_CustomCredentialFieldsAndRegionInput(t *testing.T) {
+	req, _ := http.NewRequest("PUT", "https://bucket.s3.fr-par.scw.cloud/", nil)
+	creds := map[string]string{
+		"access_key":                 "SCWTESTACCESSKEY",
+		"token":                      "scaleway-secret",
+		signerInputPrefix + "region": "fr-par",
+	}
+	params := map[string]any{
+		"service":          "s3",
+		"access_key_field": "access_key",
+		"secret_key_field": "token",
+		"region_input":     "region",
+	}
+
+	if _, err := (awsSigV4Signer{}).Sign(context.Background(), req, nil, creds, params); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	authorization := req.Header.Get("Authorization")
+	if !strings.Contains(authorization, "Credential=SCWTESTACCESSKEY/") {
+		t.Fatalf("Authorization did not use custom access key field: %q", authorization)
+	}
+	if !strings.Contains(authorization, "/fr-par/s3/aws4_request") {
+		t.Fatalf("Authorization did not use request-scoped region: %q", authorization)
+	}
+}

@@ -368,9 +368,10 @@ func TestSpawnableMCPNamesFiltersPrivilegeBoundary(t *testing.T) {
 		{Name: "apteva-server"},
 		{Name: "private", NoSpawn: true},
 		{Name: "bookings"},
+		{Name: "apteva-server", URL: "http://127.0.0.1:5280/api/apps/apteva-server/mcp", Transport: "http"},
 		{Name: ""},
 	})
-	if strings.Join(got, ",") != "bookings" {
+	if strings.Join(got, ",") != "bookings,apteva-server" {
 		t.Fatalf("spawnable MCPs=%v", got)
 	}
 }

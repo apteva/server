@@ -611,6 +611,16 @@ func (s *Store) migrate() error {
 			kind TEXT NOT NULL DEFAULT 'user',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS agent_creation_keys (
+			project_id       TEXT NOT NULL DEFAULT '',
+			scope_user_id    INTEGER NOT NULL DEFAULT 0,
+			idempotency_key  TEXT NOT NULL,
+			agent_id         INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (project_id, scope_user_id, idempotency_key)
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_creation_keys_agent
+			ON agent_creation_keys(agent_id);
 
 		CREATE TABLE IF NOT EXISTS projects (
 			id TEXT PRIMARY KEY,
@@ -2298,6 +2308,68 @@ func (s *Store) CreateAgent(userID int64, name, directive, mode, config, project
 	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
 }
 
+// CreateAgentIdempotent creates one agent for a stable logical creation key.
+// Project agents share the key across every project member; legacy unscoped
+// agents use the caller's user id so unrelated users cannot collide.
+func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, config, projectID, idempotencyKey string) (*Agent, bool, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		agent, err := s.CreateAgent(userID, name, directive, mode, config, projectID)
+		return agent, true, err
+	}
+	if mode == "" {
+		mode = "autonomous"
+	}
+	scopeUserID := userID
+	if projectID != "" {
+		scopeUserID = 0
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+
+	var existingID int64
+	err = tx.QueryRow(
+		`SELECT agent_id FROM agent_creation_keys WHERE project_id=? AND scope_user_id=? AND idempotency_key=?`,
+		projectID, scopeUserID, idempotencyKey,
+	).Scan(&existingID)
+	if err == nil {
+		if err := tx.Commit(); err != nil {
+			return nil, false, err
+		}
+		agent, err := s.GetAgentByID(existingID)
+		return agent, false, err
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, false, err
+	}
+
+	result, err := tx.Exec(
+		"INSERT INTO agents (user_id, name, directive, mode, config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+		userID, name, directive, mode, config, projectID,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO agent_creation_keys (project_id,scope_user_id,idempotency_key,agent_id) VALUES (?,?,?,?)`,
+		projectID, scopeUserID, idempotencyKey, id,
+	); err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, true, nil
+}
+
 // GetAgentName returns the name of an instance by ID (no user check).
 // Used by the console logger to resolve instance names from telemetry events.
 func (s *Store) GetAgentName(instanceID int64) (string, error) {
@@ -2820,6 +2892,7 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		"DELETE FROM subscriptions         WHERE agent_id = ?",
 		"DELETE FROM app_agent_bindings    WHERE agent_id = ?",
 		"DELETE FROM agent_thread_scopes   WHERE agent_id = ?",
+		"DELETE FROM agent_creation_keys   WHERE agent_id = ?",
 		"DELETE FROM agents                 WHERE id = ? AND user_id = ?",
 	}
 	for i, q := range stmts {

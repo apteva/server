@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -285,6 +286,91 @@ func TestStore_CreateInstance(t *testing.T) {
 	}
 	if inst.Status != "stopped" {
 		t.Errorf("expected stopped, got %s", inst.Status)
+	}
+}
+
+func TestStore_CreateAgentIdempotentScopesKeysByProject(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("idempotent-agent@test.com", "hash")
+
+	first, created, err := store.CreateAgentIdempotent(user.ID, "Worker", "first", "cautious", "{}", "project-a", "goal-1:agent:worker")
+	if err != nil || !created {
+		t.Fatalf("first create: agent=%+v created=%v err=%v", first, created, err)
+	}
+	replay, created, err := store.CreateAgentIdempotent(user.ID, "Changed name", "changed", "autonomous", "{}", "project-a", "goal-1:agent:worker")
+	if err != nil || created {
+		t.Fatalf("replay: agent=%+v created=%v err=%v", replay, created, err)
+	}
+	if replay.ID != first.ID || replay.Name != "Worker" || replay.Directive != "first" {
+		t.Fatalf("replay returned a different agent: first=%+v replay=%+v", first, replay)
+	}
+
+	otherProject, created, err := store.CreateAgentIdempotent(user.ID, "Worker", "second project", "cautious", "{}", "project-b", "goal-1:agent:worker")
+	if err != nil || !created || otherProject.ID == first.ID {
+		t.Fatalf("other project create: agent=%+v created=%v err=%v", otherProject, created, err)
+	}
+
+	var projectACount int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agents WHERE project_id='project-a'`).Scan(&projectACount); err != nil || projectACount != 1 {
+		t.Fatalf("project-a agent count=%d err=%v", projectACount, err)
+	}
+	if err := store.DeleteAgent(user.ID, first.ID); err != nil {
+		t.Fatalf("delete idempotent agent: %v", err)
+	}
+	recreated, created, err := store.CreateAgentIdempotent(user.ID, "Worker replacement", "replacement", "cautious", "{}", "project-a", "goal-1:agent:worker")
+	if err != nil || !created || recreated.ID == first.ID {
+		t.Fatalf("recreate after delete: agent=%+v created=%v err=%v", recreated, created, err)
+	}
+}
+
+func TestStore_CreateAgentIdempotentCollapsesConcurrentRetries(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("concurrent-idempotent-agent@test.com", "hash")
+
+	const workers = 8
+	ids := make(chan int64, workers)
+	errs := make(chan error, workers)
+	createdFlags := make(chan bool, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			agent, created, err := store.CreateAgentIdempotent(
+				user.ID, "Concurrent worker", "work", "cautious", "{}", "project-a", "goal-1:agent:concurrent-worker",
+			)
+			if err != nil {
+				errs <- err
+				return
+			}
+			ids <- agent.ID
+			createdFlags <- created
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	close(errs)
+	close(createdFlags)
+	for err := range errs {
+		t.Fatalf("concurrent create: %v", err)
+	}
+	var firstID int64
+	for id := range ids {
+		if firstID == 0 {
+			firstID = id
+		}
+		if id != firstID {
+			t.Fatalf("concurrent retry returned id %d, want %d", id, firstID)
+		}
+	}
+	createdCount := 0
+	for created := range createdFlags {
+		if created {
+			createdCount++
+		}
+	}
+	if createdCount != 1 {
+		t.Fatalf("created count=%d, want 1", createdCount)
 	}
 }
 

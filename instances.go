@@ -274,6 +274,25 @@ func channelsMCPConfig(url string) map[string]any {
 	return entry
 }
 
+func managementGatewayConfig(inst *Agent, serverBin, serverPort string) map[string]any {
+	if inst != nil && inst.Kind == "platform_helper" {
+		return map[string]any{
+			"name":      "apteva-server",
+			"url":       "http://127.0.0.1:" + serverPort + "/api/apps/apteva-server/mcp",
+			"transport": "http",
+			"tool_loading": map[string]any{
+				"default": "deferred",
+			},
+		}
+	}
+	return map[string]any{
+		"name":     "apteva-server",
+		"command":  serverBin,
+		"args":     []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
+		"no_spawn": true,
+	}
+}
+
 // agentOutputMCPConfig is main's central operator-output surface: one mutable
 // status, full Inbox publication, and explicit external notifications. It is
 // always loaded for main and never attached to user conversation threads.
@@ -438,17 +457,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		mode = "autonomous"
 	}
 
-	gateway := map[string]any{
-		"name":    "apteva-server",
-		"command": serverBin,
-		"args":    []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
-		// no_spawn hides this server from sub-thread search_tools
-		// results and refuses sub-thread spawn(mcps=[...]) attempts.
-		// Management capabilities (creating agents, MCP servers, …)
-		// stay reachable from main only. Main discovers them via
-		// search_tools or per-turn BM25 preload, like any other MCP.
-		"no_spawn": true,
-	}
+	gateway := managementGatewayConfig(inst, serverBin, serverPort)
 
 	// Disk config.json is the single source of truth.
 	// Core owns it — threads, directives, MCP connections are all here.
@@ -1068,12 +1077,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	waitForChannelMCPReady(channelsMCP)
 	waitForChannelMCPReady(outputMCP)
 
-	gateway := map[string]any{
-		"name":     "apteva-server",
-		"command":  serverBin,
-		"args":     []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
-		"no_spawn": true,
-	}
+	gateway := managementGatewayConfig(inst, serverBin, serverPort)
 	channelsEntry := channelsMCPConfig(channelsMCP.url())
 	outputEntry := agentOutputMCPConfig(outputMCP.url())
 
@@ -1516,7 +1520,11 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		Mode      string `json:"mode"`   // "autonomous" | "cautious" | "learn"
 		Config    string `json:"config"` // optional JSON blob for MCP servers etc
 		ProjectID string `json:"project_id"`
-		Start     *bool  `json:"start,omitempty"` // default true; set false to create without starting
+		// IdempotencyKey identifies one logical agent creation. Reusing it in
+		// the same project returns the existing agent instead of creating a
+		// duplicate. Unscoped agents are isolated by caller user id.
+		IdempotencyKey string `json:"idempotency_key,omitempty"`
+		Start          *bool  `json:"start,omitempty"` // default true; set false to create without starting
 		// Auto-injected channels MCP. Defaults to true so agents can
 		// reply through dashboard/chat channels. The Apteva server
 		// gateway is no longer a public create option; only server-owned
@@ -1565,6 +1573,11 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	body.IdempotencyKey = strings.TrimSpace(body.IdempotencyKey)
+	if len(body.IdempotencyKey) > 256 || strings.ContainsAny(body.IdempotencyKey, "\r\n\x00") {
+		http.Error(w, "idempotency_key must be at most 256 bytes and contain no control separators", http.StatusBadRequest)
+		return
+	}
 	if body.Directive == "" {
 		body.Directive = "Idle. Waiting for configuration via directive."
 	}
@@ -1607,9 +1620,18 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	selectedAppInstallIDs = validAppInstallIDs
 
-	inst, err := s.store.CreateAgent(userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID)
+	inst, created, err := s.store.CreateAgentIdempotent(
+		userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID, body.IdempotencyKey,
+	)
 	if err != nil {
 		http.Error(w, "failed to create instance", http.StatusInternalServerError)
+		return
+	}
+	if !created {
+		writeJSON(w, map[string]any{
+			"id": inst.ID, "name": inst.Name, "status": inst.Status,
+			"project_id": inst.ProjectID, "created": false, "idempotent_replay": true,
+		})
 		return
 	}
 

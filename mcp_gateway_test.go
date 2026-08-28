@@ -162,6 +162,40 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	}
 }
 
+func TestGatewayAgentCreateToolReturnsExistingAgentForIdempotencyKey(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`); err != nil {
+		t.Fatal(err)
+	}
+	ts := newGatewayAgentAPITestServer(s)
+	defer ts.Close()
+	client := gatewayAPIClient{baseURL: ts.URL + "/api", userID: 1, instanceSecret: "test-secret"}
+	args := map[string]any{
+		"name": "Managed worker", "directive": "Do managed work.", "project_id": "proj-a",
+		"idempotency_key": "goal-1:agent:managed-worker", "start": "false",
+	}
+
+	first, err := handleGatewayAgentTool("agents_create", args, "proj-a", client, s.store, "/tmp/apteva-server")
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	second, err := handleGatewayAgentTool("agents_create", args, "proj-a", client, s.store, "/tmp/apteva-server")
+	if err != nil {
+		t.Fatalf("idempotent replay: %v", err)
+	}
+	firstID := int64(first.(map[string]any)["id"].(float64))
+	secondRow := second.(map[string]any)
+	secondID := int64(secondRow["id"].(float64))
+	if secondID != firstID || secondRow["created"] != false || secondRow["idempotent_replay"] != true {
+		t.Fatalf("unexpected replay response: first=%#v second=%#v", first, second)
+	}
+	var count int
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM agents WHERE project_id='proj-a'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("project agent count=%d err=%v", count, err)
+	}
+}
+
 func TestGatewayAppToolsUseAppsAPI(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
@@ -428,6 +462,170 @@ func TestGatewayAgentUpdateAndStopToolsUseAgentsAPI(t *testing.T) {
 	}
 	if _, err := s.store.GetAgent(1, id); err != sql.ErrNoRows {
 		t.Fatalf("expected deleted agent to be gone, got err=%v", err)
+	}
+}
+
+func TestGatewayAgentSendEventUsesAgentEventAPIAndEnforcesProjectScope(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 1, 'owner', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(1, "Project worker", "Do project work.", "cautious", `{"mcp_servers":[{"name":"tables"},{"name":"tables"}]}`, "proj-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type requestRecord struct {
+		Method string
+		Path   string
+		Body   map[string]any
+	}
+	requests := make(chan requestRecord, 2)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		requests <- requestRecord{Method: r.Method, Path: r.URL.Path, Body: body}
+		writeJSON(w, map[string]any{"status": "injected", "thread_id": "builder-goal-1"})
+	}))
+	defer ts.Close()
+	client := gatewayAPIClient{baseURL: ts.URL + "/api", userID: 1, instanceSecret: "test-secret"}
+
+	result, err := handleGatewayAgentTool("agents_send_event", map[string]any{
+		"id":         agent.ID,
+		"message":    "Materialize the synthetic records.",
+		"project_id": "proj-a",
+		"thread_id":  "builder-goal-1",
+	}, "", client, s.store, "/tmp/apteva-server")
+	if err != nil {
+		t.Fatalf("agents_send_event returned error: %v", err)
+	}
+	receipt, ok := result.(map[string]any)
+	if !ok || receipt["accepted"] != true || receipt["agent_id"] != agent.ID || receipt["project_id"] != "proj-a" {
+		t.Fatalf("unexpected delivery receipt: %#v", result)
+	}
+	request := <-requests
+	if request.Method != http.MethodPost || request.Path != "/api/agents/"+strconv.FormatInt(agent.ID, 10)+"/event" {
+		t.Fatalf("unexpected API request: %+v", request)
+	}
+	if request.Body["message"] != "Materialize the synthetic records." || request.Body["thread_id"] != "builder-goal-1" {
+		t.Fatalf("unexpected event body: %#v", request.Body)
+	}
+
+	_, err = handleGatewayAgentTool("agents_send_event", map[string]any{
+		"id": agent.ID, "message": "wrong project", "project_id": "proj-b",
+	}, "", client, s.store, "/tmp/apteva-server")
+	if err == nil || !strings.Contains(err.Error(), "does not belong to project") {
+		t.Fatalf("expected project mismatch rejection, got %v", err)
+	}
+	select {
+	case unexpected := <-requests:
+		t.Fatalf("scope-rejected event reached server API: %+v", unexpected)
+	default:
+	}
+}
+
+func TestGatewayAgentSendEventRequiresEditorForProjectAgent(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash, role) VALUES (2, 'viewer@example.com', 'x', 'user')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 2, 'viewer', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(1, "Project worker", "Do project work.", "cautious", `{}`, "proj-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := gatewayAPIClient{baseURL: "http://unused.invalid/api", userID: 2, instanceSecret: "test-secret"}
+
+	_, err = handleGatewayAgentTool("agents_send_event", map[string]any{
+		"id": agent.ID, "message": "mutate project", "project_id": "proj-a",
+	}, "", client, s.store, "/tmp/apteva-server")
+	if err == nil || !strings.Contains(err.Error(), "editor access") {
+		t.Fatalf("expected viewer rejection, got %v", err)
+	}
+}
+
+func TestGatewayAgentSendEventIdempotentThreadDelivery(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`); err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(1, "Project worker", "Do project work.", "cautious", `{"mcp_servers":[{"name":"tables"},{"name":"tables"}]}`, "proj-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var created bool
+	var methods []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		var body struct {
+			MCP    []string `json:"mcp"`
+			Events []struct {
+				ID      string `json:"id"`
+				Message string `json:"message"`
+			} `json:"events"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.MCP) != 1 || body.MCP[0] != "tables" || len(body.Events) != 1 || body.Events[0].ID != "goal-1:count" || body.Events[0].Message != "Count rows." {
+			http.Error(w, "invalid event body", http.StatusBadRequest)
+			return
+		}
+		if r.Method == http.MethodPut && !created {
+			http.Error(w, "thread not found", http.StatusNotFound)
+			return
+		}
+		if r.Method == http.MethodPost {
+			created = true
+			writeJSON(w, map[string]any{"events": map[string]any{"accepted": []string{"goal-1:count"}, "duplicates": []string{}}})
+			return
+		}
+		writeJSON(w, map[string]any{"events": map[string]any{"accepted": []string{}, "duplicates": []string{"goal-1:count"}}})
+	}))
+	defer ts.Close()
+	client := gatewayAPIClient{baseURL: ts.URL + "/api", userID: 1, instanceSecret: "test-secret"}
+	args := map[string]any{
+		"id": agent.ID, "message": "Count rows.", "project_id": "proj-a",
+		"thread_id": "builder-goal-1", "event_id": "goal-1:count",
+	}
+
+	first, err := handleGatewayAgentTool("agents_send_event", args, "", client, s.store, "/tmp/apteva-server")
+	if err != nil {
+		t.Fatalf("first idempotent delivery: %v", err)
+	}
+	firstReceipt := first.(map[string]any)
+	if firstReceipt["accepted"] != true || firstReceipt["duplicate"] != false {
+		t.Fatalf("unexpected first receipt: %#v", firstReceipt)
+	}
+	second, err := handleGatewayAgentTool("agents_send_event", args, "", client, s.store, "/tmp/apteva-server")
+	if err != nil {
+		t.Fatalf("duplicate idempotent delivery: %v", err)
+	}
+	secondReceipt := second.(map[string]any)
+	if secondReceipt["accepted"] != false || secondReceipt["duplicate"] != true {
+		t.Fatalf("unexpected duplicate receipt: %#v", secondReceipt)
+	}
+	if got := strings.Join(methods, ","); got != "PUT,POST,PUT" {
+		t.Fatalf("unexpected thread delivery method sequence: %s", got)
+	}
+
+	_, err = handleGatewayAgentTool("agents_send_event", map[string]any{
+		"id": agent.ID, "message": "Count rows.", "project_id": "proj-a", "event_id": "goal-1:main",
+	}, "", client, s.store, "/tmp/apteva-server")
+	if err == nil || !strings.Contains(err.Error(), "non-main thread_id") {
+		t.Fatalf("expected event_id/main rejection, got %v", err)
 	}
 }
 

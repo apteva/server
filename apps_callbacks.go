@@ -1842,8 +1842,10 @@ func nonNilStrings(values []string) []string {
 }
 
 type callbackMCPServerConfig struct {
-	Name    string `json:"name"`
-	NoSpawn bool   `json:"no_spawn"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Transport string `json:"transport"`
+	NoSpawn   bool   `json:"no_spawn"`
 }
 
 func (s *Server) agentSpawnableMCPNames(agentID int64) ([]string, error) {
@@ -1875,7 +1877,9 @@ func spawnableMCPNames(servers []callbackMCPServerConfig) []string {
 	seen := make(map[string]bool, len(servers))
 	for _, server := range servers {
 		name := strings.TrimSpace(server.Name)
-		system := name == "apteva-server" || isServerOwnedOutputMCP(name)
+		normalHelperGateway := name == "apteva-server" && server.Transport == "http" &&
+			strings.Contains(server.URL, "/api/apps/apteva-server/mcp")
+		system := (name == "apteva-server" && !normalHelperGateway) || isServerOwnedOutputMCP(name)
 		if name == "" || server.NoSpawn || system || seen[name] {
 			continue
 		}

@@ -154,6 +154,7 @@
       "name": "create_snapshot",
       "description": "Create a volume snapshot via EVS",
       "method": "POST",
+      "base_url": "https://evs.{{credential.region}}.myhuaweicloud.com",
       "path": "/v2/{{credential.project_id}}/cloudsnapshots",
       "input_schema": {
         "type": "object",
@@ -167,6 +168,7 @@
       "name": "list_volumes",
       "description": "List block storage volumes",
       "method": "GET",
+      "base_url": "https://evs.{{credential.region}}.myhuaweicloud.com",
       "path": "/v2/{{credential.project_id}}/cloudvolumes/detail",
       "input_schema": {
         "type": "object",
@@ -175,6 +177,60 @@
         },
         "required": []
       }
+    },
+    {
+      "name": "get_volume",
+      "description": "Get an EVS volume",
+      "method": "GET",
+      "base_url": "https://evs.{{credential.region}}.myhuaweicloud.com",
+      "path": "/v2/{{credential.project_id}}/cloudvolumes/{volume_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" } }, "required": ["volume_id"] }
+    },
+    {
+      "name": "create_volume",
+      "description": "Create an EVS data volume; body is wrapped in volume",
+      "method": "POST",
+      "base_url": "https://evs.{{credential.region}}.myhuaweicloud.com",
+      "path": "/v2/{{credential.project_id}}/cloudvolumes",
+      "input_schema": { "type": "object", "properties": { "volume": { "type": "object", "description": "{availability_zone,size,volume_type,name,description,multiattach,metadata,tags}" } }, "required": ["volume"] }
+    },
+    {
+      "name": "update_volume",
+      "description": "Update the name, description, or metadata of an EVS volume",
+      "method": "PUT",
+      "base_url": "https://evs.{{credential.region}}.myhuaweicloud.com",
+      "path": "/v2/{{credential.project_id}}/cloudvolumes/{volume_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "volume": { "type": "object" } }, "required": ["volume_id", "volume"] }
+    },
+    {
+      "name": "resize_volume",
+      "description": "Extend an EVS volume; shrinking is not supported",
+      "method": "POST",
+      "base_url": "https://evs.{{credential.region}}.myhuaweicloud.com",
+      "path": "/v2/{{credential.project_id}}/cloudvolumes/{volume_id}/action",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "os-extend": { "type": "object", "description": "{new_size: integer GiB}" } }, "required": ["volume_id", "os-extend"] }
+    },
+    {
+      "name": "delete_volume",
+      "description": "Delete an unattached EVS volume",
+      "method": "DELETE",
+      "base_url": "https://evs.{{credential.region}}.myhuaweicloud.com",
+      "path": "/v2/{{credential.project_id}}/cloudvolumes/{volume_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "cascade": { "type": "boolean" } }, "required": ["volume_id"] }
+    },
+    {
+      "name": "attach_volume",
+      "description": "Attach an EVS volume to an ECS server",
+      "method": "POST",
+      "path": "/v2.1/{{credential.project_id}}/servers/{server_id}/os-volume_attachments",
+      "input_schema": { "type": "object", "properties": { "server_id": { "type": "string" }, "volumeAttachment": { "type": "object", "description": "{volumeId,device?}" } }, "required": ["server_id", "volumeAttachment"] }
+    },
+    {
+      "name": "detach_volume",
+      "description": "Detach an EVS volume from an ECS server without deleting it",
+      "method": "DELETE",
+      "path": "/v2.1/{{credential.project_id}}/servers/{server_id}/os-volume_attachments/{attachment_id}",
+      "input_schema": { "type": "object", "properties": { "server_id": { "type": "string" }, "attachment_id": { "type": "string", "description": "Usually the volume UUID" } }, "required": ["server_id", "attachment_id"] }
     },
     {
       "name": "list_availability_zones",

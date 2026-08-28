@@ -34,6 +34,8 @@ import (
 	"sync"
 )
 
+const signerInputPrefix = "__apteva_signer_input__."
+
 // Signer signs one outbound request, possibly mutating headers and/or
 // body. Implementations live in sibling files; one per scheme.
 type Signer interface {

@@ -126,7 +126,63 @@
       "description": "List block storage volumes",
       "method": "GET",
       "path": "/volumes",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "page_size": { "type": "integer" } } }
+    },
+    {
+      "name": "get_volume",
+      "description": "Get a block storage volume",
+      "method": "GET",
+      "path": "/volumes/{volumeId}",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" } }, "required": ["volumeId"] }
+    },
+    {
+      "name": "create_volume",
+      "description": "Create a Linode Block Storage volume, optionally attached to an instance",
+      "method": "POST",
+      "path": "/volumes",
+      "input_schema": { "type": "object", "properties": { "label": { "type": "string" }, "region": { "type": "string" }, "size": { "type": "integer", "description": "Size in GiB" }, "linode_id": { "type": "integer" }, "config_id": { "type": "integer" }, "tags": { "type": "array", "items": { "type": "string" } }, "encryption": { "type": "string" } }, "required": ["label", "size"] }
+    },
+    {
+      "name": "update_volume",
+      "description": "Update a block storage volume label or tags",
+      "method": "PUT",
+      "path": "/volumes/{volumeId}",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "label": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } }, "required": ["volumeId"] }
+    },
+    {
+      "name": "attach_volume",
+      "description": "Attach a block storage volume to a Linode",
+      "method": "POST",
+      "path": "/volumes/{volumeId}/attach",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "linode_id": { "type": "integer" }, "config_id": { "type": "integer" } }, "required": ["volumeId", "linode_id"] }
+    },
+    {
+      "name": "detach_volume",
+      "description": "Detach a block storage volume without deleting it",
+      "method": "POST",
+      "path": "/volumes/{volumeId}/detach",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" } }, "required": ["volumeId"] }
+    },
+    {
+      "name": "resize_volume",
+      "description": "Increase a block storage volume size",
+      "method": "POST",
+      "path": "/volumes/{volumeId}/resize",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "size": { "type": "integer", "description": "New size in GiB" } }, "required": ["volumeId", "size"] }
+    },
+    {
+      "name": "clone_volume",
+      "description": "Clone a block storage volume",
+      "method": "POST",
+      "path": "/volumes/{volumeId}/clone",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "label": { "type": "string" } }, "required": ["volumeId", "label"] }
+    },
+    {
+      "name": "delete_volume",
+      "description": "Delete a block storage volume",
+      "method": "DELETE",
+      "path": "/volumes/{volumeId}",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" } }, "required": ["volumeId"] }
     },
     {
       "name": "create_snapshot",

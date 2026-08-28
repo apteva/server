@@ -36,7 +36,15 @@
           "UserData": { "type": "string", "description": "Base64-encoded cloud-init" },
           "TagSpecification.1.ResourceType": { "type": "string" },
           "TagSpecification.1.Tag.1.Key": { "type": "string" },
-          "TagSpecification.1.Tag.1.Value": { "type": "string" }
+          "TagSpecification.1.Tag.1.Value": { "type": "string" },
+          "BlockDeviceMapping.1.DeviceName": { "type": "string", "description": "AMI root device name, for example /dev/sda1" },
+          "BlockDeviceMapping.1.Ebs.VolumeSize": { "type": "integer", "description": "Root EBS size in GiB" },
+          "BlockDeviceMapping.1.Ebs.VolumeType": { "type": "string", "enum": ["gp3", "gp2", "io1", "io2", "st1", "sc1", "standard"] },
+          "BlockDeviceMapping.1.Ebs.Iops": { "type": "integer" },
+          "BlockDeviceMapping.1.Ebs.Throughput": { "type": "integer" },
+          "BlockDeviceMapping.1.Ebs.DeleteOnTermination": { "type": "boolean" },
+          "BlockDeviceMapping.1.Ebs.Encrypted": { "type": "boolean" },
+          "BlockDeviceMapping.1.Ebs.KmsKeyId": { "type": "string" }
         },
         "required": ["Action", "Version", "ImageId", "InstanceType", "MinCount", "MaxCount"]
       }
@@ -162,6 +170,69 @@
         "properties": { "Action": { "type": "string", "default": "AllocateAddress" }, "Version": { "type": "string", "default": "2016-11-15" }, "Domain": { "type": "string", "default": "vpc" } },
         "required": ["Action", "Version"]
       }
+    },
+    {
+      "name": "volume_list",
+      "description": "Describe EBS volumes, optionally by volume or attachment",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DescribeVolumes" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId.1": { "type": "string" }, "Filter.1.Name": { "type": "string" }, "Filter.1.Value.1": { "type": "string" }, "MaxResults": { "type": "integer" }, "NextToken": { "type": "string" } }, "required": ["Action", "Version"] }
+    },
+    {
+      "name": "volume_create",
+      "description": "Create an EBS volume in an availability zone",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "CreateVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "AvailabilityZone": { "type": "string" }, "Size": { "type": "integer" }, "VolumeType": { "type": "string", "enum": ["gp3", "gp2", "io1", "io2", "st1", "sc1", "standard"], "default": "gp3" }, "Iops": { "type": "integer" }, "Throughput": { "type": "integer" }, "Encrypted": { "type": "boolean" }, "KmsKeyId": { "type": "string" }, "SnapshotId": { "type": "string" }, "TagSpecification.1.ResourceType": { "type": "string", "default": "volume" }, "TagSpecification.1.Tag.1.Key": { "type": "string" }, "TagSpecification.1.Tag.1.Value": { "type": "string" } }, "required": ["Action", "Version", "AvailabilityZone"] }
+    },
+    {
+      "name": "volume_attach",
+      "description": "Attach an EBS volume to an EC2 instance",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "AttachVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "InstanceId": { "type": "string" }, "Device": { "type": "string" } }, "required": ["Action", "Version", "VolumeId", "InstanceId", "Device"] }
+    },
+    {
+      "name": "volume_detach",
+      "description": "Detach an EBS volume without deleting it",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DetachVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "InstanceId": { "type": "string" }, "Device": { "type": "string" }, "Force": { "type": "boolean" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_resize",
+      "description": "Modify EBS volume size or performance; volumes cannot shrink",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "ModifyVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "Size": { "type": "integer" }, "VolumeType": { "type": "string" }, "Iops": { "type": "integer" }, "Throughput": { "type": "integer" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete an available EBS volume",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DeleteVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_snapshot_create",
+      "description": "Create an EBS snapshot",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "CreateSnapshot" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "Description": { "type": "string" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_snapshot_list",
+      "description": "Describe EBS snapshots",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DescribeSnapshots" }, "Version": { "type": "string", "default": "2016-11-15" }, "SnapshotId.1": { "type": "string" }, "Owner.1": { "type": "string", "default": "self" }, "MaxResults": { "type": "integer" }, "NextToken": { "type": "string" } }, "required": ["Action", "Version"] }
+    },
+    {
+      "name": "volume_snapshot_delete",
+      "description": "Delete an EBS snapshot",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DeleteSnapshot" }, "Version": { "type": "string", "default": "2016-11-15" }, "SnapshotId": { "type": "string" } }, "required": ["Action", "Version", "SnapshotId"] }
     }
   ]
 }

@@ -220,6 +220,128 @@
           "instance_id"
         ]
       }
+    },
+    {
+      "name": "block_storage_list",
+      "description": "List Vultr block storage subscriptions",
+      "method": "GET",
+      "path": "/blocks",
+      "input_schema": { "type": "object", "properties": { "per_page": { "type": "integer" }, "cursor": { "type": "string" } } }
+    },
+    {
+      "name": "block_storage_get",
+      "description": "Get a block storage subscription",
+      "method": "GET",
+      "path": "/blocks/{block_id}",
+      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" } }, "required": ["block_id"] }
+    },
+    {
+      "name": "block_storage_create",
+      "description": "Create a Vultr block storage subscription",
+      "method": "POST",
+      "path": "/blocks",
+      "input_schema": { "type": "object", "properties": { "region": { "type": "string" }, "size_gb": { "type": "integer", "minimum": 10 }, "label": { "type": "string" }, "block_type": { "type": "string", "enum": ["storage_opt", "high_perf"] }, "live": { "type": "boolean" } }, "required": ["region", "size_gb"] }
+    },
+    {
+      "name": "block_storage_update",
+      "description": "Rename or expand a block storage subscription",
+      "method": "PATCH",
+      "path": "/blocks/{block_id}",
+      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" }, "label": { "type": "string" }, "size_gb": { "type": "integer", "description": "New larger size in GiB" } }, "required": ["block_id"] }
+    },
+    {
+      "name": "block_storage_attach",
+      "description": "Attach block storage to an instance in the same region",
+      "method": "POST",
+      "path": "/blocks/{block_id}/attach",
+      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" }, "instance_id": { "type": "string" }, "live": { "type": "boolean" } }, "required": ["block_id", "instance_id"] }
+    },
+    {
+      "name": "block_storage_detach",
+      "description": "Detach block storage without deleting it",
+      "method": "POST",
+      "path": "/blocks/{block_id}/detach",
+      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" }, "live": { "type": "boolean" } }, "required": ["block_id"] }
+    },
+    {
+      "name": "block_storage_delete",
+      "description": "Delete a block storage subscription",
+      "method": "DELETE",
+      "path": "/blocks/{block_id}",
+      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" } }, "required": ["block_id"] }
+    },
+    {
+      "name": "object_storage_clusters_list",
+      "description": "List Vultr Object Storage clusters and their regions",
+      "method": "GET",
+      "path": "/object-storage/clusters",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "object_storage_tiers_list",
+      "description": "List Vultr Object Storage subscription tiers",
+      "method": "GET",
+      "path": "/object-storage/tiers",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "object_storage_list",
+      "description": "List Vultr Object Storage subscriptions and S3 endpoints",
+      "method": "GET",
+      "path": "/object-storage",
+      "input_schema": {
+        "type": "object",
+        "properties": { "per_page": { "type": "integer" }, "cursor": { "type": "string" } }
+      }
+    },
+    {
+      "name": "object_storage_get",
+      "description": "Get a Vultr Object Storage subscription",
+      "method": "GET",
+      "path": "/object-storage/{object_storage_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "object_storage_id": { "type": "string" } },
+        "required": ["object_storage_id"]
+      }
+    },
+    {
+      "name": "object_storage_create",
+      "description": "Provision a Vultr Object Storage subscription. The response includes its S3 endpoint and credentials.",
+      "method": "POST",
+      "path": "/object-storage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "cluster_id": { "type": "integer" },
+          "tier_id": { "type": "integer" }
+        },
+        "required": ["label", "cluster_id"]
+      }
+    },
+    {
+      "name": "object_storage_rotate_credentials",
+      "description": "Regenerate a Vultr Object Storage subscription's S3 credentials and invalidate the previous pair",
+      "method": "POST",
+      "path": "/object-storage/{object_storage_id}/regenerate-keys",
+      "body_none": true,
+      "input_schema": {
+        "type": "object",
+        "properties": { "object_storage_id": { "type": "string" } },
+        "required": ["object_storage_id"]
+      }
+    },
+    {
+      "name": "object_storage_delete",
+      "description": "Delete a Vultr Object Storage subscription",
+      "method": "DELETE",
+      "path": "/object-storage/{object_storage_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "object_storage_id": { "type": "string" } },
+        "required": ["object_storage_id"]
+      }
     }
   ]
 }

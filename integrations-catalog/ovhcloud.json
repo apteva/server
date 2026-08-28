@@ -192,6 +192,62 @@
       }
     },
     {
+      "name": "get_volume",
+      "description": "Get OVHcloud Block Storage volume details",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" } }, "required": ["volumeId"] }
+    },
+    {
+      "name": "create_volume",
+      "description": "Create an OVHcloud Block Storage volume",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/volume",
+      "input_schema": { "type": "object", "properties": { "region": { "type": "string" }, "availabilityZone": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" }, "size": { "type": "integer", "description": "Size in GiB" }, "type": { "type": "string", "description": "Provider volume type, for example classic or high-speed" }, "snapshotId": { "type": "string" }, "imageId": { "type": "string" } }, "required": ["region", "size", "type"] }
+    },
+    {
+      "name": "update_volume",
+      "description": "Update an OVHcloud volume name or description",
+      "method": "PUT",
+      "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" } }, "required": ["volumeId"] }
+    },
+    {
+      "name": "attach_volume",
+      "description": "Attach a volume to an OVHcloud Public Cloud instance",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/attach",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "instanceId": { "type": "string" } }, "required": ["volumeId", "instanceId"] }
+    },
+    {
+      "name": "detach_volume",
+      "description": "Detach a volume from an instance without deleting it",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/detach",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "instanceId": { "type": "string" } }, "required": ["volumeId", "instanceId"] }
+    },
+    {
+      "name": "resize_volume",
+      "description": "Increase an OVHcloud volume size",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/upsize",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "size": { "type": "integer", "description": "New larger size in GiB" } }, "required": ["volumeId", "size"] }
+    },
+    {
+      "name": "delete_volume",
+      "description": "Delete an unattached OVHcloud volume",
+      "method": "DELETE",
+      "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" } }, "required": ["volumeId"] }
+    },
+    {
+      "name": "volume_snapshot_create",
+      "description": "Create a snapshot of an OVHcloud volume",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/snapshot",
+      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" } }, "required": ["volumeId"] }
+    },
+    {
       "name": "list_snapshots",
       "description": "List instance snapshots",
       "method": "GET",

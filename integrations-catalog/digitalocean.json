@@ -163,6 +163,73 @@
       "method": "GET",
       "path": "/domains",
       "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "volume_list",
+      "description": "List block storage volumes, optionally filtered by region or name",
+      "method": "GET",
+      "path": "/volumes",
+      "input_schema": { "type": "object", "properties": { "region": { "type": "string" }, "name": { "type": "string" }, "page": { "type": "integer" }, "per_page": { "type": "integer" } } }
+    },
+    {
+      "name": "volume_get",
+      "description": "Get a block storage volume by UUID",
+      "method": "GET",
+      "path": "/volumes/{volume_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" } }, "required": ["volume_id"] }
+    },
+    {
+      "name": "volume_create",
+      "description": "Create an empty DigitalOcean block storage volume",
+      "method": "POST",
+      "path": "/volumes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" }, "name": { "type": "string" },
+          "size_gigabytes": { "type": "integer", "minimum": 1 },
+          "description": { "type": "string" }, "filesystem_type": { "type": "string" }, "filesystem_label": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["region", "name", "size_gigabytes"]
+      }
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete an unattached block storage volume",
+      "method": "DELETE",
+      "path": "/volumes/{volume_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" } }, "required": ["volume_id"] }
+    },
+    {
+      "name": "volume_action",
+      "description": "Attach, detach, or resize a block storage volume",
+      "method": "POST",
+      "path": "/volumes/{volume_id}/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": { "type": "string" }, "type": { "type": "string", "enum": ["attach", "detach", "resize"] },
+          "droplet_id": { "type": "integer", "description": "Required for attach and detach" },
+          "region": { "type": "string", "description": "Required for attach and resize" },
+          "size_gigabytes": { "type": "integer", "description": "Required for resize; volumes cannot shrink" }
+        },
+        "required": ["volume_id", "type"]
+      }
+    },
+    {
+      "name": "volume_action_get",
+      "description": "Get the status of a volume action",
+      "method": "GET",
+      "path": "/volumes/{volume_id}/actions/{action_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "action_id": { "type": "integer" } }, "required": ["volume_id", "action_id"] }
+    },
+    {
+      "name": "volume_snapshot_create",
+      "description": "Create a snapshot of a block storage volume",
+      "method": "POST",
+      "path": "/volumes/{volume_id}/snapshots",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "name": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } }, "required": ["volume_id", "name"] }
     }
   ]
 }

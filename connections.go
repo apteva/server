@@ -2165,7 +2165,20 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// Body-mutating signers (EIP-712 typed-data) may rewrite bodyBytes;
 	// re-attach the new bytes to req before client.Do.
 	if specs := effectiveSigners(app, tool); len(specs) > 0 {
-		newBody, err := runSigners(req.Context(), req, bodyBytes, credentials, specs)
+		// Keep request inputs separate from credentials while making them
+		// available to signers that explicitly opt into an *_input param.
+		// This is needed for request-scoped values such as an S3 region and
+		// avoids allowing arbitrary tool input to shadow saved credentials.
+		signerValues := make(map[string]string, len(credentials)+len(input))
+		for key, value := range credentials {
+			signerValues[key] = value
+		}
+		for key, value := range input {
+			if text, ok := value.(string); ok {
+				signerValues[signerInputPrefix+key] = text
+			}
+		}
+		newBody, err := runSigners(req.Context(), req, bodyBytes, signerValues, specs)
 		if err != nil {
 			return nil, fmt.Errorf("sign: %w", err)
 		}

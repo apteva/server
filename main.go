@@ -100,18 +100,19 @@ type Server struct {
 	// agentSkillLocks serializes reconciliation of app-owned skill memories for
 	// one agent. App attachment changes, app upgrades, and startup repair can
 	// otherwise race and create parallel supersede chains for the same skill.
-	agentSkillLocks   sync.Map // agent id -> *sync.Mutex
-	port              string   // server port for telemetry callback
-	dataDir           string   // data directory for downloads, etc.
-	appsDir           string   // path to integration app definitions
-	integrationsUIDir string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
-	publicURL         string   // public base URL for webhooks (e.g. "https://agents.example.com")
-	broadcaster       *TelemetryBroadcaster
-	setupToken        string // one-time token for first registration (empty after use)
-	regMode           string // "open", "locked", "setup" — controls registration
-	instanceSecret    string // shared secret for MCP and telemetry auth
-	startupIntent     agentLifecycleIntent
-	agentRollouts     *agentRolloutCoordinator
+	agentSkillLocks     sync.Map // agent id -> *sync.Mutex
+	port                string   // server port for telemetry callback
+	dataDir             string   // data directory for downloads, etc.
+	appsDir             string   // path to integration app definitions
+	integrationsUIDir   string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
+	publicURL           string   // public base URL for webhooks (e.g. "https://agents.example.com")
+	broadcaster         *TelemetryBroadcaster
+	setupToken          string                     // one-time token for first registration (empty after use)
+	regMode             string                     // "open", "locked", "setup" — controls registration
+	instanceSecret      string                     // shared secret for MCP and telemetry auth
+	platformGatewayExec platformGatewayExecuteFunc // test seam for Helper's HTTP management MCP
+	startupIntent       agentLifecycleIntent
+	agentRollouts       *agentRolloutCoordinator
 	// apps holds the loaded Apteva Apps registry. Apps attach to
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
@@ -1213,6 +1214,10 @@ func main() {
 	// /environment-mcp — Environment control surface as MCP tools
 	// (create/seed/list/destroy).
 	apiMux.HandleFunc("/environment-mcp", s.handleEnvironmentMCP)
+	// Helper's normal HTTP management MCP. The app-shaped path makes Core
+	// inject its hidden caller thread identity; the handler resolves that
+	// identity through the server-owned agent_thread_scopes table.
+	apiMux.HandleFunc("/apps/apteva-server/mcp", s.handlePlatformMCP)
 
 	// /environment-app-gateway/<environmentID>/<app>/... — token-brokering
 	// proxy so an in-environment agent core can reach token-protected app
