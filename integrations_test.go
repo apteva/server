@@ -1717,6 +1717,53 @@ func TestExecuteIntegrationTool_BodyRoot(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_BodyRootTextPlainVerbatim(t *testing.T) {
+	var capturedBody []byte
+	var capturedCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCT = r.Header.Get("Content-Type")
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{Slug: "fake-scaleway", BaseURL: srv.URL}
+	tool := &AppToolDef{
+		Name:     "server_set_cloud_init",
+		Method:   http.MethodPatch,
+		Path:     "/servers/{server_id}/user_data/cloud-init",
+		Headers:  map[string]string{"content-type": "text/plain; charset=utf-8"},
+		BodyRoot: "content",
+	}
+	cloudInit := "#cloud-config\nusers:\n  - name: root\n"
+	res, err := executeIntegrationTool(app, tool, nil, map[string]any{
+		"server_id": "server-123",
+		"content":   cloudInit,
+	}, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedCT != "text/plain; charset=utf-8" {
+		t.Fatalf("Content-Type=%q", capturedCT)
+	}
+	if !bytes.Equal(capturedBody, []byte(cloudInit)) {
+		t.Fatalf("body was not sent verbatim: %q", capturedBody)
+	}
+	if len(capturedBody) == 0 || capturedBody[0] != '#' {
+		t.Fatalf("body must begin directly with #cloud-config: %q", capturedBody)
+	}
+	if !bytes.Contains(capturedBody, []byte("\nusers:\n")) {
+		t.Fatalf("body does not contain real newline bytes: %q", capturedBody)
+	}
+	if bytes.HasPrefix(capturedBody, []byte(`"`)) || bytes.HasSuffix(capturedBody, []byte(`"`)) || bytes.Contains(capturedBody, []byte(`\n`)) {
+		t.Fatalf("body contains JSON string quoting or escaped newlines: %q", capturedBody)
+	}
+}
+
 func TestAppToolDef_BodyBinaryParamUnmarshal(t *testing.T) {
 	var tool AppToolDef
 	if err := json.Unmarshal([]byte(`{
