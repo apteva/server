@@ -59,6 +59,19 @@ func isBinaryContentType(ct string) bool {
 	return false
 }
 
+func integrationHeaderValue(headers map[string]string, name string) string {
+	for key, value := range headers {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
+}
+
+func isTextContentType(ct string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(ct)), "text/")
+}
+
 func decodeIntegrationJSON(raw []byte) any {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -2027,19 +2040,29 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			}
 		} else if tool.BodyRoot != "" {
 			// Root-body path: the named input field's value IS the
-			// whole JSON body (e.g. a bare array). Marshal it verbatim
-			// instead of wrapping all inputs in a flat object. Path
+			// whole body. JSON is the default (e.g. a bare array), but
+			// text/* endpoints require string bytes without JSON quotes
+			// or escaped newlines. Path
 			// params + tool-declared query_params were already peeled
 			// into the URL above; any other inputs are dropped (the
 			// body slot belongs to this one field).
+			contentType := integrationHeaderValue(headers, "Content-Type")
 			if v, ok := input[tool.BodyRoot]; ok && v != nil {
-				data, err := json.Marshal(v)
-				if err != nil {
-					return nil, fmt.Errorf("marshal body_root_param %q: %w", tool.BodyRoot, err)
+				if isTextContentType(contentType) {
+					text, ok := v.(string)
+					if !ok {
+						return nil, fmt.Errorf("body_root_param %q must be a string for Content-Type %q", tool.BodyRoot, contentType)
+					}
+					bodyReader = strings.NewReader(text)
+				} else {
+					data, err := json.Marshal(v)
+					if err != nil {
+						return nil, fmt.Errorf("marshal body_root_param %q: %w", tool.BodyRoot, err)
+					}
+					bodyReader = bytes.NewReader(data)
 				}
-				bodyReader = strings.NewReader(string(data))
 			}
-			if _, set := headers["Content-Type"]; !set {
+			if contentType == "" {
 				headers["Content-Type"] = "application/json"
 			}
 		} else if hasTransformedBody {
