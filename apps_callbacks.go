@@ -285,6 +285,20 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 // call an integration go through /integrations/:id/execute where the
 // platform decrypts + injects auth headers server-side.
 func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Request, parts []string) {
+	// Managed connection lifecycle. These routes use their own high-risk
+	// permission and are intentionally separate from OAuth connection manage.
+	if r.Method == http.MethodPost && len(parts) == 2 && parts[0] == "managed" && parts[1] == "ensure" {
+		s.handleCallbackManagedConnectionEnsure(w, r)
+		return
+	}
+	if r.Method == http.MethodPut && len(parts) == 3 && parts[1] == "managed" && parts[2] == "credentials" {
+		s.handleCallbackManagedConnectionRotate(w, r, parts[0])
+		return
+	}
+	if r.Method == http.MethodDelete && len(parts) == 2 && parts[1] == "managed" {
+		s.handleCallbackManagedConnectionRevoke(w, r, parts[0])
+		return
+	}
 	// POST /connections/:id/disconnect
 	if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "disconnect" {
 		s.handleCallbackConnectionDisconnect(w, r, parts[0])
@@ -315,10 +329,7 @@ func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, sdk.PlatformConnection{
-			ID: conn.ID, AppSlug: conn.AppSlug, Name: conn.Name,
-			Status: conn.Status, ProjectID: conn.ProjectID,
-		})
+		writeJSON(w, managedPlatformConnection(conn))
 		return
 	}
 	// list
@@ -342,10 +353,7 @@ func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 		}
-		out = append(out, sdk.PlatformConnection{
-			ID: c.ID, AppSlug: c.AppSlug, Name: c.Name,
-			Status: c.Status, ProjectID: c.ProjectID,
-		})
+		out = append(out, managedPlatformConnection(&c))
 	}
 	writeJSON(w, out)
 }
@@ -440,6 +448,9 @@ func (s *Server) handleCallbackConnectionCredentials(w http.ResponseWriter, r *h
 	}
 	if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
 		http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
+		return
+	}
+	if denyNonExportableConnection(w, conn) {
 		return
 	}
 

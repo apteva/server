@@ -1410,6 +1410,26 @@ func (s *Store) migrate() error {
 	// row) vs 'app_install' (created inside an app's dependency flow,
 	// no auto-MCP).
 	s.db.Exec(`ALTER TABLE connections ADD COLUMN created_via TEXT NOT NULL DEFAULT 'integration'`)
+	// Managed connections are app-provisioned integration credentials that the
+	// platform may execute but must never reveal. Defaults preserve the exact
+	// behavior of every pre-existing connection.
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN credential_management TEXT NOT NULL DEFAULT 'user'`)
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN credential_export_policy TEXT NOT NULL DEFAULT 'bound_app'`)
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN managed_key TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_managed_key
+		ON connections(owner_app_install_id, managed_key) WHERE owner_app_install_id != 0 AND managed_key != ''`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_connection_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		connection_id INTEGER NOT NULL,
+		owner_app_install_id INTEGER NOT NULL,
+		action TEXT NOT NULL,
+		app_slug TEXT NOT NULL,
+		project_id TEXT NOT NULL DEFAULT '',
+		managed_key TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_connection_events_owner
+		ON managed_connection_events(owner_app_install_id, created_at DESC)`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_agent_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),

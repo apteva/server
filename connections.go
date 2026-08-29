@@ -438,21 +438,24 @@ func normalizeCredentialPEM(v string) string {
 // --- DB Model ---
 
 type Connection struct {
-	ID                int64     `json:"id"`
-	UserID            int64     `json:"user_id"`
-	AppSlug           string    `json:"app_slug"`
-	AppName           string    `json:"app_name"`
-	Name              string    `json:"name"`
-	AuthType          string    `json:"auth_type"`
-	Status            string    `json:"status"`
-	Source            string    `json:"source"`                // 'local' for catalog integrations
-	ProviderID        int64     `json:"provider_id,omitempty"` // FK → providers (for hosted sources)
-	ExternalID        string    `json:"external_id,omitempty"` // upstream connection identifier, when applicable
-	ProjectID         string    `json:"project_id,omitempty"`
-	CreatedVia        string    `json:"created_via,omitempty"`
-	OwnerAppInstallID int64     `json:"owner_app_install_id,omitempty"`
-	AutoMCP           bool      `json:"auto_mcp"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                     int64     `json:"id"`
+	UserID                 int64     `json:"user_id"`
+	AppSlug                string    `json:"app_slug"`
+	AppName                string    `json:"app_name"`
+	Name                   string    `json:"name"`
+	AuthType               string    `json:"auth_type"`
+	Status                 string    `json:"status"`
+	Source                 string    `json:"source"`                // 'local' for catalog integrations
+	ProviderID             int64     `json:"provider_id,omitempty"` // FK → providers (for hosted sources)
+	ExternalID             string    `json:"external_id,omitempty"` // upstream connection identifier, when applicable
+	ProjectID              string    `json:"project_id,omitempty"`
+	CreatedVia             string    `json:"created_via,omitempty"`
+	OwnerAppInstallID      int64     `json:"owner_app_install_id,omitempty"`
+	CredentialManagement   string    `json:"-"`
+	CredentialExportPolicy string    `json:"-"`
+	ManagedKey             string    `json:"-"`
+	AutoMCP                bool      `json:"auto_mcp"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 // ConnectionInput carries the full set of fields for creating a connection via
@@ -496,6 +499,14 @@ type ConnectionInput struct {
 	// rows out of the operator's Integrations list. Zero for legacy /
 	// operator-managed rows.
 	OwnerAppInstallID int64
+	// CredentialManagement is "app" only for connections created through the
+	// managed-connection callback. Empty preserves the legacy "user" behavior.
+	CredentialManagement string
+	// CredentialExportPolicy defaults to "bound_app" for existing creation
+	// paths. Managed connections set it to "never".
+	CredentialExportPolicy string
+	// ManagedKey is an idempotency key scoped to OwnerAppInstallID.
+	ManagedKey string
 	// AutoMCP — when explicitly true, an mcp_servers row is auto-
 	// created on connect so agents in the project can call the
 	// integration's tools globally. **Default is false** — apps
@@ -529,6 +540,12 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	if in.CreatedVia == "" {
 		in.CreatedVia = "integration"
 	}
+	if in.CredentialManagement == "" {
+		in.CredentialManagement = "user"
+	}
+	if in.CredentialExportPolicy == "" {
+		in.CredentialExportPolicy = "bound_app"
+	}
 	// Default OFF: callers that want tool exposure must opt in. The
 	// dashboard's connect form sets AutoMCP=true explicitly; SDK +
 	// programmatic paths can leave it nil and get no
@@ -539,8 +556,8 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 		autoMCP = 1
 	}
 	result, err := s.db.Exec(
-		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id, auto_mcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia, in.OwnerAppInstallID, autoMCP,
+		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id, credential_management, credential_export_policy, managed_key, auto_mcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia, in.OwnerAppInstallID, in.CredentialManagement, in.CredentialExportPolicy, in.ManagedKey, autoMCP,
 	)
 	if err != nil {
 		return nil, err
@@ -565,7 +582,9 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 		ID: id, UserID: in.UserID, AppSlug: in.AppSlug, AppName: in.AppName, Name: in.Name,
 		AuthType: in.AuthType, Status: in.Status, Source: in.Source, ProviderID: in.ProviderID,
 		ExternalID: in.ExternalID, ProjectID: in.ProjectID, CreatedVia: in.CreatedVia,
-		OwnerAppInstallID: in.OwnerAppInstallID, AutoMCP: autoMCP != 0, CreatedAt: time.Now(),
+		OwnerAppInstallID: in.OwnerAppInstallID, CredentialManagement: in.CredentialManagement,
+		CredentialExportPolicy: in.CredentialExportPolicy, ManagedKey: in.ManagedKey,
+		AutoMCP: autoMCP != 0, CreatedAt: time.Now(),
 	}, nil
 }
 
@@ -586,12 +605,14 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 		// list, which is the whole point.
 		rows, err = s.db.Query(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
-			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(auto_mcp,1), created_at
+			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
+			        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
 			 FROM connections WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
-			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(auto_mcp,1), created_at
+			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
+			        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
 			 FROM connections WHERE user_id = ?`, userID)
 	}
 	if err != nil {
@@ -604,7 +625,7 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 		var c Connection
 		var createdAt string
 		var autoMCP int
-		rows.Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &c.CreatedVia, &c.OwnerAppInstallID, &autoMCP, &createdAt)
+		rows.Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &c.CreatedVia, &c.OwnerAppInstallID, &c.CredentialManagement, &c.CredentialExportPolicy, &c.ManagedKey, &autoMCP, &createdAt)
 		c.UserID = userID
 		c.AutoMCP = autoMCP != 0
 		c.CreatedAt, _ = parseTime(createdAt)
@@ -619,10 +640,11 @@ func (s *Store) GetConnection(userID, connID int64) (*Connection, string, error)
 	var autoMCP int
 	err := s.db.QueryRow(
 		`SELECT id, app_slug, app_name, name, auth_type, encrypted_credentials, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
-		        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(auto_mcp,1), created_at
+		        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
+		        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
 		 FROM connections WHERE id = ? AND user_id = ?`,
 		connID, userID,
-	).Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &encCreds, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &c.CreatedVia, &c.OwnerAppInstallID, &autoMCP, &createdAt)
+	).Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &encCreds, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &c.CreatedVia, &c.OwnerAppInstallID, &c.CredentialManagement, &c.CredentialExportPolicy, &c.ManagedKey, &autoMCP, &createdAt)
 	if err != nil {
 		return nil, "", err
 	}
@@ -2819,6 +2841,9 @@ func (s *Server) handleGetConnectionCredentials(w http.ResponseWriter, r *http.R
 	conn, encCreds, err := s.store.GetConnection(userID, connID)
 	if err != nil || conn == nil {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if denyNonExportableConnection(w, conn) {
 		return
 	}
 	creds := map[string]string{}

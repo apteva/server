@@ -158,7 +158,7 @@
           ,
           "volumes": {
             "type": "object",
-            "description": "Optional boot/data volume map keyed by device slot. Example: {\"0\":{\"size\":80000000000,\"volume_type\":\"sbs_volume\",\"boot\":true}}. Omit to use the image default volume.",
+            "description": "Optional boot/data volume map keyed by device slot. For an image-derived root volume at slot 0, send only size and volume_type; do not send name or boot. Omit volumes to use the marketplace image default volume.",
             "additionalProperties": {
               "type": "object",
               "properties": {
@@ -293,6 +293,29 @@
       "name": "instance_volume_get",
       "description": "Get details of a local Instance volume such as l_ssd by ID. Use volume_get for SBS Block Storage volumes.",
       "method": "GET",
+      "path": "/instance/v1/zones/{zone}/volumes/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Local Instance volume UUID"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "instance_volume_delete",
+      "description": "Delete a local Instance volume such as l_ssd by ID. The volume must no longer be attached to a server. Use volume_delete for SBS Block Storage volumes.",
+      "method": "DELETE",
       "path": "/instance/v1/zones/{zone}/volumes/{volume_id}",
       "input_schema": {
         "type": "object",
