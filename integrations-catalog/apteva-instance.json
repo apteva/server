@@ -1,0 +1,195 @@
+{
+  "slug": "apteva-instance",
+  "name": "Apteva Instance",
+  "description": "Manage a remote Apteva Server through its authenticated HTTP API",
+  "logo": "https://www.google.com/s2/favicons?domain=apteva.ai&sz=128",
+  "categories": [
+    "apteva",
+    "infrastructure",
+    "administration",
+    "automation"
+  ],
+  "base_url": "{{credential.base_url}}",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "base_url",
+        "label": "Instance URL",
+        "description": "HTTPS origin of the remote Apteva Server, without /api",
+        "required": true,
+        "exposure": "public"
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Private API key created by the remote Apteva Server",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "health",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "health",
+      "description": "Check whether the remote Apteva Server is healthy and ready",
+      "method": "GET",
+      "path": "/health",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "version",
+      "description": "Get version information from the remote Apteva Server",
+      "method": "GET",
+      "path": "/version",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "provision_apply",
+      "description": "Idempotently apply managed connections and an app bundle to the remote Apteva Server",
+      "method": "PUT",
+      "path": "/api/provisioning/apply",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "description": "Durable idempotency key for this desired-state application"
+          },
+          "tenant_id": {
+            "type": "string",
+            "description": "Controller-defined durable customer or installation ID"
+          },
+          "grants": {
+            "type": "array",
+            "description": "Restricted managed connection delivery envelopes",
+            "items": {
+              "type": "object"
+            }
+          },
+          "revoked_grant_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bundle": {
+            "type": "object",
+            "description": "Versioned desired app installations, configuration, and bindings"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id"
+        ]
+      }
+    },
+    {
+      "name": "apps_list",
+      "description": "List apps installed on the remote Apteva Server",
+      "method": "GET",
+      "path": "/api/apps",
+      "query_params": [
+        "project_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "app_install",
+      "description": "Install an app on the remote Apteva Server",
+      "method": "POST",
+      "path": "/api/apps/install",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "manifest_url": {
+            "type": "string"
+          },
+          "manifest_yaml": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          },
+          "bindings": {
+            "type": "object"
+          },
+          "upgrade_policy": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "app_config_update",
+      "description": "Replace configuration for an installed app on the remote Apteva Server",
+      "method": "PUT",
+      "path": "/api/apps/installs/{install_id}/config",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "install_id": {
+            "type": "integer"
+          },
+          "config": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "install_id",
+          "config"
+        ]
+      }
+    },
+    {
+      "name": "app_upgrade",
+      "description": "Upgrade an installed app on the remote Apteva Server",
+      "method": "POST",
+      "path": "/api/apps/installs/{install_id}/upgrade",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "install_id": {
+            "type": "integer"
+          },
+          "approve_new_permissions": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "install_id"
+        ]
+      }
+    }
+  ]
+}

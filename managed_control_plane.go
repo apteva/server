@@ -32,18 +32,7 @@ type managedTenantIdentity struct {
 	Token         string `json:"token"`
 }
 
-type managedReconcileGrant struct {
-	TenantID          string                      `json:"tenant_id"`
-	GrantID           string                      `json:"grant_id"`
-	ConnectionID      int64                       `json:"parent_connection_id"`
-	AppSlug           string                      `json:"app_slug"`
-	ProjectID         string                      `json:"project_id,omitempty"`
-	ControllerToken   string                      `json:"controller_token"`
-	ControllerExecute string                      `json:"controller_execute_url"`
-	AllowedTools      []string                    `json:"allowed_tools,omitempty"`
-	PublicFields      map[string]string           `json:"public_fields,omitempty"`
-	Constraints       sdk.ManagedGrantConstraints `json:"constraints,omitempty"`
-}
+type managedReconcileGrant = sdk.ManagedConnectionGrantDelivery
 
 type managedReconcileResponse struct {
 	TenantID      string                    `json:"tenant_id"`
@@ -101,10 +90,14 @@ func (s *Server) handleCallbackManagedTenants(w http.ResponseWriter, r *http.Req
 		return
 	}
 	switch {
+	case len(parts) == 1 && parts[0] == "tenants" && r.Method == http.MethodPost:
+		s.handleManagedTenantEnsure(w, r, installID)
 	case len(parts) == 1 && parts[0] == "enrollments" && r.Method == http.MethodPost:
 		s.handleManagedEnrollmentCreate(w, r, installID)
 	case len(parts) == 1 && parts[0] == "grants" && r.Method == http.MethodPost:
 		s.handleManagedGrantEnsure(w, r, installID, userID)
+	case len(parts) == 4 && parts[0] == "grants" && parts[3] == "delivery" && r.Method == http.MethodGet:
+		s.handleManagedGrantDelivery(w, r, installID, parts[1], parts[2])
 	case len(parts) == 3 && parts[0] == "grants" && r.Method == http.MethodDelete:
 		s.handleManagedGrantRevoke(w, r, installID, parts[1], parts[2])
 	case len(parts) == 1 && parts[0] == "bundles" && r.Method == http.MethodPost:
@@ -114,6 +107,51 @@ func (s *Server) handleCallbackManagedTenants(w http.ResponseWriter, r *http.Req
 	default:
 		http.Error(w, "managed tenant callback not found", http.StatusNotFound)
 	}
+}
+
+func (s *Server) handleManagedTenantEnsure(w http.ResponseWriter, r *http.Request, installID int64) {
+	var body sdk.ManagedTenantRequest
+	r.Body = http.MaxBytesReader(w, r.Body, managedControlBodyLimit)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	body.TenantID = strings.TrimSpace(body.TenantID)
+	body.AccountID = strings.TrimSpace(body.AccountID)
+	if !validManagedID(body.TenantID) {
+		http.Error(w, "tenant_id is required and may contain letters, numbers, dash, underscore, dot, or colon", http.StatusBadRequest)
+		return
+	}
+	var owner int64
+	err := s.store.db.QueryRow(`SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&owner)
+	if err == nil && owner != installID {
+		http.Error(w, "tenant_id is owned by another app installation", http.StatusConflict)
+		return
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "lookup tenant: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	result, err := s.store.db.Exec(`INSERT INTO managed_tenants(tenant_id,account_id,owner_app_install_id,status,updated_at)
+		VALUES(?,?,?,'active',CURRENT_TIMESTAMP)
+		ON CONFLICT(tenant_id) DO UPDATE SET account_id=excluded.account_id,status='active',updated_at=CURRENT_TIMESTAMP
+		WHERE managed_tenants.owner_app_install_id=excluded.owner_app_install_id`, body.TenantID, body.AccountID, installID)
+	if err != nil {
+		http.Error(w, "ensure tenant: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil || rowsAffected != 1 {
+		http.Error(w, "tenant_id is owned by another app installation", http.StatusConflict)
+		return
+	}
+	var status, updated string
+	if err := s.store.db.QueryRow(`SELECT status,updated_at FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&status, &updated); err != nil {
+		http.Error(w, "load tenant: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.auditManagedTenant(body.TenantID, "app:"+strconv.FormatInt(installID, 10), "tenant.ensured", "", "success", "")
+	writeJSON(w, sdk.ManagedTenant{TenantID: body.TenantID, AccountID: body.AccountID, Status: status, UpdatedAt: parseManagedTime(updated)})
 }
 
 func (s *Server) handleManagedBundleGet(w http.ResponseWriter, r *http.Request, installID int64, tenantID, bundleID string) {
@@ -264,6 +302,44 @@ func (s *Server) handleManagedGrantEnsure(w http.ResponseWriter, r *http.Request
 	}
 	s.auditManagedTenant(body.TenantID, "app:"+strconv.FormatInt(installID, 10), "grant.ensured", body.GrantID, "success", "")
 	writeJSON(w, sdk.ManagedConnectionGrant{TenantID: body.TenantID, GrantID: body.GrantID, ConnectionID: body.ConnectionID, AppSlug: body.AppSlug, ProjectID: body.ProjectID, Status: "active", AllowedTools: uniqueNonEmpty(body.AllowedTools), PublicFields: body.PublicFields, Constraints: body.Constraints, UpdatedAt: time.Now().UTC()})
+}
+
+func (s *Server) handleManagedGrantDelivery(w http.ResponseWriter, _ *http.Request, installID int64, tenantID, grantID string) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !validManagedID(tenantID) || !validManagedID(grantID) {
+		http.Error(w, "invalid tenant or grant id", http.StatusBadRequest)
+		return
+	}
+	var out sdk.ManagedConnectionGrantDelivery
+	var status, tokenEncrypted, toolsRaw, publicRaw, constraintsRaw string
+	err := s.store.db.QueryRow(`SELECT connection_id,app_slug,project_id,status,token_encrypted,allowed_tools_json,public_fields_json,constraints_json
+		FROM managed_connection_grants WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, tenantID, grantID, installID).
+		Scan(&out.ConnectionID, &out.AppSlug, &out.ProjectID, &status, &tokenEncrypted, &toolsRaw, &publicRaw, &constraintsRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "grant not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "load grant: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if status != "active" {
+		http.Error(w, "grant is not active", http.StatusConflict)
+		return
+	}
+	out.ControllerToken, err = Decrypt(s.secret, tokenEncrypted)
+	if err != nil {
+		http.Error(w, "decrypt grant token", http.StatusInternalServerError)
+		return
+	}
+	out.TenantID = tenantID
+	out.GrantID = grantID
+	out.ControllerExecute = s.publicBaseURL() + "/api/managed/grants/" + url.PathEscape(grantID) + "/execute"
+	_ = json.Unmarshal([]byte(toolsRaw), &out.AllowedTools)
+	_ = json.Unmarshal([]byte(publicRaw), &out.PublicFields)
+	_ = json.Unmarshal([]byte(constraintsRaw), &out.Constraints)
+	s.auditManagedTenant(tenantID, "app:"+strconv.FormatInt(installID, 10), "grant.delivered", grantID, "success", "")
+	writeJSON(w, out)
 }
 
 func (s *Server) handleManagedGrantRevoke(w http.ResponseWriter, r *http.Request, installID int64, tenantID, grantID string) {
@@ -959,6 +1035,9 @@ func (s *Server) applyManagedBundle(bundle sdk.ManagedTenantBundle, grantIDs map
 			}
 			mergedBindings := map[string]any{}
 			_ = json.Unmarshal([]byte(currentBindings), &mergedBindings)
+			if mergedBindings == nil {
+				mergedBindings = map[string]any{}
+			}
 			// Remove only stale bindings that point at this controller tenant;
 			// app-dependency and operator bindings remain untouched.
 			for role, rawID := range mergedBindings {

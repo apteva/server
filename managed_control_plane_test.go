@@ -192,6 +192,68 @@ func TestManagedControlPlaneRequiresGlobalAdminOwnedPermission(t *testing.T) {
 	}
 }
 
+func TestManagedPushTenantAndGrantDelivery(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	s.catalog = createTestCatalog(t)
+	s.port = "5280"
+	installID := managedConnectionTestInstall(t, s, "push-controller",
+		sdk.PermConnectionsManageOwnedCredentials,
+		sdk.PermManagedTenantsManage,
+	)
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, installID); err != nil {
+		t.Fatal(err)
+	}
+	managed := managedConnectionRequest(t, s, installID, http.MethodPost, "managed/ensure", sdk.ManagedConnectionRequest{
+		Key: "provider:push", AppSlug: "pushover", Name: "Push provider",
+		Fields: map[string]string{"app_token": "parent-secret", "user_key": "public"},
+	})
+	if managed.Code != http.StatusOK {
+		t.Fatalf("managed connection status=%d body=%s", managed.Code, managed.Body.String())
+	}
+	conn := decodePlatformConnection(t, managed)
+
+	tenant := managedControllerRequest(t, s, installID, http.MethodPost, "tenants", sdk.ManagedTenantRequest{
+		TenantID: "account-push", AccountID: "acct-push",
+	})
+	if tenant.Code != http.StatusOK {
+		t.Fatalf("tenant status=%d body=%s", tenant.Code, tenant.Body.String())
+	}
+	grant := managedControllerRequest(t, s, installID, http.MethodPost, "grants", sdk.ManagedConnectionGrantRequest{
+		TenantID: "account-push", GrantID: "phone", ConnectionID: conn.ID, AppSlug: "pushover",
+		AllowedTools: []string{"send_notification"}, PublicFields: map[string]string{"phone_number": "+15551234567"},
+	})
+	if grant.Code != http.StatusOK {
+		t.Fatalf("grant status=%d body=%s", grant.Code, grant.Body.String())
+	}
+	deliveryRec := managedControllerRequest(t, s, installID, http.MethodGet, "grants/account-push/phone/delivery", nil)
+	if deliveryRec.Code != http.StatusOK {
+		t.Fatalf("delivery status=%d body=%s", deliveryRec.Code, deliveryRec.Body.String())
+	}
+	if got := deliveryRec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("delivery Cache-Control=%q, want no-store", got)
+	}
+	var delivery sdk.ManagedConnectionGrantDelivery
+	if err := json.Unmarshal(deliveryRec.Body.Bytes(), &delivery); err != nil {
+		t.Fatal(err)
+	}
+	if delivery.ControllerToken == "" || delivery.ControllerExecute == "" || delivery.PublicFields["phone_number"] == "" {
+		t.Fatalf("incomplete delivery: %+v", delivery)
+	}
+	if strings.Contains(deliveryRec.Body.String(), "parent-secret") {
+		t.Fatal("delivery exposed parent provider credentials")
+	}
+
+	otherInstall := managedConnectionTestInstall(t, s, "other-push-controller", sdk.PermManagedTenantsManage)
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, otherInstall); err != nil {
+		t.Fatal(err)
+	}
+	denied := managedControllerRequest(t, s, otherInstall, http.MethodGet, "grants/account-push/phone/delivery", nil)
+	if denied.Code != http.StatusNotFound {
+		t.Fatalf("cross-owner delivery status=%d body=%s", denied.Code, denied.Body.String())
+	}
+}
+
 func TestDelegatedProviderGenericConstraints(t *testing.T) {
 	plain := `{"_apteva_delegated_provider":"1","grant_id":"g","controller_execute_url":"https://controller.test/x","controller_token":"secret","parent_connection_id":"4","allowed_tools":"send","constraints":"{\"fixed_input\":{\"tenant\":\"t1\"},\"allowed_values\":{\"region\":[\"eu\"]},\"denied_fields\":[\"admin\"]}"}`
 	grant, ok, err := parseDelegatedProviderCredentials(plain)

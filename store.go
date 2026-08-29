@@ -1497,6 +1497,24 @@ func (s *Store) migrate() error {
 	)`)
 	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_tenant_audit_tenant
 		ON managed_tenant_audit(tenant_id, created_at DESC)`)
+	// Push provisioning requests are recorded independently from controller
+	// polling state. The request hash and bundle revision make retries safe and
+	// reject stale or conflicting desired state without storing any raw API key.
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_provisioning_requests (
+		request_id TEXT PRIMARY KEY,
+		tenant_id TEXT NOT NULL,
+		bundle_id TEXT NOT NULL DEFAULT '',
+		revision INTEGER NOT NULL DEFAULT 0,
+		request_hash TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'applying',
+		response_json TEXT NOT NULL DEFAULT '',
+		last_error TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_provisioning_bundle_revision
+		ON managed_provisioning_requests(tenant_id, bundle_id, revision)
+		WHERE bundle_id != '' AND revision > 0`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_agent_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),

@@ -714,6 +714,9 @@ func main() {
 		}
 	}))
 	apiMux.HandleFunc("/auth/keys/", s.authMiddleware(s.handleDeleteKey))
+	// Push provisioning uses the instance's normal admin API key. It remains
+	// inert unless an authenticated controller explicitly applies desired state.
+	apiMux.HandleFunc("/provisioning/apply", s.authMiddleware(s.handleProvisioningApply))
 
 	// Telemetry routes. Core instances also POST /telemetry and /telemetry/live
 	// back to the server, so those paths also need to be reachable via /api.
