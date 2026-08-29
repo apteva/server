@@ -27,6 +27,13 @@ type delegatedProviderCredentials struct {
 	AllowedDomains       []string
 	AllowedFrom          []string
 	Metadata             map[string]string
+	Constraints          delegatedProviderConstraints
+}
+
+type delegatedProviderConstraints struct {
+	FixedInput    map[string]any      `json:"fixed_input,omitempty"`
+	AllowedValues map[string][]string `json:"allowed_values,omitempty"`
+	DeniedFields  []string            `json:"denied_fields,omitempty"`
 }
 
 type delegatedUsageEvent struct {
@@ -70,6 +77,11 @@ func parseDelegatedProviderCredentials(plain string) (*delegatedProviderCredenti
 		AllowedDomains:       normaliseDomainList(parseGrantList(raw["allowed_domains"])),
 		AllowedFrom:          parseGrantList(firstNonEmptyDelegated(raw["allowed_from"], raw["allowed_from_addresses"])),
 		Metadata:             raw,
+	}
+	if constraints := strings.TrimSpace(raw["constraints"]); constraints != "" {
+		if err := json.Unmarshal([]byte(constraints), &g.Constraints); err != nil {
+			return nil, true, errors.New("delegated provider credentials contain invalid constraints")
+		}
 	}
 	if g.Resource == "" {
 		g.Resource = "provider.connection"
@@ -189,6 +201,27 @@ func delegatedProviderExecuteURL(grant *delegatedProviderCredentials) string {
 func (g *delegatedProviderCredentials) validate(appSlug, tool string, input map[string]any) error {
 	if len(g.AllowedTools) > 0 && !listContainsFold(g.AllowedTools, tool) {
 		return fmt.Errorf("tool %q is not allowed by grant %s", tool, g.GrantID)
+	}
+	for _, field := range g.Constraints.DeniedFields {
+		if _, present := input[field]; present {
+			return fmt.Errorf("field %q is denied by grant %s", field, g.GrantID)
+		}
+	}
+	for field, want := range g.Constraints.FixedInput {
+		got, present := input[field]
+		if !present {
+			input[field] = want
+			continue
+		}
+		if fmt.Sprint(got) != fmt.Sprint(want) {
+			return fmt.Errorf("field %q must equal the controller-defined value", field)
+		}
+	}
+	for field, allowed := range g.Constraints.AllowedValues {
+		got, present := input[field]
+		if present && !listContainsFold(allowed, fmt.Sprint(got)) {
+			return fmt.Errorf("field %q is outside the grant allow-list", field)
+		}
 	}
 	if appSlug == "aws-ses" {
 		return g.validateSES(input)

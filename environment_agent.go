@@ -173,7 +173,8 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if len(pool) == 0 {
 		return nil, fmt.Errorf("no LLM provider configured — add one in Settings → Providers")
 	}
-	pool, selectedProvider, selectedModel, err := runtimeProviderPool(pool, spec.Provider, spec.Model)
+	requestedProvider, requestedModel := environmentAgentProviderSelection(pool, src.Config, spec.Provider, spec.Model)
+	pool, selectedProvider, selectedModel, err := runtimeProviderPool(pool, requestedProvider, requestedModel)
 	if err != nil {
 		return nil, err
 	}
@@ -328,6 +329,23 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("install environment subscriptions: %w", err)
 	}
 	return wa, nil
+}
+
+// environmentAgentProviderSelection gives explicit spawn parameters highest
+// precedence, then inherits the source agent's persisted provider/model pins.
+// Stale source provider pins follow ordinary-agent behavior and fall back to
+// the first configured text provider; an explicit invalid provider still
+// reaches runtimeProviderPool and fails closed.
+func environmentAgentProviderSelection(pool []ProviderInfo, sourceConfig, explicitProvider, explicitModel string) (string, string) {
+	provider := strings.TrimSpace(explicitProvider)
+	if provider == "" {
+		provider = effectiveProviderDefault(pool, configuredAgentDefaultProvider(sourceConfig))
+	}
+	model := strings.TrimSpace(explicitModel)
+	if model == "" {
+		model = configuredAgentModelOverride(sourceConfig, provider)
+	}
+	return provider, model
 }
 
 // environmentAgentProviderEnv resolves providers through the same dual-read

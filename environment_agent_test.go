@@ -29,6 +29,38 @@ func TestEnvironmentAgentProviderEnvIncludesRuntimeConnections(t *testing.T) {
 	}
 }
 
+func TestEnvironmentAgentProviderSelectionInheritsSourcePins(t *testing.T) {
+	pool := []ProviderInfo{
+		{Type: "anthropic", ModelLarge: "claude-default", ModelMedium: "claude-default", ModelSmall: "claude-default"},
+		{Type: "openai-codex", ModelLarge: "gpt-5.6-terra", ModelMedium: "gpt-5.6-terra", ModelSmall: "gpt-5.6-terra"},
+		{Type: "openai-realtime", ModelLarge: "gpt-realtime"},
+	}
+	sourceConfig := `{"default_provider":"openai-codex","model_override":{"provider":"openai-codex","model":"gpt-5.6-sol"}}`
+
+	provider, model := environmentAgentProviderSelection(pool, sourceConfig, "", "")
+	selected, gotProvider, gotModel, err := runtimeProviderPool(pool, provider, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotProvider != "openai-codex" || gotModel != "gpt-5.6-sol" || len(selected) != 2 || selected[0].ModelLarge != "gpt-5.6-sol" {
+		t.Fatalf("inherited selection provider=%q model=%q pool=%+v", gotProvider, gotModel, selected)
+	}
+
+	provider, model = environmentAgentProviderSelection(pool, sourceConfig, "anthropic", "claude-explicit")
+	_, gotProvider, gotModel, err = runtimeProviderPool(pool, provider, model)
+	if err != nil || gotProvider != "anthropic" || gotModel != "claude-explicit" {
+		t.Fatalf("explicit selection provider=%q model=%q err=%v", gotProvider, gotModel, err)
+	}
+
+	// An explicit provider without an explicit model must not inherit a model
+	// override belonging to a different source provider.
+	provider, model = environmentAgentProviderSelection(pool, sourceConfig, "anthropic", "")
+	_, gotProvider, gotModel, err = runtimeProviderPool(pool, provider, model)
+	if err != nil || gotProvider != "anthropic" || gotModel != "claude-default" {
+		t.Fatalf("provider-only selection provider=%q model=%q err=%v", gotProvider, gotModel, err)
+	}
+}
+
 func testEnvironmentWithInstalls(names ...string) *Environment {
 	installs := map[string]*localInstall{}
 	for _, name := range names {

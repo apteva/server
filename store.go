@@ -1430,6 +1430,73 @@ func (s *Store) migrate() error {
 	)`)
 	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_connection_events_owner
 		ON managed_connection_events(owner_app_install_id, created_at DESC)`)
+	// Managed control-plane state is inert unless a trusted app explicitly
+	// creates a tenant enrollment. Tokens are hashed for authentication; grant
+	// tokens are additionally encrypted because they must be delivered during
+	// tenant reconciliation after their initial creation.
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenants (
+		tenant_id TEXT PRIMARY KEY,
+		account_id TEXT NOT NULL DEFAULT '',
+		owner_app_install_id INTEGER NOT NULL,
+		identity_token_hash TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_seen_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_tenants_owner
+		ON managed_tenants(owner_app_install_id, updated_at DESC)`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenant_enrollments (
+		tenant_id TEXT PRIMARY KEY REFERENCES managed_tenants(tenant_id) ON DELETE CASCADE,
+		ticket_hash TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		used_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_connection_grants (
+		grant_id TEXT NOT NULL,
+		tenant_id TEXT NOT NULL REFERENCES managed_tenants(tenant_id) ON DELETE CASCADE,
+		owner_app_install_id INTEGER NOT NULL,
+		connection_id INTEGER NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+		app_slug TEXT NOT NULL,
+		project_id TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'active',
+		token_hash TEXT NOT NULL,
+		token_encrypted TEXT NOT NULL,
+		allowed_tools_json TEXT NOT NULL DEFAULT '[]',
+		public_fields_json TEXT NOT NULL DEFAULT '{}',
+		constraints_json TEXT NOT NULL DEFAULT '{}',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (tenant_id, grant_id)
+	)`)
+	s.db.Exec(`ALTER TABLE managed_connection_grants ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_connection_grants_owner
+		ON managed_connection_grants(owner_app_install_id, updated_at DESC)`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenant_bundles (
+		tenant_id TEXT NOT NULL REFERENCES managed_tenants(tenant_id) ON DELETE CASCADE,
+		bundle_id TEXT NOT NULL,
+		revision INTEGER NOT NULL DEFAULT 1,
+		desired_json TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		last_error TEXT NOT NULL DEFAULT '',
+		created_by_install_id INTEGER NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (tenant_id, bundle_id)
+	)`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenant_audit (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id TEXT NOT NULL,
+		actor TEXT NOT NULL,
+		action TEXT NOT NULL,
+		resource TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'success',
+		detail TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_tenant_audit_tenant
+		ON managed_tenant_audit(tenant_id, created_at DESC)`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_agent_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),

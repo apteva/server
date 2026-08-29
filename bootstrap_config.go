@@ -16,11 +16,22 @@ import (
 type aptevaConfig struct {
 	Server    aptevaServerConfig    `yaml:"server"`
 	Bootstrap aptevaBootstrapConfig `yaml:"bootstrap"`
+	Managed   aptevaManagedConfig   `yaml:"managed"`
 }
 
 type aptevaServerConfig struct {
 	PublicURL    string `yaml:"public_url"`
 	Registration string `yaml:"registration"`
+}
+
+// aptevaManagedConfig opts one installation into a remote desired-state
+// controller. Empty is the default and leaves every existing deployment
+// unchanged.
+type aptevaManagedConfig struct {
+	ControllerURL       string `yaml:"controller_url"`
+	EnrollmentTokenFile string `yaml:"enrollment_token_file"`
+	IdentityFile        string `yaml:"identity_file"`
+	IntervalSeconds     int    `yaml:"interval_seconds"`
 }
 
 type aptevaBootstrapConfig struct {
@@ -84,6 +95,9 @@ func normalizeAptevaConfig(cfg *aptevaConfig) {
 	cfg.Bootstrap.Project.Name = strings.TrimSpace(cfg.Bootstrap.Project.Name)
 	cfg.Bootstrap.Project.Description = strings.TrimSpace(cfg.Bootstrap.Project.Description)
 	cfg.Bootstrap.Project.Color = strings.TrimSpace(cfg.Bootstrap.Project.Color)
+	cfg.Managed.ControllerURL = strings.TrimRight(strings.TrimSpace(cfg.Managed.ControllerURL), "/")
+	cfg.Managed.EnrollmentTokenFile = strings.TrimSpace(cfg.Managed.EnrollmentTokenFile)
+	cfg.Managed.IdentityFile = strings.TrimSpace(cfg.Managed.IdentityFile)
 }
 
 func validateAptevaConfig(cfg *aptevaConfig) error {
@@ -97,6 +111,12 @@ func validateAptevaConfig(cfg *aptevaConfig) error {
 	}
 	if cfg.Server.PublicURL != "" && !strings.HasPrefix(cfg.Server.PublicURL, "http://") && !strings.HasPrefix(cfg.Server.PublicURL, "https://") {
 		return fmt.Errorf("server.public_url must start with http:// or https://")
+	}
+	if cfg.Managed.ControllerURL != "" && !strings.HasPrefix(cfg.Managed.ControllerURL, "http://") && !strings.HasPrefix(cfg.Managed.ControllerURL, "https://") {
+		return fmt.Errorf("managed.controller_url must start with http:// or https://")
+	}
+	if cfg.Managed.IntervalSeconds != 0 && cfg.Managed.IntervalSeconds < 10 {
+		return fmt.Errorf("managed.interval_seconds must be at least 10")
 	}
 	return nil
 }

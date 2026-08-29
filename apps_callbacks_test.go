@@ -65,7 +65,9 @@ func TestCallbackAgentForInstallEnforcesOwnerAndProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installID := seedInstallWithBindings(t, s, "telephony-auth-test", sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "telephony-auth-test"}, nil)
+	manifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "telephony-auth-test"}
+	manifest.Requires.Permissions = []sdk.Permission{sdk.PermInstancesRead}
+	installID := seedInstallWithBindings(t, s, "telephony-auth-test", manifest, nil)
 	req := httptest.NewRequest(http.MethodPost, "/apps/callback/threads/spawn-realtime", nil)
 	req.Header.Set("X-User-ID", "1")
 
@@ -95,8 +97,44 @@ func TestCallbackAgentForInstallEnforcesOwnerAndProject(t *testing.T) {
 	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id=? WHERE id=?`, runtime.ID, installID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.callbackAgentForInstall(req, installID, otherProject.ID); err != nil {
+	projected, err := s.callbackAgentForInstall(req, installID, otherProject.ID)
+	if err != nil {
 		t.Fatalf("agent and install in the same runtime rejected: %v", err)
+	}
+	if projected.ID != otherProject.ID || projected.Name != "main" || projected.ProjectID != runtime.ID || projected.Mode != otherProject.Mode || projected.Status != otherProject.Status {
+		t.Fatalf("runtime projection=%+v source=%+v", projected, otherProject)
+	}
+
+	metadataReq := httptest.NewRequest(http.MethodGet, "/apps/callback/agents/"+itoa(otherProject.ID), nil)
+	metadataReq.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	metadataReq.Header.Set("X-User-ID", "1")
+	metadataRec := httptest.NewRecorder()
+	s.handleAppCallback(metadataRec, metadataReq)
+	if metadataRec.Code != http.StatusOK {
+		t.Fatalf("runtime metadata status=%d body=%s", metadataRec.Code, metadataRec.Body.String())
+	}
+	var metadata sdk.PlatformInstance
+	if err := json.Unmarshal(metadataRec.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.ID != otherProject.ID || metadata.Name != "main" || metadata.ProjectID != runtime.ID || metadata.Mode != otherProject.Mode || metadata.Status != otherProject.Status || !metadata.AttachedToCaller {
+		t.Fatalf("runtime metadata=%+v", metadata)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/apps/callback/agents", nil)
+	listReq.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	listReq.Header.Set("X-User-ID", "1")
+	listRec := httptest.NewRecorder()
+	s.handleAppCallback(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("runtime list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+	var listed []sdk.PlatformInstance
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0] != metadata {
+		t.Fatalf("runtime list=%+v metadata=%+v", listed, metadata)
 	}
 	if _, err := s.callbackAgentForInstall(req, installID, inProject.ID); err == nil {
 		t.Fatal("agent outside the install runtime accepted")

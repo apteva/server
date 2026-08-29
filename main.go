@@ -643,6 +643,9 @@ func main() {
 	apiMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
 	})
+	// Managed installation enrollment/reconciliation has its own workload
+	// identity and deliberately bypasses dashboard session auth.
+	apiMux.HandleFunc("/managed/", s.handleManagedPublic)
 
 	// Platform self-update status — read-only view of the latest
 	// published bundle vs. our own baked-in versions. The dashboard
@@ -1649,6 +1652,9 @@ func main() {
 	if !quarantined {
 	}
 	s.ready.Store(true)
+	if !quarantined && aptevaCfg != nil && aptevaCfg.Managed.ControllerURL != "" {
+		s.startManagedTenantReconciler(context.Background(), aptevaCfg.Managed)
+	}
 	if !quarantined && providerAuthRefreshEnvEnabled() {
 		s.startProviderAuthRefresher(context.Background())
 	}

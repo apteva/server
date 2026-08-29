@@ -120,6 +120,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackDelegatedKeys(w, r, parts[1:])
 	case "cors-origins":
 		s.handleCallbackCORSOrigins(w, r, parts[1:])
+	case "managed-tenants":
+		s.handleCallbackManagedTenants(w, r, parts[1:])
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}
@@ -655,6 +657,7 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, sdk.PlatformInstance{
 			ID: agent.ID, Name: agent.Name, Status: agent.Status,
 			Mode: agent.Mode, ProjectID: agent.ProjectID, DefaultThreadID: "main",
+			AttachedToCaller: s.runtimeContainsInstallAndAgent(installID, agent.ID),
 		})
 		return
 	}
@@ -2040,9 +2043,15 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 		if environment, ok := s.environments.Get(installProject); ok {
 			out := []sdk.PlatformInstance{}
 			for _, environmentAgent := range environment.Agents() {
+				status := "stopped"
+				mode := "autonomous"
+				if agent, err := s.store.GetAgent(getUserID(r), environmentAgent.AgentID); err == nil && agent != nil {
+					status = agent.Status
+					mode = agent.Mode
+				}
 				out = append(out, sdk.PlatformInstance{
 					ID: environmentAgent.AgentID, Name: environmentAgent.Alias,
-					Status: "running", Mode: "autonomous", ProjectID: installProject,
+					Status: status, Mode: mode, ProjectID: environment.ID,
 					DefaultThreadID: "main", AttachedToCaller: true,
 				})
 			}
@@ -2091,10 +2100,39 @@ func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int
 	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); err != nil {
 		return nil, errors.New("app installation not found")
 	}
-	if installProject != "" && installProject != agent.ProjectID && !s.runtimeContainsInstallAndAgent(installID, agentID) {
+	runtime, runtimeAgent, inRuntime := s.runtimeAgentForInstall(installID, agentID)
+	if installProject != "" && installProject != agent.ProjectID && !inRuntime {
 		return nil, errors.New("agent does not belong to the app installation project")
 	}
+	if inRuntime {
+		// Environment agents are real transient DB rows for execution, but their
+		// app-facing identity is runtime-local. Return a copy so authorization and
+		// downstream event/thread calls keep the ephemeral ID while callers never
+		// see the generated row name or source project ID.
+		projected := *agent
+		projected.Name = runtimeAgent.Alias
+		projected.ProjectID = runtime.ID
+		return &projected, nil
+	}
 	return agent, nil
+}
+
+func (s *Server) runtimeAgentForInstall(installID, agentID int64) (*Environment, *EnvironmentAgent, bool) {
+	if s.environments == nil || installID <= 0 || agentID <= 0 {
+		return nil, nil, false
+	}
+	for _, runtime := range s.environments.List() {
+		runtimeAgent := runtime.GetAgent(agentID)
+		if runtimeAgent == nil {
+			continue
+		}
+		for _, name := range runtime.InstallNames() {
+			if install, ok := runtime.Install(name); ok && install.InstallID == installID {
+				return runtime, runtimeAgent, true
+			}
+		}
+	}
+	return nil, nil, false
 }
 
 // ensureCallbackDeliveryTargetRunning gives platform-owned Helper the same
@@ -2136,20 +2174,8 @@ func (s *Server) ensureCallbackDeliveryTargetRunning(installID int64, agent *Age
 }
 
 func (s *Server) runtimeContainsInstallAndAgent(installID, agentID int64) bool {
-	if s.environments == nil || installID <= 0 || agentID <= 0 {
-		return false
-	}
-	for _, runtime := range s.environments.List() {
-		if runtime.GetAgent(agentID) == nil {
-			continue
-		}
-		for _, name := range runtime.InstallNames() {
-			if install, ok := runtime.Install(name); ok && install.InstallID == installID {
-				return true
-			}
-		}
-	}
-	return false
+	_, _, ok := s.runtimeAgentForInstall(installID, agentID)
+	return ok
 }
 
 // resolver returns the canonical serverResolver used for forwarding

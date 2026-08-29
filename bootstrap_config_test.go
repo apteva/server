@@ -29,6 +29,10 @@ func TestLoadAptevaConfigFromEnv(t *testing.T) {
 server:
   public_url: https://agent.example.com
   registration: locked
+managed:
+  controller_url: https://control.example.com/
+  enrollment_token_file: /run/secrets/apteva-enrollment
+  interval_seconds: 45
 bootstrap:
   enabled: true
   mark_onboarded: true
@@ -55,6 +59,9 @@ bootstrap:
 	}
 	if !cfg.Bootstrap.Enabled || !cfg.Bootstrap.MarkOnboarded || cfg.Bootstrap.Admin.PasswordFile != passwordPath {
 		t.Fatalf("bootstrap config not loaded: %+v", cfg.Bootstrap)
+	}
+	if cfg.Managed.ControllerURL != "https://control.example.com" || cfg.Managed.EnrollmentTokenFile != "/run/secrets/apteva-enrollment" || cfg.Managed.IntervalSeconds != 45 {
+		t.Fatalf("managed config not loaded: %+v", cfg.Managed)
 	}
 }
 
