@@ -268,7 +268,7 @@
     },
     {
       "name": "volume_get",
-      "description": "Get details of a specific Scaleway volume by ID",
+      "description": "Get details of a Scaleway Block Storage (SBS) volume by ID",
       "method": "GET",
       "path": "/block/v1/zones/{zone}/volumes/{volume_id}",
       "input_schema": {
@@ -282,6 +282,29 @@
           "volume_id": {
             "type": "string",
             "description": "Volume UUID"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "instance_volume_get",
+      "description": "Get details of a local Instance volume such as l_ssd by ID. Use volume_get for SBS Block Storage volumes.",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/volumes/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Local Instance volume UUID"
           }
         },
         "required": [
