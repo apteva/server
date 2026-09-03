@@ -678,6 +678,60 @@
       }
     },
     {
+      "name": "corporate_actions",
+      "description": "Canonical corporate actions for securities, including splits, dividends, mergers, spinoffs, name changes, worthless removals, rights, redemptions, reorganizations, partial calls, and capital-gains distributions.",
+      "method": "GET",
+      "path": "/v1/corporate-actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string",
+            "description": "Optional comma-separated symbols. Omit to retrieve all actions in the date range."
+          },
+          "cusips": {
+            "type": "string",
+            "description": "Optional comma-separated CUSIPs."
+          },
+          "types": {
+            "type": "string",
+            "description": "Optional comma-separated corporate-action types."
+          },
+          "region": {
+            "type": "string",
+            "enum": ["us", "non_us", "all"]
+          },
+          "start": {
+            "type": "string",
+            "description": "Inclusive process date (YYYY-MM-DD)."
+          },
+          "end": {
+            "type": "string",
+            "description": "Inclusive process date (YYYY-MM-DD)."
+          },
+          "ids": {
+            "type": "string",
+            "description": "Comma-separated corporate-action IDs; mutually exclusive with other filters."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum 1–1000 events across all action types."
+          },
+          "data_quality": {
+            "type": "string",
+            "enum": ["complete", "all"]
+          },
+          "sort": {
+            "type": "string",
+            "enum": ["asc", "desc"]
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
       "name": "forex_latest_rates",
       "description": "Latest forex rates for the requested currency pairs.",
       "method": "GET",
