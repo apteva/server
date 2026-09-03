@@ -28,8 +28,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Presets) != 17 {
-		t.Fatalf("got %d presets, want 17", len(catalog.Presets))
+	if len(catalog.Presets) != 18 {
+		t.Fatalf("got %d presets, want 18", len(catalog.Presets))
 	}
 	counts := map[string]int{}
 	knownApps := map[string]bool{
@@ -43,7 +43,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"containers": true, "fleet": true, "backup": true, "computer": true,
 		"screenshots": true, "signatures": true, "billing": true, "commerce": true,
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
-		"webinars": true,
+		"webinars": true, "builder": true, "workspaces": true, "a2a": true,
 	}
 	requiredDomainApps := map[string][]string{
 		"personal-assistant":             {"todo", "notes", "calendar"},
@@ -55,6 +55,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"work-support":                   {"tickets", "crm", "storage"},
 		"work-research":                  {"web", "notes", "tables"},
 		"development-software":           {"code", "environments", "deploy"},
+		"development-engineering-team":   {"builder", "tasks", "code", "workspaces", "a2a", "deploy"},
 		"development-devops":             {"deploy", "instances", "containers", "backup"},
 		"development-qa":                 {"code", "environments", "computer", "screenshots"},
 		"development-data":               {"tables", "analytics", "storage"},
@@ -104,8 +105,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 			t.Fatalf("preset %s has %d Conversations widgets, want 1: %v", preset.ID, conversationWidgets, preset.Dashboard)
 		}
 	}
-	// business grew a fifth preset (webinars); the other categories stay at 4.
-	wantCounts := map[string]int{"personal": 4, "work": 4, "development": 4, "business": 5}
+	// Development and business each include one additional specialist preset.
+	wantCounts := map[string]int{"personal": 4, "work": 4, "development": 5, "business": 5}
 	for category, want := range wantCounts {
 		if counts[category] != want {
 			t.Fatalf("category %s has %d presets, want %d", category, counts[category], want)
@@ -114,6 +115,20 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	raw, _ := json.Marshal(catalog.Presets)
 	if strings.Contains(strings.ToLower(string(raw)), "workflow") {
 		t.Fatalf("presets must configure agents, not deterministic workflows: %s", raw)
+	}
+}
+
+func TestProjectPresetDeterministicPlannerClassifiesEngineeringTeam(t *testing.T) {
+	catalog, err := loadProjectPresetCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	preset, confidence := deterministicProjectPreset("development", "I want an engineering team to build software with agents", catalog.Presets)
+	if preset.ID != "development-engineering-team" {
+		t.Fatalf("selected %q, want development-engineering-team", preset.ID)
+	}
+	if confidence <= 0.5 {
+		t.Fatalf("confidence=%v, want a meaningful match", confidence)
 	}
 }
 

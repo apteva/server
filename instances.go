@@ -387,7 +387,7 @@ func (im *AgentManager) allocPort() int {
 
 func (im *AgentManager) instanceDir(id int64) string {
 	dir := filepath.Join(im.dataDir, fmt.Sprintf("instance_%d", id))
-	os.MkdirAll(dir, 0755)
+	os.MkdirAll(dir, 0700)
 	return dir
 }
 
@@ -403,7 +403,7 @@ func (im *AgentManager) InstanceDir(id int64) string { return im.instanceDir(id)
 // to see, including mcp_servers, has to land on disk before Start runs.
 func (im *AgentManager) PreSeedConfig(instID int64, cfgJSON string) error {
 	dir := im.instanceDir(instID)
-	return os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfgJSON), 0644)
+	return os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfgJSON), 0600)
 }
 
 // ProviderInfo holds provider metadata for config.json injection.
@@ -433,6 +433,28 @@ func providerEnvKeys(m map[string]string) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+func coreProcessBaseEnv(dir string) []string {
+	// A server process commonly carries deployment credentials and unrelated
+	// integration secrets. Agent cores get only the OS/runtime values they need;
+	// provider credentials are appended separately from the scoped resolver.
+	keys := []string{
+		"PATH", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TZ",
+		"SSL_CERT_FILE", "SSL_CERT_DIR", "APTEVA_CORE_BIN", "APTEVA_SERVER_BIN",
+		"APTEVA_TOOL_SEARCH", "APTEVA_EAGER_TOOL_LIMIT", "APTEVA_LLM_MAX_CONNS_PER_HOST",
+		"APTEVA_LLM_RESPONSE_HEADER_TIMEOUT", "APTEVA_STREAM_IDLE_TIMEOUT",
+		"APTEVA_OPENAI_PROMPT_CACHE", "APTEVA_OPENAI_PROMPT_CACHE_RETENTION",
+		"APTEVA_MCP_CONNECT_ALLOWLIST", "APTEVA_DUMP_STREAM", "APTEVA_DUMP_STREAM_EVENTS",
+		"APTEVA_ENV_CAPTURE", // process-test seam
+	}
+	env := []string{"HOME=" + dir, "APTEVA_DATA_DIR=" + dir}
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	return env
 }
 
 func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, serverPort string, providerPool []ProviderInfo, instanceSecret string, channelConfigs ...ChannelConfig) error {
@@ -666,7 +688,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
-	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
+	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0600)
 
 	// Generate a unique API key for this core instance. Persisted on
 	// the agent row so a new server process can reattach to a
@@ -678,7 +700,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 
 	cmd := exec.Command(im.coreCmd, "--headless")
 	cmd.Dir = dir
-	env := append(os.Environ(),
+	env := append(coreProcessBaseEnv(dir),
 		"API_PORT="+itoa64(int64(port)),
 		"NO_TUI=1",
 		"NO_CONSOLE=1", // server has its own ConsoleLogger
@@ -1136,7 +1158,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	}
 	config["mcp_servers"] = append(systemEntries, userServers...)
 	configData, _ := json.MarshalIndent(config, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), configData, 0600); err != nil {
 		ic.Stop()
 		return fmt.Errorf("write refreshed config: %w", err)
 	}
@@ -1532,6 +1554,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := getUserID(r)
+	if s.store.GetPlatformRole(userID) != PlatformAdmin {
+		agentAdmissionMu.Lock()
+		defer agentAdmissionMu.Unlock()
+	}
 
 	var body struct {
 		Name      string `json:"name"`
@@ -1592,6 +1618,25 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if s.store.GetPlatformRole(userID) != PlatformAdmin {
+		policy, err := s.loadAccessPolicy()
+		if err != nil {
+			http.Error(w, "access policy unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if policy.Limits.AgentsPerProject > 0 && body.ProjectID == "" {
+			writeJSONStatus(w, http.StatusForbidden, map[string]any{
+				"error": "project_required", "resource": "agents",
+			})
+			return
+		}
+		if limit := policy.Limits.AgentsPerProject; limit > 0 && s.store.CountProjectAgents(body.ProjectID, false) >= limit {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error": "resource_limit", "resource": "agents", "limit": limit,
+			})
+			return
+		}
+	}
 	body.IdempotencyKey = strings.TrimSpace(body.IdempotencyKey)
 	if len(body.IdempotencyKey) > 256 || strings.ContainsAny(body.IdempotencyKey, "\r\n\x00") {
 		http.Error(w, "idempotency_key must be at most 256 bytes and contain no control separators", http.StatusBadRequest)
@@ -1609,6 +1654,11 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	default:
 		body.Mode = "autonomous"
 	}
+	if s.store.GetPlatformRole(userID) != PlatformAdmin && body.Mode == "autonomous" {
+		if policy, err := s.loadAccessPolicy(); err != nil || !policy.Capabilities.AutonomousScheduling {
+			body.Mode = "cautious"
+		}
+	}
 	if body.Config == "" {
 		body.Config = "{}"
 	}
@@ -1625,6 +1675,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		selectedAppInstallIDs = append(selectedAppInstallIDs, (*body.BoundAppInstallIDs)...)
+	}
+	if err := s.validateAllowedAppInstalls(userID, selectedAppInstallIDs); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
 	}
 	// Validate and resolve every attachment before creating the DB row. This
 	// keeps defaults trustworthy: a selected app cannot silently disappear
@@ -2300,6 +2354,19 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, inst)
 		return
 	}
+	if s.store.GetPlatformRole(userID) != PlatformAdmin {
+		policy, policyErr := s.loadAccessPolicy()
+		if policyErr != nil {
+			http.Error(w, "access policy unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if limit := policy.Limits.RunningAgentsPerProject; limit > 0 && s.store.CountProjectAgents(inst.ProjectID, true) >= limit {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error": "resource_limit", "resource": "running_agents", "limit": limit,
+			})
+			return
+		}
+	}
 
 	providerEnv, err := s.GetAllProviderEnvVars(userID, inst.ProjectID)
 	if err != nil {
@@ -2521,6 +2588,12 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// model_override is server-owned agent metadata. Core receives the
 	// resulting per-provider model map, not this persistence envelope.
 	delete(rawBody, "model_override")
+	if body.Mode == "autonomous" && s.store.GetPlatformRole(inst.UserID) != PlatformAdmin {
+		if policy, err := s.loadAccessPolicy(); err != nil || !policy.Capabilities.AutonomousScheduling {
+			body.Mode = "cautious"
+			rawBody["mode"] = "cautious"
+		}
+	}
 	if encoded, err := json.Marshal(rawBody); err == nil {
 		bodyBytes = encoded
 	} else {
@@ -3173,7 +3246,7 @@ func (s *Server) writeStoppedConfigAtomic(instanceID int64, mutator func(cfg map
 	if dir == "" {
 		return fmt.Errorf("no instance directory for id=%d", instanceID)
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 	path := filepath.Join(dir, "config.json")
@@ -3192,7 +3265,7 @@ func (s *Server) writeStoppedConfigAtomic(instanceID int64, mutator func(cfg map
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0644); err != nil {
+	if err := os.WriteFile(tmp, out, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

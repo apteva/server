@@ -1,0 +1,268 @@
+{
+  "slug": "keepa",
+  "name": "Keepa",
+  "description": "Amazon product intelligence for price and sales-rank history, estimated monthly sales, bestseller lists, product discovery, deals, offers, categories, and seller research. Requires a paid Keepa API subscription; usage is token-metered.",
+  "logo": "https://www.google.com/s2/favicons?domain=keepa.com&sz=128",
+  "categories": ["ecommerce", "amazon", "products", "market-research", "pricing", "sales-rank", "competitive-intelligence"],
+  "base_url": "https://api.keepa.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": { "Accept": "application/json", "Accept-Encoding": "gzip" },
+    "query_params": { "key": "{{api_key}}" },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API access key",
+        "description": "Keepa API access key from keepa.com/#!api. A paid API subscription is required; the key is injected automatically and never needs to be passed to a tool.",
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_products",
+      "description": "Get up to 100 Amazon products by comma-separated ASINs or product codes, including price and sales-rank history by default. Optional stats provide current/min/max/average values; offers, Buy Box, stock, ratings, and refreshes cost extra tokens. monthlySold values are Keepa estimates, not verified copies sold.",
+      "method": "GET",
+      "path": "/product",
+      "query_param_aliases": { "code_limit": "code-limit", "only_live_offers": "only-live-offers", "historical_variations": "historical-variations" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12], "description": "Amazon locale: 1 US, 2 UK, 3 DE, 4 FR, 5 JP, 6 CA, 8 IT, 9 ES, 10 IN, 11 MX, 12 BR." },
+          "asin": { "type": "string", "description": "One ASIN or a comma-separated batch of up to 100 ASINs. Use either asin or code." },
+          "code": { "type": "string", "description": "One UPC, EAN, or ISBN-13, or a comma-separated batch of up to 100. Use either code or asin." },
+          "stats": { "type": ["integer", "string"], "description": "Statistics interval: recent day count such as 90, or two ISO dates/timestamps separated by a comma." },
+          "update": { "type": "integer", "minimum": -1, "description": "Refresh if older than this many hours. 0 forces live refresh and may cost more; -1 never refreshes." },
+          "history": { "type": "integer", "enum": [0, 1], "default": 1, "description": "Set 0 to omit price and sales-rank history and reduce response size." },
+          "days": { "type": "integer", "minimum": 1, "description": "Limit all historical series to the most recent number of days." },
+          "code_limit": { "type": "integer", "minimum": 1, "description": "Maximum products returned per UPC/EAN/ISBN code." },
+          "offers": { "type": "integer", "minimum": 20, "maximum": 100, "description": "Fetch 20–100 current marketplace offers. This substantially increases token cost and latency." },
+          "only_live_offers": { "type": "integer", "enum": [0, 1], "description": "With offers, set 1 to omit historical offers." },
+          "rating": { "type": "integer", "enum": [0, 1], "description": "Include existing rating and review-count history; can cost one extra token per product." },
+          "buybox": { "type": "integer", "enum": [0, 1], "description": "Include Buy Box history; costs two extra tokens per product and is redundant when offers is used." },
+          "stock": { "type": "integer", "enum": [0, 1], "description": "With offers, include stock history where available; can cost two extra tokens per product." },
+          "videos": { "type": "integer", "enum": [0, 1] },
+          "aplus": { "type": "integer", "enum": [0, 1] },
+          "historical_variations": { "type": "integer", "enum": [0, 1], "description": "Include historical/out-of-stock variations; costs extra tokens." }
+        },
+        "required": ["domain"],
+        "oneOf": [{ "required": ["asin"] }, { "required": ["code"] }]
+      }
+    },
+    {
+      "name": "search_products",
+      "description": "Search Amazon products by keyword in marketplace order, excluding sponsored results. Returns product objects with history, or an ASIN-only list for a smaller response.",
+      "method": "GET",
+      "path": "/search?type=product",
+      "query_param_aliases": { "asins_only": "asins-only" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11], "description": "Amazon locale ID." },
+          "term": { "type": "string", "minLength": 1 },
+          "asins_only": { "type": "integer", "enum": [0, 1], "description": "Set 1 to return only ordered ASINs." },
+          "stats": { "type": ["integer", "string"], "description": "Statistics interval such as 90 days or an ISO date range." },
+          "update": { "type": "integer", "minimum": 0, "description": "Refresh products older than this many hours; 0 can cost extra." },
+          "history": { "type": "integer", "enum": [0, 1], "description": "Set 0 to omit history." },
+          "rating": { "type": "integer", "enum": [0, 1], "description": "Include available rating/review history; can cost extra." }
+        },
+        "required": ["domain", "term"]
+      }
+    },
+    {
+      "name": "find_products",
+      "description": "Run Keepa Product Finder filters against its Amazon database and return ASINs, with optional aggregate search insights. Useful for stable-rank, low-competition, price, review, category, brand, and estimated-monthly-sales research. At least one selection filter is required.",
+      "method": "POST",
+      "path": "/query",
+      "query_params": ["domain", "stats"],
+      "body_root_param": "selection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12] },
+          "stats": { "type": "integer", "enum": [0, 1], "description": "Set 1 for aggregate Search Insights; adds token cost." },
+          "selection": {
+            "type": "object",
+            "description": "Keepa Product Finder query. Common fields include title, rootCategory, categories_include/exclude, brand, manufacturer, current_SALES_gte/lte, avg30_SALES_gte/lte, monthlySold_gte/lte, current_AMAZON_gte/lte, current_BUY_BOX_SHIPPING_gte/lte, hasReviews, page, perPage, and sort such as [[\"avg90_SALES\",\"asc\"]]. Additional documented filters are accepted.",
+            "properties": {
+              "page": { "type": "integer", "minimum": 0 },
+              "perPage": { "type": "integer", "minimum": 50, "maximum": 10000 },
+              "sort": { "type": "array", "items": { "type": "array", "prefixItems": [{ "type": "string" }, { "type": "string", "enum": ["asc", "desc"] }], "minItems": 2, "maxItems": 2 } },
+              "title": { "type": "string" },
+              "rootCategory": { "type": "array", "items": { "type": "integer" } },
+              "categories_include": { "type": "array", "items": { "type": "integer" } },
+              "categories_exclude": { "type": "array", "items": { "type": "integer" } },
+              "brand": { "type": "array", "items": { "type": "string" } },
+              "manufacturer": { "type": "array", "items": { "type": "string" } },
+              "hasReviews": { "type": "boolean" },
+              "current_SALES_gte": { "type": "integer" },
+              "current_SALES_lte": { "type": "integer" },
+              "avg30_SALES_gte": { "type": "integer" },
+              "avg30_SALES_lte": { "type": "integer" },
+              "avg90_SALES_gte": { "type": "integer" },
+              "avg90_SALES_lte": { "type": "integer" },
+              "monthlySold_gte": { "type": "integer", "description": "Minimum Keepa-estimated monthly units sold; not verified Amazon sales." },
+              "monthlySold_lte": { "type": "integer", "description": "Maximum Keepa-estimated monthly units sold; not verified Amazon sales." },
+              "current_AMAZON_gte": { "type": "integer", "description": "Minimum Amazon price in the marketplace's smallest currency unit." },
+              "current_AMAZON_lte": { "type": "integer" },
+              "current_BUY_BOX_SHIPPING_gte": { "type": "integer" },
+              "current_BUY_BOX_SHIPPING_lte": { "type": "integer" }
+            },
+            "additionalProperties": true,
+            "minProperties": 1
+          }
+        },
+        "required": ["domain", "selection"]
+      }
+    },
+    {
+      "name": "list_best_sellers",
+      "description": "Return an ordered ASIN list for a category or product group using current rank, a 30/90/180-day average, or a historical month. Lists are generally updated hourly.",
+      "method": "GET",
+      "path": "/bestsellers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11] },
+          "category": { "type": ["integer", "string"], "description": "Amazon category node ID or product group such as Beauty." },
+          "range": { "type": "integer", "enum": [0, 30, 90, 180], "description": "Rank averaging period; do not combine with month/year or sublist=1." },
+          "month": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Historical month; supply year too and omit range." },
+          "year": { "type": "integer", "minimum": 2000 },
+          "variations": { "type": "integer", "enum": [0, 1], "description": "Set 1 to return all variations instead of one representative per parent." },
+          "sublist": { "type": "integer", "enum": [0, 1], "description": "Use subcategory/classification rank; do not combine with range/month/year." }
+        },
+        "required": ["domain", "category"]
+      }
+    },
+    {
+      "name": "browse_deals",
+      "description": "Browse products with recent price/rank changes. Keepa deal data covers products updated within roughly 12 hours and returns up to 150 results per page.",
+      "method": "POST",
+      "path": "/deal",
+      "body_root_param": "selection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "selection": {
+            "type": "object",
+            "description": "Deal query. domainId and exactly one priceTypes value are required; common filters include deltaPercentRange, salesRankRange, currentRange, includeCategories, minRating, titleSearch, dateRange, page, and sortType.",
+            "properties": {
+              "domainId": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11] },
+              "priceTypes": { "type": "array", "items": { "type": "integer" }, "minItems": 1, "maxItems": 1 },
+              "page": { "type": "integer", "minimum": 0 },
+              "includeCategories": { "type": "array", "items": { "type": "integer" } },
+              "excludeCategories": { "type": "array", "items": { "type": "integer" } },
+              "deltaRange": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+              "deltaPercentRange": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+              "salesRankRange": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+              "currentRange": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+              "minRating": { "type": "integer" },
+              "titleSearch": { "type": "string" },
+              "dateRange": { "type": "integer" },
+              "isLowest": { "type": "boolean" },
+              "isLowest90": { "type": "boolean" },
+              "isOutOfStock": { "type": "boolean" },
+              "isBackInStock": { "type": "boolean" }
+            },
+            "required": ["domainId", "priceTypes"],
+            "additionalProperties": true
+          }
+        },
+        "required": ["selection"]
+      }
+    },
+    {
+      "name": "lookup_categories",
+      "description": "Look up up to 10 comma-separated Amazon category node IDs, optionally including their parent trees. Use category=0 to list root categories.",
+      "method": "GET",
+      "path": "/category",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11] },
+          "category": { "type": ["integer", "string"], "description": "One category ID, 0 for roots, or up to 10 comma-separated IDs." },
+          "parents": { "type": "integer", "enum": [0, 1], "default": 0 }
+        },
+        "required": ["domain", "category", "parents"]
+      }
+    },
+    {
+      "name": "search_categories",
+      "description": "Search Amazon category names and return up to 50 category objects and node IDs.",
+      "method": "GET",
+      "path": "/search?type=category",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11] },
+          "term": { "type": "string", "minLength": 3, "description": "All space-separated words must match; each word must be at least three characters." }
+        },
+        "required": ["domain", "term"]
+      }
+    },
+    {
+      "name": "get_sellers",
+      "description": "Get Amazon seller identity, business details, rating history, FBA status, catalogue statistics, competitors, and optional storefront ASINs. Supports up to 100 comma-separated seller IDs unless storefront=1.",
+      "method": "GET",
+      "path": "/seller",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11] },
+          "seller": { "type": "string", "description": "One seller ID or up to 100 comma-separated seller IDs." },
+          "storefront": { "type": "integer", "enum": [0, 1], "description": "Set 1 for storefront ASINs; costs nine extra tokens and only permits one seller." }
+        },
+        "required": ["domain", "seller"]
+      }
+    },
+    {
+      "name": "find_sellers",
+      "description": "Find Amazon seller IDs by name, business details, country, ratings, FBA activity, storefront size, Buy Box performance, or catalogue profile. At least one selection filter is required.",
+      "method": "POST",
+      "path": "/sellerquery",
+      "query_params": ["domain"],
+      "body_root_param": "selection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11] },
+          "selection": {
+            "type": "object",
+            "description": "Keepa Seller Finder query. Common fields include search, addressCountry, currentRating_gte/lte, currentRatingCount_gte/lte, hasFBA, totalStorefrontAsins_gte/lte, activeOnly, page, perPage, and sort. Additional documented filters are accepted.",
+            "properties": {
+              "search": { "type": "string" },
+              "addressCountry": { "type": "array", "items": { "type": "string" } },
+              "currentRating_gte": { "type": "integer" },
+              "currentRating_lte": { "type": "integer" },
+              "currentRatingCount_gte": { "type": "integer" },
+              "currentRatingCount_lte": { "type": "integer" },
+              "totalStorefrontAsins_gte": { "type": "integer" },
+              "totalStorefrontAsins_lte": { "type": "integer" },
+              "hasFBA": { "type": "boolean" },
+              "activeOnly": { "type": "boolean" },
+              "page": { "type": "integer", "minimum": 0 },
+              "perPage": { "type": "integer", "minimum": 50, "maximum": 10000 },
+              "sort": { "type": "array", "items": { "type": "array" } }
+            },
+            "additionalProperties": true,
+            "minProperties": 1
+          }
+        },
+        "required": ["domain", "selection"]
+      }
+    },
+    {
+      "name": "list_top_sellers",
+      "description": "Return up to 100,000 seller IDs ordered by Amazon marketplace rating count. Lists are updated daily and cost 50 Keepa tokens.",
+      "method": "GET",
+      "path": "/topseller",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11] }
+        },
+        "required": ["domain"]
+      }
+    }
+  ]
+}

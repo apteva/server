@@ -47,10 +47,16 @@ func buildRequestTransformBody(transform *RequestTransformDef, input map[string]
 		return body, true, nil
 	case "json_wrap":
 		selected := map[string]any{}
+		for field, value := range transform.Constants {
+			selected[field] = value
+		}
 		for _, field := range transform.Fields {
 			if v, ok := input[field]; ok && v != nil {
 				selected[field] = v
 			}
+		}
+		if transform.Target == "" && transform.AsArray {
+			return []any{selected}, true, nil
 		}
 		body := map[string]any{}
 		if transform.Target != "" {

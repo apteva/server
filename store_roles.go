@@ -73,10 +73,11 @@ type ProjectInvite struct {
 // ─── Errors ───────────────────────────────────────────────────────────
 
 var (
-	ErrLastAdmin = errors.New("at least one admin must remain")
-	ErrLastOwner = errors.New("at least one owner must remain on the project")
-	ErrInviteBad = errors.New("invite invalid, expired, or already accepted")
-	ErrSelfRole  = errors.New("you cannot change your own platform role")
+	ErrLastAdmin             = errors.New("at least one admin must remain")
+	ErrLastOwner             = errors.New("at least one owner must remain on the project")
+	ErrUserOwnsSharedProject = errors.New("transfer ownership of shared projects before deleting this user")
+	ErrInviteBad             = errors.New("invite invalid, expired, or already accepted")
+	ErrSelfRole              = errors.New("you cannot change your own platform role")
 )
 
 // ─── Platform role ────────────────────────────────────────────────────
@@ -187,7 +188,44 @@ func (s *Store) AddProjectMember(projectID string, userID int64, role ProjectRol
 	if !validProjectRole(role) {
 		return fmt.Errorf("invalid project role: %s", role)
 	}
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := upsertProjectMemberTx(tx, projectID, userID, role, addedBy); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// upsertProjectMemberTx centralizes membership upserts so every path,
+// including invite acceptance, preserves the last-owner invariant. Without
+// this guard, re-adding the sole owner with a lower role could silently leave
+// a project ownerless.
+func upsertProjectMemberTx(tx *sql.Tx, projectID string, userID int64, role ProjectRole, addedBy int64) error {
+	var current string
+	err := tx.QueryRow(
+		`SELECT role FROM project_members WHERE project_id = ? AND user_id = ?`,
+		projectID, userID,
+	).Scan(&current)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if current == string(ProjectOwner) && role != ProjectOwner {
+		var otherOwners int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM project_members
+			  WHERE project_id = ? AND role = 'owner' AND user_id != ?`,
+			projectID, userID,
+		).Scan(&otherOwners); err != nil {
+			return err
+		}
+		if otherOwners == 0 {
+			return ErrLastOwner
+		}
+	}
+	_, err = tx.Exec(`
 		INSERT INTO project_members (project_id, user_id, role, added_by)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role`,
@@ -284,7 +322,8 @@ func (s *Store) RemoveProjectMember(projectID string, userID int64) error {
 func (s *Store) ListProjectsForUser(userID int64) ([]Project, error) {
 	rows, err := s.db.Query(`
 		SELECT p.id, p.user_id, p.name, COALESCE(p.description,''),
-		       COALESCE(p.color,''), p.created_at
+		       COALESCE(p.color,''), p.created_at, p.expires_at,
+		       COALESCE(p.provisioning_preset_id,'')
 		  FROM projects p
 		 WHERE p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
 		    OR (SELECT role FROM users WHERE id = ?) = 'admin'
@@ -299,10 +338,16 @@ func (s *Store) ListProjectsForUser(userID int64) ([]Project, error) {
 	for rows.Next() {
 		var p Project
 		var createdAt string
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.Color, &createdAt); err != nil {
+		var expiresAt sql.NullString
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.Color, &createdAt, &expiresAt, &p.ProvisioningPresetID); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = parseTime(createdAt)
+		if expiresAt.Valid {
+			if parsed, parseErr := parseTime(expiresAt.String); parseErr == nil {
+				p.ExpiresAt = &parsed
+			}
+		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -401,12 +446,11 @@ func (s *Store) AcceptInvite(token string, userID int64) (*ProjectInvite, error)
 	if acceptedAt.Valid || time.Now().UTC().After(inv.ExpiresAt) {
 		return nil, ErrInviteBad
 	}
-	if _, err := tx.Exec(`
-		INSERT INTO project_members (project_id, user_id, role, added_by)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role`,
-		inv.ProjectID, userID, inv.Role, inv.InvitedBy,
-	); err != nil {
+	role := ProjectRole(inv.Role)
+	if !validProjectRole(role) {
+		return nil, fmt.Errorf("invalid project role: %s", role)
+	}
+	if err := upsertProjectMemberTx(tx, inv.ProjectID, userID, role, inv.InvitedBy); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(`

@@ -92,6 +92,9 @@ type Server struct {
 	// Optional test transport for the public integration media relay. Nil in
 	// production, where the relay installs its SSRF-hardened transport.
 	integrationRelayTransport http.RoundTripper
+	// Optional transport used by managed-LLM gateway tests. Production uses
+	// the default HTTPS transport.
+	managedLLMTransport http.RoundTripper
 	// agentConfigLocks serializes read/modify/write updates to one agent's
 	// config. MCP attachment changes are additive at the API, but ultimately
 	// core consumes one desired mcp_servers list; without this lock two
@@ -587,6 +590,7 @@ func main() {
 		go s.platformStatus.Run()
 		go s.startTelemetryRetention()
 		go s.startDelegatedAPIKeyRetention()
+		go s.startWorkspaceLifecycle()
 	}
 
 	// Platform helpers are lazy by default. Eagerly booting one helper
@@ -728,7 +732,10 @@ func main() {
 	apiMux.HandleFunc("/telemetry/project-timeline", s.authMiddleware(s.handleTelemetryProjectTimeline))
 	apiMux.HandleFunc("/telemetry/project-tools", s.authMiddleware(s.handleTelemetryProjectTools))
 	apiMux.HandleFunc("/telemetry/stream", s.authMiddleware(s.handleTelemetryStream)) // SSE — cookie or API key auth
-	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)                       // broadcast-only ingest for chunks
+	// Agent cores use their row-scoped core_ credential here. The handler
+	// performs its own narrow authentication and never accepts user API keys.
+	apiMux.HandleFunc("/llm/chat/completions", s.handleManagedLLMChat)
+	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry) // broadcast-only ingest for chunks
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -900,13 +907,9 @@ func main() {
 	// hide the client_id/secret form when creds already exist.
 	apiMux.HandleFunc("/oauth/local/client", s.authMiddleware(s.handleOAuthClientStatus))
 
-	// Server-wide settings (public_url and similar admin-editable things).
-	// GET returns the current effective values plus their source so the
-	// dashboard can show "currently using env var" vs "stored in DB". PUT
-	// upserts the keys passed in the body. Locked to authenticated users —
-	// in a multi-tenant deploy you'd add an admin check, but right now any
-	// user with a session can edit these (server is single-tenant by
-	// default and the setup-token flow ensures only the operator gets in).
+	// Server-wide settings (public_url, access policy, and lifecycle). GET
+	// returns effective values to authenticated users with managed connection
+	// identifiers redacted for non-admins. PUT is platform-admin-only.
 	apiMux.HandleFunc("/settings/server", s.authMiddleware(s.handleServerSettings))
 	apiMux.HandleFunc("/ingress/routes", s.authMiddleware(s.handleIngressRoutes))
 	apiMux.HandleFunc("/ingress/routes/", s.authMiddleware(s.handleIngressRoute))

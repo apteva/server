@@ -1,12 +1,13 @@
 {
   "slug": "square",
   "name": "Square",
-  "description": "MCP server for Square commerce operations - locations, customers, orders, payments, and catalog",
+  "description": "Square commerce API for locations, customers, orders, payments, catalog objects, and Square-hosted Payment Links that can sell without a custom checkout page.",
   "logo": "https://www.google.com/s2/favicons?domain=squareup.com&sz=128",
   "categories": [
     "commerce",
     "square",
     "payments",
+    "hosted-checkout",
     "pos",
     "retail"
   ],
@@ -16,21 +17,24 @@
       "bearer"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{token}}",
+      "Square-Version": "2026-08-19"
     },
     "credential_fields": [
       {
         "name": "token",
-        "label": "API Key"
+        "label": "Access Token",
+        "type": "password",
+        "required": true
       }
     ]
   },
   "tools": [
     {
       "name": "list_locations",
-      "description": "List all business locations",
+      "description": "List business locations.",
       "method": "GET",
-      "path": "/list-locations",
+      "path": "/locations",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -38,95 +42,110 @@
     },
     {
       "name": "list_customers",
-      "description": "List all customers",
+      "description": "List customers.",
       "method": "GET",
-      "path": "/list-customers",
+      "path": "/customers",
       "input_schema": {
         "type": "object",
         "properties": {
           "cursor": {
-            "type": "string",
-            "description": "Pagination cursor"
+            "type": "string"
           },
           "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
+            "type": "integer"
           },
           "sort_field": {
-            "type": "string",
-            "description": "Sort field"
+            "type": "string"
           },
           "sort_order": {
-            "type": "string",
-            "description": "Sort order"
+            "type": "string"
+          },
+          "count": {
+            "type": "boolean"
           }
         }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Get one customer.",
+      "method": "GET",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
       }
     },
     {
       "name": "create_customer",
-      "description": "Create a new customer",
+      "description": "Create a customer.",
       "method": "POST",
-      "path": "/create-customer",
+      "path": "/customers",
       "input_schema": {
         "type": "object",
         "properties": {
+          "idempotency_key": {
+            "type": "string"
+          },
           "given_name": {
-            "type": "string",
-            "description": "First name"
+            "type": "string"
           },
           "family_name": {
-            "type": "string",
-            "description": "Last name"
+            "type": "string"
           },
           "email_address": {
-            "type": "string",
-            "description": "Email address"
+            "type": "string"
           },
           "phone_number": {
-            "type": "string",
-            "description": "Phone number"
+            "type": "string"
           },
           "company_name": {
-            "type": "string",
-            "description": "Company name"
+            "type": "string"
           },
           "address": {
-            "type": "object",
-            "description": "Customer address"
+            "type": "object"
           },
           "note": {
-            "type": "string",
-            "description": "Customer note"
+            "type": "string"
+          },
+          "reference_id": {
+            "type": "string"
           }
         }
       }
     },
     {
-      "name": "list_orders",
-      "description": "Search orders with filters",
-      "method": "GET",
-      "path": "/list-orders",
+      "name": "search_orders",
+      "description": "Search orders across one or more locations.",
+      "method": "POST",
+      "path": "/orders/search",
       "input_schema": {
         "type": "object",
         "properties": {
           "location_ids": {
             "type": "array",
-            "description": "Location IDs to search"
+            "items": {
+              "type": "string"
+            }
           },
           "cursor": {
-            "type": "string",
-            "description": "Pagination cursor"
+            "type": "string"
           },
           "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
+            "type": "integer"
           },
           "query": {
-            "type": "object",
-            "description": "Search query"
+            "type": "object"
+          },
+          "return_entries": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -135,140 +154,273 @@
       }
     },
     {
-      "name": "create_order",
-      "description": "Create a new order",
-      "method": "POST",
-      "path": "/create-order",
+      "name": "get_order",
+      "description": "Get one order.",
+      "method": "GET",
+      "path": "/orders/{order_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "location_id": {
-            "type": "string",
-            "description": "Location ID"
-          },
-          "line_items": {
-            "type": "array",
-            "description": "Order line items"
-          },
-          "customer_id": {
-            "type": "string",
-            "description": "Customer ID"
-          },
-          "discounts": {
-            "type": "array",
-            "description": "Order discounts"
-          },
-          "taxes": {
-            "type": "array",
-            "description": "Order taxes"
-          },
-          "note": {
-            "type": "string",
-            "description": "Order note"
+          "order_id": {
+            "type": "string"
           }
         },
         "required": [
-          "location_id"
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create an order from a correctly shaped Square Order object.",
+      "method": "POST",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string"
+          },
+          "order": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "order"
         ]
       }
     },
     {
       "name": "list_payments",
-      "description": "List payments with filters",
+      "description": "List payments.",
       "method": "GET",
-      "path": "/list-payments",
+      "path": "/payments",
       "input_schema": {
         "type": "object",
         "properties": {
           "location_id": {
-            "type": "string",
-            "description": "Location ID"
+            "type": "string"
           },
           "cursor": {
-            "type": "string",
-            "description": "Pagination cursor"
+            "type": "string"
           },
           "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
+            "type": "integer"
           },
           "begin_time": {
-            "type": "string",
-            "description": "Start time filter"
+            "type": "string"
           },
           "end_time": {
-            "type": "string",
-            "description": "End time filter"
+            "type": "string"
           },
           "sort_order": {
-            "type": "string",
-            "description": "Sort order"
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "last_4": {
+            "type": "string"
+          },
+          "card_brand": {
+            "type": "string"
           }
         }
       }
     },
     {
+      "name": "get_payment",
+      "description": "Get one payment.",
+      "method": "GET",
+      "path": "/payments/{payment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_id"
+        ]
+      }
+    },
+    {
       "name": "create_payment",
-      "description": "Create a new payment",
+      "description": "Create a payment from a card nonce or another Square payment source.",
       "method": "POST",
-      "path": "/create-payment",
+      "path": "/payments",
       "input_schema": {
         "type": "object",
         "properties": {
           "source_id": {
-            "type": "string",
-            "description": "Payment source ID (card nonce)"
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
           },
           "amount_money": {
-            "type": "object",
-            "description": "Payment amount"
+            "type": "object"
           },
           "location_id": {
-            "type": "string",
-            "description": "Location ID"
+            "type": "string"
           },
           "customer_id": {
-            "type": "string",
-            "description": "Customer ID"
+            "type": "string"
           },
           "order_id": {
-            "type": "string",
-            "description": "Order ID"
+            "type": "string"
           },
           "note": {
-            "type": "string",
-            "description": "Payment note"
+            "type": "string"
           },
           "tip_money": {
-            "type": "object",
-            "description": "Tip amount"
+            "type": "object"
+          },
+          "autocomplete": {
+            "type": "boolean"
+          },
+          "reference_id": {
+            "type": "string"
           }
         },
         "required": [
           "source_id",
+          "idempotency_key",
           "amount_money"
         ]
       }
     },
     {
       "name": "list_catalog",
-      "description": "List catalog items",
+      "description": "List catalog objects.",
       "method": "GET",
-      "path": "/list-catalog",
+      "path": "/catalog/list",
       "input_schema": {
         "type": "object",
         "properties": {
           "cursor": {
-            "type": "string",
-            "description": "Pagination cursor"
+            "type": "string"
           },
           "types": {
-            "type": "string",
-            "description": "Object types to include"
+            "type": "string"
+          },
+          "catalog_version": {
+            "type": "integer"
+          },
+          "include_deleted_objects": {
+            "type": "boolean"
           }
         }
       }
+    },
+    {
+      "name": "list_payment_links",
+      "description": "List Square-hosted checkout Payment Links.",
+      "method": "GET",
+      "path": "/online-checkout/payment-links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_payment_link",
+      "description": "Create a Square-hosted checkout page and return its shareable square.link URL. Use quick_pay for one ad-hoc SKU or order for a complete Square order.",
+      "method": "POST",
+      "path": "/online-checkout/payment-links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "quick_pay": {
+            "type": "object"
+          },
+          "order": {
+            "type": "object"
+          },
+          "checkout_options": {
+            "type": "object"
+          },
+          "pre_populated_data": {
+            "type": "object"
+          },
+          "payment_note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_payment_link",
+      "description": "Retrieve a Square Payment Link.",
+      "method": "GET",
+      "path": "/online-checkout/payment-links/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_payment_link",
+      "description": "Update a Square-hosted checkout Payment Link.",
+      "method": "PUT",
+      "path": "/online-checkout/payment-links/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "payment_link": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "payment_link"
+        ]
+      }
+    },
+    {
+      "name": "delete_payment_link",
+      "description": "Delete a Square Payment Link and cancel its associated order.",
+      "method": "DELETE",
+      "path": "/online-checkout/payment-links/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
     }
-  ]
+  ],
+  "health_check": {
+    "tool": "list_locations"
+  }
 }

@@ -367,6 +367,9 @@ func (s *Server) handleCreateManagedMCPServer(w http.ResponseWriter, r *http.Req
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
+	if !s.requireCapability(w, r, "custom_mcp") {
+		return
+	}
 	var body managedMCPCreateRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)

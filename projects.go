@@ -33,6 +33,21 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 // as owner of their project, regardless of platform role".
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
+	if s.store.GetPlatformRole(userID) != PlatformAdmin {
+		projectAdmissionMu.Lock()
+		defer projectAdmissionMu.Unlock()
+		policy, err := s.loadAccessPolicy()
+		if err != nil {
+			http.Error(w, "access policy unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if limit := policy.Limits.ProjectsPerUser; limit > 0 && s.store.CountProjectsForUser(userID) >= limit {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error": "resource_limit", "resource": "projects", "limit": limit,
+			})
+			return
+		}
+	}
 
 	var body struct {
 		Name        string `json:"name"`
@@ -131,7 +146,10 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		s.store.DeleteProjectAny(id)
+		if err := s.deleteProjectCompletely(id); err != nil {
+			http.Error(w, "delete failed", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, map[string]string{"status": "deleted"})
 
 	default:

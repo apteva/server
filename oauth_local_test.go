@@ -121,7 +121,7 @@ func TestLocalOAuthPreservesSupplementalCredentialsThroughCallback(t *testing.T)
 			Types: []string{"bearer", "oauth2"},
 			OAuth2: &OAuthConfig{
 				AuthorizeURL:     "https://accounts.example.test/oauth",
-				TokenURL:         tokenServer.URL,
+				TokenURL:         "{{credential.token_url}}",
 				ClientIDRequired: true,
 			},
 		},
@@ -145,6 +145,7 @@ func TestLocalOAuthPreservesSupplementalCredentialsThroughCallback(t *testing.T)
 		map[string]string{
 			"developer_token":     "developer-secret",
 			"manager_customer_id": "1234567890",
+			"token_url":           tokenServer.URL,
 		},
 		0,
 		"",
@@ -177,6 +178,7 @@ func TestLocalOAuthPreservesSupplementalCredentialsThroughCallback(t *testing.T)
 	assertConnectionCredentials(map[string]string{
 		"developer_token":     "developer-secret",
 		"manager_customer_id": "1234567890",
+		"token_url":           tokenServer.URL,
 		"client_id":           "oauth-client",
 		"client_secret":       "oauth-secret",
 	})
@@ -203,6 +205,7 @@ func TestLocalOAuthPreservesSupplementalCredentialsThroughCallback(t *testing.T)
 	assertConnectionCredentials(map[string]string{
 		"developer_token":     "developer-secret",
 		"manager_customer_id": "1234567890",
+		"token_url":           tokenServer.URL,
 		"client_id":           "oauth-client",
 		"client_secret":       "oauth-secret",
 		"access_token":        "oauth-access",
@@ -216,5 +219,25 @@ func TestLocalOAuthPreservesSupplementalCredentialsThroughCallback(t *testing.T)
 	}
 	if got.Status != "active" {
 		t.Fatalf("connection status=%q, want active", got.Status)
+	}
+}
+
+func TestCollectOAuthSupplementalCredentialsAppliesAndValidatesSelectDefault(t *testing.T) {
+	required := true
+	app := &AppTemplate{Auth: AppAuthConfig{CredentialFields: []CredentialField{{
+		Name: "api_host", Label: "API environment", Source: "user", Required: &required,
+		Type: "select", Options: []string{"api.pinterest.com", "api-sandbox.pinterest.com"},
+		Default: "api.pinterest.com",
+	}}}}
+
+	got, err := collectOAuthSupplementalCredentials(app, nil)
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if got["api_host"] != "api.pinterest.com" {
+		t.Fatalf("api_host=%q, want production default", got["api_host"])
+	}
+	if _, err := collectOAuthSupplementalCredentials(app, map[string]string{"api_host": "attacker.invalid"}); err == nil {
+		t.Fatal("expected closed select validation error")
 	}
 }

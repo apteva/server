@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -80,17 +81,20 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		u, err := s.store.CreateUser(body.Email, string(hash))
+		policy, err := s.loadAccessPolicy()
+		if err != nil {
+			http.Error(w, "access policy unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		u, project, err := s.store.CreateProvisionedUser(body.Email, string(hash), policy)
 		if err != nil {
 			http.Error(w, "email already taken", http.StatusConflict)
 			return
 		}
-		// Auto-create a default project so the new user has somewhere
-		// to land on first login, matching the normal register flow.
-		// Insert the owner membership row alongside so the multi-user
-		// authz lookup finds them on the new project.
-		if p, perr := s.store.CreateProject(u.ID, "Default", "Default project", "#6366f1"); perr == nil && p != nil {
-			_ = s.store.AddProjectMember(p.ID, u.ID, ProjectOwner, u.ID)
+		if err := s.materializeProvisioningPreset(u.ID, project.ID, policy); err != nil {
+			_ = s.deleteUserCompletely(u.ID)
+			http.Error(w, "account provisioning failed", http.StatusInternalServerError)
+			return
 		}
 		// Admin-created users are joining an existing Apteva install
 		// (not setting one up), so the "Welcome to Apteva" onboarding
@@ -183,6 +187,18 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Refuse before stopping cores or mutating any app state. DeleteUser
+		// repeats this check transactionally, but this preflight prevents a
+		// blocked ownership transfer from causing operational side effects.
+		if err := s.store.ValidateUserDeletion(targetID); err != nil {
+			if errors.Is(err, ErrUserOwnsSharedProject) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+			http.Error(w, "delete preflight failed", http.StatusInternalServerError)
+			return
+		}
+
 		// Stop any running cores owned by the target user BEFORE
 		// deleting DB rows — otherwise the reaper will try to update
 		// an instances row that no longer exists. ListAgents
@@ -193,8 +209,12 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 			s.agents.Stop(inst.ID)
 		}
 
-		if err := s.store.DeleteUser(targetID); err != nil {
+		if err := s.deleteUserCompletely(targetID); err != nil {
 			log.Printf("[USERS] admin=%d delete user=%d failed: %v", caller, targetID, err)
+			if errors.Is(err, ErrUserOwnsSharedProject) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			http.Error(w, "delete failed", http.StatusInternalServerError)
 			return
 		}

@@ -1587,7 +1587,11 @@
       "description": "Get live Amazon product search results for a keyword.",
       "method": "POST",
       "path": "/merchant/amazon/products/live/advanced",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["keyword", "asin", "location_code", "location_name", "language_code", "language_name", "se_domain", "depth"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1634,7 +1638,11 @@
       "description": "Get live Amazon product details by ASIN.",
       "method": "POST",
       "path": "/merchant/amazon/asin/live/advanced",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "se_domain"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1673,7 +1681,11 @@
       "description": "Get live Amazon sellers/offers for a product ASIN.",
       "method": "POST",
       "path": "/merchant/amazon/sellers/live/advanced",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "se_domain"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1712,7 +1724,11 @@
       "description": "Create a DataForSEO task for Amazon product reviews by ASIN.",
       "method": "POST",
       "path": "/merchant/amazon/reviews/task_post",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "se_domain", "depth", "sort_by", "priority", "tag"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1785,7 +1801,11 @@
       "description": "Get Amazon keyword search volume in bulk from DataForSEO Labs.",
       "method": "POST",
       "path": "/dataforseo_labs/amazon/bulk_search_volume/live",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["keywords", "location_code", "location_name", "language_code", "language_name"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1823,7 +1843,11 @@
       "description": "Get related Amazon keywords for a seed keyword from DataForSEO Labs.",
       "method": "POST",
       "path": "/dataforseo_labs/amazon/related_keywords/live",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["keyword", "location_code", "location_name", "language_code", "language_name", "include_seed_keyword", "limit", "offset"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1870,7 +1894,11 @@
       "description": "Get Amazon keywords an ASIN ranks for from DataForSEO Labs.",
       "method": "POST",
       "path": "/dataforseo_labs/amazon/ranked_keywords/live",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "limit", "offset", "filters", "order_by"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1921,7 +1949,11 @@
       "description": "Get Amazon product ranking overview metrics by ASIN from DataForSEO Labs.",
       "method": "POST",
       "path": "/dataforseo_labs/amazon/product_rank_overview/live",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["location_code", "location_name", "language_code", "language_name", "asins"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1959,7 +1991,11 @@
       "description": "Get competing Amazon products for an ASIN from DataForSEO Labs.",
       "method": "POST",
       "path": "/dataforseo_labs/amazon/product_competitors/live",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "limit", "offset", "filters", "order_by"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2010,7 +2046,11 @@
       "description": "Find Amazon keyword overlaps/gaps across ASINs from DataForSEO Labs.",
       "method": "POST",
       "path": "/dataforseo_labs/amazon/product_keyword_intersections/live",
-      "body_root_param": "tasks",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asins", "location_code", "location_name", "language_code", "language_name", "limit", "offset", "filters", "order_by"],
+        "as_array": true
+      },
       "input_schema": {
         "type": "object",
         "properties": {

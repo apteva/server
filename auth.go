@@ -521,9 +521,10 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
+	mode := s.effectiveRegistrationMode()
 	writeJSON(w, map[string]any{
-		"reg_mode":    s.regMode,
-		"needs_setup": s.regMode == "setup",
+		"reg_mode":    mode,
+		"needs_setup": mode == "setup",
 	})
 }
 
@@ -534,14 +535,22 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit: 3 registrations per IP per hour
-	if !registerLimiter.allow(clientIP(r), 3, time.Hour) {
+	policy, policyErr := s.loadAccessPolicy()
+	if policyErr != nil {
+		http.Error(w, "registration policy unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	// This in-process limiter is the immediate admission gate. Persisted
+	// account limits can be added independently without changing the policy
+	// shape; deployments may also enforce a stricter edge limit.
+	if !registerLimiter.allow(clientIP(r), policy.Registration.RegistrationsPerIPPerHour, time.Hour) {
 		http.Error(w, "too many registration attempts", http.StatusTooManyRequests)
 		return
 	}
 
 	// Check registration mode
-	switch s.regMode {
+	registrationMode := policy.Registration.Mode
+	switch registrationMode {
 	case "locked":
 		// Require a valid project invite token. The token is delivered
 		// either via X-Invite-Token header (programmatic) or
@@ -613,7 +622,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.store.CreateUser(body.Email, string(hash))
+	user, project, err := s.store.CreateProvisionedUser(body.Email, string(hash), policy)
 	if err != nil {
 		http.Error(w, "username already taken", http.StatusConflict)
 		return
@@ -624,25 +633,26 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// needed. We rely on HasUsers() being false at the start of this
 	// handler in setup mode, but check via id == 1 as a safety net
 	// in case of any concurrency weirdness.
-	if s.regMode == "setup" || user.ID == 1 {
+	if registrationMode == "setup" || user.ID == 1 {
 		_ = s.store.SetPlatformRole(user.ID, PlatformAdmin)
 	}
 
 	// Lock registration after first user (if was in setup mode)
-	if s.regMode == "setup" {
+	if registrationMode == "setup" {
 		s.regMode = "locked"
 		s.setupToken = ""
 	}
 
-	// Auto-create a default project for the new user, plus the
-	// owner membership row so the new project_members-driven authz
-	// lookup finds them.
-	project, err := s.store.CreateProject(user.ID, "Default", "Default project", "#6366f1")
-	if err == nil && project != nil {
-		_ = s.store.AddProjectMember(project.ID, user.ID, ProjectOwner, user.ID)
+	if err := s.materializeProvisioningPreset(user.ID, project.ID, policy); err != nil {
+		// Preset materialization is deliberately compensating rather than a
+		// distributed transaction: it may touch layout and app bindings. Do not
+		// leave a half-provisioned identity able to log in.
+		_ = s.deleteUserCompletely(user.ID)
+		http.Error(w, "account provisioning failed", http.StatusInternalServerError)
+		return
 	}
 
-	writeJSON(w, map[string]any{"id": user.ID, "email": user.Email})
+	writeJSON(w, map[string]any{"id": user.ID, "email": user.Email, "project_id": project.ID})
 }
 
 // POST /auth/login
@@ -780,6 +790,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		role = string(PlatformUser)
 	}
 	uiLayout, uiLayoutRevision := s.store.GetUserUILayoutWithRevision(u.ID)
+	interfaceLevel := s.store.GetUserInterfaceLevel(u.ID)
 	resp := map[string]any{
 		"user_id":            u.ID,
 		"email":              u.Email,
@@ -787,6 +798,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"created_at":         u.CreatedAt.UTC().Format(time.RFC3339),
 		"onboarded":          u.OnboardedAt != nil,
 		"language":           normalizedDashboardLanguage(s.store.GetUserLanguage(u.ID)),
+		"interface_level":    nil,
 		"ui_layout":          uiLayout,
 		"ui_layout_revision": uiLayoutRevision,
 		"mfa_enabled":        userMFAEnabled(u),
@@ -798,8 +810,18 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		}(),
 		"mfa_recovery_codes_remaining": recoveryHashCount(u.MFARecoveryHashes),
 	}
+	if interfaceLevel != "" {
+		resp["interface_level"] = interfaceLevel
+	}
 	if u.OnboardedAt != nil {
 		resp["onboarded_at"] = u.OnboardedAt.UTC().Format(time.RFC3339)
+	}
+	projectID := ""
+	if projects, err := s.store.ListProjectsForUser(u.ID); err == nil && len(projects) > 0 {
+		projectID = projects[0].ID
+	}
+	for key, value := range s.accessStateForUser(u.ID, projectID) {
+		resp[key] = value
 	}
 	writeJSON(w, resp)
 }
@@ -828,8 +850,9 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Language *string         `json:"language"`
-		UILayout json.RawMessage `json:"ui_layout"`
+		Language       *string         `json:"language"`
+		InterfaceLevel *string         `json:"interface_level"`
+		UILayout       json.RawMessage `json:"ui_layout"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -842,6 +865,12 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if body.InterfaceLevel != nil {
+		if err := s.store.SetUserInterfaceLevel(userID, *body.InterfaceLevel); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	if body.UILayout != nil {
 		if err := s.store.SetUserUILayout(userID, body.UILayout); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -849,8 +878,14 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	uiLayout, uiLayoutRevision := s.store.GetUserUILayoutWithRevision(userID)
+	interfaceLevel := s.store.GetUserInterfaceLevel(userID)
+	var interfaceLevelResponse any
+	if interfaceLevel != "" {
+		interfaceLevelResponse = interfaceLevel
+	}
 	writeJSON(w, map[string]any{
 		"language":           normalizedDashboardLanguage(s.store.GetUserLanguage(userID)),
+		"interface_level":    interfaceLevelResponse,
 		"ui_layout":          uiLayout,
 		"ui_layout_revision": uiLayoutRevision,
 	})
@@ -948,6 +983,9 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireCapability(w, r, "api_keys") {
 		return
 	}
 	userID := getUserID(r)

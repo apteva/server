@@ -68,7 +68,7 @@
   "tools": [
     {
       "name": "items_search",
-      "description": "Search Amazon catalog items and return attributed detailPageURL/searchURL values when partnerTag is supplied.",
+      "description": "Search Amazon catalog items and return attributed URLs. To expose Best Sellers Rank, request browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank in resources; rank is not copies sold.",
       "method": "POST",
       "path": "/catalog/v1/searchItems",
       "input_schema": {
@@ -82,14 +82,14 @@
           "browseNodeId": { "type": "string" },
           "itemCount": { "type": "integer", "default": 10 },
           "itemPage": { "type": "integer", "default": 1 },
-          "resources": { "type": "array", "items": { "type": "string" } }
+          "resources": { "type": "array", "items": { "type": "string" }, "description": "Creators API resource names. For sales rank use browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank.", "examples": [["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"]] }
         },
         "required": ["partnerTag"]
       }
     },
     {
       "name": "items_get",
-      "description": "Retrieve Amazon item details by ASIN, including attributed detailPageURL when partnerTag is supplied.",
+      "description": "Retrieve Amazon item details by ASIN. To expose Best Sellers Rank, request browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank in resources; rank is not copies sold.",
       "method": "POST",
       "path": "/catalog/v1/getItems",
       "input_schema": {
@@ -99,14 +99,60 @@
           "marketplace": { "type": "string", "default": "www.amazon.com" },
           "itemIds": { "type": "array", "items": { "type": "string" }, "description": "ASINs, up to 10." },
           "itemIdType": { "type": "string", "default": "ASIN" },
-          "resources": { "type": "array", "items": { "type": "string" } }
+          "resources": { "type": "array", "items": { "type": "string" }, "description": "Creators API resource names. For sales rank use browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank.", "examples": [["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"]] }
+        },
+        "required": ["partnerTag", "itemIds"]
+      }
+    },
+    {
+      "name": "items_search_sales_rank",
+      "description": "Search Amazon items and automatically return website and category Best Sellers Rank. Rank is relative ordering, not copies sold.",
+      "method": "POST",
+      "path": "/catalog/v1/searchItems",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["partnerTag", "marketplace", "keywords", "searchIndex", "brand", "browseNodeId", "itemCount", "itemPage"],
+        "constants": { "resources": ["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"] }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "keywords": { "type": "string" },
+          "searchIndex": { "type": "string", "default": "All" },
+          "brand": { "type": "string" },
+          "browseNodeId": { "type": "string" },
+          "itemCount": { "type": "integer", "default": 10 },
+          "itemPage": { "type": "integer", "default": 1 }
+        },
+        "required": ["partnerTag", "keywords"]
+      }
+    },
+    {
+      "name": "items_get_sales_rank",
+      "description": "Retrieve up to 10 ASINs and automatically return website and category Best Sellers Rank. Rank is relative ordering, not copies sold.",
+      "method": "POST",
+      "path": "/catalog/v1/getItems",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["partnerTag", "marketplace", "itemIds", "itemIdType"],
+        "constants": { "resources": ["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"] }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "itemIds": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10 },
+          "itemIdType": { "type": "string", "const": "ASIN", "default": "ASIN" }
         },
         "required": ["partnerTag", "itemIds"]
       }
     },
     {
       "name": "variations_get",
-      "description": "Get product variations for an Amazon parent/child ASIN.",
+      "description": "Get product variations for an Amazon parent/child ASIN. Rank resources can compare each variation's category and website Best Sellers Rank.",
       "method": "POST",
       "path": "/catalog/v1/getVariations",
       "input_schema": {
@@ -115,7 +161,7 @@
           "partnerTag": { "type": "string" },
           "marketplace": { "type": "string", "default": "www.amazon.com" },
           "asin": { "type": "string" },
-          "resources": { "type": "array", "items": { "type": "string" } }
+          "resources": { "type": "array", "items": { "type": "string" }, "description": "Creators API resource names. For sales rank use browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank.", "examples": [["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"]] }
         },
         "required": ["partnerTag", "asin"]
       }

@@ -821,6 +821,99 @@ func TestAuthPreferencesLanguagePersistsIntoMe(t *testing.T) {
 	}
 }
 
+func TestAuthPreferencesInterfaceLevelPersistsIntoMe(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("interface@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.store.GetUserInterfaceLevel(user.ID); got != "business" {
+		t.Fatalf("new user interface level=%q, want business", got)
+	}
+
+	body := []byte(`{"interface_level":"personal"}`)
+	req := httptest.NewRequest(http.MethodPut, "/auth/preferences", bytes.NewReader(body))
+	req.Header.Set("X-User-ID", itoa(user.ID))
+	w := httptest.NewRecorder()
+	s.handleAuthPreferences(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("preferences status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	token := "interface-session"
+	if err := s.store.CreateSession(token, user.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	w = httptest.NewRecorder()
+	s.handleMe(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("me status=%d body=%s", w.Code, w.Body.String())
+	}
+	var response struct {
+		InterfaceLevel *string `json:"interface_level"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.InterfaceLevel == nil || *response.InterfaceLevel != "personal" {
+		t.Fatalf("interface_level=%v, want personal", response.InterfaceLevel)
+	}
+}
+
+func TestAuthPreferencesRejectsInvalidInterfaceLevel(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("invalid-interface@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/auth/preferences",
+		strings.NewReader(`{"interface_level":"admin"}`),
+	)
+	req.Header.Set("X-User-ID", itoa(user.ID))
+	w := httptest.NewRecorder()
+	s.handleAuthPreferences(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid interface level status=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := s.store.GetUserInterfaceLevel(user.ID); got != "business" {
+		t.Fatalf("invalid update changed interface level to %q", got)
+	}
+}
+
+func TestLegacyUserInterfaceLevelIsUnset(t *testing.T) {
+	s := newTestServer(t)
+	result, err := s.store.db.Exec(
+		"INSERT INTO users (email, password_hash) VALUES (?, ?)",
+		"legacy-interface@test.com", "hash",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID, _ := result.LastInsertId()
+	if got := s.store.GetUserInterfaceLevel(userID); got != "" {
+		t.Fatalf("legacy interface level=%q, want unset", got)
+	}
+	token := "legacy-interface-session"
+	if err := s.store.CreateSession(token, userID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	w := httptest.NewRecorder()
+	s.handleMe(w, req)
+	var response map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if value, exists := response["interface_level"]; !exists || value != nil {
+		t.Fatalf("legacy interface_level=%v (exists=%v), want explicit null", value, exists)
+	}
+}
+
 func TestAuthPreferencesUILayoutPersistsAndPreservesLanguage(t *testing.T) {
 	s := newTestServer(t)
 	user, err := s.store.CreateUser("layout@test.com", "hash")

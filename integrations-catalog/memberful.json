@@ -1,0 +1,94 @@
+{
+  "slug": "memberful",
+  "name": "Memberful",
+  "description": "Memberful GraphQL API for paid newsletter and membership businesses. Query and manage members, subscriptions, plans/passes, prices, coupons, orders, downloads, and other account data supported by the connected Memberful account.",
+  "logo": "https://www.google.com/s2/favicons?domain=memberful.com&sz=128",
+  "categories": ["memberships", "newsletter", "subscriptions", "commerce", "creators"],
+  "base_url": "{{credential.account_url}}/api/graphql",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "account_url",
+        "label": "Memberful Account URL",
+        "description": "Your Memberful account origin without a trailing slash, for example https://example.memberful.com.",
+        "type": "url"
+      },
+      {
+        "name": "api_key",
+        "label": "Custom Application API Key",
+        "description": "Bearer API key from Settings > Custom applications in Memberful."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "build_checkout_url",
+      "description": "Build a Memberful-hosted checkout URL for a price. In Memberful's API terminology, the plan value is the dashboard Price ID. Optionally suggest a seat count for a group subscription.",
+      "method": "GET",
+      "base_url": "{{credential.account_url}}",
+      "path": "/checkout",
+      "query_params": ["plan", "members"],
+      "return_request_url": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "description": "Memberful dashboard Price ID (called a Plan by the GraphQL API)."
+          },
+          "members": {
+            "type": "integer",
+            "description": "Optional suggested number of seats for a group subscription."
+          }
+        },
+        "required": ["plan"]
+      }
+    },
+    {
+      "name": "graphql_request",
+      "description": "Execute any Memberful GraphQL query or mutation supported by the connected account. Use Memberful's in-dashboard GraphQL API Explorer for the live schema. This provides full coverage for members, subscriptions, passes (dashboard plans), plans (dashboard prices), coupons, orders, downloads, and other available objects.",
+      "method": "POST",
+      "path": "",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "GraphQL query or mutation document. Example: query { members(first: 20) { edges { node { id email fullName } } } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Optional GraphQL variables object.",
+            "additionalProperties": true
+          },
+          "operationName": {
+            "type": "string",
+            "description": "Optional operation name when the document contains multiple operations."
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ],
+  "webhooks": {
+    "events": [
+      { "name": "member_signup", "description": "A member signed up." },
+      { "name": "member_updated", "description": "A member profile changed." },
+      { "name": "member_deleted", "description": "A member was deleted." },
+      { "name": "subscription_created", "description": "A subscription was created." },
+      { "name": "subscription_renewed", "description": "A subscription renewed." },
+      { "name": "subscription_updated", "description": "A subscription changed." },
+      { "name": "subscription_deactivated", "description": "A subscription was deactivated." },
+      { "name": "subscription_reactivated", "description": "A subscription was reactivated." },
+      { "name": "order_purchased", "description": "An order completed." },
+      { "name": "order_refunded", "description": "An order was refunded." }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "slug": "cloudflare-workers-ai",
+  "name": "Cloudflare Workers AI",
+  "description": "Cloudflare Workers AI through its OpenAI-compatible chat-completions API. Suitable for a platform-managed Apteva LLM connection.",
+  "logo": "https://www.google.com/s2/favicons?domain=cloudflare.com&sz=128",
+  "categories": ["ai", "llm", "cloudflare", "inference"],
+  "base_url": "https://api.cloudflare.com/client/v4/accounts/{{account_id}}/ai/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "account_id",
+        "label": "Account ID",
+        "description": "Cloudflare account ID.",
+        "required": true
+      },
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Cloudflare API token allowed to invoke Workers AI.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create an OpenAI-compatible streaming or non-streaming chat completion.",
+      "method": "POST",
+      "path": "/chat/completions",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {"type": "string"},
+          "messages": {"type": "array"},
+          "stream": {"type": "boolean"},
+          "tools": {"type": "array"},
+          "max_tokens": {"type": "integer"}
+        },
+        "required": ["model", "messages"]
+      }
+    }
+  ],
+  "runtime": {
+    "role": "llm",
+    "provider_key": "managed",
+    "env": {}
+  }
+}

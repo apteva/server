@@ -37,6 +37,83 @@
       ]
     },
     {
+      "id": "development-engineering-team",
+      "category": "development",
+      "name": "Engineering team",
+      "description": "Coordinate planned, isolated, reviewed, and approved software delivery with a ready-made team of engineering agents.",
+      "match": [
+        "engineering team",
+        "coding team",
+        "software team",
+        "multi-agent development",
+        "autonomous coding",
+        "build software with agents"
+      ],
+      "agents": [
+        {
+          "key": "maintainer",
+          "name": "Maintainer",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "builder",
+            "tasks",
+            "code",
+            "workspaces",
+            "a2a"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Maintain the global engineering picture, turn requested outcomes into durable goals and bounded tasks, inspect repository and workspace state, detect overlap, and delegate through Agent to Agent. You are a read-only coordinator: do not edit files, run mutating workspace commands, commit, push, merge, deploy, or release. Assign one clearly scoped task and one isolated workspace at a time to each coder, send reviewable work to the Reviewer, and escalate blockers or consequential decisions to the operator."
+        },
+        {
+          "key": "coder",
+          "name": "Coder",
+          "mode": "autonomous",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "code",
+            "workspaces",
+            "a2a"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Accept one bounded engineering task at a time, work only in the assigned isolated workspace and branch, inspect before editing, keep changes inside the declared repository or component scope, run the relevant checks, and return a concise evidence-backed result. Do not edit another worker's branch, merge, deploy, release, bypass failing checks, or perform destructive actions without explicit authority. Report blockers and scope conflicts promptly to the Maintainer."
+        },
+        {
+          "key": "reviewer",
+          "name": "Reviewer",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "code",
+            "workspaces",
+            "a2a"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Independently review assigned diffs, commits, test results, and acceptance criteria. Treat the worker's branch as read-only, never repair it in place, and run additional checks only in a separate review workspace when needed. Report concrete findings with severity and evidence, approve only when the exact reviewed commit satisfies the task, and send required changes back to the Coder through the Maintainer."
+        },
+        {
+          "key": "release-steward",
+          "name": "Release Steward",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "code",
+            "workspaces",
+            "deploy",
+            "a2a"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Handle approved merge and release operations only after confirming the reviewed commit, required checks, version alignment, artifacts, target environment, rollback plan, and explicit operator authority for consequential or production changes. Do not author feature code or modify a worker's branch. Stop when evidence is missing, checks are stale, versions drift, or approval is ambiguous, and record the resulting release state for the Maintainer."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "native:inbox",
+        "tasks:task-overview",
+        "builder:builder-workspace",
+        "native:activity"
+      ]
+    },
+    {
       "id": "development-devops",
       "category": "development",
       "name": "Infrastructure and operations",

@@ -211,6 +211,16 @@ func (s *Server) handleOAuthClientStatus(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		accessPolicy, accessPolicyErr := s.loadAccessPolicy()
+		if accessPolicyErr != nil {
+			log.Printf("[SETTINGS] access policy unavailable; returning fail-closed policy: %v", accessPolicyErr)
+			accessPolicy = closedAccessPolicy()
+		}
+		if !s.isAdmin(getUserID(r)) {
+			// The selected connection identifies a platform-owned secret. Users
+			// only need to know that managed inference is available.
+			accessPolicy.ManagedLLM.ConnectionID = 0
+		}
 		dbURL := s.store.GetSetting("public_url")
 		envURL := s.publicURL // captured at boot
 		effective := dbURL
@@ -223,7 +233,13 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		pushRelay := s.mobilePushRelayConfig()
+		managedUsage := ManagedLLMUsage{Date: managedLLMUsageDate(time.Now().UTC())}
+		if s.isAdmin(getUserID(r)) {
+			managedUsage, _ = s.store.ManagedLLMAggregateForDay(time.Now().UTC())
+		}
 		writeJSON(w, map[string]any{
+			"access_policy":     accessPolicy,
+			"managed_llm_usage": managedUsage,
 			"public_url": map[string]any{
 				"value":          dbURL,
 				"env_value":      envURL,
@@ -250,25 +266,35 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case http.MethodPut:
+		// Every server setting affects other users or the public ingress. The
+		// previous field-by-field check accidentally left public_url writable
+		// by an ordinary authenticated user, which is unsafe on an open instance.
+		if !s.isAdmin(getUserID(r)) {
+			http.Error(w, "admin access required", http.StatusForbidden)
+			return
+		}
 		var body struct {
-			PublicURL            *string `json:"public_url"`
-			PushRelayURL         *string `json:"push_relay_url"`
-			AgentUpdatePolicy    *string `json:"agent_update_policy"`
-			AgentBootResume      *string `json:"agent_boot_resume"`
-			AgentBootResumeDelay *string `json:"agent_boot_resume_delay"`
-			AgentRolloutDelay    *string `json:"agent_rollout_delay"`
-			GeoIPEnabled         *bool   `json:"geoip_enabled"`
-			GeoIPSource          *string `json:"geoip_source"`
-			GeoIPAccountID       *string `json:"geoip_account_id"`
-			GeoIPLicenseKey      *string `json:"geoip_license_key"`
+			AccessPolicy         *AccessPolicy `json:"access_policy"`
+			PublicURL            *string       `json:"public_url"`
+			PushRelayURL         *string       `json:"push_relay_url"`
+			AgentUpdatePolicy    *string       `json:"agent_update_policy"`
+			AgentBootResume      *string       `json:"agent_boot_resume"`
+			AgentBootResumeDelay *string       `json:"agent_boot_resume_delay"`
+			AgentRolloutDelay    *string       `json:"agent_rollout_delay"`
+			GeoIPEnabled         *bool         `json:"geoip_enabled"`
+			GeoIPSource          *string       `json:"geoip_source"`
+			GeoIPAccountID       *string       `json:"geoip_account_id"`
+			GeoIPLicenseKey      *string       `json:"geoip_license_key"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if (body.PushRelayURL != nil || body.AgentUpdatePolicy != nil || body.AgentBootResume != nil || body.AgentBootResumeDelay != nil || body.AgentRolloutDelay != nil || body.GeoIPEnabled != nil || body.GeoIPSource != nil || body.GeoIPAccountID != nil || body.GeoIPLicenseKey != nil) && !s.isAdmin(getUserID(r)) {
-			http.Error(w, "admin access required", http.StatusForbidden)
-			return
+		if body.AccessPolicy != nil {
+			if _, err := s.saveAccessPolicy(getUserID(r), *body.AccessPolicy); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		if body.PublicURL != nil {
 			v := strings.TrimSpace(*body.PublicURL)
@@ -842,7 +868,7 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 			tokens, err = s.exchangeOAuth1AccessToken(app, verifier, r.URL.Query().Get("oauth_token"), row.PKCEVerifier, preClientID, preClientSecret)
 		}
 	} else {
-		tokens, err = s.exchangeOAuthCode(app, code, row.PKCEVerifier, row.UserID, preClientID, preClientSecret)
+		tokens, err = s.exchangeOAuthCode(app, code, row.PKCEVerifier, row.UserID, preClientID, preClientSecret, preBlobCreds)
 	}
 	if err != nil {
 		log.Printf("[OAUTH-CB] token exchange FAILED conn=%d slug=%s: %v", row.ConnectionID, app.Slug, err)
@@ -955,7 +981,7 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 // stored creds on prior connections, then env vars. The pending row's
 // own blob (set by startLocalOAuth) is what the callback passes here as
 // the explicit args.
-func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, userID int64, explicitClientID, explicitClientSecret string) (map[string]string, error) {
+func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, userID int64, explicitClientID, explicitClientSecret string, credentials map[string]string) (map[string]string, error) {
 	cfg := app.Auth.OAuth2
 	clientID, clientSecret := s.resolveOAuthClient(userID, "", app.Slug, explicitClientID, explicitClientSecret)
 
@@ -980,7 +1006,8 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 		form.Set("code_verifier", pkceVerifier)
 	}
 
-	req, err := http.NewRequest("POST", cfg.TokenURL, strings.NewReader(form.Encode()))
+	tokenURL := resolveTemplate(cfg.TokenURL, applyCredentialFieldDefaults(app, credentials))
+	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}

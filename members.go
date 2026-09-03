@@ -168,6 +168,9 @@ func (s *Server) handleListProjectInvites(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleCreateProjectInvite(w http.ResponseWriter, r *http.Request, projectID string) {
+	if !s.requireCapability(w, r, "invitations") {
+		return
+	}
 	uid, _, ok := s.requireProjectAccess(w, r, projectID, ProjectOwner)
 	if !ok {
 		return

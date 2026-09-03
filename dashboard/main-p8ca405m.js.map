@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/components/AgentMark.tsx"],
+  "sourcesContent": [
+    "// AgentMark is the shared product glyph for an Apteva agent. It is identity\n// chrome, not an avatar: every agent uses the same mark, and semantic theme\n// utilities plus currentColor make it follow every dashboard palette.\nexport function AgentMark({\n  size = \"md\",\n}: {\n  size?: \"sm\" | \"md\" | \"lg\";\n}) {\n  const dimensions =\n    size === \"lg\"\n      ? \"h-20 w-20 rounded-2xl\"\n      : size === \"sm\"\n        ? \"h-8 w-8 rounded-lg\"\n        : \"h-10 w-10 rounded-xl\";\n  const glyphSize = size === \"lg\" ? 38 : size === \"sm\" ? 17 : 21;\n\n  return (\n    <span\n      className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-accent/25 bg-accent/10 text-accent shadow-sm`}\n      aria-hidden=\"true\"\n    >\n      <svg\n        width={glyphSize}\n        height={glyphSize}\n        viewBox=\"0 0 24 24\"\n        fill=\"none\"\n        stroke=\"currentColor\"\n        strokeWidth=\"1.8\"\n        strokeLinecap=\"round\"\n        strokeLinejoin=\"round\"\n      >\n        <path d=\"M5.5 18.5 10.2 6.4A2 2 0 0 1 12 5.1a2 2 0 0 1 1.8 1.3l4.7 12.1\" />\n        <path d=\"M8.2 14h7.6\" />\n        <path d=\"M7 18.5h2.2M14.8 18.5H17\" />\n        <circle\n          cx=\"12\"\n          cy=\"18.5\"\n          r=\"1.15\"\n          fill=\"currentColor\"\n          stroke=\"none\"\n        />\n      </svg>\n    </span>\n  );\n}\n"
+  ],
+  "mappings": "kDAGO,SAAS,CAAS,EACvB,OAAO,MAGN,CACD,IAAM,EACJ,IAAS,KACL,wBACA,IAAS,KACP,qBACA,uBACF,EAAY,IAAS,KAAO,GAAK,IAAS,KAAO,GAAK,GAE5D,OACE,EAyBE,OAzBF,CACE,UAAW,GAAG,gHACd,cAAY,OAFd,SAIE,EAoBE,MApBF,CACE,MAAO,EACP,OAAQ,EACR,QAAQ,YACR,KAAK,OACL,OAAO,eACP,YAAY,MACZ,cAAc,QACd,eAAe,QARjB,SAoBE,CAVA,EAAC,OAAD,CAAM,EAAE,iEAAiE,EACzE,EAAC,OAAD,CAAM,EAAE,cAAc,EACtB,EAAC,OAAD,CAAM,EAAE,2BAA2B,EACnC,EAAC,SAAD,CACE,GAAG,KACH,GAAG,OACH,EAAE,OACF,KAAK,eACL,OAAO,OACT,GACA,EACF",
+  "debugId": "7990B1A77F393A2A64756E2164756E21",
+  "names": []
+}

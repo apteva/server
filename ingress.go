@@ -431,6 +431,9 @@ func (s *Server) handleIngressRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"routes": routes})
 	case http.MethodPost:
+		if !s.requireCapability(w, r, "domains") {
+			return
+		}
 		var req IngressExposeRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
@@ -451,6 +454,9 @@ func (s *Server) handleIngressRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIngressRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && !s.requireCapability(w, r, "domains") {
+		return
+	}
 	host := strings.TrimPrefix(r.URL.Path, "/ingress/routes/")
 	host = strings.Trim(host, "/")
 	if host == "" {

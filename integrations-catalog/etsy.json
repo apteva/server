@@ -1,7 +1,7 @@
 {
   "slug": "etsy",
   "name": "Etsy",
-  "description": "Etsy Open API v3 \u2014 manage shops, listings, orders (receipts), and reviews on Etsy. OAuth2 with PKCE; the keystring (client_id) doubles as the x-api-key header.",
+  "description": "Etsy Open API v3 for complete seller operations: shops, physical and digital listings, media, inventory, personalization, translations, orders, payments, shipping profiles, policies, sections, and reviews.",
   "logo": "https://www.google.com/s2/favicons?domain=etsy.com&sz=128",
   "categories": [
     "ecommerce",
@@ -9,8 +9,8 @@
     "etsy",
     "store",
     "listings",
+    "digital-products",
     "orders",
-    "handmade",
     "retail"
   ],
   "base_url": "https://openapi.etsy.com/v3/application",
@@ -20,35 +20,49 @@
     ],
     "headers": {
       "Authorization": "Bearer {{token}}",
-      "x-api-key": "{{client_id}}"
+      "x-api-key": "{{client_id}}:{{client_secret}}"
     },
     "credential_fields": [
       {
         "name": "token",
-        "label": "access_token"
+        "label": "Access Token",
+        "type": "password"
       },
       {
         "name": "refresh_token",
-        "label": "refresh_token"
+        "label": "Refresh Token",
+        "type": "password"
       },
       {
         "name": "client_id",
         "label": "Keystring (Client ID)",
-        "description": "Etsy app keystring from etsy.com/developers \u2014 also sent as the x-api-key header on every request."
+        "description": "Etsy app keystring from Your Apps.",
+        "required": true
+      },
+      {
+        "name": "client_secret",
+        "label": "Shared Secret",
+        "type": "password",
+        "description": "Etsy app shared secret. Etsy requires x-api-key to contain keystring:shared_secret.",
+        "required": true
       }
     ],
     "oauth2": {
       "authorize_url": "https://www.etsy.com/oauth/connect",
-      "token_url": "https://api.etsy.com/v3/public/oauth/token",
+      "token_url": "https://openapi.etsy.com/v3/public/oauth/token",
       "scopes": [
-        "shops_r",
-        "shops_w",
+        "address_r",
+        "address_w",
+        "email_r",
+        "listings_d",
         "listings_r",
         "listings_w",
-        "transactions_r",
-        "transactions_w",
         "profile_r",
-        "email_r"
+        "profile_w",
+        "shops_r",
+        "shops_w",
+        "transactions_r",
+        "transactions_w"
       ],
       "client_id_required": true,
       "pkce": true
@@ -56,87 +70,75 @@
   },
   "tools": [
     {
-      "name": "get_authenticated_user",
-      "description": "Get the user_id of the currently authenticated Etsy user.",
+      "name": "get_buyer_taxonomy_nodes",
+      "description": "Retrieves the full hierarchy tree of buyer taxonomy nodes.",
       "method": "GET",
-      "path": "/users/me",
+      "path": "/buyer-taxonomy/nodes",
       "input_schema": {
         "type": "object",
         "properties": {}
       }
     },
     {
-      "name": "get_user",
-      "description": "Get an Etsy user's public profile by user ID.",
+      "name": "get_properties_by_buyer_taxonomy_id",
+      "description": "Retrieves a list of product properties, with applicable scales and values, supported for a specific buyer taxonomy ID.",
       "method": "GET",
-      "path": "/users/{user_id}",
+      "path": "/buyer-taxonomy/nodes/{taxonomy_id}/properties",
       "input_schema": {
         "type": "object",
         "properties": {
-          "user_id": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "user_id"
-        ]
-      }
-    },
-    {
-      "name": "get_shop_by_owner",
-      "description": "Get the shop belonging to the authenticated user.",
-      "method": "GET",
-      "path": "/users/{user_id}/shops",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "user_id": {
+          "taxonomy_id": {
             "type": "integer",
-            "description": "Etsy user ID (from get_authenticated_user)."
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique numeric ID of an Etsy taxonomy node, which is a metadata category for listings organized into the seller taxonomy hierarchy tree. For example, the \"shoes\" taxonomy node (ID: 1429, level: 1) is higher in the hierarchy than \"girls' shoes\" (ID: 1440, level: 2). The taxonomy nodes assigned to a listing support access to specific standardized product scales and properties. For example, listings assigned the ..."
           }
         },
         "required": [
-          "user_id"
+          "taxonomy_id"
         ]
       }
     },
     {
-      "name": "get_shop",
-      "description": "Get a shop by ID \u2014 name, currency, listing counts, vacation status.",
+      "name": "get_listings_by_shop",
+      "description": "Endpoint to list Listings that belong to a Shop. Listings can be filtered using the 'state' param.",
       "method": "GET",
-      "path": "/shops/{shop_id}",
+      "path": "/shops/{shop_id}/listings",
       "input_schema": {
         "type": "object",
         "properties": {
           "shop_id": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "shop_id"
-        ]
-      }
-    },
-    {
-      "name": "list_shop_listings_active",
-      "description": "List active listings in a shop. Supports pagination + sort by created/updated/price/score.",
-      "method": "GET",
-      "path": "/shops/{shop_id}/listings/active",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "shop_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "sold_out",
+              "draft",
+              "expired"
+            ],
+            "default": "active",
+            "description": "When updating a listing, this value can be either active or inactive. Note: Setting a draft listing to active will also publish the listing on etsy.com and requires that the listing have an image set. Setting a soldout listing to active will update the quantity to 1 and renew the listing on etsy.com."
           },
           "limit": {
             "type": "integer",
-            "description": "Max 100."
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
           },
           "offset": {
-            "type": "integer"
-          },
-          "keywords": {
-            "type": "string"
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
           },
           "sort_on": {
             "type": "string",
@@ -145,69 +147,87 @@
               "price",
               "updated",
               "score"
-            ]
+            ],
+            "default": "created",
+            "description": "The value to sort a search result of listings on. NOTES: a) sorton only works when combined with one of the search options (keywords, region, etc.). b) when using score the returned results will always be in descending order, regardless of the sortorder parameter."
           },
           "sort_order": {
             "type": "string",
             "enum": [
               "asc",
-              "desc",
               "ascending",
-              "descending"
-            ]
+              "desc",
+              "descending",
+              "up",
+              "down"
+            ],
+            "default": "desc",
+            "description": "The ascending(up) or descending(down) order to sort listings by. NOTE: sortorder only works when combined with one of the search options (keywords, region, etc.)."
+          },
+          "includes": {
+            "type": "array",
+            "default": null,
+            "description": "An enumerated string that attaches a valid association. Acceptable inputs are 'Shipping', 'Shop', 'Images', 'User', 'Translations', 'Videos', 'Inventory' and 'Personalization'.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Shipping",
+                "Images",
+                "Shop",
+                "User",
+                "Translations",
+                "Inventory",
+                "Videos",
+                "Personalization",
+                "BuyerPrice"
+              ]
+            }
           }
         },
         "required": [
           "shop_id"
         ]
-      }
-    },
-    {
-      "name": "get_listing",
-      "description": "Get a single listing by ID. Use 'includes' to embed Images, Videos, Inventory, Translations, etc.",
-      "method": "GET",
-      "path": "/listings/{listing_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "listing_id": {
-            "type": "integer"
-          },
-          "includes": {
-            "type": "string",
-            "description": "Comma-separated associations (e.g. 'Images,Videos,Inventory,Shipping')."
-          }
-        },
-        "required": [
-          "listing_id"
-        ]
-      }
+      },
+      "query_params": [
+        "state",
+        "limit",
+        "offset",
+        "sort_on",
+        "sort_order",
+        "includes"
+      ]
     },
     {
       "name": "create_draft_listing",
-      "description": "Create a new draft listing in the seller's shop. The listing starts inactive \u2014 call update_listing to set state='active' once images and inventory are attached.",
+      "description": "Creates a physical draft listing product in a shop on the Etsy channel.",
       "method": "POST",
       "path": "/shops/{shop_id}/listings",
       "input_schema": {
         "type": "object",
         "properties": {
           "shop_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
           },
           "quantity": {
             "type": "integer",
-            "description": "Number of items available."
+            "format": "int64",
+            "description": "The positive non-zero number of products available for purchase in the listing. Note: The listing quantity is the sum of available offering quantities. You can request the quantities for individual offerings from the ListingInventory resource using the getListingInventory endpoint."
           },
           "title": {
             "type": "string",
-            "description": "Max 140 chars."
+            "description": "The listing's title string. When creating or updating a listing, valid title strings contain only letters, numbers, punctuation marks, mathematical symbols, whitespace characters, ™, ©, and ®. (regex: /[^\\p{L}\\p{Nd}\\p{P}\\p{Sm}\\p{Zs}™©®]/u) You can only use the %, :, & and + characters once each."
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "A description string of the product for sale in the listing."
           },
           "price": {
             "type": "number",
-            "description": "Listing price in shop's currency."
+            "format": "float",
+            "description": "The positive non-zero price of the product. (Sold product listings are private) Note: The price is the minimum possible price. The getListingInventory method requests exact prices for available offerings."
           },
           "who_made": {
             "type": "string",
@@ -215,34 +235,196 @@
               "i_did",
               "someone_else",
               "collective"
-            ]
+            ],
+            "description": "An enumerated string indicating who made the product. Helps buyers locate the listing under the Handmade heading. Requires 'issupply' and 'whenmade'."
           },
           "when_made": {
             "type": "string",
-            "description": "Period code (e.g. 'made_to_order', '2020_2025', 'before_2006')."
+            "enum": [
+              "made_to_order",
+              "2020_2026",
+              "2010_2019",
+              "2007_2009",
+              "before_2007",
+              "2000_2006",
+              "1990s",
+              "1980s",
+              "1970s",
+              "1960s",
+              "1950s",
+              "1940s",
+              "1930s",
+              "1920s",
+              "1910s",
+              "1900s",
+              "1800s",
+              "1700s",
+              "before_1700"
+            ],
+            "description": "An enumerated string for the era in which the maker made the product in this listing. Helps buyers locate the listing under the Vintage heading. Requires 'issupply' and 'whomade'."
           },
           "taxonomy_id": {
             "type": "integer",
-            "description": "Etsy taxonomy node ID."
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numerical taxonomy ID of the listing. See SellerTaxonomy and BuyerTaxonomy for more information."
           },
           "shipping_profile_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical.",
+            "nullable": true
           },
           "return_policy_id": {
-            "type": "integer"
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Up to 13 tags, max 20 chars each."
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy.",
+            "nullable": true
           },
           "materials": {
             "type": "array",
+            "description": "A list of material strings for materials used in the product. Valid materials strings contain only letters, numbers, and whitespace characters. (regex: /[^\\p{L}\\p{Nd}\\p{Zs}]/u) Default value is null.",
+            "nullable": true,
             "items": {
               "type": "string"
             }
+          },
+          "shop_section_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shop section for this listing. Default value is null.",
+            "nullable": true
+          },
+          "processing_min": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The minimum number of days required to process this listing. Default value is null.",
+            "nullable": true
+          },
+          "processing_max": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The maximum number of days required to process this listing. Default value is null.",
+            "nullable": true
+          },
+          "readiness_state_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the processing profile associated with the listing. Returned only when the listing is active and of type physical, and the endpoint is either shop-scoped (path contains shopid) or a single-listing request such as getListing. For every other case this field can be null.",
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "description": "A comma-separated list of tag strings for the listing. When creating or updating a listing, valid tag strings contain only letters, numbers, whitespace characters, -, ', ™, ©, and ®. (regex: /[^\\p{L}\\p{Nd}\\p{Zs}\\-'™©®]/u) Default value is null.",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "styles": {
+            "type": "array",
+            "description": "An array of style strings for this listing, each of which is free-form text string such as \"Formal\", or \"Steampunk\". When creating or updating a listing, the listing may have up to two styles. Valid style strings contain only letters, numbers, and whitespace characters. (regex: /[^\\p{L}\\p{Nd}\\p{Zs}]/u) Each style string is limited to 45 characters. Default value is null.",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "item_weight": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric weight of the product measured in units set in 'itemweightunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_length": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric length of the product measured in units set in 'itemdimensionsunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_width": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric width of the product measured in units set in 'itemdimensionsunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_height": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric height of the product measured in units set in 'itemdimensionsunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_weight_unit": {
+            "type": "string",
+            "enum": [
+              "oz",
+              "lb",
+              "g",
+              "kg"
+            ],
+            "description": "A string defining the units used to measure the weight of the product. Default value is null.",
+            "nullable": true
+          },
+          "item_dimensions_unit": {
+            "type": "string",
+            "enum": [
+              "in",
+              "ft",
+              "mm",
+              "cm",
+              "m",
+              "yd",
+              "inches"
+            ],
+            "description": "A string defining the units used to measure the dimensions of the product. Default value is null.",
+            "nullable": true
+          },
+          "production_partner_ids": {
+            "type": "array",
+            "description": "An array of unique IDs of production partner ids.",
+            "nullable": true,
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          "image_ids": {
+            "type": "array",
+            "description": "An array of numeric image IDs of the images in a listing, which can include up to 20 images.",
+            "nullable": true,
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          "is_supply": {
+            "type": "boolean",
+            "description": "When true, tags the listing as a supply product, else indicates that it's a finished product. Helps buyers locate the listing under the Supplies heading. Requires 'whomade' and 'whenmade'."
+          },
+          "is_customizable": {
+            "type": "boolean",
+            "description": "When true, a buyer may contact the seller for a customized order. The default value is true when a shop accepts custom orders. Does not apply to shops that do not accept custom orders."
+          },
+          "should_auto_renew": {
+            "type": "boolean",
+            "description": "When true, renews a listing for four months upon expiration."
+          },
+          "is_taxable": {
+            "type": "boolean",
+            "description": "When true, applicable shop tax rates apply to this listing at checkout."
           },
           "type": {
             "type": "string",
@@ -250,10 +432,8 @@
               "physical",
               "download",
               "both"
-            ]
-          },
-          "is_supply": {
-            "type": "boolean"
+            ],
+            "description": "An enumerated type string that indicates whether the listing is physical or a digital download."
           }
         },
         "required": [
@@ -266,77 +446,75 @@
           "when_made",
           "taxonomy_id"
         ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
       }
     },
     {
-      "name": "update_listing",
-      "description": "Update fields on an existing listing. Use state='active' to publish a draft. Pass only the fields you want to change.",
-      "method": "PATCH",
-      "path": "/shops/{shop_id}/listings/{listing_id}",
+      "name": "get_listing",
+      "description": "Retrieves a listing record by listing ID.",
+      "method": "GET",
+      "path": "/listings/{listing_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "shop_id": {
-            "type": "integer"
-          },
           "listing_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
           },
-          "title": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "price": {
-            "type": "number"
-          },
-          "quantity": {
-            "type": "integer"
-          },
-          "tags": {
+          "includes": {
             "type": "array",
+            "default": null,
+            "description": "An enumerated string that attaches a valid association. Acceptable inputs are 'Shop', 'Images', 'User', 'Translations', 'Videos', 'Personalization' and 'BuyerPrice'.",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "Images",
+                "Shop",
+                "User",
+                "Translations",
+                "Videos",
+                "Personalization",
+                "BuyerPrice"
+              ]
             }
           },
-          "materials": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "state": {
+          "language": {
             "type": "string",
-            "enum": [
-              "active",
-              "inactive",
-              "draft"
-            ]
+            "default": null,
+            "description": "The IETF language tag for the language of this translation. Ex: de, en, es, fr, it, ja, nl, pl, pt."
           },
-          "shipping_profile_id": {
-            "type": "integer"
-          },
-          "return_policy_id": {
-            "type": "integer"
+          "allow_suggested_title": {
+            "type": "boolean",
+            "description": "This parameter will include in the response a suggested title for the listing, if one is available. Since suggestions are only available to the listing's owner, client must submit an oauthaccesstoken scoped to the owner of the listing."
           }
         },
         "required": [
-          "shop_id",
           "listing_id"
         ]
-      }
+      },
+      "query_params": [
+        "includes",
+        "language",
+        "allow_suggested_title"
+      ]
     },
     {
       "name": "delete_listing",
-      "description": "Delete a listing. Etsy disallows deletion of sold-out listings \u2014 deactivate them via update_listing instead.",
+      "description": "Open API V3 endpoint to delete a ShopListing. A ShopListing can be deleted only if the state is one of the following: SOLDOUT, DRAFT, EXPIRED, INACTIVE, ACTIVE and isavailable or ACTIVE and has seller flags: SUPRESSED (frozen), VACATION, CUSTOMSHOPS (pattern), SELLONFACEBOOK",
       "method": "DELETE",
       "path": "/listings/{listing_id}",
       "input_schema": {
         "type": "object",
         "properties": {
           "listing_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
           }
         },
         "required": [
@@ -345,136 +523,4569 @@
       }
     },
     {
-      "name": "list_shop_receipts",
-      "description": "List orders (receipts) for a shop \u2014 buyer info, items, totals, shipment status. Filter by paid/shipped status and date range.",
+      "name": "get_listing_file",
+      "description": "Retrieves a single file associated with the given digital listing. Requesting a file from a physical listing returns an empty result.",
       "method": "GET",
-      "path": "/shops/{shop_id}/receipts",
+      "path": "/shops/{shop_id}/listings/{listing_id}/files/{listing_file_id}",
       "input_schema": {
         "type": "object",
         "properties": {
           "shop_id": {
-            "type": "integer"
-          },
-          "min_created": {
             "type": "integer",
-            "description": "Unix timestamp lower bound."
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
           },
-          "max_created": {
-            "type": "integer"
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
           },
-          "min_last_modified": {
-            "type": "integer"
-          },
-          "max_last_modified": {
-            "type": "integer"
-          },
-          "limit": {
-            "type": "integer"
-          },
-          "offset": {
-            "type": "integer"
-          },
-          "was_paid": {
-            "type": "boolean"
-          },
-          "was_shipped": {
-            "type": "boolean"
-          },
-          "was_delivered": {
-            "type": "boolean"
-          },
-          "was_canceled": {
-            "type": "boolean"
+          "listing_file_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique numeric ID of a file associated with a digital listing."
           }
         },
         "required": [
+          "shop_id",
+          "listing_id",
+          "listing_file_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_listing_file",
+      "description": "Deletes a file from a specific listing. When you delete the final file for a digital listing, the listing converts into a physical listing. The response to a delete request returns a list of the remaining file records associated with the given listing.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/listings/{listing_id}/files/{listing_file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "listing_file_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique numeric ID of a file associated with a digital listing."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "listing_file_id"
+        ]
+      }
+    },
+    {
+      "name": "get_all_listing_files",
+      "description": "Retrieves all the files associated with the given digital listing. Requesting files from a physical listing returns an empty result.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/{listing_id}/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          }
+        },
+        "required": [
+          "listing_id",
           "shop_id"
         ]
       }
     },
     {
+      "name": "upload_listing_file",
+      "description": "Uploads a new file for a digital listing, or associates an existing file with a specific listing. You must either provide the listingfileid of an existing file, or the name and binary file data for a file to upload. Associating an existing file to a physical listing converts the physical listing into a digital listing, which removes all shipping...",
+      "method": "POST",
+      "path": "/shops/{shop_id}/listings/{listing_id}/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "listing_file_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique numeric ID of a file associated with a digital listing."
+          },
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "A binary file to upload.",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "description": "The file name string of a file to upload"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int64",
+            "default": 1,
+            "minimum": 1,
+            "description": "The positive non-zero numeric position in the images displayed in a listing, with rank 1 images appearing in the left-most position in a listing."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Filename to use for the uploaded binary data."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      },
+      "multipart_form": {
+        "file_fields": {
+          "file": "file"
+        },
+        "field_names": [
+          "listing_file_id",
+          "name",
+          "rank"
+        ]
+      }
+    },
+    {
+      "name": "find_all_listings_active",
+      "description": "A list of all active listings on Etsy paginated by their creation date. Without sortorder listings will be returned newest-first by default.",
+      "method": "GET",
+      "path": "/listings/active",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "keywords": {
+            "type": "string",
+            "default": null,
+            "description": "Search term or phrase that must appear in all results."
+          },
+          "sort_on": {
+            "type": "string",
+            "enum": [
+              "created",
+              "price",
+              "updated",
+              "score"
+            ],
+            "default": "created",
+            "description": "The value to sort a search result of listings on. NOTES: a) sorton only works when combined with one of the search options (keywords, region, etc.). b) when using score the returned results will always be in descending order, regardless of the sortorder parameter."
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "ascending",
+              "desc",
+              "descending",
+              "up",
+              "down"
+            ],
+            "default": "desc",
+            "description": "The ascending(up) or descending(down) order to sort listings by. NOTE: sortorder only works when combined with one of the search options (keywords, region, etc.)."
+          },
+          "min_price": {
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "description": "The minimum price of listings to be returned by a search result."
+          },
+          "max_price": {
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "description": "The maximum price of listings to be returned by a search result."
+          },
+          "taxonomy_id": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "description": "The numerical taxonomy ID of the listing. See SellerTaxonomy and BuyerTaxonomy for more information."
+          },
+          "shop_location": {
+            "type": "string",
+            "default": null,
+            "description": "Filters by shop location. If location cannot be parsed, Etsy responds with an error."
+          },
+          "is_safe": {
+            "type": "boolean",
+            "description": "When true, filters out mature/adult content from search results."
+          },
+          "currency": {
+            "type": "string",
+            "default": null,
+            "description": "The ISO 4217 alphabetic currency code (e.g., EUR, MXN) for price conversion. If provided, the listing price will be converted to this currency."
+          },
+          "buyer_country": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "default": null,
+            "description": "The ISO 3166-1 alpha-2 country code (e.g., DE, MX). Filters results to listings that ship to this country."
+          }
+        }
+      },
+      "query_params": [
+        "limit",
+        "offset",
+        "keywords",
+        "sort_on",
+        "sort_order",
+        "min_price",
+        "max_price",
+        "taxonomy_id",
+        "shop_location",
+        "is_safe",
+        "currency",
+        "buyer_country"
+      ]
+    },
+    {
+      "name": "list_shop_listings_active",
+      "description": "Retrieves a list of all active listings on Etsy in a specific shop, paginated by listing creation date.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/active",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "sort_on": {
+            "type": "string",
+            "enum": [
+              "created",
+              "price",
+              "updated",
+              "score"
+            ],
+            "default": "created",
+            "description": "The value to sort a search result of listings on. NOTES: a) sorton only works when combined with one of the search options (keywords, region, etc.). b) when using score the returned results will always be in descending order, regardless of the sortorder parameter."
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "ascending",
+              "desc",
+              "descending",
+              "up",
+              "down"
+            ],
+            "default": "desc",
+            "description": "The ascending(up) or descending(down) order to sort listings by. NOTE: sortorder only works when combined with one of the search options (keywords, region, etc.)."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "keywords": {
+            "type": "string",
+            "default": null,
+            "description": "Search term or phrase that must appear in all results."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "sort_on",
+        "sort_order",
+        "offset",
+        "keywords"
+      ]
+    },
+    {
+      "name": "delete_listing_image",
+      "description": "Open API V3 endpoint to delete a listing image. A copy of the file remains on our servers, and so a deleted image may be re-associated with the listing without re-uploading the original image; see uploadListingImage.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/listings/{listing_id}/images/{listing_image_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "listing_image_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the primary listing image for this transaction."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "listing_image_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listing_image",
+      "description": "Retrieves the references and metadata for a listing image with a specific image ID.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/images/{listing_image_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "listing_image_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the primary listing image for this transaction."
+          }
+        },
+        "required": [
+          "listing_id",
+          "listing_image_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listing_images",
+      "description": "Retrieves all listing image resources for a listing with a specific listing ID.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          }
+        },
+        "required": [
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_listing_image",
+      "description": "Uploads or assigns an image to a listing identified by a shop ID with a listing ID. To upload a new image, set the image file as the value for the image parameter. You can assign a previously deleted image to a listing using the deleted image's image ID in the listingimageid parameter. When a request contains both image and listingimageid parame...",
+      "method": "POST",
+      "path": "/shops/{shop_id}/listings/{listing_id}/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "image": {
+            "type": "string",
+            "format": "binary",
+            "description": "The file name string of a file to upload",
+            "nullable": true
+          },
+          "listing_image_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the primary listing image for this transaction."
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int64",
+            "default": 1,
+            "minimum": 0,
+            "description": "The positive non-zero numeric position in the images displayed in a listing, with rank 1 images appearing in the left-most position in a listing."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, this request replaces the existing image at a given rank."
+          },
+          "is_watermarked": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, indicates that the uploaded image has a watermark."
+          },
+          "alt_text": {
+            "type": "string",
+            "default": "",
+            "description": "Alt text for the listing image. Max length 500 characters."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Filename to use for the uploaded binary data."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      },
+      "multipart_form": {
+        "file_fields": {
+          "image": "image"
+        },
+        "field_names": [
+          "listing_image_id",
+          "rank",
+          "overwrite",
+          "is_watermarked",
+          "alt_text"
+        ]
+      }
+    },
+    {
+      "name": "get_listing_inventory",
+      "description": "Retrieves the inventory record for a listing. Listings you did not edit using the Etsy.com inventory tools have no inventory records. This endpoint returns SKU data if you are the owner of the inventory records being fetched.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "show_deleted": {
+            "type": "boolean",
+            "description": "A boolean value for inventory whether to include deleted products and their offerings. Default value is false."
+          },
+          "includes": {
+            "type": "string",
+            "enum": [
+              "Listing"
+            ],
+            "description": "An enumerated string that attaches a valid association. Default value is null."
+          }
+        },
+        "required": [
+          "listing_id"
+        ]
+      },
+      "query_params": [
+        "show_deleted",
+        "includes"
+      ]
+    },
+    {
+      "name": "update_listing_inventory",
+      "description": "Updates the inventory for a listing identified by a listing ID. The update fails if the supplied values for product sku, offering quantity, price, and/or processing profile are incompatible with values in onproperty fields. When setting a price, assign a float equal to amount divided by divisor as specified in the Money resource.",
+      "method": "PUT",
+      "path": "/listings/{listing_id}/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "max_variations_supported": {
+            "type": "string",
+            "enum": [
+              "2",
+              "3"
+            ],
+            "description": "Coming soon: This parameter determines whether a third variation can be added to or updated for a listing. It accepts values of 2 or 3, where 3 enables third-variation support."
+          },
+          "products": {
+            "type": "array",
+            "description": "A JSON array of products available in a listing, even if only one product. All field names in the JSON blobs are lowercase.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sku": {
+                  "type": "string",
+                  "description": "The SKU string for the product",
+                  "nullable": true
+                },
+                "property_values": {
+                  "type": "array",
+                  "description": "A list of property value entries for this product. Note: parenthesis characters (( and )) are not allowed.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "property_id": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 1,
+                        "description": "The unique ID of an Etsy listing property."
+                      },
+                      "value_ids": {
+                        "type": "array",
+                        "description": "An array of unique IDs of Etsy listing property values.",
+                        "items": {}
+                      },
+                      "scale_id": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 1,
+                        "description": "The numeric ID of a single Etsy.com measurement scale. For example, for shoe size, there are three scaleids available - UK, US/Canada, and EU, where US/Canada has scaleid 19.",
+                        "nullable": true
+                      },
+                      "property_name": {
+                        "type": "string",
+                        "description": "The name of the property, in the requested locale language."
+                      },
+                      "values": {
+                        "type": "array",
+                        "description": "A list of property value entries for this product. Note: parenthesis characters (( and )) are not allowed.",
+                        "items": {}
+                      }
+                    },
+                    "required": [
+                      "property_id",
+                      "value_ids",
+                      "values"
+                    ]
+                  }
+                },
+                "offerings": {
+                  "type": "array",
+                  "description": "A list of product offering entries for this product.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "price": {
+                        "type": "number",
+                        "format": "float",
+                        "description": "The price of the product."
+                      },
+                      "quantity": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "How many of this product are available?"
+                      },
+                      "is_enabled": {
+                        "type": "boolean",
+                        "description": "True if the offering is shown to buyers"
+                      },
+                      "readiness_state_id": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 1,
+                        "description": "The numeric ID of the processing profile associated with the listing. Returned only when the listing is active and of type physical, and the endpoint is either shop-scoped (path contains shopid) or a single-listing request such as getListing. For every other case this field can be null.",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "price",
+                      "quantity",
+                      "is_enabled",
+                      "readiness_state_id"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "offerings"
+              ]
+            }
+          },
+          "price_on_property": {
+            "type": "array",
+            "description": "An array of unique listing property ID integers for the properties that change product prices, if any. For example, if you charge specific prices for different sized products in the same listing, then this array contains the property ID for size.",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "quantity_on_property": {
+            "type": "array",
+            "description": "An array of unique listing property ID integers for the properties that change the quantity of the products, if any. For example, if you stock specific quantities of different colored products in the same listing, then this array contains the property ID for color.",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "sku_on_property": {
+            "type": "array",
+            "description": "An array of unique listing property ID integers for the properties that change the product SKU, if any. For example, if you use specific skus for different colored products in the same listing, then this array contains the property ID for color.",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "readiness_state_on_property": {
+            "type": "array",
+            "description": "An array of unique listing property ID integers for the properties that change processing profile, if any. For example, if you need specific processing profiles for different colored products in the same listing, then this array contains the property ID for color.",
+            "nullable": true,
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        },
+        "required": [
+          "listing_id",
+          "products"
+        ]
+      },
+      "query_params": [
+        "max_variations_supported"
+      ]
+    },
+    {
+      "name": "get_listings_inventory_by_listing_ids",
+      "description": "Retrieves the inventory record for each listing referenced by listing ID. Requires the listingsr OAuth scope. Limit 100 listing IDs per request. All requested listing IDs must exist — if any single ID is not found, the entire request returns a 404. SKUs within product records are only returned for listings owned by the authenticated user; they a...",
+      "method": "GET",
+      "path": "/listings/batch/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_ids": {
+            "type": "array",
+            "description": "The list of numeric IDS for the listings in a specific Etsy shop.",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        },
+        "required": [
+          "listing_ids"
+        ]
+      },
+      "query_params": [
+        "listing_ids"
+      ]
+    },
+    {
+      "name": "get_listing_product",
+      "description": "Open API V3 endpoint to retrieve a ListingProduct by ID.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/inventory/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The listing to return a ListingProduct for."
+          },
+          "product_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for a specific product purchased from a listing."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter is needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "listing_id",
+          "product_id"
+        ]
+      },
+      "query_params": [
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_listing_offering",
+      "description": "Get an Offering for a Listing",
+      "method": "GET",
+      "path": "/listings/{listing_id}/products/{product_id}/offerings/{product_offering_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "product_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "product_offering_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter is needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "listing_id",
+          "product_id",
+          "product_offering_id"
+        ]
+      },
+      "query_params": [
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_listings_by_listing_ids",
+      "description": "Allows to query multiple listing ids at once. Limit 100 ids maximum per query.",
+      "method": "GET",
+      "path": "/listings/batch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_ids": {
+            "type": "array",
+            "description": "The list of numeric IDS for the listings in a specific Etsy shop.",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          "includes": {
+            "type": "array",
+            "default": null,
+            "description": "An enumerated string that attaches a valid association. Acceptable inputs are 'Shop', 'Images', 'User', 'Translations', 'Videos', 'Personalization' and 'BuyerPrice'.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Images",
+                "Shop",
+                "User",
+                "Translations",
+                "Videos",
+                "Personalization",
+                "BuyerPrice"
+              ]
+            }
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter is needed to enable new parameters and response values related to processing profiles."
+          },
+          "currency": {
+            "type": "string",
+            "default": null,
+            "description": "The ISO 4217 alphabetic currency code (e.g., EUR, MXN) for price conversion. If provided, the listing price will be converted to this currency."
+          },
+          "buyer_country": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "default": null,
+            "description": "The ISO 3166-1 alpha-2 country code (e.g., GB, DE). Used for buyer-facing price calculations (VAT, inclusive shipping). Does not filter listings."
+          }
+        },
+        "required": [
+          "listing_ids"
+        ]
+      },
+      "query_params": [
+        "listing_ids",
+        "includes",
+        "legacy",
+        "currency",
+        "buyer_country"
+      ]
+    },
+    {
+      "name": "get_featured_listings_by_shop",
+      "description": "Retrieves Listings associated to a Shop that are featured.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/featured",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter is needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "offset",
+        "legacy"
+      ]
+    },
+    {
+      "name": "update_listing_personalization",
+      "description": "Creates or updates personalization settings for a listing, allowing the seller to collect personalization from the buyer. This endpoint will fully replace any existing personalization on the listing.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/listings/{listing_id}/personalization",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "supports_multiple_personalization_questions": {
+            "type": "boolean",
+            "description": "This query parameter indicates that the caller supports up to 5 personalization questions and the following question types: 'textinput', 'dropdown', 'unlabeledupload', 'labeledupload'. Sending this param without updating your application can lead to inadvertently deleting seller-entered data.",
+            "nullable": true
+          },
+          "personalization_questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question_id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1,
+                  "description": "The ID of the personalization question. This field is optional. Include it when updating an existing question; omit it when creating a new question. Note: This value may change if the personalization question is updated.",
+                  "nullable": true
+                },
+                "question_text": {
+                  "type": "string",
+                  "description": "The title of the personalization question. Must be between 1 and 45 characters. See https://developers.etsy.com/documentation/tutorials/personalization-migrationwriting-listing-personalization-data"
+                },
+                "instructions": {
+                  "type": "string",
+                  "description": "Optional instructions for a personalization question. This field is not allowed for 'dropdown' questions. See https://developers.etsy.com/documentation/tutorials/personalization-migrationwriting-listing-personalization-data",
+                  "nullable": true
+                },
+                "question_type": {
+                  "type": "string",
+                  "enum": [
+                    "text_input",
+                    "dropdown",
+                    "unlabeled_upload",
+                    "labeled_upload"
+                  ],
+                  "description": "The type of the personalization question. Note: Currently, only a single question with type 'textinput' is supported. See https://developers.etsy.com/documentation/tutorials/personalization-migration for details about new question types."
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "When true, the personalization question is required."
+                },
+                "max_allowed_files": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "The maximum number of files the buyer may upload in response to a personalization question. This field is optional and only applicable to 'unlabeledupload' and 'labeledupload' questions.",
+                  "nullable": true
+                },
+                "max_allowed_characters": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "The maximum number of characters the buyer may enter in response to a personalization question. This field is optional and only applicable to 'textinput' questions.",
+                  "nullable": true
+                },
+                "options": {
+                  "type": "array",
+                  "description": "The list of options for a personalization question. For 'dropdown' questions, this list contains the options for the dropdown. For 'labeledupload' questions, this list contains the labels for the files that the buyer may upload, and must match the maxallowedfiles value..",
+                  "nullable": true,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "option_id": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 1,
+                        "description": "The ID of the option. This field is optional. Include it when updating an existing option; omit it when creating a new option. Note: This value may change if the option or question is updated.",
+                        "nullable": true
+                      },
+                      "label": {
+                        "type": "string",
+                        "description": "The option label. Note: For 'dropdown' questions, max length is 20 characters. For 'labeledupload' questions, max length is 45 characters."
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ]
+                  }
+                },
+                "add_on_price": {
+                  "type": "number",
+                  "format": "float",
+                  "description": "The add-on price for a question. This field is optional and only supported for optional questions of type textinput.",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "question_text",
+                "question_type",
+                "required"
+              ]
+            }
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "personalization_questions"
+        ]
+      },
+      "query_params": [
+        "supports_multiple_personalization_questions"
+      ]
+    },
+    {
+      "name": "delete_listing_personalization",
+      "description": "Deletes personalization for a listing.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/listings/{listing_id}/personalization",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listing_personalization",
+      "description": "Retrieves a listing's personalization questions by listing ID.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/personalization",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          }
+        },
+        "required": [
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "update_listing_property",
+      "description": "Updates or populates the properties list defining product offerings for a listing. Each offering requires both a value and a valueid that are valid for a scaleid assigned to the listing or that you assign to the listing with this request.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/listings/{listing_id}/properties/{property_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique ID of an Etsy listing property."
+          },
+          "value_ids": {
+            "type": "array",
+            "description": "An array of unique IDs of multiple Etsy listing property values. For example, if your listing is composed of different materials, then the value ID list contains value IDs for each material.",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          "values": {
+            "type": "array",
+            "description": "An array of value strings for multiple Etsy listing property values. For example, if your listing is painted in different colors, then the values array contains the color strings for each color. Note: parenthesis characters (( and )) are not allowed.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scale_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of a single Etsy.com measurement scale. For example, for shoe size, there are three scaleids available - UK, US/Canada, and EU, where US/Canada has scaleid 19."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "property_id",
+          "value_ids",
+          "values"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "delete_listing_property",
+      "description": "Deletes a property for a Listing.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/listings/{listing_id}/properties/{property_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique ID of an Etsy listing property."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listing_properties",
+      "description": "Get a listing's properties",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/{listing_id}/properties",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listings_shipping_by_listing_ids",
+      "description": "Retrieves the shipping profile for each listing referenced by listing ID. Requires the shopsr OAuth scope. Limit 100 listing IDs per request. All requested listing IDs must exist — if any single ID is not found, the entire request returns a 404. Shipping profile data (including shippingprofileid) is only returned for listings owned by the authen...",
+      "method": "GET",
+      "path": "/listings/batch/shipping",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_ids": {
+            "type": "array",
+            "description": "The list of numeric IDS for the listings in a specific Etsy shop.",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        },
+        "required": [
+          "listing_ids"
+        ]
+      },
+      "query_params": [
+        "listing_ids"
+      ]
+    },
+    {
+      "name": "get_shop_receipt_transactions_by_listing",
+      "description": "Retrieves the list of transactions associated with a listing.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/{listing_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "offset",
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_listing_translation",
+      "description": "Get a Translation for a Listing in the given language",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/{listing_id}/translations/{language}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "language": {
+            "type": "string",
+            "description": "The IETF language tag for the language of this translation. Ex: de, en, es, fr, it, ja, nl, pl, pt."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "language"
+        ]
+      }
+    },
+    {
+      "name": "create_listing_translation",
+      "description": "Creates a ListingTranslation by listingid and language",
+      "method": "POST",
+      "path": "/shops/{shop_id}/listings/{listing_id}/translations/{language}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "language": {
+            "type": "string",
+            "description": "The IETF language tag for the language of this translation. Ex: de, en, es, fr, it, ja, nl, pl, pt."
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the Listing of this Translation."
+          },
+          "description": {
+            "type": "string",
+            "description": "The description of the Listing of this Translation."
+          },
+          "tags": {
+            "type": "array",
+            "description": "The tags of the Listing of this Translation.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "language",
+          "title",
+          "description"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "update_listing_translation",
+      "description": "Updates a ListingTranslation by listingid and language",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/listings/{listing_id}/translations/{language}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "language": {
+            "type": "string",
+            "description": "The IETF language tag for the language of this translation. Ex: de, en, es, fr, it, ja, nl, pl, pt."
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the Listing of this Translation."
+          },
+          "description": {
+            "type": "string",
+            "description": "The description of the Listing of this Translation."
+          },
+          "tags": {
+            "type": "array",
+            "description": "The tags of the Listing of this Translation.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "language",
+          "title",
+          "description"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "update_listing",
+      "description": "Updates a listing, identified by a listing ID, for a specific shop identified by a shop ID. Note that this is a PATCH method type. When activating, or manually renewing a physical listing, the shipping profile referenced by the shippingprofileid, and all of its fields, along with its entries and upgrades must be complete and valid. If the shippi...",
+      "method": "PATCH",
+      "path": "/shops/{shop_id}/listings/{listing_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "image_ids": {
+            "type": "array",
+            "description": "An array of numeric image IDs of the images in a listing, which can include up to 20 images.",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          "title": {
+            "type": "string",
+            "description": "The listing's title string. When creating or updating a listing, valid title strings contain only letters, numbers, punctuation marks, mathematical symbols, whitespace characters, ™, ©, and ®. (regex: /[^\\p{L}\\p{Nd}\\p{P}\\p{Sm}\\p{Zs}™©®]/u) You can only use the %, :, & and + characters once each."
+          },
+          "description": {
+            "type": "string",
+            "description": "A description string of the product for sale in the listing."
+          },
+          "materials": {
+            "type": "array",
+            "description": "A list of material strings for materials used in the product. Valid materials strings contain only letters, numbers, and whitespace characters. (regex: /[^\\p{L}\\p{Nd}\\p{Zs}]/u) Default value is null.",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "should_auto_renew": {
+            "type": "boolean",
+            "description": "When true, renews a listing for four months upon expiration."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical.",
+            "nullable": true
+          },
+          "return_policy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy. Required for active physical listings. This requirement does not apply to listings of EU-based shops.",
+            "nullable": true
+          },
+          "shop_section_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The numeric ID of the shop section for this listing. Default value is null.",
+            "nullable": true
+          },
+          "item_weight": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric weight of the product measured in units set in 'itemweightunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_length": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric length of the product measured in units set in 'itemdimensionsunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_width": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric width of the product measured in units set in 'itemdimensionsunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_height": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1.79769313486e+308,
+            "description": "The numeric height of the product measured in units set in 'itemdimensionsunit'. Default value is null. If set, the value must be greater than 0.",
+            "nullable": true
+          },
+          "item_weight_unit": {
+            "type": "string",
+            "enum": [
+              "",
+              "oz",
+              "lb",
+              "g",
+              "kg"
+            ],
+            "description": "A string defining the units used to measure the weight of the product. Default value is null.",
+            "nullable": true
+          },
+          "item_dimensions_unit": {
+            "type": "string",
+            "enum": [
+              "",
+              "in",
+              "ft",
+              "mm",
+              "cm",
+              "m",
+              "yd",
+              "inches"
+            ],
+            "description": "A string defining the units used to measure the dimensions of the product. Default value is null.",
+            "nullable": true
+          },
+          "is_taxable": {
+            "type": "boolean",
+            "description": "When true, applicable shop tax rates apply to this listing at checkout."
+          },
+          "taxonomy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numerical taxonomy ID of the listing. See SellerTaxonomy and BuyerTaxonomy for more information."
+          },
+          "tags": {
+            "type": "array",
+            "description": "A comma-separated list of tag strings for the listing. When creating or updating a listing, valid tag strings contain only letters, numbers, whitespace characters, -, ', ™, ©, and ®. (regex: /[^\\p{L}\\p{Nd}\\p{Zs}\\-'™©®]/u) Default value is null.",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "who_made": {
+            "type": "string",
+            "enum": [
+              "i_did",
+              "someone_else",
+              "collective"
+            ],
+            "description": "An enumerated string indicating who made the product. Helps buyers locate the listing under the Handmade heading. Requires 'issupply' and 'whenmade'."
+          },
+          "when_made": {
+            "type": "string",
+            "enum": [
+              "made_to_order",
+              "2020_2026",
+              "2010_2019",
+              "2007_2009",
+              "before_2007",
+              "2000_2006",
+              "1990s",
+              "1980s",
+              "1970s",
+              "1960s",
+              "1950s",
+              "1940s",
+              "1930s",
+              "1920s",
+              "1910s",
+              "1900s",
+              "1800s",
+              "1700s",
+              "before_1700"
+            ],
+            "description": "An enumerated string for the era in which the maker made the product in this listing. Helps buyers locate the listing under the Vintage heading. Requires 'issupply' and 'whomade'."
+          },
+          "featured_rank": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The positive non-zero numeric position in the featured listings of the shop, with rank 1 listings appearing in the left-most position in featured listing on a shop's home page.",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "description": "When updating a listing, this value can be either active or inactive. Note: Setting a draft listing to active will also publish the listing on etsy.com and requires that the listing have an image set. Setting a soldout listing to active will update the quantity to 1 and renew the listing on etsy.com."
+          },
+          "is_supply": {
+            "type": "boolean",
+            "description": "When true, tags the listing as a supply product, else indicates that it's a finished product. Helps buyers locate the listing under the Supplies heading. Requires 'whomade' and 'whenmade'."
+          },
+          "production_partner_ids": {
+            "type": "array",
+            "description": "An array of unique IDs of production partner ids.",
+            "nullable": true,
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "physical",
+              "download",
+              "both"
+            ],
+            "description": "An enumerated type string that indicates whether the listing is physical or a digital download.",
+            "nullable": true
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_listing_variation_images",
+      "description": "Gets all variation images on a listing.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/{listing_id}/variation-images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "update_variation_images",
+      "description": "Creates variation images on a listing. variationimages is an array with inputs for the propertyid, valueid, and imageid fields. imageids are associated with a ListingImage on the listing associated with the provided listingid. propertyid and valueid pairs are associated with a ListingProduct on the listing associated with the provided listingid....",
+      "method": "POST",
+      "path": "/shops/{shop_id}/listings/{listing_id}/variation-images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "variation_images": {
+            "type": "array",
+            "description": "A list of variation image data.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "property_id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1
+                },
+                "value_id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1
+                },
+                "image_id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "property_id",
+                "value_id",
+                "image_id"
+              ]
+            }
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "variation_images"
+        ]
+      }
+    },
+    {
+      "name": "delete_listing_video",
+      "description": "Open API V3 endpoint to delete a listing video. A copy of the video remains on our servers, and so a deleted video may be re-associated with the listing without re-uploading the original video; see uploadListingVideo.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/listings/{listing_id}/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "video_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique ID of a video associated with a listing."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id",
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listing_video",
+      "description": "Retrieves a single video associated with the given listing. Requesting a video from a listing returns an empty result.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique ID of a video associated with a listing."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          }
+        },
+        "required": [
+          "video_id",
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listing_videos",
+      "description": "Retrieves all listing video resources for a listing with a specific listing ID.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          }
+        },
+        "required": [
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_listing_video",
+      "description": "Uploads a new video for a listing, or associates an existing video with a specific listing. You must either provide the videoid of an existing video, or the name and binary file data for a video to upload. If providing a videoid, the video must already be associated with the same shop as the listing, but it does not need to be currently associat...",
+      "method": "POST",
+      "path": "/shops/{shop_id}/listings/{listing_id}/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "video_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique ID of a video associated with a listing."
+          },
+          "video": {
+            "type": "string",
+            "format": "binary",
+            "description": "A video file to upload.",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "description": "The file name string for the video to upload."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Filename to use for the uploaded binary data."
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      },
+      "multipart_form": {
+        "file_fields": {
+          "video": "video"
+        },
+        "field_names": [
+          "video_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_payment_account_ledger_entry",
+      "description": "Get a single Shop Payment Account Ledger's Entry",
+      "method": "GET",
+      "path": "/shops/{shop_id}/payment-account/ledger-entries/{ledger_entry_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "ledger_entry_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique ID of the shop owner ledger entry."
+          }
+        },
+        "required": [
+          "shop_id",
+          "ledger_entry_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_payment_account_ledger_entries",
+      "description": "Get a Shop Payment Account Ledger's Entries",
+      "method": "GET",
+      "path": "/shops/{shop_id}/payment-account/ledger-entries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "min_created": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 946684800,
+            "description": "The earliest unix timestamp for when a record was created."
+          },
+          "max_created": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 946684800,
+            "description": "The latest unix timestamp for when a record was created."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          }
+        },
+        "required": [
+          "shop_id",
+          "min_created",
+          "max_created"
+        ]
+      },
+      "query_params": [
+        "min_created",
+        "max_created",
+        "limit",
+        "offset"
+      ]
+    },
+    {
+      "name": "get_payment_account_ledger_entry_payments",
+      "description": "Get a Payment from a PaymentAccount Ledger Entry ID, if applicable",
+      "method": "GET",
+      "path": "/shops/{shop_id}/payment-account/ledger-entries/payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "ledger_entry_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        },
+        "required": [
+          "shop_id",
+          "ledger_entry_ids"
+        ]
+      },
+      "query_params": [
+        "ledger_entry_ids"
+      ]
+    },
+    {
+      "name": "get_shop_payment_by_receipt_id",
+      "description": "Retrieves a payment from a specific receipt, identified by receiptid, from a specific shop, identified by shopid",
+      "method": "GET",
+      "path": "/shops/{shop_id}/receipts/{receipt_id}/payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "receipt_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the receipt associated to this transaction."
+          }
+        },
+        "required": [
+          "shop_id",
+          "receipt_id"
+        ]
+      }
+    },
+    {
+      "name": "get_payments",
+      "description": "Retrieves a list of payments from a shop identified by shopid. You can also filter results using a list of payment IDs.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "payment_ids": {
+            "type": "array",
+            "description": "A comma-separated array of Payment IDs numbers.",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        },
+        "required": [
+          "shop_id",
+          "payment_ids"
+        ]
+      },
+      "query_params": [
+        "payment_ids"
+      ]
+    },
+    {
+      "name": "ping",
+      "description": "Check to confirm connectivity to the Etsy API with an application",
+      "method": "GET",
+      "path": "/openapi-ping",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "get_shop_receipt",
-      "description": "Get a single receipt (order) by ID.",
+      "description": "Retrieves a receipt, identified by a receipt id, from an Etsy shop. NOTE Access to ShopReceipt's firstline, secondline, city, state, zip, countryiso and formattedaddress is contingent in some regions to a preferred partnership status with Etsy",
       "method": "GET",
       "path": "/shops/{shop_id}/receipts/{receipt_id}",
       "input_schema": {
         "type": "object",
         "properties": {
           "shop_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
           },
           "receipt_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the receipt associated to this transaction."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter needed to enable new parameters and response values related to processing profiles."
           }
         },
         "required": [
           "shop_id",
           "receipt_id"
         ]
+      },
+      "query_params": [
+        "legacy"
+      ]
+    },
+    {
+      "name": "update_shop_receipt",
+      "description": "Updates the status of a receipt, identified by a receipt id, from an Etsy shop. NOTE Access to ShopReceipt's firstline, secondline, city, state, zip, countryiso and formattedaddress is contingent in some regions to a preferred partnership status with Etsy",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/receipts/{receipt_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "receipt_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the receipt associated to this transaction."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter needed to enable new parameters and response values related to processing profiles."
+          },
+          "was_shipped": {
+            "type": "boolean",
+            "description": "When true, returns receipts where the seller shipped the product(s) in this receipt. When false, returns receipts where shipment has not been set.",
+            "nullable": true
+          },
+          "was_paid": {
+            "type": "boolean",
+            "description": "When true, returns receipts where the seller has received payment for the receipt. When false, returns receipts where payment has not been received.",
+            "nullable": true
+          }
+        },
+        "required": [
+          "shop_id",
+          "receipt_id"
+        ]
+      },
+      "query_params": [
+        "legacy"
+      ],
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
       }
     },
     {
+      "name": "list_shop_receipts",
+      "description": "Requests the Shop Receipts from a specific Shop, unfiltered or filtered by receipt id range or offset, date, paid, and/or shipped purchases. NOTE Access to ShopReceipt's firstline, secondline, city, state, zip, countryiso and formattedaddress is contingent in some regions to a preferred partnership status with Etsy",
+      "method": "GET",
+      "path": "/shops/{shop_id}/receipts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "min_created": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 946684800,
+            "description": "The earliest unix timestamp for when a record was created."
+          },
+          "max_created": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 946684800,
+            "description": "The latest unix timestamp for when a record was created."
+          },
+          "min_last_modified": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 946684800,
+            "description": "The earliest unix timestamp for when a record last changed."
+          },
+          "max_last_modified": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 946684800,
+            "description": "The latest unix timestamp for when a record last changed."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "sort_on": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "receipt_id"
+            ],
+            "default": "created",
+            "description": "The value to sort a search result of listings on."
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "ascending",
+              "desc",
+              "descending",
+              "up",
+              "down"
+            ],
+            "default": "desc",
+            "description": "The ascending(up) or descending(down) order to sort receipts by."
+          },
+          "was_paid": {
+            "type": "boolean",
+            "description": "When true, returns receipts where the seller has received payment for the receipt. When false, returns receipts where payment has not been received.",
+            "nullable": true
+          },
+          "was_shipped": {
+            "type": "boolean",
+            "description": "When true, returns receipts where the seller shipped the product(s) in this receipt. When false, returns receipts where shipment has not been set.",
+            "nullable": true
+          },
+          "was_delivered": {
+            "type": "boolean",
+            "description": "When true, returns receipts that have been marked as delivered. When false, returns receipts where shipment has not been marked as delivered.",
+            "nullable": true
+          },
+          "was_canceled": {
+            "type": "boolean",
+            "description": "When true, the endpoint will only return the canceled receipts. When false, the endpoint will only return non-canceled receipts.",
+            "nullable": true
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      },
+      "query_params": [
+        "min_created",
+        "max_created",
+        "min_last_modified",
+        "max_last_modified",
+        "limit",
+        "offset",
+        "sort_on",
+        "sort_order",
+        "was_paid",
+        "was_shipped",
+        "was_delivered",
+        "was_canceled",
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_listings_by_shop_receipt",
+      "description": "Gets all listings associated with a receipt.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/receipts/{receipt_id}/listings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "receipt_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the receipt associated to this transaction."
+          },
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter is needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "receipt_id",
+          "shop_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "offset",
+        "legacy"
+      ]
+    },
+    {
       "name": "create_receipt_shipment",
-      "description": "Mark a receipt as shipped and optionally attach a tracking number / carrier to notify the buyer.",
+      "description": "Submits tracking information for a Shop Receipt, which creates a Shop Receipt Shipment entry for the given receiptid. Each time you successfully submit tracking info, Etsy sends a notification email to the buyer User. When sendbcc is true, Etsy sends shipping notifications to the seller as well. When trackingcode and carriername aren't sent, the...",
       "method": "POST",
       "path": "/shops/{shop_id}/receipts/{receipt_id}/tracking",
       "input_schema": {
         "type": "object",
         "properties": {
           "shop_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
           },
           "receipt_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The receipt to submit tracking for."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter needed to enable new parameters and response values related to processing profiles."
           },
           "tracking_code": {
-            "type": "string"
+            "type": "string",
+            "description": "The tracking code for this receipt."
           },
           "carrier_name": {
             "type": "string",
-            "description": "e.g. 'usps', 'fedex', 'ups', 'dhl'."
+            "description": "The carrier name for this receipt."
           },
           "send_bcc": {
             "type": "boolean",
-            "description": "BCC the seller on the buyer notification email."
+            "description": "If true, the shipping notification will be sent to the seller as well"
           },
           "note_to_buyer": {
-            "type": "string"
+            "type": "string",
+            "description": "Message to include in notification to the buyer."
+          },
+          "mail_class": {
+            "type": "string",
+            "description": "The service level of postal or carrier service selected for the shipment (e.g., First-Class, Priority, Ground, Express).",
+            "nullable": true
+          },
+          "weight": {
+            "type": "number",
+            "format": "float",
+            "description": "The total weight of the package.",
+            "nullable": true
+          },
+          "weight_units": {
+            "type": "string",
+            "description": "Unit of measurement used for package weight (oz, grams, etc.).",
+            "nullable": true
+          },
+          "length": {
+            "type": "number",
+            "format": "float",
+            "description": "Longest side of the package.",
+            "nullable": true
+          },
+          "width": {
+            "type": "number",
+            "format": "float",
+            "description": "Second longest side of the package.",
+            "nullable": true
+          },
+          "height": {
+            "type": "number",
+            "format": "float",
+            "description": "Third longest side of the package.",
+            "nullable": true
+          },
+          "dimension_units": {
+            "type": "string",
+            "description": "Unit of measurement used for package dimensions (in, cm...).",
+            "nullable": true
+          },
+          "shipping_label_cost": {
+            "type": "number",
+            "format": "float",
+            "description": "The purchase price the seller paid for the shipping label.",
+            "nullable": true
+          },
+          "shipping_label_currency": {
+            "type": "string",
+            "description": "The currency in which the shipping label was purchased.",
+            "nullable": true
+          },
+          "revenue_eligibility": {
+            "type": "string",
+            "description": "A flag indicating if the shipment is tied to a revenue share agreement between Etsy and the vendor.",
+            "nullable": true
+          },
+          "ship_from_country": {
+            "type": "string",
+            "description": "Where the package ships from.",
+            "nullable": true
+          },
+          "ship_to_country": {
+            "type": "string",
+            "description": "Package destination.",
+            "nullable": true
+          },
+          "incoterm": {
+            "type": "string",
+            "description": "The specific incoterm (e.g., DDU, DDP) designated for the shipment.",
+            "nullable": true
+          },
+          "customs_data": {
+            "type": "array",
+            "description": "Contains custom data like country of origin, declared value and HS code.",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "properties": {
+                "country_of_origin": {
+                  "type": "string",
+                  "default": null,
+                  "description": "The country in which the goods originate from.",
+                  "nullable": true
+                },
+                "declared_value": {
+                  "type": "number",
+                  "format": "float",
+                  "default": null,
+                  "description": "The commercial value of the goods.",
+                  "nullable": true
+                },
+                "HS_code": {
+                  "type": "string",
+                  "default": null,
+                  "description": "The standardized global system (Harmonized System) for classifying traded products.",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "country_of_origin",
+                "declared_value",
+                "HS_code"
+              ]
+            }
+          },
+          "duty_amount": {
+            "type": "number",
+            "format": "float",
+            "description": "The estimated or actual amount of import duties and taxes assessed by customs for the shipment.",
+            "nullable": true
+          },
+          "duty_currency": {
+            "type": "string",
+            "description": "The currency in which the duty was paid.",
+            "nullable": true
+          },
+          "ship_date": {
+            "type": "string",
+            "description": "The date package was shipped.",
+            "nullable": true
           }
         },
         "required": [
           "shop_id",
           "receipt_id"
         ]
-      }
+      },
+      "query_params": [
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_shop_receipt_transactions_by_receipt",
+      "description": "Retrieves the list of transactions associated with a specific receipt.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/receipts/{receipt_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "receipt_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the receipt associated to this transaction."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "shop_id",
+          "receipt_id"
+        ]
+      },
+      "query_params": [
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_reviews_by_listing",
+      "description": "Open API V3 to retrieve the reviews for a listing given its ID.",
+      "method": "GET",
+      "path": "/listings/{listing_id}/reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID for the listing associated to this transaction."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "min_created": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 946684800,
+            "description": "The earliest unix timestamp for when a record was created.",
+            "nullable": true
+          },
+          "max_created": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 946684800,
+            "description": "The latest unix timestamp for when a record was created.",
+            "nullable": true
+          }
+        },
+        "required": [
+          "listing_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "offset",
+        "min_created",
+        "max_created"
+      ]
     },
     {
       "name": "list_shop_reviews",
-      "description": "List reviews left on a shop's listings.",
+      "description": "Open API V3 to retrieve the reviews from a shop given its ID.",
       "method": "GET",
       "path": "/shops/{shop_id}/reviews",
       "input_schema": {
         "type": "object",
         "properties": {
           "shop_id": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
           },
           "limit": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
           },
           "offset": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
           },
           "min_created": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 946684800,
+            "description": "The earliest unix timestamp for when a record was created.",
+            "nullable": true
           },
           "max_created": {
-            "type": "integer"
+            "type": "integer",
+            "format": "int64",
+            "minimum": 946684800,
+            "description": "The latest unix timestamp for when a record was created.",
+            "nullable": true
           }
         },
         "required": [
           "shop_id"
         ]
+      },
+      "query_params": [
+        "limit",
+        "offset",
+        "min_created",
+        "max_created"
+      ]
+    },
+    {
+      "name": "get_seller_taxonomy_nodes",
+      "description": "Retrieves the full hierarchy tree of seller taxonomy nodes.",
+      "method": "GET",
+      "path": "/seller-taxonomy/nodes",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_properties_by_taxonomy_id",
+      "description": "Retrieves a list of product properties, with applicable scales and values, supported for a specific seller taxonomy ID.",
+      "method": "GET",
+      "path": "/seller-taxonomy/nodes/{taxonomy_id}/properties",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taxonomy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique numeric ID of an Etsy taxonomy node, which is a metadata category for listings organized into the seller taxonomy hierarchy tree. For example, the \"shoes\" taxonomy node (ID: 1429, level: 1) is higher in the hierarchy than \"girls' shoes\" (ID: 1440, level: 2). The taxonomy nodes assigned to a listing support access to specific standardized product scales and properties. For example, listings assigned the ..."
+          }
+        },
+        "required": [
+          "taxonomy_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shipping_carriers",
+      "description": "Retrieves a list of available shipping carriers and the mail classes associated with them for a given country",
+      "method": "GET",
+      "path": "/shipping-carriers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "origin_country_iso": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "description": "The ISO code of the country from which the listing ships."
+          }
+        },
+        "required": [
+          "origin_country_iso"
+        ]
+      },
+      "query_params": [
+        "origin_country_iso"
+      ]
+    },
+    {
+      "name": "get_shop",
+      "description": "Retrieves the shop identified by a specific shop ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "update_shop",
+      "description": "Updates a shop. Assumes that all string parameters are provided in the shop's primary language. Please note that the policyadditional field should only be set for shops located in the EU. Passing a value for this field for shops outside of the EU, will result in an error.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "title": {
+            "type": "string",
+            "description": "A brief heading string for the shop's main page."
+          },
+          "announcement": {
+            "type": "string",
+            "description": "An announcement string to buyers that displays on the shop's homepage."
+          },
+          "sale_message": {
+            "type": "string",
+            "description": "A message string sent to users who complete a purchase from this shop."
+          },
+          "digital_sale_message": {
+            "type": "string",
+            "description": "A message string sent to users who purchase a digital item from this shop."
+          },
+          "policy_additional": {
+            "type": "string",
+            "description": "The shop's additional policies string (may be blank)."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_shop_by_owner",
+      "description": "Retrieves the shop identified by the shop owner's user ID.",
+      "method": "GET",
+      "path": "/users/{user_id}/shops",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric user ID of the user who owns this shop."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_holiday_preferences",
+      "description": "Retrieves a list of holidays that are available to a shop to set a preference for. Currently only supported in the US and CA",
+      "method": "GET",
+      "path": "/shops/{shop_id}/holiday-preferences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "update_holiday_preferences",
+      "description": "Updates the preference for whether the seller will process orders or not on the holiday. Currently only supported in the US and CA",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/holiday-preferences/{holiday_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "holiday_id": {
+            "type": "integer",
+            "format": "int64",
+            "enum": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61,
+              62,
+              63,
+              64,
+              65,
+              66,
+              67,
+              68,
+              69,
+              70,
+              71,
+              72,
+              73,
+              74,
+              75,
+              76,
+              77,
+              78,
+              79,
+              80,
+              81,
+              82,
+              83,
+              84,
+              85,
+              86,
+              87,
+              88,
+              89,
+              90,
+              91,
+              92,
+              93,
+              94,
+              95,
+              96,
+              97,
+              98,
+              99,
+              100,
+              101,
+              102,
+              103,
+              104,
+              105
+            ],
+            "description": "The unique id that maps to the holiday a country observes. See the Fulfillment Tutorial docs for more info"
+          },
+          "is_working": {
+            "type": "boolean",
+            "description": "A boolean value for whether the shop will process orders on a particular holiday."
+          }
+        },
+        "required": [
+          "shop_id",
+          "holiday_id",
+          "is_working"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "find_shops",
+      "description": "Open API V3 endpoint for searching shops by name. Note: We make every effort to ensure that frozen or removed shops are not included in the search results. However, rarely, due to timing issues, they may appear.",
+      "method": "GET",
+      "path": "/shops",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_name": {
+            "type": "string",
+            "description": "The shop's name string."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          }
+        },
+        "required": [
+          "shop_name"
+        ]
+      },
+      "query_params": [
+        "shop_name",
+        "limit",
+        "offset"
+      ]
+    },
+    {
+      "name": "consolidate_shop_return_policies",
+      "description": "Consolidates Return Policies by moving all listings from a source return policy to a destination return policy, and deleting the source return policy. This is commonly used in the event that a user attempts to update a Return Policy such that its data is a duplicate of some other Return Policy, which is prevented.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/policies/return/consolidate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "source_return_policy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy."
+          },
+          "destination_return_policy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy."
+          }
+        },
+        "required": [
+          "shop_id",
+          "source_return_policy_id",
+          "destination_return_policy_id"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_shop_return_policies",
+      "description": "Returns a shop's list of existing Return Policies",
+      "method": "GET",
+      "path": "/shops/{shop_id}/policies/return",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "create_shop_return_policy",
+      "description": "Creates a new Return Policy. Note: if either acceptsreturns or acceptsexchanges is true, then a returndeadline is required.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/policies/return",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "accepts_returns": {
+            "type": "boolean"
+          },
+          "accepts_exchanges": {
+            "type": "boolean"
+          },
+          "return_deadline": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The deadline for the Return Policy, measured in days. The value must be one of the following: [7, 14, 21, 30, 45, 60, 90].",
+            "nullable": true
+          }
+        },
+        "required": [
+          "shop_id",
+          "accepts_returns",
+          "accepts_exchanges"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_shop_return_policy",
+      "description": "Retrieves an existing Return Policy.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/policies/return/{return_policy_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "return_policy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy."
+          }
+        },
+        "required": [
+          "shop_id",
+          "return_policy_id"
+        ]
+      }
+    },
+    {
+      "name": "update_shop_return_policy",
+      "description": "Updates an existing Return Policy. Note: if either acceptsreturns or acceptsexchanges is true, then a returndeadline is required.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/policies/return/{return_policy_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "return_policy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy."
+          },
+          "accepts_returns": {
+            "type": "boolean"
+          },
+          "accepts_exchanges": {
+            "type": "boolean"
+          },
+          "return_deadline": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The deadline for the Return Policy, measured in days. The value must be one of the following: [7, 14, 21, 30, 45, 60, 90].",
+            "nullable": true
+          }
+        },
+        "required": [
+          "shop_id",
+          "return_policy_id",
+          "accepts_returns",
+          "accepts_exchanges"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "delete_shop_return_policy",
+      "description": "Deletes an existing Return Policy. Deletion is only allowed for policies which have no associated listings – move them to another policy before attempting deletion.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/policies/return/{return_policy_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "return_policy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy."
+          }
+        },
+        "required": [
+          "shop_id",
+          "return_policy_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listings_by_shop_return_policy",
+      "description": "Gets all listings associated with a Return Policy.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/policies/return/{return_policy_id}/listings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "return_policy_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the Return Policy."
+          },
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter is needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "return_policy_id",
+          "shop_id"
+        ]
+      },
+      "query_params": [
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_shop_production_partners",
+      "description": "Retrieves a list of production partners available in the specific Etsy shop identified by its shop ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/production-partners",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_readiness_state_definitions",
+      "description": "Retrieves a list of ProcessingProfiles available in the specific Etsy shop identified by its shop ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/readiness-state-definitions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "offset"
+      ]
+    },
+    {
+      "name": "create_shop_readiness_state_definition",
+      "description": "Creates a new ReadinessStateDefinition. If an existing definition matches the input values, this endpoint will throw a Conflict error, please refer to the Content-Location header to obtain the get endpoint url for the values of the existing definition. Does not affect the product offering-readiness states definition relationship.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/readiness-state-definitions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "readiness_state": {
+            "type": "string",
+            "enum": [
+              "ready_to_ship",
+              "made_to_order"
+            ],
+            "description": "The readiness state of a product: \\\"1\\\" means \\\"readytoship\\\", and \\\"2\\\" means \\\"madetoorder\\\""
+          },
+          "min_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The minimum number of days or weeks for processing a specific product."
+          },
+          "max_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The maximum number of days or weeks for processing a specific product."
+          },
+          "processing_time_unit": {
+            "type": "string",
+            "enum": [
+              "days",
+              "weeks"
+            ],
+            "default": "days",
+            "description": "The unit used to represent how long a processing time is. A week is equivalent to how many days the seller works per week as stated in their processing schedule. If none is provided, the unit is set to \\\"days\\\"."
+          }
+        },
+        "required": [
+          "shop_id",
+          "readiness_state",
+          "min_processing_time",
+          "max_processing_time"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_shop_readiness_state_definition",
+      "description": "Retrieves a ProcessingProfile referenced by readiness state definition ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/readiness-state-definitions/{readiness_state_definition_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "readiness_state_definition_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the processing profile associated with the listing. Returned only when the listing is active and of type physical, and the endpoint is either shop-scoped (path contains shopid) or a single-listing request such as getListing. For every other case this field can be null."
+          }
+        },
+        "required": [
+          "shop_id",
+          "readiness_state_definition_id"
+        ]
+      }
+    },
+    {
+      "name": "update_shop_readiness_state_definition",
+      "description": "Updates an existing ReadinessStateDefinition. If an existing definition matches the input values, this endpoint will throw a Conflict error, please refer to the Content-Location header to obtain the get endpoint url for the values of the existing definition. Does not affect the product offering-readiness states definition relationship.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/readiness-state-definitions/{readiness_state_definition_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "readiness_state_definition_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the processing profile associated with the listing. Returned only when the listing is active and of type physical, and the endpoint is either shop-scoped (path contains shopid) or a single-listing request such as getListing. For every other case this field can be null."
+          },
+          "readiness_state": {
+            "type": "string",
+            "enum": [
+              "ready_to_ship",
+              "made_to_order"
+            ],
+            "description": "The readiness state of a product: \\\"1\\\" means \\\"readytoship\\\", and \\\"2\\\" means \\\"madetoorder\\\""
+          },
+          "min_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The minimum number of days or weeks for processing a specific product."
+          },
+          "max_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The maximum number of days or weeks for processing a specific product."
+          },
+          "processing_time_unit": {
+            "type": "string",
+            "enum": [
+              "days",
+              "weeks"
+            ],
+            "default": "days",
+            "description": "The unit used to represent how long a processing time is. A week is equivalent to how many days the seller works per week as stated in their processing schedule. If none is provided, the unit is set to \\\"days\\\"."
+          }
+        },
+        "required": [
+          "shop_id",
+          "readiness_state_definition_id"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "delete_shop_readiness_state_definition",
+      "description": "Deletes a ReadinessStateDefinition by given readiness state definition ID. If there any active offerings linked to the definition, this endpoint will throw a Bad Request error. If you want to delete a ReadinessStateDefinition that is linked to active offerings, you must link the offerings to a different readiness state definition.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/readiness-state-definitions/{readiness_state_definition_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "readiness_state_definition_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the processing profile associated with the listing. Returned only when the listing is active and of type physical, and the endpoint is either shop-scoped (path contains shopid) or a single-listing request such as getListing. For every other case this field can be null."
+          }
+        },
+        "required": [
+          "shop_id",
+          "readiness_state_definition_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_sections",
+      "description": "Retrieves the list of shop sections in a specific shop identified by shop ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/sections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "create_shop_section",
+      "description": "Creates a new section in a specific shop.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/sections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "title": {
+            "type": "string",
+            "description": "The title string for a shop section."
+          }
+        },
+        "required": [
+          "shop_id",
+          "title"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_shop_section",
+      "description": "Retrieves a shop section, referenced by section ID and shop ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/sections/{shop_section_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shop_section_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of a section in a specific Etsy shop."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shop_section_id"
+        ]
+      }
+    },
+    {
+      "name": "update_shop_section",
+      "description": "Updates a section in a specific shop given a valid shopsectionid.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/sections/{shop_section_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shop_section_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of a section in a specific Etsy shop."
+          },
+          "title": {
+            "type": "string",
+            "description": "The title string for a shop section."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shop_section_id",
+          "title"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "delete_shop_section",
+      "description": "Deletes a section in a specific shop given a valid shopsectionid.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/sections/{shop_section_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shop_section_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of a section in a specific Etsy shop."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shop_section_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listings_by_shop_section_id",
+      "description": "Retrieves all the listings from the section of a specific shop.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/shop-sections/listings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shop_section_ids": {
+            "type": "array",
+            "description": "A list of numeric IDS for all sections in a specific Etsy shop.",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "sort_on": {
+            "type": "string",
+            "enum": [
+              "created",
+              "price",
+              "updated",
+              "score"
+            ],
+            "default": "created",
+            "description": "The value to sort a search result of listings on. NOTES: a) sorton only works when combined with one of the search options (keywords, region, etc.). b) when using score the returned results will always be in descending order, regardless of the sortorder parameter."
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "ascending",
+              "desc",
+              "descending",
+              "up",
+              "down"
+            ],
+            "default": "desc",
+            "description": "The ascending(up) or descending(down) order to sort listings by. NOTE: sortorder only works when combined with one of the search options (keywords, region, etc.)."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter is needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shop_section_ids"
+        ]
+      },
+      "query_params": [
+        "shop_section_ids",
+        "limit",
+        "offset",
+        "sort_on",
+        "sort_order",
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_shop_shipping_profiles",
+      "description": "Retrieves a list of shipping profiles available in the specific Etsy shop identified by its shop ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/shipping-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "create_shop_shipping_profile",
+      "description": "Creates a new ShippingProfile. You can pass a country iso code or a region when creating a ShippingProfile, but not both. Only one is required. You must pass either a shippingcarrierid AND mailclass, or both min and maxdeliverydays.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/shipping-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "title": {
+            "type": "string",
+            "description": "The name string of this shipping profile."
+          },
+          "origin_country_iso": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "description": "The ISO code of the country from which the listing ships."
+          },
+          "primary_cost": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "description": "The cost of shipping to this country/region alone, measured in the store's default currency."
+          },
+          "secondary_cost": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "description": "The cost of shipping to this country/region with another item, measured in the store's default currency."
+          },
+          "min_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The minimum time required to process to ship listings with this shipping profile."
+          },
+          "max_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The maximum processing time the listing needs to ship."
+          },
+          "processing_time_unit": {
+            "type": "string",
+            "enum": [
+              "business_days",
+              "weeks"
+            ],
+            "default": "business_days",
+            "description": "The unit used to represent how long a processing time is. A week is equivalent to the set processing schedule (default to 5 business days). If none is provided, the unit is set to \"businessdays\"."
+          },
+          "destination_country_iso": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "default": null,
+            "description": "The ISO code of the country to which the listing ships. If null, request sets destination to destinationregion. Required if destinationregion is null or not provided."
+          },
+          "destination_region": {
+            "type": "string",
+            "enum": [
+              "eu",
+              "non_eu",
+              "none"
+            ],
+            "default": "none",
+            "description": "The code of the region to which the listing ships. A region represents a set of countries. Supported regions are Europe Union and Non-Europe Union (countries in Europe not in EU). If none, request sets destination to destinationcountryiso. Required if destinationcountryiso is null or not provided."
+          },
+          "origin_postal_code": {
+            "type": "string",
+            "default": "",
+            "description": "The postal code string (not necessarily a number) for the location from which the listing ships. Required if the origincountryiso supports postal codes. See the Fulfillment Tutorial docs for more info"
+          },
+          "shipping_carrier_id": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The unique ID of a supported shipping carrier, which is used to calculate an Estimated Delivery Date. Required with mailclass if mindeliverydays and maxdeliverydays are null."
+          },
+          "mail_class": {
+            "type": "string",
+            "default": null,
+            "description": "The unique ID string of a shipping carrier's mail class, which is used to calculate an estimated delivery date. Required with shippingcarrierid if mindeliverydays and maxdeliverydays are null."
+          },
+          "min_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The minimum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with maxdeliverydays if mailclass is null."
+          },
+          "max_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The maximum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with mindeliverydays if mailclass is null."
+          }
+        },
+        "required": [
+          "shop_id",
+          "title",
+          "origin_country_iso",
+          "primary_cost",
+          "secondary_cost"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_shop_shipping_profile",
+      "description": "Retrieves a Shipping Profile referenced by shipping profile ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id"
+        ]
+      }
+    },
+    {
+      "name": "update_shop_shipping_profile",
+      "description": "Changes the settings in a shipping profile. You can pass a country iso code or a region when updating a ShippingProfile, but not both. Only one is required. You must pass either a shippingcarrierid AND mailclass, or both min and maxdeliverydays.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          },
+          "title": {
+            "type": "string",
+            "description": "The name string of this shipping profile."
+          },
+          "origin_country_iso": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "description": "The ISO code of the country from which the listing ships."
+          },
+          "min_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The minimum time required to process to ship listings with this shipping profile."
+          },
+          "max_processing_time": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The maximum processing time the listing needs to ship."
+          },
+          "processing_time_unit": {
+            "type": "string",
+            "enum": [
+              "business_days",
+              "weeks"
+            ],
+            "default": "business_days",
+            "description": "The unit used to represent how long a processing time is. A week is equivalent to the set processing schedule (default to 5 business days). If none is provided, the unit is set to \"businessdays\"."
+          },
+          "origin_postal_code": {
+            "type": "string",
+            "default": null,
+            "description": "The postal code string (not necessarily a number) for the location from which the listing ships. Required if the origincountryiso supports postal codes. See the Fulfillment Tutorial docs for more info"
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "delete_shop_shipping_profile",
+      "description": "Deletes a ShippingProfile by given id.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_shipping_profile_destinations_by_shipping_profile",
+      "description": "Retrieves a list of shipping destination objects associated with a shipping profile.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/destinations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "offset"
+      ]
+    },
+    {
+      "name": "create_shop_shipping_profile_destination",
+      "description": "Creates a new shipping destination, which sets the shipping cost, carrier, and class for a destination in a shipping profile. createShopShippingProfileDestination assigns costs using the currency of the associated shop. Set the destination using either destinationcountryiso or destinationregion; destinationcountryiso and destinationregion are mu...",
+      "method": "POST",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/destinations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          },
+          "primary_cost": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "description": "The cost of shipping to this country/region alone, measured in the store's default currency."
+          },
+          "secondary_cost": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "description": "The cost of shipping to this country/region with another item, measured in the store's default currency."
+          },
+          "destination_country_iso": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "default": null,
+            "description": "The ISO code of the country to which the listing ships. If null, request sets destination to destinationregion. Required if destinationregion is null or not provided."
+          },
+          "destination_region": {
+            "type": "string",
+            "enum": [
+              "eu",
+              "non_eu",
+              "none"
+            ],
+            "default": "none",
+            "description": "The code of the region to which the listing ships. A region represents a set of countries. Supported regions are Europe Union and Non-Europe Union (countries in Europe not in EU). If none, request sets destination to destinationcountryiso. Required if destinationcountryiso is null or not provided."
+          },
+          "shipping_carrier_id": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The unique ID of a supported shipping carrier, which is used to calculate an Estimated Delivery Date. Required with mailclass if mindeliverydays and maxdeliverydays are null."
+          },
+          "mail_class": {
+            "type": "string",
+            "default": null,
+            "description": "The unique ID string of a shipping carrier's mail class, which is used to calculate an estimated delivery date. Required with shippingcarrierid if mindeliverydays and maxdeliverydays are null."
+          },
+          "min_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The minimum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with maxdeliverydays if mailclass is null."
+          },
+          "max_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The maximum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with mindeliverydays if mailclass is null."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id",
+          "primary_cost",
+          "secondary_cost"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "update_shop_shipping_profile_destination",
+      "description": "Updates an existing shipping destination, which can set or reassign the shipping cost, carrier, and class for a destination.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/destinations/{shipping_profile_destination_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          },
+          "shipping_profile_destination_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile destination in the shipping profile associated with the listing."
+          },
+          "primary_cost": {
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "minimum": 0,
+            "description": "The cost of shipping to this country/region alone, measured in the store's default currency."
+          },
+          "secondary_cost": {
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "minimum": 0,
+            "description": "The cost of shipping to this country/region with another item, measured in the store's default currency."
+          },
+          "destination_country_iso": {
+            "type": "string",
+            "format": "ISO 3166-1 alpha-2",
+            "default": null,
+            "description": "The ISO code of the country to which the listing ships. If null, request sets destination to destinationregion. Required if destinationregion is null or not provided."
+          },
+          "destination_region": {
+            "type": "string",
+            "enum": [
+              "eu",
+              "non_eu",
+              "none"
+            ],
+            "default": "none",
+            "description": "The code of the region to which the listing ships. A region represents a set of countries. Supported regions are Europe Union and Non-Europe Union (countries in Europe not in EU). If none, request sets destination to destinationcountryiso. Required if destinationcountryiso is null or not provided."
+          },
+          "shipping_carrier_id": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 0,
+            "description": "The unique ID of a supported shipping carrier, which is used to calculate an Estimated Delivery Date. Required with mailclass if mindeliverydays and maxdeliverydays are null."
+          },
+          "mail_class": {
+            "type": "string",
+            "default": null,
+            "description": "The unique ID string of a shipping carrier's mail class, which is used to calculate an estimated delivery date. Required with shippingcarrierid if mindeliverydays and maxdeliverydays are null."
+          },
+          "min_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The minimum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with maxdeliverydays if mailclass is null."
+          },
+          "max_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The maximum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with mindeliverydays if mailclass is null."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id",
+          "shipping_profile_destination_id"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "delete_shop_shipping_profile_destination",
+      "description": "Deletes a shipping destination and removes the destination option from every listing that uses the associated shipping profile. A shipping profile requires at least one shipping destination, so this endpoint cannot delete the final shipping destination for any shipping profile. To delete the final shipping destination from a shipping profile, yo...",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/destinations/{shipping_profile_destination_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          },
+          "shipping_profile_destination_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile destination in the shipping profile associated with the listing."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id",
+          "shipping_profile_destination_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_shipping_profile_upgrades",
+      "description": "Retrieves the list of shipping profile upgrades assigned to a specific shipping profile.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/upgrades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id"
+        ]
+      }
+    },
+    {
+      "name": "create_shop_shipping_profile_upgrade",
+      "description": "Creates a new shipping profile upgrade, which can establish a price for a shipping option, such as an alternate carrier or faster delivery.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/upgrades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          },
+          "type": {
+            "type": "integer",
+            "format": "int64",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "The type of the shipping upgrade. Domestic (0) or international (1)."
+          },
+          "upgrade_name": {
+            "type": "string",
+            "description": "Name for the shipping upgrade shown to shoppers at checkout, e.g. USPS Priority."
+          },
+          "price": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "description": "Additional cost of adding the shipping upgrade."
+          },
+          "secondary_price": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "description": "Additional cost of adding the shipping upgrade for each additional item."
+          },
+          "shipping_carrier_id": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The unique ID of a supported shipping carrier, which is used to calculate an Estimated Delivery Date. Required with mailclass if mindeliverydays and maxdeliverydays are null."
+          },
+          "mail_class": {
+            "type": "string",
+            "default": null,
+            "description": "The unique ID string of a shipping carrier's mail class, which is used to calculate an estimated delivery date. Required with shippingcarrierid if mindeliverydays and maxdeliverydays are null."
+          },
+          "min_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The minimum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with maxdeliverydays if mailclass is null."
+          },
+          "max_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The maximum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with mindeliverydays if mailclass is null."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id",
+          "type",
+          "upgrade_name",
+          "price",
+          "secondary_price"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "update_shop_shipping_profile_upgrade",
+      "description": "Updates a shipping profile upgrade and updates any listings that use the shipping profile.",
+      "method": "PUT",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/upgrades/{upgrade_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile associated with the listing. Required when listing type is physical."
+          },
+          "upgrade_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID that is associated with a shipping upgrade"
+          },
+          "upgrade_name": {
+            "type": "string",
+            "default": null,
+            "description": "Name for the shipping upgrade shown to shoppers at checkout, e.g. USPS Priority."
+          },
+          "type": {
+            "type": "integer",
+            "format": "int64",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "The type of the shipping upgrade. Domestic (0) or international (1)."
+          },
+          "price": {
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "minimum": 0,
+            "description": "Additional cost of adding the shipping upgrade."
+          },
+          "secondary_price": {
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "minimum": 0,
+            "description": "Additional cost of adding the shipping upgrade for each additional item."
+          },
+          "shipping_carrier_id": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 0,
+            "description": "The unique ID of a supported shipping carrier, which is used to calculate an Estimated Delivery Date. Required with mailclass if mindeliverydays and maxdeliverydays are null."
+          },
+          "mail_class": {
+            "type": "string",
+            "default": null,
+            "description": "The unique ID string of a shipping carrier's mail class, which is used to calculate an estimated delivery date. Required with shippingcarrierid if mindeliverydays and maxdeliverydays are null."
+          },
+          "min_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The minimum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with maxdeliverydays if mailclass is null."
+          },
+          "max_delivery_days": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "minimum": 1,
+            "maximum": 45,
+            "description": "The maximum number of business days a buyer can expect to wait to receive their purchased item once it has shipped. Required with mindeliverydays if mailclass is null."
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id",
+          "upgrade_id"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "delete_shop_shipping_profile_upgrade",
+      "description": "Deletes a shipping profile upgrade and removes the upgrade option from every listing that uses the associated shipping profile.",
+      "method": "DELETE",
+      "path": "/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/upgrades/{upgrade_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "shipping_profile_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the shipping profile."
+          },
+          "upgrade_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID that is associated with a shipping upgrade"
+          }
+        },
+        "required": [
+          "shop_id",
+          "shipping_profile_id",
+          "upgrade_id"
+        ]
+      }
+    },
+    {
+      "name": "token_scopes",
+      "description": "Check the scopes of the provided token",
+      "method": "POST",
+      "path": "/scopes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    },
+    {
+      "name": "get_shop_receipt_transaction",
+      "description": "Retrieves a transaction by transaction ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/transactions/{transaction_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "transaction_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique numeric ID for a transaction."
+          }
+        },
+        "required": [
+          "shop_id",
+          "transaction_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_receipt_transactions_by_shop",
+      "description": "Retrieves the list of transactions associated with a shop.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "This parameter needed to enable new parameters and response values related to processing profiles."
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "offset",
+        "legacy"
+      ]
+    },
+    {
+      "name": "get_user_address",
+      "description": "Open API V3 endpoint to retrieve a UserAddress for a User.",
+      "method": "GET",
+      "path": "/user/addresses/{user_address_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_address_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the user's address."
+          }
+        },
+        "required": [
+          "user_address_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_user_address",
+      "description": "Open API V3 endpoint to delete a UserAddress for a User.",
+      "method": "DELETE",
+      "path": "/user/addresses/{user_address_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_address_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "The numeric ID of the user's address."
+          }
+        },
+        "required": [
+          "user_address_id"
+        ]
+      }
+    },
+    {
+      "name": "get_user_addresses",
+      "description": "Open API V3 endpoint to retrieve UserAddresses for a User.",
+      "method": "GET",
+      "path": "/user/addresses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "The maximum number of results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0,
+            "description": "The number of records to skip before selecting the first result."
+          }
+        }
+      },
+      "query_params": [
+        "limit",
+        "offset"
+      ]
+    },
+    {
+      "name": "get_user",
+      "description": "Retrieves a user profile based on a unique user ID. Access is limited to profiles of the authenticated user or linked buyers. For the primaryemail field, specific app-based permissions are required and granted case-by-case.",
+      "method": "GET",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_authenticated_user",
+      "description": "Returns basic info for the user making the request.",
+      "method": "GET",
+      "path": "/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
       }
     }
   ],

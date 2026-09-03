@@ -296,6 +296,17 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 // so a Stripe or Twilio credential never lands in an agent's environment
 // just because the row exists.
 func (s *Server) GetAllProviderEnvVars(userID int64, projectID ...string) (map[string]string, error) {
+	if _, managed := s.managedLLMPolicyForUser(userID); managed && s.store.GetPlatformRole(userID) != PlatformAdmin {
+		policy, err := s.loadAccessPolicy()
+		if err != nil {
+			return nil, err
+		}
+		if !policy.Capabilities.ProviderManagement {
+			return map[string]string{
+				"APTEVA_MANAGED_LLM_URL": "http://127.0.0.1:" + s.port + "/api/llm/chat/completions",
+			}, nil
+		}
+	}
 	envVars, err := s.store.GetAllProviderEnvVars(userID, s.secret, projectID...)
 	if err != nil {
 		// A Codex refresh failure surfaces here and must stay fatal: booting
@@ -313,6 +324,9 @@ func (s *Server) GetAllProviderEnvVars(userID int64, projectID ...string) (map[s
 	}
 	for name, value := range connEnv {
 		envVars[name] = value
+	}
+	if _, managed := s.managedLLMPolicyForUser(userID); managed {
+		envVars["APTEVA_MANAGED_LLM_URL"] = "http://127.0.0.1:" + s.port + "/api/llm/chat/completions"
 	}
 	return envVars, nil
 }
@@ -514,13 +528,19 @@ func (s *Server) GetProviderInfo(userID int64, projectID ...string) ProviderInfo
 // core has no factory for.
 func isLLMKey(k string) bool {
 	switch k {
-	case "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice", "xai":
+	case "managed", "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice", "xai":
 		return true
 	}
 	return false
 }
 
 func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderInfo {
+	managed, hasManaged := s.managedProviderInfoForUser(userID)
+	if hasManaged && s.store.GetPlatformRole(userID) != PlatformAdmin {
+		if policy, err := s.loadAccessPolicy(); err == nil && !policy.Capabilities.ProviderManagement {
+			return []ProviderInfo{managed}
+		}
+	}
 	// Dual-read (providers/connections fusion). Connections resolve first
 	// and seenProviderKeys comes back pre-seeded with what they supply,
 	// so the providers loop skips any key already claimed.
@@ -538,7 +558,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 	if err != nil {
 		providers = nil
 	}
-	if len(providers) == 0 && len(pool) == 0 && len(codexPool) == 0 {
+	if len(providers) == 0 && len(pool) == 0 && len(codexPool) == 0 && !hasManaged {
 		return nil
 	}
 
@@ -648,6 +668,9 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 		return a.id < b.id
 	})
 	combined := append(pool, codexPool...)
+	if hasManaged {
+		combined = append([]ProviderInfo{managed}, combined...)
+	}
 	// Realtime adapters reuse their text provider's credential but remain
 	// separate core session types. Inject companions without synthetic DB rows.
 	var realtimeCompanions []ProviderInfo

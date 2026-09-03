@@ -15,6 +15,22 @@ import (
 	"testing"
 )
 
+func TestBuildRequestTransformBody_RootArray(t *testing.T) {
+	body, transformed, err := buildRequestTransformBody(&RequestTransformDef{
+		Type:      "json_wrap",
+		Fields:    []string{"keyword", "location_code"},
+		Constants: map[string]any{"source": "catalog"},
+		AsArray:   true,
+	}, map[string]any{"keyword": "robot vacuum", "location_code": 2840, "ignored": true})
+	if err != nil || !transformed {
+		t.Fatalf("transformed=%v err=%v", transformed, err)
+	}
+	want := []any{map[string]any{"source": "catalog", "keyword": "robot vacuum", "location_code": 2840}}
+	if !reflect.DeepEqual(body, want) {
+		t.Fatalf("body=%#v want=%#v", body, want)
+	}
+}
+
 func TestExecuteIntegrationTool_RequestTransformDeleteBody(t *testing.T) {
 	var capturedBody map[string]any
 	var capturedAccept string

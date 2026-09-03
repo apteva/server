@@ -2144,8 +2144,11 @@ func (s *Server) runtimeAgentForInstall(installID, agentID int64) (*Environment,
 // with thread permission is not enough to wake Helper; the app must have been
 // explicitly attached to that Helper through app_agent_bindings.
 func (s *Server) ensureCallbackDeliveryTargetRunning(installID int64, agent *Agent) (*Agent, error) {
-	if agent == nil || agent.Kind != "platform_helper" {
+	if agent == nil {
 		return agent, nil
+	}
+	if agent.Kind != "platform_helper" {
+		return s.startAgentOnDemand(agent)
 	}
 	var enabled int
 	if err := s.store.db.QueryRow(`

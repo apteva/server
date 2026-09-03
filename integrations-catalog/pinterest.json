@@ -1,217 +1,219 @@
 {
   "slug": "pinterest",
   "name": "Pinterest",
-  "description": "MCP server for Pinterest - boards, pins, user account, analytics",
+  "description": "Pinterest API v5 for organic accounts, boards, sections, Pins, media uploads, and analytics",
   "logo": "https://www.google.com/s2/favicons?domain=pinterest.com&sz=128",
   "categories": ["social", "content", "marketing", "visual"],
-  "base_url": "https://api.pinterest.com/v5",
+  "base_url": "https://{{credential.api_host}}/v5",
   "auth": {
     "types": ["oauth2", "bearer"],
     "headers": { "Authorization": "Bearer {{token}}" },
     "credential_fields": [
-      { "name": "token", "label": "OAuth Access Token" },
-      { "name": "appId", "label": "App ID" },
-      { "name": "appSecret", "label": "App Secret" }
-    ]
+      { "name": "token", "label": "access_token", "type": "password", "source": "oauth", "hidden": true },
+      { "name": "refresh_token", "label": "refresh_token", "type": "password", "source": "oauth", "hidden": true },
+      { "name": "expires_in", "label": "expires_in", "source": "oauth", "hidden": true },
+      { "name": "scope", "label": "scope", "source": "oauth", "hidden": true },
+      {
+        "name": "api_host",
+        "label": "API environment",
+        "description": "Use Production for approved Pinterest apps. Pinterest Trial apps must use Sandbox; sandbox boards and Pins are separate from production data.",
+        "required": true,
+        "type": "select",
+        "options": ["api.pinterest.com", "api-sandbox.pinterest.com"],
+        "default": "api.pinterest.com",
+        "source": "user",
+        "exposure": "public"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.pinterest.com/oauth/",
+      "token_url": "https://{{credential.api_host}}/v5/oauth/token",
+      "scopes": [
+        "user_accounts:read",
+        "boards:read", "boards:write", "pins:read", "pins:write",
+        "boards:read_secret", "boards:write_secret", "pins:read_secret", "pins:write_secret"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "token_auth_basic_only": true,
+      "setup_url": "https://developers.pinterest.com/apps/",
+      "setup_steps": [
+        "Create or select a Pinterest developer app with API access.",
+        "Add the Apteva callback URL shown here to the app's redirect URIs.",
+        "Choose Production or Sandbox before authorizing; Pinterest issues environment-specific tokens and keeps their boards and Pins separate.",
+        "Copy the Pinterest App ID and App secret into this connection."
+      ]
+    }
   },
+  "health_check": { "tool": "get_user_account", "input": {} },
   "tools": [
     {
-      "name": "list_boards",
-      "description": "List boards owned by the authenticated user",
-      "method": "GET",
-      "path": "/boards",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "bookmark": { "type": "string" },
-          "page_size": { "type": "number" },
-          "privacy": { "type": "string" }
-        }
-      },
-      "mock_response": {
-        "items": [
-          {
-            "id": "800000000000000001",
-            "name": "Inspiration",
-            "description": "Design ideas",
-            "privacy": "PUBLIC",
-            "pin_count": 42,
-            "follower_count": 18,
-            "created_at": "2025-04-01T00:00:00"
-          }
-        ],
-        "bookmark": null
-      }
+      "name": "list_boards", "description": "List boards owned by the authenticated Pinterest account", "method": "GET", "path": "/boards",
+      "query_params": ["ad_account_id", "bookmark", "page_size", "privacy"],
+      "input_schema": { "type": "object", "properties": {
+        "ad_account_id": { "type": "string" }, "bookmark": { "type": "string" },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 250, "default": 25 },
+        "privacy": { "type": "string", "enum": ["ALL", "PROTECTED", "PUBLIC", "SECRET", "PUBLIC_AND_SECRET"] }
+      } },
+      "mock_response": { "items": [{ "id": "800000000000000001", "name": "Inspiration", "description": "Design ideas", "privacy": "PUBLIC", "pin_count": 42, "follower_count": 18, "created_at": "2026-04-01T00:00:00Z" }], "bookmark": null }
     },
     {
-      "name": "create_board",
-      "description": "Create a board",
-      "method": "POST",
-      "path": "/boards",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "name": { "type": "string" },
-          "description": { "type": "string" },
-          "privacy": { "type": "string", "enum": ["PUBLIC", "SECRET"] }
-        },
-        "required": ["name"]
-      },
-      "mock_response": {
-        "id": "800000000000000099",
-        "name": "(board name)",
-        "description": "",
-        "privacy": "PUBLIC",
-        "pin_count": 0,
-        "follower_count": 0,
-        "created_at": "2026-05-22T12:00:00"
-      }
+      "name": "create_board", "description": "Create a Pinterest board", "method": "POST", "path": "/boards", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "ad_account_id": { "type": "string" }, "name": { "type": "string", "maxLength": 180 },
+        "description": { "type": "string", "maxLength": 500 }, "privacy": { "type": "string", "enum": ["PUBLIC", "SECRET"], "default": "PUBLIC" }
+      }, "required": ["name"] },
+      "mock_response": { "id": "800000000000000002", "name": "Launch ideas", "description": "Campaign concepts", "privacy": "PUBLIC", "pin_count": 0, "follower_count": 0, "created_at": "2026-09-03T00:00:00Z" }
     },
     {
-      "name": "get_board",
-      "description": "Get a board",
-      "method": "GET",
-      "path": "/boards/{board_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": { "board_id": { "type": "string" } },
-        "required": ["board_id"]
-      },
-      "mock_response": {
-        "id": "800000000000000001",
-        "name": "Inspiration",
-        "description": "Design ideas",
-        "privacy": "PUBLIC",
-        "pin_count": 42,
-        "follower_count": 18,
-        "created_at": "2025-04-01T00:00:00"
-      }
+      "name": "get_board", "description": "Get a Pinterest board", "method": "GET", "path": "/boards/{board_id}", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "board_id": { "type": "string" }, "ad_account_id": { "type": "string" } }, "required": ["board_id"] }
     },
     {
-      "name": "list_pins",
-      "description": "List pins",
-      "method": "GET",
-      "path": "/pins",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "bookmark": { "type": "string" },
-          "page_size": { "type": "number" }
-        }
-      },
-      "mock_response": {
-        "items": [
-          {
-            "id": "900000000000000001",
-            "created_at": "2026-05-22T10:00:00",
-            "link": "https://example.com/article",
-            "title": "A great idea",
-            "description": "",
-            "board_id": "800000000000000001",
-            "media": {
-              "media_type": "image"
-            }
-          }
-        ],
-        "bookmark": null
-      }
+      "name": "update_board", "description": "Update a Pinterest board", "method": "PATCH", "path": "/boards/{board_id}", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "board_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "name": { "type": "string", "maxLength": 180 },
+        "description": { "type": "string", "maxLength": 500 }, "privacy": { "type": "string", "enum": ["PUBLIC", "SECRET"] }
+      }, "required": ["board_id"] }
     },
     {
-      "name": "create_pin",
-      "description": "Create a pin",
-      "method": "POST",
-      "path": "/pins",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "board_id": { "type": "string" },
-          "title": { "type": "string" },
-          "description": { "type": "string" },
-          "link": { "type": "string" },
-          "media_source": { "type": "object" },
-          "alt_text": { "type": "string" }
-        },
-        "required": ["board_id", "media_source"]
-      },
-      "mock_response": {
-        "id": "900000000000000099",
-        "created_at": "2026-05-22T12:00:00",
-        "link": "https://example.com/article",
-        "title": "(pin title)",
-        "description": "",
-        "board_id": "800000000000000001",
-        "board_owner": {
-          "username": "apteva"
-        },
-        "media": {
-          "media_type": "image"
-        }
-      }
+      "name": "delete_board", "description": "Delete a Pinterest board", "method": "DELETE", "path": "/boards/{board_id}", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "board_id": { "type": "string" }, "ad_account_id": { "type": "string" } }, "required": ["board_id"] }
     },
     {
-      "name": "delete_pin",
-      "description": "Delete a pin",
-      "method": "DELETE",
-      "path": "/pins/{pin_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": { "pin_id": { "type": "string" } },
-        "required": ["pin_id"]
-      },
-      "mock_response": {
-        "success": true
-      }
+      "name": "list_board_pins", "description": "List Pins on a Pinterest board", "method": "GET", "path": "/boards/{board_id}/pins",
+      "query_params": ["ad_account_id", "bookmark", "page_size", "creative_types", "pin_metrics"],
+      "input_schema": { "type": "object", "properties": {
+        "board_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "bookmark": { "type": "string" },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 250, "default": 25 },
+        "creative_types": { "type": "array", "items": { "type": "string" } }, "pin_metrics": { "type": "boolean", "default": false }
+      }, "required": ["board_id"] }
     },
     {
-      "name": "get_user_account",
-      "description": "Get the authenticated user's account info",
-      "method": "GET",
-      "path": "/user_account",
+      "name": "list_board_sections", "description": "List sections in a Pinterest board", "method": "GET", "path": "/boards/{board_id}/sections",
+      "query_params": ["ad_account_id", "bookmark", "page_size"],
+      "input_schema": { "type": "object", "properties": { "board_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "bookmark": { "type": "string" }, "page_size": { "type": "integer", "minimum": 1, "maximum": 250, "default": 25 } }, "required": ["board_id"] }
+    },
+    {
+      "name": "create_board_section", "description": "Create a section in a Pinterest board", "method": "POST", "path": "/boards/{board_id}/sections", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "board_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["board_id", "name"] }
+    },
+    {
+      "name": "update_board_section", "description": "Rename a Pinterest board section", "method": "PATCH", "path": "/boards/{board_id}/sections/{section_id}", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "board_id": { "type": "string" }, "section_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["board_id", "section_id", "name"] }
+    },
+    {
+      "name": "delete_board_section", "description": "Delete a Pinterest board section", "method": "DELETE", "path": "/boards/{board_id}/sections/{section_id}", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "board_id": { "type": "string" }, "section_id": { "type": "string" }, "ad_account_id": { "type": "string" } }, "required": ["board_id", "section_id"] }
+    },
+    {
+      "name": "list_section_pins", "description": "List Pins in a Pinterest board section", "method": "GET", "path": "/boards/{board_id}/sections/{section_id}/pins",
+      "query_params": ["ad_account_id", "bookmark", "page_size"],
+      "input_schema": { "type": "object", "properties": { "board_id": { "type": "string" }, "section_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "bookmark": { "type": "string" }, "page_size": { "type": "integer", "minimum": 1, "maximum": 250, "default": 25 } }, "required": ["board_id", "section_id"] }
+    },
+    {
+      "name": "list_pins", "description": "List Pins created by the authenticated Pinterest account", "method": "GET", "path": "/pins",
+      "query_params": ["ad_account_id", "bookmark", "page_size", "pin_filter", "include_protected_pins", "pin_type", "creative_types"],
+      "input_schema": { "type": "object", "properties": { "ad_account_id": { "type": "string" }, "bookmark": { "type": "string" }, "page_size": { "type": "integer", "minimum": 1, "maximum": 250, "default": 25 }, "pin_filter": { "type": "string" }, "include_protected_pins": { "type": "boolean" }, "pin_type": { "type": "string" }, "creative_types": { "type": "array", "items": { "type": "string" } } } },
+      "mock_response": { "items": [{ "id": "900000000000000099", "created_at": "2026-05-22T12:00:00Z", "link": "https://example.com/article", "title": "A great idea", "description": "Pin description", "board_id": "800000000000000001", "media": { "media_type": "image" } }], "bookmark": null }
+    },
+    {
+      "name": "get_pin", "description": "Get a Pinterest Pin", "method": "GET", "path": "/pins/{pin_id}", "query_params": ["ad_account_id", "pin_metrics"],
+      "input_schema": { "type": "object", "properties": { "pin_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "pin_metrics": { "type": "boolean" } }, "required": ["pin_id"] }
+    },
+    {
+      "name": "create_pin", "description": "Create an image, carousel, or uploaded-video Pin on a Pinterest board", "method": "POST", "path": "/pins", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "ad_account_id": { "type": "string" }, "board_id": { "type": "string" }, "board_section_id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 100 }, "description": { "type": "string", "maxLength": 800 },
+        "link": { "type": "string", "maxLength": 2048 }, "alt_text": { "type": "string", "maxLength": 500 }, "dominant_color": { "type": "string" },
+        "media_source": { "type": "object", "description": "Use image_url with url, multiple_image_urls with 2-5 items, or video_id with a media_id returned by register_media_upload.",
+          "properties": {
+            "source_type": { "type": "string", "enum": ["image_url", "video_id", "multiple_image_urls", "image_base64", "multiple_image_base64", "pin_url"] },
+            "url": { "type": "string" }, "media_id": { "type": "string" }, "cover_image_url": { "type": "string" },
+            "cover_image_key_frame_time": { "type": "integer", "minimum": 0 }, "is_standard": { "type": "boolean", "default": true },
+            "items": { "type": "array", "minItems": 2, "maxItems": 5, "items": { "type": "object", "properties": { "url": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" }, "link": { "type": "string" } }, "required": ["url"] } }
+          }, "required": ["source_type"] }
+      }, "required": ["board_id", "media_source"] },
+      "mock_response": { "id": "900000000000000099", "created_at": "2026-05-22T12:00:00Z", "link": "https://example.com/article", "title": "A great idea", "description": "Pin description", "board_id": "800000000000000001", "media": { "media_type": "image" } }
+    },
+    {
+      "name": "update_pin", "description": "Update a Pinterest Pin's text, link, board, or section", "method": "PATCH", "path": "/pins/{pin_id}", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "pin_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "board_id": { "type": "string" }, "board_section_id": { "type": "string" }, "title": { "type": "string", "maxLength": 100 }, "description": { "type": "string", "maxLength": 800 }, "link": { "type": "string", "maxLength": 2048 }, "alt_text": { "type": "string", "maxLength": 500 } }, "required": ["pin_id"] }
+    },
+    {
+      "name": "delete_pin", "description": "Delete a Pinterest Pin", "method": "DELETE", "path": "/pins/{pin_id}", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "pin_id": { "type": "string" }, "ad_account_id": { "type": "string" } }, "required": ["pin_id"] }
+    },
+    {
+      "name": "save_pin", "description": "Save a Pin to one of the authenticated account's boards", "method": "POST", "path": "/pins/{pin_id}/save", "query_params": ["ad_account_id"],
+      "input_schema": { "type": "object", "properties": { "pin_id": { "type": "string" }, "ad_account_id": { "type": "string" }, "board_id": { "type": "string" }, "board_section_id": { "type": "string" } }, "required": ["pin_id", "board_id"] }
+    },
+    {
+      "name": "register_media_upload", "description": "Register a video upload and receive Pinterest's multipart upload URL and fields", "method": "POST", "path": "/media",
+      "input_schema": { "type": "object", "properties": { "media_type": { "type": "string", "enum": ["video"] } }, "required": ["media_type"] },
+      "mock_response": { "media_id": "106705739196014", "media_type": "video", "upload_url": "https://pinterest-media-upload.s3-accelerate.amazonaws.com/", "upload_parameters": { "key": "uploads/example", "policy": "policy", "x-amz-signature": "signature" } }
+    },
+    {
+      "name": "list_media_uploads", "description": "List registered Pinterest media uploads", "method": "GET", "path": "/media", "query_params": ["bookmark", "page_size"],
+      "input_schema": { "type": "object", "properties": { "bookmark": { "type": "string" }, "page_size": { "type": "integer", "minimum": 1, "maximum": 250, "default": 25 } } }
+    },
+    {
+      "name": "get_media_upload", "description": "Get processing status for a Pinterest media upload", "method": "GET", "path": "/media/{media_id}",
+      "input_schema": { "type": "object", "properties": { "media_id": { "type": "string" } }, "required": ["media_id"] }
+    },
+    {
+      "name": "get_user_account", "description": "Get the authenticated Pinterest user's account and profile counts", "method": "GET", "path": "/user_account",
       "input_schema": { "type": "object", "properties": {} },
-      "mock_response": {
-        "username": "apteva",
-        "account_type": "BUSINESS",
-        "profile_image": "https://i.pinimg.com/mock-profile.jpg",
-        "website_url": "https://apteva.example",
-        "board_count": 8,
-        "pin_count": 124,
-        "follower_count": 340,
-        "following_count": 56
-      }
+      "mock_response": { "username": "apteva", "account_type": "BUSINESS", "profile_image": "https://i.pinimg.com/mock-profile.jpg", "website_url": "https://apteva.example", "board_count": 8, "pin_count": 124, "follower_count": 340, "following_count": 56 }
     },
     {
-      "name": "get_user_analytics",
-      "description": "Get user account analytics",
-      "method": "GET",
-      "path": "/user_account/analytics",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "start_date": { "type": "string" },
-          "end_date": { "type": "string" },
-          "metric_types": { "type": "array" }
-        },
-        "required": ["start_date", "end_date"]
-      },
-      "mock_response": {
-        "all": {
-          "daily_metrics": [
-            {
-              "date": "2026-05-22",
-              "metrics": {
-                "IMPRESSION": 1820,
-                "PIN_CLICK": 94,
-                "SAVE": 31
-              }
-            }
-          ],
-          "summary_metrics": {
-            "IMPRESSION": 1820,
-            "PIN_CLICK": 94,
-            "SAVE": 31
-          }
-        }
-      }
+      "name": "get_user_analytics", "description": "Get organic analytics for the authenticated Pinterest account", "method": "GET", "path": "/user_account/analytics",
+      "query_params": ["start_date", "end_date", "from_claimed_content", "pin_format", "app_types", "content_type", "source", "metric_types", "split_field", "ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "start_date": { "type": "string", "format": "date" }, "end_date": { "type": "string", "format": "date" },
+        "from_claimed_content": { "type": "string" }, "pin_format": { "type": "string" }, "app_types": { "type": "string" },
+        "content_type": { "type": "string" }, "source": { "type": "string" }, "metric_types": { "type": "array", "items": { "type": "string" } },
+        "split_field": { "type": "string", "enum": ["NO_SPLIT", "APP_TYPE", "OWNED_CONTENT", "SOURCE", "PIN_FORMAT"] }, "ad_account_id": { "type": "string" }
+      }, "required": ["start_date", "end_date"] }
+    },
+    {
+      "name": "get_pin_analytics", "description": "Get analytics for one Pinterest Pin", "method": "GET", "path": "/pins/{pin_id}/analytics",
+      "query_params": ["start_date", "end_date", "app_types", "metric_types", "split_field", "ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "pin_id": { "type": "string" }, "start_date": { "type": "string", "format": "date" }, "end_date": { "type": "string", "format": "date" },
+        "app_types": { "type": "string" }, "metric_types": { "type": "array", "items": { "type": "string" } },
+        "split_field": { "type": "string", "enum": ["NO_SPLIT", "APP_TYPE", "OWNED_CONTENT", "SOURCE", "PIN_FORMAT"] }, "ad_account_id": { "type": "string" }
+      }, "required": ["pin_id", "start_date", "end_date"] }
+    },
+    {
+      "name": "get_multiple_pin_analytics", "description": "Get analytics for multiple Pinterest Pins", "method": "GET", "path": "/pins/analytics",
+      "query_params": ["pin_ids", "start_date", "end_date", "app_types", "metric_types", "ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "pin_ids": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string" } },
+        "start_date": { "type": "string", "format": "date" }, "end_date": { "type": "string", "format": "date" },
+        "app_types": { "type": "string" }, "metric_types": { "type": "array", "items": { "type": "string" } }, "ad_account_id": { "type": "string" }
+      }, "required": ["pin_ids", "start_date", "end_date"] }
+    },
+    {
+      "name": "get_user_top_pins", "description": "Get the authenticated Pinterest account's top Pins for a date range", "method": "GET", "path": "/user_account/analytics/top_pins",
+      "query_params": ["start_date", "end_date", "sort_by", "from_claimed_content", "pin_format", "app_types", "content_type", "source", "metric_types", "num_of_pins", "created_in_last_n_days", "ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "start_date": { "type": "string", "format": "date" }, "end_date": { "type": "string", "format": "date" }, "sort_by": { "type": "string" },
+        "metric_types": { "type": "array", "items": { "type": "string" } }, "num_of_pins": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "created_in_last_n_days": { "type": "integer", "minimum": 0 }, "from_claimed_content": { "type": "string" }, "pin_format": { "type": "string" },
+        "app_types": { "type": "string" }, "content_type": { "type": "string" }, "source": { "type": "string" }, "ad_account_id": { "type": "string" }
+      }, "required": ["start_date", "end_date", "sort_by"] }
+    },
+    {
+      "name": "get_user_top_video_pins", "description": "Get the authenticated Pinterest account's top video Pins for a date range", "method": "GET", "path": "/user_account/analytics/top_video_pins",
+      "query_params": ["start_date", "end_date", "sort_by", "from_claimed_content", "pin_format", "app_types", "content_type", "source", "metric_types", "num_of_pins", "created_in_last_n_days", "ad_account_id"],
+      "input_schema": { "type": "object", "properties": {
+        "start_date": { "type": "string", "format": "date" }, "end_date": { "type": "string", "format": "date" }, "sort_by": { "type": "string" },
+        "metric_types": { "type": "array", "items": { "type": "string" } }, "num_of_pins": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "created_in_last_n_days": { "type": "integer", "minimum": 0 }, "from_claimed_content": { "type": "string" }, "pin_format": { "type": "string" },
+        "app_types": { "type": "string" }, "content_type": { "type": "string" }, "source": { "type": "string" }, "ad_account_id": { "type": "string" }
+      }, "required": ["start_date", "end_date", "sort_by"] }
     }
   ]
 }

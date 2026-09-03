@@ -1,15 +1,16 @@
 {
   "slug": "serpapi",
   "name": "SerpApi",
-  "description": "Real-time SERP API with the broadest engine coverage — Google, Bing, Yahoo, DuckDuckGo, Yandex, Baidu, Naver, plus YouTube, Walmart, Apple App Store, eBay, and more. Free tier: 100 searches/month.",
+  "description": "Real-time search API covering 115+ engines including Google, Bing, Yahoo, DuckDuckGo, YouTube, shopping, app stores, maps, travel, and ad-transparency sources. Free tier: 250 searches/month.",
   "logo": "https://www.google.com/s2/favicons?domain=serpapi.com&sz=128",
   "categories": ["seo", "serp", "search", "scraping", "google", "bing", "yandex", "baidu", "naver"],
   "base_url": "https://serpapi.com",
   "auth": {
     "types": ["api_key"],
     "headers": {},
+    "query_params": { "api_key": "{{api_key}}" },
     "credential_fields": [
-      { "name": "api_key", "label": "API Key", "description": "Get from serpapi.com/manage-api-key" }
+      { "name": "api_key", "label": "API Key", "description": "Get from serpapi.com/manage-api-key. The connection injects it automatically; never pass it as a tool argument." }
     ]
   },
   "tools": [
@@ -21,9 +22,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "api_key": { "type": "string" },
-          "engine": { "type": "string", "description": "google|bing|yahoo|duckduckgo|yandex|baidu|naver|youtube|walmart|apple_app_store|ebay|google_maps|google_news|google_shopping|google_scholar|google_jobs|google_images" },
-          "q": { "type": "string", "description": "Query string" },
+          "engine": { "type": "string", "description": "SerpApi engine identifier. Examples: google, bing, yahoo, duckduckgo, yandex, baidu, naver, youtube, walmart, apple_app_store, ebay, google_maps, google_news, google_shopping, google_scholar, google_jobs, google_images, search_index." },
+          "q": { "type": "string", "description": "Query string used by most engines." },
+          "term": { "type": "string", "description": "Search term used by apple_app_store and selected catalog engines." },
+          "search_query": { "type": "string", "description": "Query used by the youtube engine." },
+          "_nkw": { "type": "string", "description": "Query used by the ebay engine." },
+          "store": { "type": "string", "description": "Store selector for google_play, such as apps or movies." },
           "location": { "type": "string" },
           "google_domain": { "type": "string" },
           "gl": { "type": "string", "description": "Country code, e.g. us, vn, sg, br" },
@@ -31,9 +35,142 @@
           "num": { "type": "number" },
           "start": { "type": "number" },
           "device": { "type": "string", "description": "desktop|mobile|tablet" },
-          "safe": { "type": "string", "description": "active|off" }
+          "safe": { "type": "string", "description": "active|off" },
+          "page": { "type": "integer" },
+          "country": { "type": "string" },
+          "lang": { "type": "string" },
+          "next_page_token": { "type": "string" },
+          "no_cache": { "type": "boolean" },
+          "async": { "type": "boolean" },
+          "zero_trace": { "type": "boolean", "description": "Enterprise-only ZeroTrace mode." },
+          "output": { "type": "string", "enum": ["json", "html", "md"], "default": "json" },
+          "json_restrictor": { "type": "string", "description": "Optional JSON Restrictor expression for reducing response size." }
         },
-        "required": ["api_key", "engine", "q"]
+        "required": ["engine"]
+      }
+    },
+    {
+      "name": "google_search",
+      "description": "Search Google and return structured organic results, ads, answer boxes, knowledge graph, news, images, shopping, and related results when present.",
+      "method": "GET",
+      "path": "/search?engine=google",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "location": { "type": "string", "description": "Canonical city-level location, such as Austin, Texas, United States." },
+          "google_domain": { "type": "string", "default": "google.com" },
+          "gl": { "type": "string", "description": "Two-letter country code." },
+          "hl": { "type": "string", "description": "Two-letter UI language code." },
+          "num": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "start": { "type": "integer", "minimum": 0 },
+          "device": { "type": "string", "enum": ["desktop", "mobile", "tablet"] },
+          "safe": { "type": "string", "enum": ["active", "off"] },
+          "no_cache": { "type": "boolean" },
+          "async": { "type": "boolean" },
+          "output": { "type": "string", "enum": ["json", "html", "md"], "default": "json" },
+          "json_restrictor": { "type": "string" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "youtube_search",
+      "description": "Search YouTube through SerpApi with structured video, channel, playlist, and continuation results.",
+      "method": "GET",
+      "path": "/search?engine=youtube",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search_query": { "type": "string" },
+          "gl": { "type": "string" },
+          "hl": { "type": "string" },
+          "sp": { "type": "string", "description": "YouTube filter token." },
+          "next_page_token": { "type": "string" },
+          "no_cache": { "type": "boolean" },
+          "async": { "type": "boolean" }
+        },
+        "required": ["search_query"]
+      }
+    },
+    {
+      "name": "apple_app_store_search",
+      "description": "Search the Apple App Store by term and storefront with structured app metadata.",
+      "method": "GET",
+      "path": "/search?engine=apple_app_store",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "term": { "type": "string" },
+          "country": { "type": "string", "default": "us" },
+          "lang": { "type": "string", "description": "Locale such as en-us." },
+          "device": { "type": "string", "enum": ["desktop", "tablet", "mobile"], "default": "mobile" },
+          "num": { "type": "integer", "minimum": 1 },
+          "page": { "type": "integer", "minimum": 0 },
+          "no_cache": { "type": "boolean" },
+          "async": { "type": "boolean" }
+        },
+        "required": ["term"]
+      }
+    },
+    {
+      "name": "search_index",
+      "description": "Search SerpApi's LLM-oriented web index. Use mode=deep for expanded recall through query decomposition.",
+      "method": "GET",
+      "path": "/search?engine=search_index",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "num": { "type": "integer", "minimum": 1 },
+          "start": { "type": "integer", "minimum": 0 },
+          "safe": { "type": "string", "enum": ["active", "off"] },
+          "mode": { "type": "string", "enum": ["deep"] },
+          "no_cache": { "type": "boolean" },
+          "async": { "type": "boolean" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "google_ads_transparency_search",
+      "description": "Search creatives in Google's Ads Transparency Center by advertiser ID or free text. Supply at least advertiser_id or text.",
+      "method": "GET",
+      "path": "/search?engine=google_ads_transparency_center",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string", "description": "One Google advertiser ID or comma-separated IDs." },
+          "text": { "type": "string", "description": "Free-text advertiser or domain search." },
+          "platform": { "type": "string", "enum": ["PLAY", "MAPS", "SEARCH", "SHOPPING", "YOUTUBE"] },
+          "region": { "type": "string", "description": "Google Ads Transparency region identifier." },
+          "political_ads": { "type": "boolean" },
+          "start_date": { "type": "string", "description": "Start date in YYYYMMDD format." },
+          "end_date": { "type": "string", "description": "End date in YYYYMMDD format." },
+          "creative_format": { "type": "string", "enum": ["text", "image", "video"] },
+          "get_advertiser": { "type": "boolean" },
+          "num": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "next_page_token": { "type": "string" },
+          "no_cache": { "type": "boolean" },
+          "async": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "google_ads_transparency_ad_details",
+      "description": "Retrieve full details for one Google Ads Transparency Center creative.",
+      "method": "GET",
+      "path": "/search?engine=google_ads_transparency_center_ad_details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "creative_id": { "type": "string" },
+          "region": { "type": "string" },
+          "no_cache": { "type": "boolean" },
+          "async": { "type": "boolean" }
+        },
+        "required": ["advertiser_id", "creative_id"]
       }
     },
     {
@@ -57,8 +194,7 @@
       "path": "/account",
       "input_schema": {
         "type": "object",
-        "properties": { "api_key": { "type": "string" } },
-        "required": ["api_key"]
+        "properties": {}
       }
     },
     {
@@ -69,12 +205,11 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "api_key": { "type": "string" },
           "q": { "type": "string" },
           "engine": { "type": "string" },
           "limit": { "type": "number" }
         },
-        "required": ["api_key"]
+        "required": []
       }
     },
     {
@@ -85,10 +220,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "api_key": { "type": "string" },
-          "search_id": { "type": "string" }
+          "search_id": { "type": "string" },
+          "output": { "type": "string", "enum": ["json", "html", "json_with_pixel_position"], "default": "json" }
         },
-        "required": ["api_key", "search_id"]
+        "required": ["search_id"]
       }
     }
   ]

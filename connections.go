@@ -1669,7 +1669,8 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 		form.Set("client_secret", clientSecret)
 	}
 
-	req, err := http.NewRequest("POST", cfg.TokenURL, strings.NewReader(form.Encode()))
+	tokenURL := resolveTemplate(cfg.TokenURL, applyCredentialFieldDefaults(app, credentials))
+	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -2533,6 +2534,9 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "app not found in catalog", http.StatusNotFound)
 		return
 	}
+	if app.Runtime != nil && strings.EqualFold(app.Runtime.Role, "llm") && !s.requireCapability(w, r, "provider_management") {
+		return
+	}
 	if body.Name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
@@ -2777,6 +2781,9 @@ func collectOAuthSupplementalCredentials(app *AppTemplate, credentials map[strin
 			continue
 		}
 		value := strings.TrimSpace(credentials[field.Name])
+		if value == "" {
+			value = strings.TrimSpace(field.Default)
+		}
 		required := field.Required == nil || *field.Required
 		if required && value == "" {
 			label := strings.TrimSpace(field.Label)
@@ -2786,6 +2793,9 @@ func collectOAuthSupplementalCredentials(app *AppTemplate, credentials map[strin
 			return nil, fmt.Errorf("%s required", label)
 		}
 		if value != "" {
+			if len(field.Options) > 0 && !containsString(field.Options, value) {
+				return nil, fmt.Errorf("%s must be one of: %s", field.Label, strings.Join(field.Options, ", "))
+			}
 			collected[field.Name] = value
 		}
 	}

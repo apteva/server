@@ -463,15 +463,16 @@ type AwsSigV4Config struct {
 }
 
 type CredentialField struct {
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
-	Required    *bool  `json:"required,omitempty"`
-	Default     string `json:"default,omitempty"`
-	Type        string `json:"type,omitempty"`   // "password" or "text"
-	Source      string `json:"source,omitempty"` // "user", "oauth", or "generated"
-	Hidden      bool   `json:"hidden,omitempty"`
-	Exposure    string `json:"exposure,omitempty"` // "secret" (default) or "public"
+	Name        string   `json:"name"`
+	Label       string   `json:"label"`
+	Description string   `json:"description,omitempty"`
+	Required    *bool    `json:"required,omitempty"`
+	Default     string   `json:"default,omitempty"`
+	Type        string   `json:"type,omitempty"` // "password", "text", "multiline_password", or "select"
+	Options     []string `json:"options,omitempty"`
+	Source      string   `json:"source,omitempty"` // "user", "oauth", or "generated"
+	Hidden      bool     `json:"hidden,omitempty"`
+	Exposure    string   `json:"exposure,omitempty"` // "secret" (default) or "public"
 }
 
 type OAuthConfig struct {
@@ -732,6 +733,7 @@ type RequestTransformDef struct {
 	Encoding      string                         `json:"encoding,omitempty"`
 	Source        string                         `json:"source,omitempty"`
 	Fields        []string                       `json:"fields,omitempty"`
+	Constants     map[string]any                 `json:"constants,omitempty"`
 	AsArray       bool                           `json:"as_array,omitempty"`
 	IncludeFields map[string]string              `json:"include_fields,omitempty"`
 	ResourceType  string                         `json:"resource_type,omitempty"`

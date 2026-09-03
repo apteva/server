@@ -698,6 +698,9 @@ func (m *MCPManager) processByID(serverID int64) (*MCPProcess, bool) {
 
 // POST /mcp-servers
 func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
+	if !s.requireCapability(w, r, "custom_mcp") {
+		return
+	}
 	userID := getUserID(r)
 
 	var body struct {

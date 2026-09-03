@@ -448,6 +448,13 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 			continue
 		}
 		providerKey := app.Runtime.ProviderKey
+		// Platform-managed credentials are deliberately inert until an admin
+		// selects one in the access policy. They still appear in the runtime
+		// connection list so Settings can select them, but they must never become
+		// a core provider that receives the platform credential directly.
+		if providerKey == "managed" {
+			continue
+		}
 		// The allow-list stays the gate even though the key now comes from
 		// the catalog: config.json provider names are a contract with
 		// apteva-core, and catalog JSON is data that ships separately from

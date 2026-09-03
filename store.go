@@ -57,12 +57,14 @@ type APIKey struct {
 }
 
 type Project struct {
-	ID          string    `json:"id"`
-	UserID      int64     `json:"user_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Color       string    `json:"color"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                   string     `json:"id"`
+	UserID               int64      `json:"user_id"`
+	Name                 string     `json:"name"`
+	Description          string     `json:"description"`
+	Color                string     `json:"color"`
+	CreatedAt            time.Time  `json:"created_at"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
+	ProvisioningPresetID string     `json:"provisioning_preset_id,omitempty"`
 }
 
 type EnvironmentRecord struct {
@@ -1117,15 +1119,37 @@ func (s *Store) migrate() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
+	// Gateway usage is accounted independently from telemetry. Telemetry is
+	// eventual and emitted after a model call; this row is the synchronous,
+	// server-owned counter used to reject calls before a hosted allowance is
+	// exceeded. One row per UTC day keeps reset behavior deterministic.
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS managed_llm_usage (
+			usage_date TEXT NOT NULL,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			project_id TEXT NOT NULL DEFAULT '',
+			calls INTEGER NOT NULL DEFAULT 0,
+			input_tokens INTEGER NOT NULL DEFAULT 0,
+			output_tokens INTEGER NOT NULL DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (usage_date, user_id, project_id)
+		)
+	`)
+	s.db.Exec(`ALTER TABLE projects ADD COLUMN expires_at DATETIME`)
+	s.db.Exec(`ALTER TABLE projects ADD COLUMN provisioning_preset_id TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS user_preferences (
 			user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 			language TEXT NOT NULL DEFAULT '',
+			interface_level TEXT
+				CHECK(interface_level IS NULL OR interface_level IN ('personal', 'business', 'developer')),
 			ui_layout TEXT NOT NULL DEFAULT '{}',
 			ui_layout_revision INTEGER NOT NULL DEFAULT 0,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
+	s.db.Exec(`ALTER TABLE user_preferences ADD COLUMN interface_level TEXT
+		CHECK(interface_level IS NULL OR interface_level IN ('personal', 'business', 'developer'))`)
 	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout TEXT NOT NULL DEFAULT '{}'")
 	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout_revision INTEGER NOT NULL DEFAULT 0")
 	s.db.Exec(`
@@ -1790,7 +1814,13 @@ func (s *Store) Close() error {
 // --- Users ---
 
 func (s *Store) CreateUser(email, passwordHash string) (*User, error) {
-	result, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin user creation: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
 		"INSERT INTO users (email, password_hash) VALUES (?, ?)",
 		email, passwordHash,
 	)
@@ -1798,6 +1828,16 @@ func (s *Store) CreateUser(email, passwordHash string) (*User, error) {
 		return nil, fmt.Errorf("user exists or db error: %w", err)
 	}
 	id, _ := result.LastInsertId()
+	if _, err := tx.Exec(
+		`INSERT INTO user_preferences (user_id, interface_level, updated_at)
+		 VALUES (?, 'business', CURRENT_TIMESTAMP)`,
+		id,
+	); err != nil {
+		return nil, fmt.Errorf("create user preferences: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit user creation: %w", err)
+	}
 	return &User{ID: id, Email: email, CreatedAt: time.Now()}, nil
 }
 
@@ -1898,6 +1938,44 @@ func (s *Store) SetUserLanguage(userID int64, language string) error {
 		 VALUES (?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET language = excluded.language, updated_at = CURRENT_TIMESTAMP`,
 		userID, language,
+	)
+	return err
+}
+
+func validInterfaceLevel(level string) bool {
+	switch level {
+	case "personal", "business", "developer":
+		return true
+	default:
+		return false
+	}
+}
+
+// GetUserInterfaceLevel returns an empty string for legacy users who have not
+// chosen a level yet. The dashboard uses that state to import its former
+// device-local preference once before the server becomes authoritative.
+func (s *Store) GetUserInterfaceLevel(userID int64) string {
+	var level sql.NullString
+	if err := s.db.QueryRow(
+		"SELECT interface_level FROM user_preferences WHERE user_id = ?",
+		userID,
+	).Scan(&level); err != nil || !level.Valid || !validInterfaceLevel(level.String) {
+		return ""
+	}
+	return level.String
+}
+
+func (s *Store) SetUserInterfaceLevel(userID int64, level string) error {
+	if !validInterfaceLevel(level) {
+		return errors.New("interface_level must be personal, business, or developer")
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO user_preferences (user_id, interface_level, updated_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id) DO UPDATE SET
+			interface_level = excluded.interface_level,
+			updated_at = CURRENT_TIMESTAMP`,
+		userID, level,
 	)
 	return err
 }
@@ -2223,6 +2301,70 @@ func (s *Store) CountUserResources(userID int64) UserResourceCounts {
 	return c
 }
 
+type userDeletionQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func userDeletionOwnershipBlocker(q userDeletionQuerier, userID int64) (string, error) {
+	var projectID string
+	err := q.QueryRow(`
+		SELECT p.id
+		  FROM projects p
+		 WHERE (
+		       EXISTS (
+		           SELECT 1 FROM project_members target
+		            WHERE target.project_id = p.id
+		              AND target.user_id = ?
+		              AND target.role = 'owner'
+		       )
+		       AND NOT EXISTS (
+		           SELECT 1 FROM project_members other_owner
+		            WHERE other_owner.project_id = p.id
+		              AND other_owner.user_id != ?
+		              AND other_owner.role = 'owner'
+		       )
+		       AND (
+		           p.user_id != ?
+		           OR EXISTS (
+		               SELECT 1 FROM project_members other
+		                WHERE other.project_id = p.id AND other.user_id != ?
+		           )
+		       )
+		   )
+		    OR (
+		       p.user_id = ?
+		       AND EXISTS (
+		           SELECT 1 FROM project_members other
+		            WHERE other.project_id = p.id AND other.user_id != ?
+		       )
+		       AND NOT EXISTS (
+		           SELECT 1 FROM project_members other_owner
+		            WHERE other_owner.project_id = p.id
+		              AND other_owner.user_id != ?
+		              AND other_owner.role = 'owner'
+		       )
+		   )
+		 LIMIT 1`, userID, userID, userID, userID, userID, userID, userID).Scan(&projectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return projectID, err
+}
+
+// ValidateUserDeletion is the read-only preflight used before stopping the
+// user's running agents. DeleteUser repeats the same check transactionally so
+// a membership change between preflight and deletion cannot bypass it.
+func (s *Store) ValidateUserDeletion(userID int64) error {
+	projectID, err := userDeletionOwnershipBlocker(s.db, userID)
+	if err != nil {
+		return err
+	}
+	if projectID != "" {
+		return fmt.Errorf("%w: %s", ErrUserOwnsSharedProject, projectID)
+	}
+	return nil
+}
+
 // DeleteUser removes every row tied to this user across every tenant-
 // scoped table, then the user row itself. The tables don't have ON
 // DELETE CASCADE in the schema, so we do the cascade explicitly. Done
@@ -2234,6 +2376,69 @@ func (s *Store) DeleteUser(userID int64) error {
 		return err
 	}
 	defer tx.Rollback()
+
+	// A shared project must never disappear merely because its original
+	// creator account is deleted. Require an explicit second owner first;
+	// this keeps account deletion from making an arbitrary editor/viewer the
+	// owner and gives operators a predictable ownership-transfer workflow.
+	blockedProjectID, err := userDeletionOwnershipBlocker(tx, userID)
+	if err != nil {
+		return err
+	}
+	if blockedProjectID != "" {
+		return fmt.Errorf("%w: %s", ErrUserOwnsSharedProject, blockedProjectID)
+	}
+
+	// projects.user_id is the legacy creator/owner pointer. For projects
+	// with another explicit owner, hand that pointer over before deleting
+	// the account; private projects with no other owner remain attached to
+	// the departing user and are removed by the normal cascade below.
+	if _, err := tx.Exec(`
+		UPDATE projects
+		   SET user_id = (
+		       SELECT pm.user_id
+		         FROM project_members pm
+		        WHERE pm.project_id = projects.id
+		          AND pm.user_id != ?
+		          AND pm.role = 'owner'
+		        ORDER BY pm.added_at ASC, pm.user_id ASC
+		        LIMIT 1
+		   )
+		 WHERE user_id = ?
+		   AND EXISTS (
+		       SELECT 1 FROM project_members pm
+		        WHERE pm.project_id = projects.id
+		          AND pm.user_id != ?
+		          AND pm.role = 'owner'
+		   )`, userID, userID, userID); err != nil {
+		return fmt.Errorf("transfer shared project ownership: %w", err)
+	}
+	// Agents are project resources: members can view them and editors can
+	// mutate them regardless of creator. Re-home agents in retained shared
+	// projects to the new legacy owner so account deletion does not erase
+	// shared work. Private-project and unscoped agents are still deleted.
+	if _, err := tx.Exec(`
+		UPDATE agents
+		   SET user_id = (
+		       SELECT p.user_id FROM projects p WHERE p.id = agents.project_id
+		   )
+		 WHERE user_id = ?
+		   AND COALESCE(project_id, '') != ''
+		   AND EXISTS (
+		       SELECT 1 FROM projects p
+		        WHERE p.id = agents.project_id AND p.user_id != ?
+		   )`, userID, userID); err != nil {
+		return fmt.Errorf("transfer shared project agents: %w", err)
+	}
+	// Retained shared projects may still record the departing user as the
+	// person who added another member. The relationship is historical and
+	// nullable, so clear it before the users row is removed.
+	if _, err := tx.Exec(
+		`UPDATE project_members SET added_by = NULL WHERE added_by = ?`, userID,
+	); err != nil {
+		return fmt.Errorf("clear project member attribution: %w", err)
+	}
+
 	// Order matters only for readability; none of these have FKs to
 	// each other, only to users(id). Telemetry is keyed by agent_id,
 	// not user_id, so it goes away transitively once instances do —
@@ -2248,6 +2453,9 @@ func (s *Store) DeleteUser(userID int64) error {
 		"DELETE FROM mcp_servers WHERE user_id = ?",
 		"DELETE FROM subscriptions WHERE user_id = ?",
 		"DELETE FROM channels WHERE user_id = ?",
+		"DELETE FROM project_invites WHERE invited_by = ?",
+		"DELETE FROM user_template_hidden WHERE user_id = ?",
+		"DELETE FROM agent_templates WHERE user_id = ?",
 		"DELETE FROM projects WHERE user_id = ?",
 		"DELETE FROM oauth_states WHERE user_id = ?",
 		"DELETE FROM users WHERE id = ?",
@@ -3044,18 +3252,29 @@ func scanEnvironmentRecord(scanner environmentRecordScanner) (EnvironmentRecord,
 // job via NotifyInstanceDetach. The caller in agents.go fires
 // that hook before invoking us.
 func (s *Store) DeleteAgent(userID, instanceID int64) error {
-	// Verify ownership first — the deletes below are unscoped by
-	// user_id, so a missing ownership check would let any caller
-	// blow away another tenant's data if they knew the id.
+	// Verify authorization first — the deletes below are unscoped by
+	// user_id. Legacy unscoped agents remain creator-only, while project
+	// agents may be deleted by an editor/owner or a platform admin, matching
+	// the HTTP authorization layer.
 	var owner int64
-	if err := s.db.QueryRow("SELECT user_id FROM agents WHERE id = ?", instanceID).Scan(&owner); err != nil {
+	var projectID string
+	if err := s.db.QueryRow(
+		"SELECT user_id, COALESCE(project_id,'') FROM agents WHERE id = ?", instanceID,
+	).Scan(&owner, &projectID); err != nil {
 		if err == sql.ErrNoRows {
 			return nil // already gone — idempotent
 		}
 		return err
 	}
 	if owner != userID {
-		return fmt.Errorf("instance %d not owned by user %d", instanceID, userID)
+		allowed := s.GetPlatformRole(userID) == PlatformAdmin
+		if !allowed && projectID != "" {
+			role, err := s.GetProjectRole(projectID, userID)
+			allowed = err == nil && role.Rank() >= ProjectEditor.Rank()
+		}
+		if !allowed {
+			return fmt.Errorf("user %d may not delete agent %d", userID, instanceID)
+		}
 	}
 
 	stmts := []string{
@@ -3065,15 +3284,10 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		"DELETE FROM app_agent_bindings    WHERE agent_id = ?",
 		"DELETE FROM agent_thread_scopes   WHERE agent_id = ?",
 		"DELETE FROM agent_creation_keys   WHERE agent_id = ?",
-		"DELETE FROM agents                 WHERE id = ? AND user_id = ?",
+		"DELETE FROM agents                 WHERE id = ?",
 	}
-	for i, q := range stmts {
-		var err error
-		if i == len(stmts)-1 {
-			_, err = s.db.Exec(q, instanceID, userID)
-		} else {
-			_, err = s.db.Exec(q, instanceID)
-		}
+	for _, q := range stmts {
+		_, err := s.db.Exec(q, instanceID)
 		if err != nil {
 			return fmt.Errorf("delete instance %d: %s: %w", instanceID, q, err)
 		}
@@ -3163,13 +3377,20 @@ func (s *Store) DeleteProject(userID int64, id string) error {
 func (s *Store) GetProjectAny(id string) (*Project, error) {
 	var p Project
 	var createdAt string
+	var expiresAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, description, color, created_at FROM projects WHERE id = ?", id,
-	).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.Color, &createdAt)
+		`SELECT id,user_id,name,description,color,created_at,expires_at,COALESCE(provisioning_preset_id,'')
+		 FROM projects WHERE id=?`, id,
+	).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.Color, &createdAt, &expiresAt, &p.ProvisioningPresetID)
 	if err != nil {
 		return nil, err
 	}
 	p.CreatedAt, _ = parseTime(createdAt)
+	if expiresAt.Valid {
+		if parsed, parseErr := parseTime(expiresAt.String); parseErr == nil {
+			p.ExpiresAt = &parsed
+		}
+	}
 	return &p, nil
 }
 

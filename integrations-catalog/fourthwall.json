@@ -1,0 +1,1697 @@
+{
+  "slug": "fourthwall",
+  "name": "Fourthwall",
+  "description": "Fourthwall Platform API for selling hosted physical and digital products without building a storefront: products, files, inventory, collections, orders, fulfillment, promotions, memberships, donations, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=fourthwall.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "creator-commerce",
+    "storefront",
+    "digital-products",
+    "merchandise",
+    "orders",
+    "fulfillment"
+  ],
+  "base_url": "https://api.fourthwall.com",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "API Username",
+        "description": "Username for the API user created in Fourthwall Settings > For developers.",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "API Password",
+        "type": "password",
+        "description": "Password shown when the Fourthwall API user is created.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_webhook",
+      "description": "Get a webhook",
+      "method": "GET",
+      "path": "/open-api/v1.0/webhooks/{webhookConfigurationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookConfigurationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhookConfigurationId"
+        ]
+      }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update a webhook",
+      "method": "PUT",
+      "path": "/open-api/v1.0/webhooks/{webhookConfigurationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookConfigurationId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "allowedTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ORDER_PLACED",
+                "ORDER_UPDATED",
+                "GIFT_PURCHASE",
+                "PRODUCT_CREATED",
+                "PRODUCT_UPDATED",
+                "DONATION",
+                "SUBSCRIPTION_PURCHASED",
+                "SUBSCRIPTION_EXPIRED",
+                "SUBSCRIPTION_CHANGED",
+                "NEWSLETTER_SUBSCRIBED",
+                "THANK_YOU_SENT",
+                "GIFT_DRAW_STARTED",
+                "GIFT_DRAW_ENDED",
+                "PROMOTION_CREATED",
+                "PROMOTION_UPDATED",
+                "PROMOTION_STATUS_CHANGED",
+                "PLATFORM_APP_DISCONNECTED",
+                "MEMBERSHIP_POST_UPSERTED",
+                "MEMBERSHIP_SERIES_UPSERTED",
+                "MEMBERSHIP_SERIES_DELETED",
+                "MEMBERSHIP_TAG_CREATED",
+                "MEMBERSHIP_TAG_UPDATED",
+                "MEMBERSHIP_TAG_DELETED",
+                "MEMBERSHIP_TIER_UPSERTED",
+                "MEMBERSHIP_TIER_DELETED",
+                "COLLECTION_UPDATED",
+                "CART_ABANDONED_1H",
+                "CART_ABANDONED_24H",
+                "CART_ABANDONED_72H"
+              ]
+            }
+          }
+        },
+        "required": [
+          "webhookConfigurationId",
+          "allowedTypes",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook",
+      "method": "DELETE",
+      "path": "/open-api/v1.0/webhooks/{webhookConfigurationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookConfigurationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhookConfigurationId"
+        ]
+      }
+    },
+    {
+      "name": "get_promotion",
+      "description": "Get a promotion by id",
+      "method": "GET",
+      "path": "/open-api/v1.0/promotions/{promotionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "promotionId"
+        ]
+      }
+    },
+    {
+      "name": "update_promotion",
+      "description": "Update a promotion",
+      "method": "PUT",
+      "path": "/open-api/v1.0/promotions/{promotionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "maximumUse": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "oneUsePerCustomer": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "oneUsePerCustomer"
+            ]
+          },
+          "requirements": {
+            "type": "object",
+            "properties": {
+              "minimumOrderValue": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "currency",
+                  "value"
+                ]
+              }
+            }
+          },
+          "appliesTo": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "productIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "oncePerOrder": {
+                "type": "boolean"
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "LIVE",
+              "ENDED"
+            ]
+          }
+        },
+        "required": [
+          "promotionId"
+        ]
+      }
+    },
+    {
+      "name": "update_product_state",
+      "description": "Update product (offer) lifecycle state",
+      "method": "PUT",
+      "path": "/open-api/v1.0/products/{productId}/state",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PUBLIC",
+              "HIDDEN"
+            ],
+            "description": "Target lifecycle state. PUBLIC makes the product visible on the storefront; HIDDEN keeps it unlisted. The sold-out (available) flag is preserved across the transition — use PUT /products/{productId}/availability to flip it."
+          }
+        },
+        "required": [
+          "productId",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "update_product_availability",
+      "description": "Update product (offer) availability by id",
+      "method": "PUT",
+      "path": "/open-api/v1.0/products/{productId}/availability",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "productId",
+          "available"
+        ]
+      }
+    },
+    {
+      "name": "mark_download_complete",
+      "description": "Mark digital download as downloaded",
+      "method": "PUT",
+      "path": "/open-api/v1.0/order/{orderId}/downloaded",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "defaultFileUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "update_collection",
+      "description": "Update a collection",
+      "method": "PUT",
+      "path": "/open-api/v1.0/collections/{collectionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collectionId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "offerIds": {
+            "type": "array",
+            "description": "List of product IDs to set in the collection",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "collectionId"
+        ]
+      }
+    },
+    {
+      "name": "get_collection_products",
+      "description": "Get products in a collection",
+      "method": "GET",
+      "path": "/open-api/v1.0/collections/{collectionId}/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collectionId": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PUBLIC",
+              "AVAILABLE",
+              "SOLD_OUT",
+              "HIDDEN",
+              "ARCHIVED"
+            ],
+            "description": "Filter for product status in a collection"
+          }
+        },
+        "required": [
+          "collectionId"
+        ]
+      },
+      "query_params": [
+        "page",
+        "size",
+        "status"
+      ]
+    },
+    {
+      "name": "update_collection_products",
+      "description": "Set collection products",
+      "method": "PUT",
+      "path": "/open-api/v1.0/collections/{collectionId}/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collectionId": {
+            "type": "string"
+          },
+          "offerIds": {
+            "type": "array",
+            "description": "Full list of product IDs to set in the collection",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "collectionId",
+          "offerIds"
+        ]
+      }
+    },
+    {
+      "name": "update_collection_availability",
+      "description": "Update collection availability",
+      "method": "PUT",
+      "path": "/open-api/v1.0/collections/{collectionId}/availability",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collectionId": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "collectionId",
+          "available"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "Get webhooks",
+      "method": "GET",
+      "path": "/open-api/v1.0/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook",
+      "method": "POST",
+      "path": "/open-api/v1.0/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "allowedTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ORDER_PLACED",
+                "ORDER_UPDATED",
+                "GIFT_PURCHASE",
+                "PRODUCT_CREATED",
+                "PRODUCT_UPDATED",
+                "DONATION",
+                "SUBSCRIPTION_PURCHASED",
+                "SUBSCRIPTION_EXPIRED",
+                "SUBSCRIPTION_CHANGED",
+                "NEWSLETTER_SUBSCRIBED",
+                "THANK_YOU_SENT",
+                "GIFT_DRAW_STARTED",
+                "GIFT_DRAW_ENDED",
+                "PROMOTION_CREATED",
+                "PROMOTION_UPDATED",
+                "PROMOTION_STATUS_CHANGED",
+                "PLATFORM_APP_DISCONNECTED",
+                "MEMBERSHIP_POST_UPSERTED",
+                "MEMBERSHIP_SERIES_UPSERTED",
+                "MEMBERSHIP_SERIES_DELETED",
+                "MEMBERSHIP_TAG_CREATED",
+                "MEMBERSHIP_TAG_UPDATED",
+                "MEMBERSHIP_TAG_DELETED",
+                "MEMBERSHIP_TIER_UPSERTED",
+                "MEMBERSHIP_TIER_DELETED",
+                "COLLECTION_UPDATED",
+                "CART_ABANDONED_1H",
+                "CART_ABANDONED_24H",
+                "CART_ABANDONED_72H"
+              ]
+            }
+          }
+        },
+        "required": [
+          "allowedTypes",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "list_promotions",
+      "description": "Get all promotions",
+      "method": "GET",
+      "path": "/open-api/v1.0/promotions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by promotion code(s)"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "size",
+        "codes"
+      ]
+    },
+    {
+      "name": "create_promotion",
+      "description": "Create a promotion",
+      "method": "POST",
+      "path": "/open-api/v1.0/promotions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "discount": {
+            "type": "object",
+            "properties": {}
+          },
+          "requirements": {
+            "type": "object",
+            "properties": {
+              "minimumOrderValue": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "currency",
+                  "value"
+                ]
+              }
+            }
+          },
+          "subscriptionType": {
+            "type": "object",
+            "properties": {}
+          },
+          "tiers": {
+            "type": "object",
+            "properties": {}
+          },
+          "code": {
+            "type": "string"
+          },
+          "appliesToProducts": {
+            "type": "object",
+            "properties": {
+              "productIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "oncePerOrder": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "productIds"
+            ]
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "maximumUse": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "oneUsePerCustomer": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "oneUsePerCustomer"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "list_products",
+      "description": "Get all products (offers)",
+      "method": "GET",
+      "path": "/open-api/v1.0/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          },
+          "search": {
+            "type": "string"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "size",
+        "search"
+      ]
+    },
+    {
+      "name": "create_product",
+      "description": "Create a hosted product. Use type=digital with name, description, and price; type=design with a productTemplateId and regions; or type=customization with a customizationId.",
+      "method": "POST",
+      "path": "/open-api/v1.0/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "digital",
+              "design",
+              "customization"
+            ],
+            "description": "Creation workflow. Digital products use a creator-set price; design products render artwork onto a physical template; customization products use a saved customization."
+          },
+          "productTemplateId": {
+            "type": "string",
+            "description": "Id of the product template to render the design onto, from GET /open-api/v1.0/product-templates."
+          },
+          "regions": {
+            "type": "array",
+            "description": "Design regions to place on the product. Each region references a registered media image by id (register it via POST /open-api/v1.0/media/images and pass the returned id as imageId).",
+            "items": {
+              "type": "object",
+              "description": "A product region paired with the registered media image to render on it.",
+              "properties": {
+                "region": {
+                  "type": "string",
+                  "description": "Name of the product region to place the image on, e.g. front or back."
+                },
+                "imageId": {
+                  "type": "string",
+                  "description": "Id of a registered media-library image to render on the region. Register the image first via POST /open-api/v1.0/media/images and pass the returned id here."
+                },
+                "placementId": {
+                  "type": "string",
+                  "description": "Placement to target when placementStrategy is PLACEMENTID. Required for that strategy and ignored by the others."
+                },
+                "placementStrategy": {
+                  "type": "string",
+                  "enum": [
+                    "AUTO",
+                    "FILL_ALL",
+                    "FULL_REGION",
+                    "PLACEMENT_ID"
+                  ],
+                  "description": "How the image is placed on the region. Defaults to AUTO when omitted, and takes precedence over placementId/fillAllPlacements. - AUTO — let the renderer decide using the product's automation defaults (its preferred placement, or fill-all for products like mugs/stickers). - FILLALL — apply the image to every placement in the region. - FULLREGION — render the image across the full region, skipping the preferred plac..."
+                }
+              },
+              "required": [
+                "imageId",
+                "region"
+              ]
+            }
+          },
+          "colors": {
+            "type": "array",
+            "description": "Colors to render. Defaults to all available product colors when omitted. Values not offered by the product are ignored; the request is rejected with 400 if none of the supplied colors are available.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizes": {
+            "type": "array",
+            "description": "Sizes to include. Defaults to all available product sizes when omitted. Values not offered by the product are ignored; the request is rejected with 400 if none of the supplied sizes are available. When both colors and sizes are supplied, the request is also rejected with 400 if no requested color/size combination is an available variant.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Product name. Defaults to the product template name when omitted."
+          },
+          "description": {
+            "type": "string",
+            "description": "Product description"
+          },
+          "profitMargin": {
+            "type": "number",
+            "description": "Profit margin in USD applied on top of the base cost."
+          },
+          "publishOnCreate": {
+            "type": "boolean",
+            "description": "Publish the product immediately on creation. Defaults to false (product stays hidden)."
+          },
+          "price": {
+            "type": "number",
+            "description": "Price set by the creator, in USD."
+          },
+          "customizationId": {
+            "type": "string",
+            "description": "Id of the customization to build the product from, from POST /open-api/v1.0/customizations."
+          }
+        },
+        "required": [
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "attach_product_images",
+      "description": "Attach images to a product",
+      "method": "POST",
+      "path": "/open-api/v1.0/products/{productId}/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "images": {
+            "type": "array",
+            "description": "List of images to attach",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "Image URL"
+                },
+                "width": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "Image width in pixels"
+                },
+                "height": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "Image height in pixels"
+                }
+              },
+              "required": [
+                "height",
+                "url",
+                "width"
+              ]
+            }
+          }
+        },
+        "required": [
+          "productId",
+          "images"
+        ]
+      }
+    },
+    {
+      "name": "remove_product_images",
+      "description": "Remove images from a product",
+      "method": "DELETE",
+      "path": "/open-api/v1.0/products/{productId}/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "imageUrls": {
+            "type": "array",
+            "description": "List of image URLs to remove",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "productId",
+          "imageUrls"
+        ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "imageUrls"
+        ]
+      }
+    },
+    {
+      "name": "upload_presigned_file",
+      "description": "Upload raw image, design, or digital-product bytes to a Fourthwall presigned uploadUrl. Reuse the exact content type and byte size used when requesting the URL; content_length_range must be 0,<size>.",
+      "method": "PUT",
+      "path": "{upload_url}",
+      "omit_auth_headers": [
+        "Authorization"
+      ],
+      "body_binary_param": "file",
+      "header_params": {
+        "content_type": "Content-Type",
+        "content_length_range": "x-goog-content-length-range"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "upload_url": {
+            "type": "string",
+            "description": "Short-lived uploadUrl returned by a Fourthwall upload-url tool."
+          },
+          "file": {
+            "type": "string",
+            "description": "File bytes as a blobref:// handle or runtime binary value."
+          },
+          "content_type": {
+            "type": "string",
+            "description": "Exact MIME type supplied when requesting the presigned URL."
+          },
+          "content_length_range": {
+            "type": "string",
+            "description": "Required signed header in the form 0,<exact byte size>, for example 0,24576."
+          }
+        },
+        "required": [
+          "upload_url",
+          "file",
+          "content_type",
+          "content_length_range"
+        ]
+      }
+    },
+    {
+      "name": "confirm_digital_file_upload",
+      "description": "Confirm and link an uploaded digital file",
+      "method": "POST",
+      "path": "/open-api/v1.0/products/{productId}/digital-files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "fileUrl": {
+            "type": "string",
+            "description": "The file URL returned from the upload-url endpoint"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "Display name for the file"
+          }
+        },
+        "required": [
+          "productId",
+          "fileName",
+          "fileUrl"
+        ]
+      }
+    },
+    {
+      "name": "remove_digital_file",
+      "description": "Remove a digital file from a product",
+      "method": "DELETE",
+      "path": "/open-api/v1.0/products/{productId}/digital-files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "fileUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId",
+          "fileUrl"
+        ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "fileUrl"
+        ]
+      }
+    },
+    {
+      "name": "request_digital_file_upload_url",
+      "description": "Request a presigned upload URL for a digital file",
+      "method": "POST",
+      "path": "/open-api/v1.0/products/{productId}/digital-files/upload-url",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "Name of the file"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "MIME type of the file"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the file in bytes. Must match the x-goog-content-length-range header sent when uploading the bytes to uploadUrl."
+          }
+        },
+        "required": [
+          "productId",
+          "contentType",
+          "fileName",
+          "size"
+        ]
+      }
+    },
+    {
+      "name": "request_media_upload_url",
+      "description": "Request a pre-signed upload URL",
+      "method": "POST",
+      "path": "/open-api/v1.0/media/upload-url",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "description": "Name of the file"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "MIME type of the file"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the file in bytes. Must match the x-goog-content-length-range header sent when uploading the bytes to uploadUrl."
+          }
+        },
+        "required": [
+          "contentType",
+          "fileName",
+          "size"
+        ]
+      }
+    },
+    {
+      "name": "list_media_images",
+      "description": "List media library images",
+      "method": "GET",
+      "path": "/open-api/v1.0/media/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "save_media_image",
+      "description": "Save an uploaded image to the media library",
+      "method": "POST",
+      "path": "/open-api/v1.0/media/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileUrl": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "fileUrl",
+          "height",
+          "width"
+        ]
+      }
+    },
+    {
+      "name": "create_fulfillment",
+      "description": "Create a fulfillment for an order",
+      "method": "POST",
+      "path": "/open-api/v1.0/fulfillments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "variantId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "quantity",
+                "variantId"
+              ]
+            }
+          },
+          "shippingLabel": {
+            "type": "object",
+            "properties": {
+              "trackingNumber": {
+                "type": "string",
+                "minLength": 1
+              },
+              "trackingCompany": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "trackingCompany",
+              "trackingNumber"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "orderId",
+          "shippingLabel"
+        ]
+      }
+    },
+    {
+      "name": "create_customization",
+      "description": "Create a customization (design sketch)",
+      "method": "POST",
+      "path": "/open-api/v1.0/customizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productTemplateId": {
+            "type": "string",
+            "description": "Id of the product template the sketch targets, from GET /open-api/v1.0/product-templates. Same id space as CreateDesignProductRequestV1.productTemplateId."
+          },
+          "regions": {
+            "type": "array",
+            "description": "Design regions to render on the product. Each region references a registered media-library image by id (register first via POST /open-api/v1.0/media/images and pass the returned id as imageId). Omit or pass an empty list to create the sketch without running the pipeline.",
+            "items": {
+              "type": "object",
+              "description": "A product region paired with the registered media image to render on it.",
+              "properties": {
+                "region": {
+                  "type": "string",
+                  "description": "Name of the product region to place the image on, e.g. front or back."
+                },
+                "imageId": {
+                  "type": "string",
+                  "description": "Id of a registered media-library image to render on the region. Register the image first via POST /open-api/v1.0/media/images and pass the returned id here."
+                },
+                "placementId": {
+                  "type": "string",
+                  "description": "Placement to target when placementStrategy is PLACEMENTID. Required for that strategy and ignored by the others."
+                },
+                "placementStrategy": {
+                  "type": "string",
+                  "enum": [
+                    "AUTO",
+                    "FILL_ALL",
+                    "FULL_REGION",
+                    "PLACEMENT_ID"
+                  ],
+                  "description": "How the image is placed on the region. Defaults to AUTO when omitted, and takes precedence over placementId/fillAllPlacements. - AUTO — let the renderer decide using the product's automation defaults (its preferred placement, or fill-all for products like mugs/stickers). - FILLALL — apply the image to every placement in the region. - FULLREGION — render the image across the full region, skipping the preferred plac..."
+                }
+              },
+              "required": [
+                "imageId",
+                "region"
+              ]
+            }
+          },
+          "colors": {
+            "type": "array",
+            "description": "Colors to render. Defaults to all available product colors.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizes": {
+            "type": "array",
+            "description": "Sizes to include. Defaults to all available product sizes.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "productTemplateId"
+        ]
+      }
+    },
+    {
+      "name": "list_collections",
+      "description": "Get all collections",
+      "method": "GET",
+      "path": "/open-api/v1.0/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          },
+          "search": {
+            "type": "string"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "size",
+        "search"
+      ]
+    },
+    {
+      "name": "create_collection",
+      "description": "Create a new collection",
+      "method": "POST",
+      "path": "/open-api/v1.0/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "offerIds": {
+            "type": "array",
+            "description": "List of product IDs to include in the collection",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "description",
+          "name",
+          "offerIds"
+        ]
+      }
+    },
+    {
+      "name": "create_cart",
+      "description": "Create a cart",
+      "method": "POST",
+      "path": "/open-api/v1.0/carts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "variantId": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 1,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "quantity",
+                "variantId"
+              ]
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata key-value pairs. Max 10 keys, keys must be alphanumeric with underscores, max 256 chars per key, max 512 bytes per value, max 2KB total.",
+            "properties": {},
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "list_webhook_events",
+      "description": "Get webhook events",
+      "method": "GET",
+      "path": "/open-api/v1.0/webhook-events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ORDER_PLACED",
+                "ORDER_UPDATED",
+                "GIFT_PURCHASE",
+                "PRODUCT_CREATED",
+                "PRODUCT_UPDATED",
+                "DONATION",
+                "SUBSCRIPTION_PURCHASED",
+                "SUBSCRIPTION_EXPIRED",
+                "SUBSCRIPTION_CHANGED",
+                "NEWSLETTER_SUBSCRIBED",
+                "THANK_YOU_SENT",
+                "GIFT_DRAW_STARTED",
+                "GIFT_DRAW_ENDED",
+                "PROMOTION_CREATED",
+                "PROMOTION_UPDATED",
+                "PROMOTION_STATUS_CHANGED",
+                "PLATFORM_APP_DISCONNECTED",
+                "MEMBERSHIP_POST_UPSERTED",
+                "MEMBERSHIP_SERIES_UPSERTED",
+                "MEMBERSHIP_SERIES_DELETED",
+                "MEMBERSHIP_TAG_CREATED",
+                "MEMBERSHIP_TAG_UPDATED",
+                "MEMBERSHIP_TAG_DELETED",
+                "MEMBERSHIP_TIER_UPSERTED",
+                "MEMBERSHIP_TIER_DELETED",
+                "COLLECTION_UPDATED",
+                "CART_ABANDONED_1H",
+                "CART_ABANDONED_24H",
+                "CART_ABANDONED_72H"
+              ]
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 50,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          }
+        }
+      },
+      "query_params": [
+        "type",
+        "page",
+        "size"
+      ]
+    },
+    {
+      "name": "get_webhook_event",
+      "description": "Get a webhook event",
+      "method": "GET",
+      "path": "/open-api/v1.0/webhook-events/{webhookEventId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookEventId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhookEventId"
+        ]
+      }
+    },
+    {
+      "name": "get_current_shop",
+      "description": "Get current shop",
+      "method": "GET",
+      "path": "/open-api/v1.0/shops/current",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_shop_contact_info",
+      "description": "Get current shop contact info",
+      "method": "GET",
+      "path": "/open-api/v1.0/shops/current/contact-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Get product (offer) by id",
+      "method": "GET",
+      "path": "/open-api/v1.0/products/{productId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "archive_product",
+      "description": "Archive a product (offer)",
+      "method": "DELETE",
+      "path": "/open-api/v1.0/products/{productId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "get_product_inventory",
+      "description": "Get product (offer) inventory by id",
+      "method": "GET",
+      "path": "/open-api/v1.0/products/{productId}/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "list_product_templates",
+      "description": "List product templates",
+      "method": "GET",
+      "path": "/open-api/v1.0/product-templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_product_template",
+      "description": "Get product template details",
+      "method": "GET",
+      "path": "/open-api/v1.0/product-templates/{productId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "description": "Product template ID"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "search_product_templates",
+      "description": "Search product templates",
+      "method": "GET",
+      "path": "/open-api/v1.0/product-templates/search/{query}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (e.g., 'hoodie', 'black%20t-shirt')"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "Get all orders",
+      "method": "GET",
+      "path": "/open-api/v1.0/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          },
+          "email": {
+            "type": "string"
+          },
+          "createdAt[gt]": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt[lt]": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt[gt]": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt[lt]": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "CONFIRMED",
+                "PARTIALLY_IN_PRODUCTION",
+                "IN_PRODUCTION",
+                "PARTIALLY_SHIPPED",
+                "SHIPPED",
+                "PARTIALLY_DELIVERED",
+                "DELIVERED",
+                "CANCELLED",
+                "COMPLETED"
+              ]
+            }
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "size",
+        "email",
+        "createdAt[gt]",
+        "createdAt[lt]",
+        "updatedAt[gt]",
+        "updatedAt[lt]",
+        "status"
+      ]
+    },
+    {
+      "name": "get_order",
+      "description": "Get order by id",
+      "method": "GET",
+      "path": "/open-api/v1.0/order/{orderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "get_order_by_friendly_id",
+      "description": "Get order by friendly id",
+      "method": "GET",
+      "path": "/open-api/v1.0/order/by-friendly-id/{friendlyId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "friendlyId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "friendlyId"
+        ]
+      }
+    },
+    {
+      "name": "list_tiers",
+      "description": "List membership tiers",
+      "method": "GET",
+      "path": "/open-api/v1.0/memberships/tiers",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_members",
+      "description": "List members",
+      "method": "GET",
+      "path": "/open-api/v1.0/memberships/members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "size"
+      ]
+    },
+    {
+      "name": "get_member",
+      "description": "Get member",
+      "method": "GET",
+      "path": "/open-api/v1.0/memberships/members/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_entries",
+      "description": "Get all mailing list entries",
+      "method": "GET",
+      "path": "/open-api/v1.0/mailing-list-entries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "size"
+      ]
+    },
+    {
+      "name": "list_donations",
+      "description": "Get all donations",
+      "method": "GET",
+      "path": "/open-api/v1.0/donations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "description": "Number of elements per page. The maximum page size is 100 - larger values are capped at 100."
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "size"
+      ]
+    },
+    {
+      "name": "get_donation",
+      "description": "Get donation by id",
+      "method": "GET",
+      "path": "/open-api/v1.0/donations/{donationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "donationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "donationId"
+        ]
+      }
+    },
+    {
+      "name": "get_collection",
+      "description": "Get collection by ID or slug",
+      "method": "GET",
+      "path": "/open-api/v1.0/collections/{collectionIdOrSlug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collectionIdOrSlug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collectionIdOrSlug"
+        ]
+      }
+    },
+    {
+      "name": "get_cart",
+      "description": "Get cart by id",
+      "method": "GET",
+      "path": "/open-api/v1.0/carts/{cartId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_current_shop"
+  }
+}

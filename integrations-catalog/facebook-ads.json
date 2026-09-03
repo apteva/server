@@ -73,6 +73,147 @@
       }
     },
     {
+      "name": "ad_library_search",
+      "description": "Search the Meta Ad Library through the official /ads_archive endpoint. This searches public archived ads, not ads owned by the connected ad account. Meta currently exposes political/issue ads worldwide and ads of any type delivered in the EU or UK under its availability rules. The connected Facebook user and developer app must be authorized for the Ad Library API; ads_read or ads_management alone does not guarantee access. Array-valued filters must be passed as JSON-array strings, for example ad_reached_countries='[\"US\"]' or publisher_platforms='[\"FACEBOOK\",\"INSTAGRAM\"]'.",
+      "method": "GET",
+      "path": "/ads_archive",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_reached_countries": {
+            "type": "string",
+            "description": "Required JSON array of ISO-2 country codes, or [\"ALL\"]. Examples: [\"US\"] or [\"FR\",\"DE\"]. Non-EU results are generally limited to political/issue ads."
+          },
+          "search_terms": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Keywords or phrases found in the ad. Spaces are treated as logical AND. Maximum 100 characters. Use search_type to choose unordered keywords or exact phrases."
+          },
+          "search_type": {
+            "type": "string",
+            "enum": [
+              "KEYWORD_UNORDERED",
+              "KEYWORD_EXACT_PHRASE"
+            ],
+            "default": "KEYWORD_UNORDERED"
+          },
+          "search_page_ids": {
+            "type": "string",
+            "description": "JSON array containing up to 10 Facebook Page IDs. Example: [\"123456789\",\"987654321\"]."
+          },
+          "ad_active_status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "ALL",
+              "INACTIVE"
+            ],
+            "default": "ACTIVE"
+          },
+          "ad_type": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "EMPLOYMENT_ADS",
+              "FINANCIAL_PRODUCTS_AND_SERVICES_ADS",
+              "HOUSING_ADS",
+              "POLITICAL_AND_ISSUE_ADS"
+            ],
+            "default": "ALL",
+            "description": "Ad category. For countries outside the EU and UK, use POLITICAL_AND_ISSUE_ADS unless Meta expands availability."
+          },
+          "ad_delivery_date_min": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive earliest delivery date in YYYY-MM-DD format."
+          },
+          "ad_delivery_date_max": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive latest delivery date in YYYY-MM-DD format."
+          },
+          "languages": {
+            "type": "string",
+            "description": "JSON array of ISO 639 language codes. Example: [\"en\",\"es\"]."
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "IMAGE",
+              "MEME",
+              "VIDEO",
+              "NONE"
+            ],
+            "default": "ALL"
+          },
+          "publisher_platforms": {
+            "type": "string",
+            "description": "JSON array of platforms: FACEBOOK, INSTAGRAM, AUDIENCE_NETWORK, MESSENGER, WHATSAPP, OCULUS, THREADS, or STREAMING_SERVICES."
+          },
+          "bylines": {
+            "type": "string",
+            "description": "JSON array of complete paid-for-by disclaimer bylines. Available only for political/issue ads."
+          },
+          "delivery_by_region": {
+            "type": "string",
+            "description": "JSON array of state, province, or regional names. Available only for political/issue ads."
+          },
+          "estimated_audience_size_min": {
+            "type": "integer",
+            "enum": [
+              100,
+              1000,
+              5000,
+              10000,
+              50000,
+              100000,
+              500000,
+              1000000
+            ],
+            "description": "Minimum estimated audience boundary. Available only for political/issue ads."
+          },
+          "estimated_audience_size_max": {
+            "type": "integer",
+            "enum": [
+              1000,
+              5000,
+              10000,
+              50000,
+              100000,
+              500000,
+              1000000
+            ],
+            "description": "Maximum estimated audience boundary. Available only for political/issue ads."
+          },
+          "unmask_removed_content": {
+            "type": "boolean",
+            "default": false,
+            "description": "Request eligible content removed for policy violations. Access and policy restrictions still apply."
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,page_id,page_name,ad_creation_time,ad_delivery_start_time,ad_delivery_stop_time,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_descriptions,ad_creative_link_titles,ad_snapshot_url,publisher_platforms,languages",
+            "description": "Comma-separated result fields. Political/issue or EU/UK searches can additionally request spend, impressions, currency, bylines, demographic_distribution, delivery_by_region, estimated_audience_size, beneficiary_payers, eu_total_reach, target_ages, target_gender, target_locations, and total_reach_by_location."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 25,
+            "description": "Number of ads requested per page."
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor returned in paging.cursors.after."
+          }
+        },
+        "required": [
+          "ad_reached_countries"
+        ]
+      }
+    },
+    {
       "name": "account_list",
       "description": "List ad accounts the current user can access through the Meta Marketing API.",
       "method": "GET",
@@ -376,10 +517,9 @@
             "default": "IMPRESSIONS",
             "enum": [
               "IMPRESSIONS",
-              "LINK_CLICKS",
-              "THRUPLAY"
+              "LINK_CLICKS"
             ],
-            "description": "How you are charged. Almost always use IMPRESSIONS."
+            "description": "How you are charged. Use IMPRESSIONS for Meta video-view campaigns together with optimization_goal=THRUPLAY. THRUPLAY billing is account-restricted and is deliberately not exposed here."
           },
           "targeting": {
             "type": "object",
