@@ -2848,6 +2848,13 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		// rather than exposed to every agent. Pointer so the dashboard
 		// can omit the field for back-compat with the auto-MCP default.
 		AutoMCP *bool `json:"auto_mcp"`
+		// RuntimeConfig: non-secret runtime knobs, honoured only for
+		// catalog apps with a runtime block. Accepted at create (rather
+		// than PATCH-only) because base_url must exist BEFORE the
+		// pre-flight probe fires — an OpenAI-compatible gateway key is
+		// only valid at the gateway, so probing api.openai.com with it
+		// is a guaranteed 401 that blocks the save entirely.
+		RuntimeConfig map[string]any `json:"runtime_config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -3016,8 +3023,14 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	// universally available across 431 catalog entries; absence is
 	// the catalog author's signal of "I haven't characterised a
 	// safe probe for this app yet" rather than an error.
+	createBaseURL := ""
+	if app.Runtime != nil && body.RuntimeConfig != nil {
+		if raw, _ := body.RuntimeConfig["base_url"].(string); strings.TrimSpace(raw) != "" {
+			createBaseURL = strings.TrimRight(strings.TrimSpace(raw), "/")
+		}
+	}
 	if app.HealthCheck != nil && (app.HealthCheck.Tool != "" || app.HealthCheck.Path != "") && !isDelegatedProvider {
-		probe := s.runHealthCheck(app, encrypted)
+		probe := s.runHealthCheck(app, encrypted, createBaseURL)
 		if !probe.OK && !probe.Skipped {
 			log.Printf("[CONN] preflight FAILED slug=%s status=%d err=%q",
 				body.AppSlug, probe.StatusCode, probe.Error)
@@ -3063,6 +3076,17 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	}
 	log.Printf("[CONN] local connection row id=%d slug=%s status=active created_via=%s",
 		conn.ID, conn.AppSlug, body.CreatedVia)
+	if app.Runtime != nil && len(body.RuntimeConfig) > 0 {
+		// Persist create-time runtime knobs (base_url et al.) so the
+		// value the probe just validated is the one inference uses.
+		// Non-fatal on error: the connection row exists and the knobs
+		// are re-settable via PATCH /connections/:id/runtime-config.
+		if encoded, merr := json.Marshal(body.RuntimeConfig); merr == nil {
+			if uerr := s.store.UpdateConnectionRuntimeConfig(conn.ID, string(encoded)); uerr != nil {
+				log.Printf("[CONN] runtime_config persist failed conn=%d: %v", conn.ID, uerr)
+			}
+		}
+	}
 	// Auto-create an mcp_servers row only when:
 	//   1. the connection was born at the top-level Integrations
 	//      page (app-install minted connections always skip — the

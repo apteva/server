@@ -155,12 +155,44 @@ func (c *Cassette) Save(path string) error {
 type EnvironmentEdge struct {
 	listener net.Listener
 	server   *http.Server
-	policy   SandboxPolicy
 	mode     EdgeMode
 	cassette *Cassette
 
+	// policyMu guards policy. AllowHost mutates the allowlist after the
+	// edge is serving (per-connection LLM gateway hosts are only known
+	// at agent attach time), so every read must take the lock too.
+	policyMu sync.RWMutex
+	policy   SandboxPolicy
+
 	mu    sync.Mutex
 	calls []InterceptedCall
+}
+
+// AllowHost appends one hostname to the edge's allowlist. Used for
+// hosts that are only known after the edge has started — specifically
+// the per-connection LLM gateway host (runtime_config.base_url) of an
+// agent attached to this environment. Additive and idempotent; it
+// admits exactly the configured host, never a broadened suffix.
+func (e *EnvironmentEdge) AllowHost(host string) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return
+	}
+	e.policyMu.Lock()
+	defer e.policyMu.Unlock()
+	for _, existing := range e.policy.AllowHostSuffixes {
+		if existing == host {
+			return
+		}
+	}
+	e.policy.AllowHostSuffixes = append(e.policy.AllowHostSuffixes, host)
+}
+
+// allowedHost reports whether host passes the current allowlist.
+func (e *EnvironmentEdge) allowedHost(host string) bool {
+	e.policyMu.RLock()
+	defer e.policyMu.RUnlock()
+	return hostMatchesSuffix(host, e.policy.AllowHostSuffixes)
 }
 
 // startEnvironmentEdge binds a loopback port and starts serving. The caller sets
@@ -171,7 +203,7 @@ func startEnvironmentEdge(policy SandboxPolicy, mode EdgeMode, cassette *Cassett
 	if err != nil {
 		return nil, fmt.Errorf("environment edge listen: %w", err)
 	}
-	policy.AllowHostSuffixes = append(append([]string{}, defaultAllowSuffixes...), policy.AllowHostSuffixes...)
+	policy.AllowHostSuffixes = append(llmAllowSuffixes(), policy.AllowHostSuffixes...)
 	if mode == "" {
 		mode = EdgeBlock
 	}
@@ -238,7 +270,7 @@ func (e *EnvironmentEdge) handle(w http.ResponseWriter, r *http.Request) {
 	rec := InterceptedCall{Host: host, Path: path, Method: method, ReqBody: truncate(string(body), 1000), Timestamp: time.Now()}
 
 	// 1. Allowlist passthrough.
-	if hostMatchesSuffix(host, e.policy.AllowHostSuffixes) {
+	if e.allowedHost(host) {
 		st, hdr, rb, err := e.forward(r, body)
 		if err != nil {
 			e.fail(w, &rec, http.StatusBadGateway, "environment edge: upstream error: "+err.Error())
@@ -417,7 +449,7 @@ func (e *EnvironmentEdge) handleConnect(w http.ResponseWriter, r *http.Request) 
 }
 
 func (e *EnvironmentEdge) shouldTunnelConnect(host string) bool {
-	if hostMatchesSuffix(host, e.policy.AllowHostSuffixes) {
+	if e.allowedHost(host) {
 		return true
 	}
 	return e.mode == EdgePassthrough || e.mode == EdgeRecord

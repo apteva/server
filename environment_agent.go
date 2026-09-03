@@ -290,6 +290,15 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		teardown()
 		return nil, err
 	}
+	// The agent's OPENAI_BASE_URL (from a connection's
+	// runtime_config.base_url or a legacy provider blob) names a host the
+	// edge has never heard of — its allowlist was built at edge start,
+	// before any agent's provider env existed. Admit exactly that host,
+	// read from the same rendered env the core boots with, so inference
+	// against a configured OpenAI-compatible gateway isn't egress-blocked.
+	if host := llmGatewayHost(providerEnv["OPENAI_BASE_URL"]); host != "" {
+		environment.Edge().AllowHost(host)
+	}
 
 	if err := s.agents.PreSeedConfig(wAgent.ID, wAgent.Config); err != nil {
 		teardown()
