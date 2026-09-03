@@ -37,7 +37,8 @@
         "name": "host",
         "label": "Host",
         "description": "Trading host. Use 'paper-api.alpaca.markets' for paper trading (default) or 'api.alpaca.markets' for live trading. Do NOT include https:// or trailing slash.",
-        "default": "paper-api.alpaca.markets"
+        "default": "paper-api.alpaca.markets",
+        "exposure": "public"
       }
     ]
   },
