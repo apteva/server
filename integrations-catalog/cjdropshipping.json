@@ -54,57 +54,177 @@
     },
     {
       "name": "products_search",
-      "description": "Search CJ Dropshipping's product catalog. Supports keyword, category, warehouse/country, price range, inventory, sorting, and pagination.",
+      "description": "Search CJ Dropshipping's Product List V2 catalog. Supports keyword/SKU, category, warehouse country, price, inventory, product attributes, sorting, and pagination. The integration maps its stable agent-facing field names to CJ's V2 query parameter names.",
       "method": "GET",
       "path": "/product/listV2",
+      "query_params": [
+        "categoryId",
+        "lv2categoryList",
+        "lv3categoryList",
+        "countryCode",
+        "startSellPrice",
+        "endSellPrice",
+        "addMarkStatus",
+        "productType",
+        "productFlag",
+        "verifiedWarehouse",
+        "timeStart",
+        "timeEnd",
+        "zonePlatform",
+        "isWarehouse",
+        "sort",
+        "features",
+        "supplierId",
+        "hasCertification",
+        "isSelfPickup",
+        "customization"
+      ],
+      "query_param_aliases": {
+        "pageNum": "page",
+        "pageSize": "size",
+        "productNameEn": "keyWord",
+        "minInventory": "startWarehouseInventory",
+        "maxInventory": "endWarehouseInventory",
+        "sortBy": "orderBy"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 2,
+        "retry_statuses": [
+          429
+        ],
+        "retry_error_codes": [
+          1600200
+        ]
+      },
       "input_schema": {
         "type": "object",
         "properties": {
           "pageNum": {
             "type": "integer",
             "default": 1,
+            "minimum": 1,
+            "maximum": 1000,
             "description": "Page number, starting at 1."
           },
           "pageSize": {
             "type": "integer",
-            "default": 20,
-            "description": "Products per page."
+            "default": 10,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Products per page. CJ Product List V2 accepts 1-100 and defaults to 10."
           },
           "productNameEn": {
             "type": "string",
-            "description": "English product keyword or title search."
+            "maxLength": 200,
+            "description": "Product name or SKU keyword. Sent to CJ as keyWord."
           },
           "categoryId": {
             "type": "string",
-            "description": "CJ category ID from categories_list."
+            "description": "CJ third-level category ID from categories_list."
+          },
+          "lv2categoryList": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CJ second-level category IDs."
+          },
+          "lv3categoryList": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CJ third-level category IDs."
           },
           "countryCode": {
             "type": "string",
-            "description": "Warehouse or shipping country code when supported by the CJ endpoint, for example US."
-          },
-          "minPrice": {
-            "type": "number",
-            "description": "Minimum product price."
-          },
-          "maxPrice": {
-            "type": "number",
-            "description": "Maximum product price."
+            "description": "Country code for products with inventory there, for example US, GB, or FR."
           },
           "startSellPrice": {
             "type": "number",
-            "description": "Minimum selling price filter, accepted by CJ Product List V2."
+            "minimum": 0,
+            "description": "Minimum selling price in USD."
           },
           "endSellPrice": {
             "type": "number",
-            "description": "Maximum selling price filter, accepted by CJ Product List V2."
+            "minimum": 0,
+            "description": "Maximum selling price in USD."
+          },
+          "addMarkStatus": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "Free-shipping filter: 0 means not free shipping; 1 means free shipping."
+          },
+          "productType": {
+            "type": "integer",
+            "enum": [
+              4,
+              10,
+              11
+            ],
+            "description": "Product type: 4 supplier product, 10 video product, or 11 non-video product."
+          },
+          "productFlag": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "description": "Product flag: 0 trending, 1 new, 2 video, or 3 slow-moving."
           },
           "minInventory": {
             "type": "integer",
-            "description": "Minimum inventory filter when supported by CJ."
+            "minimum": 0,
+            "description": "Minimum warehouse inventory. Sent to CJ as startWarehouseInventory."
+          },
+          "maxInventory": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Maximum warehouse inventory. Sent to CJ as endWarehouseInventory."
+          },
+          "verifiedWarehouse": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "description": "Inventory verification: 0 all, 1 verified, or 2 unverified."
+          },
+          "timeStart": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Earliest product listing timestamp in milliseconds."
+          },
+          "timeEnd": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Latest product listing timestamp in milliseconds."
+          },
+          "zonePlatform": {
+            "type": "string",
+            "description": "Target platform suggestion such as shopify, ebay, amazon, tiktok, or etsy."
+          },
+          "isWarehouse": {
+            "type": "boolean",
+            "description": "Whether to search global-warehouse products."
           },
           "sortBy": {
-            "type": "string",
-            "description": "CJ sort field, for example sellPrice or listedNum."
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "description": "Sort field: 0 best match, 1 listing count, 2 sell price, 3 creation time, or 4 inventory. Sent to CJ as orderBy."
           },
           "sort": {
             "type": "string",
@@ -112,7 +232,48 @@
               "asc",
               "desc"
             ],
-            "description": "Sort direction."
+            "description": "Sort direction; defaults to descending at CJ."
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "enable_description",
+                "enable_category",
+                "enable_combine",
+                "enable_video"
+              ]
+            },
+            "description": "Optional response expansions for descriptions, category names, combined-product data, or video IDs."
+          },
+          "supplierId": {
+            "type": "string",
+            "description": "CJ supplier ID."
+          },
+          "hasCertification": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "Certification filter: 0 no, 1 yes."
+          },
+          "isSelfPickup": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "Self-pickup filter: 0 no, 1 yes."
+          },
+          "customization": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "Customization-product filter: 0 no, 1 yes."
           }
         }
       }
@@ -191,33 +352,111 @@
     },
     {
       "name": "shipping_calculate",
-      "description": "Estimate CJ shipping for a product variant and destination. Useful for landed-cost previews before importing into Catalog.",
-      "method": "GET",
+      "description": "Calculate available CJ shipping methods, USD costs, and delivery estimates for one or more variants. Use an inventory country as startCountryCode and the customer destination as endCountryCode.",
+      "method": "POST",
       "path": "/logistic/freightCalculate",
+      "response_error": {
+        "type": "json_status",
+        "code_path": "code",
+        "success_codes": [
+          200
+        ],
+        "failure_flag_paths": [
+          "success",
+          "result"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 2,
+        "retry_statuses": [
+          429
+        ],
+        "retry_error_codes": [
+          1600200
+        ]
+      },
       "input_schema": {
         "type": "object",
         "properties": {
-          "vid": {
+          "startCountryCode": {
             "type": "string",
-            "description": "CJ variant ID."
+            "minLength": 2,
+            "description": "Two-letter origin country code for a warehouse holding the product, for example CN or US. Determine this from inventory_get or the product inventory response."
           },
-          "quantity": {
-            "type": "integer",
-            "default": 1,
-            "description": "Quantity to ship."
-          },
-          "countryCode": {
+          "endCountryCode": {
             "type": "string",
-            "description": "Destination country code, for example US."
+            "minLength": 2,
+            "description": "Two-letter destination country code, for example US."
           },
           "zip": {
             "type": "string",
             "description": "Destination postal/zip code when required."
+          },
+          "taxId": {
+            "type": "string",
+            "description": "Destination tax ID when required."
+          },
+          "houseNumber": {
+            "type": "string",
+            "description": "Destination house number when required."
+          },
+          "iossNumber": {
+            "type": "string",
+            "description": "IOSS number for applicable EU shipments."
+          },
+          "storageIdList": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "description": "Optional CJ storage IDs to restrict the quote."
+          },
+          "shippingMode": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "description": "1 for platform logistics or 2 for merchant logistics. When set to 1, platforms is required."
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Platform types used with shippingMode=1, such as tiktok_us or Temu."
+          },
+          "products": {
+            "type": "array",
+            "minItems": 1,
+            "description": "CJ variants and supplier-unit quantities to include in the shipping quote.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vid": {
+                  "type": "string",
+                  "description": "CJ variant ID."
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Supplier-unit quantity for this variant."
+                }
+              },
+              "required": [
+                "vid",
+                "quantity"
+              ]
+            }
           }
         },
         "required": [
-          "vid",
-          "countryCode"
+          "startCountryCode",
+          "endCountryCode",
+          "products"
         ]
       }
     },

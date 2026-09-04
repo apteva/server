@@ -3,29 +3,27 @@ package main
 // agent_templates.go — pre-canned starter agent configs for the
 // "build your first agent" wizard. Three sources share one table:
 //
-//   builtin  — seeded inline in store.go's migrate(). INSERT OR IGNORE
-//              preserves operator edits across upgrades; new platform
-//              defaults ship under a fresh id.
+//   builtin  — seeded inline in store.go's migrate() and read-only through
+//              the tenant API. New platform defaults ship with the server.
 //   app      — contributed by an installed app via its manifest.
 //              apps_loader upserts on install/upgrade.
 //   user     — operator's own templates (save-from-agent or hand-rolled).
 //
 // The listing endpoint returns the union, filtered by user_template_hidden
-// for the caller's hide list. Edits to builtin/app rows are allowed in
-// place (operator edits their copy); save-as-new is the convention for
-// keeping the canonical shipped version available alongside.
+// for the caller's hide list. Only caller-owned source=user rows are writable.
 
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 )
 
 // AgentTemplate is the wire shape returned by the templates endpoints.
-// recommended_apps is stored as JSON in the DB and emitted as a flat
-// []string here so the dashboard doesn't have to parse it itself.
+// Highlights, recommended_apps, and requirements are stored as JSON in the
+// DB and emitted as flat arrays so the dashboard does not have to parse them.
 type AgentTemplate struct {
 	ID        string `json:"id"`
 	UserID    int64  `json:"user_id,omitempty"`
@@ -39,6 +37,7 @@ type AgentTemplate struct {
 	// PNG fetches at render time.
 	Icon            string   `json:"icon,omitempty"`
 	Description     string   `json:"description"`
+	Highlights      []string `json:"highlights,omitempty"`
 	Directive       string   `json:"directive"`
 	Mode            string   `json:"mode"`
 	Unconscious     bool     `json:"unconscious"`
@@ -134,6 +133,7 @@ var builtinAgentTemplates = []AgentTemplate{
 		Name:        "Slack bot",
 		Icon:        "message",
 		Description: "Watches the workspace, replies to mentions, summarises threads, posts a daily digest.",
+		Highlights:  []string{"Respond to mentions with relevant channel context", "Summarize active conversations into a daily team digest"},
 		Mode:        "learn",
 		Unconscious: true,
 		SortOrder:   10,
@@ -158,6 +158,7 @@ Tone: match the team. No formal preambles, no apologies for being a bot.`,
 		Name:        "GitHub helper",
 		Icon:        "github",
 		Description: "Reads pull requests, drafts reviews, flags stale PRs, summarises diffs.",
+		Highlights:  []string{"Turn pull-request diffs into concise risk summaries", "Surface stale reviews and important repository changes"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   15,
@@ -182,6 +183,7 @@ Tone: technical and direct. "Probably fine" is unacceptable — be specific or s
 		Name:        "Sales prospecting",
 		Icon:        "target",
 		Description: "Cadence outbound emails through Gmail, log every touch into HubSpot, file responses in storage.",
+		Highlights:  []string{"Research contacts and draft personalized outreach", "Track replies, follow-ups, and meetings in the CRM"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   20,
@@ -208,6 +210,7 @@ Tone: warm and human. Avoid every cold-email cliché ("hope this finds you well"
 		Name:        "Customer support",
 		Icon:        "life-buoy",
 		Description: "Reads Intercom tickets, checks Stripe subscription state, drafts replies, escalates to Slack.",
+		Highlights:  []string{"Triage customer conversations with account context", "Draft responses and escalate technical or churn risks"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   25,
@@ -233,6 +236,7 @@ Tone: warm, brief, acknowledge the customer's frustration before solving.`,
 		Name:        "Meeting coordinator",
 		Icon:        "calendar",
 		Description: "Schedules across Google Calendar, drafts Gmail invites, posts summaries to Slack.",
+		Highlights:  []string{"Find suitable meeting times across calendars", "Prepare invitations, agendas, and schedule summaries"},
 		Mode:        "learn",
 		Unconscious: true,
 		SortOrder:   30,
@@ -258,6 +262,7 @@ Tone: short and exact. Times always in the recipient's timezone.`,
 		Name:        "DevOps bot",
 		Icon:        "git-branch",
 		Description: "Watches GitHub for releases + CI failures, posts to Slack, files Linear issues for security alerts.",
+		Highlights:  []string{"Surface failing CI runs and important release changes", "Coordinate engineering alerts across GitHub, Slack, and Linear"},
 		Mode:        "autonomous",
 		Unconscious: true,
 		SortOrder:   35,
@@ -284,6 +289,7 @@ Tone: terse engineering register. Links matter more than prose.`,
 		Name:        "Site monitoring",
 		Icon:        "activity",
 		Description: "Watches AWS CloudWatch + S3 metrics, fires PagerDuty for severity, posts to Slack #incidents.",
+		Highlights:  []string{"Summarize infrastructure alerts with operational context", "Escalate actionable incidents and suppress duplicate noise"},
 		Mode:        "autonomous",
 		Unconscious: true,
 		SortOrder:   40,
@@ -310,6 +316,7 @@ Never escalate the same alarm twice within 30 minutes (suppress via alarm name).
 		Name:        "Content distribution",
 		Icon:        "share-2",
 		Description: "Reads Notion drafts, formats for LinkedIn + Mailchimp, schedules publication after operator approval.",
+		Highlights:  []string{"Adapt approved source material for multiple channels", "Prepare and schedule publication with per-channel approval"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   45,
@@ -334,6 +341,7 @@ Never publish anything without my explicit go-ahead per surface. "OK" applies to
 		Name:        "Personal assistant",
 		Icon:        "user",
 		Description: "Triage email, schedule, remember preferences, draft replies.",
+		Highlights:  []string{"Triage inbox activity and prepare concise summaries", "Draft replies and keep calendar commitments organized"},
 		Mode:        "learn",
 		Unconscious: true,
 		SortOrder:   50,
@@ -358,6 +366,7 @@ Tone: terse, helpful, never apologise for being a bot. Treat the inbox like a qu
 		Name:        "Todo coach",
 		Icon:        "check-square",
 		Description: "Tracks your todos, nudges you on what's slipping, sends a daily plan.",
+		Highlights:  []string{"Turn conversational requests into organized tasks", "Create focused daily plans and surface stalled work"},
 		Mode:        "learn",
 		Unconscious: true,
 		SortOrder:   60,
@@ -385,6 +394,7 @@ Tone: encouraging, never preachy. Don't lecture me about productivity.`,
 		Name:        "Health logger",
 		Icon:        "heart-pulse",
 		Description: "Logs weight, sleep, mood, workouts from conversational one-liners. Weekly recap.",
+		Highlights:  []string{"Convert casual updates into structured wellbeing records", "Summarize weekly trends without diagnosis or prescription"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   65,
@@ -412,6 +422,7 @@ Never recommend medical decisions. If I describe symptoms, log them and say "not
 		Name:        "CRM assistant",
 		Icon:        "users",
 		Description: "Tracks contacts in the CRM app, drafts follow-ups, sends scheduled touches via messaging.",
+		Highlights:  []string{"Prepare follow-ups using complete relationship history", "Keep contact activity and next actions current"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   70,
@@ -437,6 +448,7 @@ Never bulk-send. One draft, one confirmation, one send. Treat the contact list a
 		Name:        "Media studio",
 		Icon:        "image",
 		Description: "Generates images, video, audio, and music on request, files them into storage with descriptive names + tags.",
+		Highlights:  []string{"Turn a creative brief into useful media variants", "Organize generated assets for review and reuse"},
 		Mode:        "cautious",
 		Unconscious: false,
 		SortOrder:   75,
@@ -463,6 +475,7 @@ Tone: art-director short. No "Here are some images I generated for you!" preambl
 		Name:        "Social poster",
 		Icon:        "megaphone",
 		Description: "Drafts cross-platform posts, schedules through the Social app, archives drafts in storage.",
+		Highlights:  []string{"Adapt one idea into platform-specific social drafts", "Archive and schedule approved posts without cross-channel ambiguity"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   80,
@@ -488,6 +501,7 @@ Tone: my voice, not corporate-LinkedIn. Stay editorial.`,
 		Name:        "Research bot",
 		Icon:        "search",
 		Description: "Browse, summarise, file findings.",
+		Highlights:  []string{"Research questions using attributable sources", "Preserve concise, reusable findings in project storage"},
 		Mode:        "cautious",
 		Unconscious: true,
 		SortOrder:   55,
@@ -520,32 +534,29 @@ Tone: skeptical of single-source claims, comfortable saying "I couldn't find a c
 }
 
 // seedBuiltinTemplates idempotently writes the canonical builtin
-// templates. INSERT OR IGNORE on first boot; UPDATE pass for
-// fields the platform owns (requirements, sort_order) on every
-// subsequent boot so a release that ships new shape gets it
-// applied without trampling operator-edited directives or modes.
+// templates. INSERT OR IGNORE creates each template on first boot; the UPDATE
+// pass refreshes presentation metadata and requirements owned by the catalog.
 func seedBuiltinTemplates(db *sql.DB) {
 	for _, t := range builtinAgentTemplates {
+		highlightsJSON, _ := json.Marshal(t.Highlights)
 		reqJSON, _ := json.Marshal(t.Requirements)
 		if t.Requirements == nil {
 			reqJSON = []byte("[]")
 		}
 		db.Exec(`
 			INSERT OR IGNORE INTO agent_templates
-				(id, user_id, source, source_ref, name, icon, description, directive,
-				 mode, unconscious, recommended_apps, requirements, sort_order)
-			VALUES (?, NULL, 'builtin', '', ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
-			t.ID, t.Name, t.Icon, t.Description, t.Directive, t.Mode,
+				(id, user_id, source, source_ref, name, icon, description, highlights,
+				 directive, mode, unconscious, recommended_apps, requirements, sort_order)
+			VALUES (?, NULL, 'builtin', '', ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
+			t.ID, t.Name, t.Icon, t.Description, string(highlightsJSON), t.Directive, t.Mode,
 			boolToInt(t.Unconscious), string(reqJSON), t.SortOrder,
 		)
-		// Platform-owned fields that follow the shipped value on
-		// every boot. Directive/mode/unconscious/description stay
-		// editable by the operator after first install.
+		// Platform-owned fields that follow the shipped value on every boot.
 		db.Exec(
 			`UPDATE agent_templates
-			    SET requirements = ?, icon = ?, sort_order = ?
+			    SET requirements = ?, highlights = ?, icon = ?, sort_order = ?
 			  WHERE id = ? AND source = 'builtin'`,
-			string(reqJSON), t.Icon, t.SortOrder, t.ID,
+			string(reqJSON), string(highlightsJSON), t.Icon, t.SortOrder, t.ID,
 		)
 	}
 }
@@ -557,7 +568,7 @@ func seedBuiltinTemplates(db *sql.DB) {
 func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 	rows, err := s.db.Query(`
 		SELECT id, COALESCE(user_id, 0), source, source_ref, name, icon,
-		       description, directive, mode, unconscious, recommended_apps,
+		       description, highlights, directive, mode, unconscious, recommended_apps,
 		       requirements, sort_order, created_at, updated_at
 		  FROM agent_templates t
 		 WHERE (t.user_id IS NULL OR t.user_id = ?)
@@ -588,7 +599,7 @@ func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 func (s *Store) GetAgentTemplate(userID int64, id string) (*AgentTemplate, error) {
 	row := s.db.QueryRow(`
 		SELECT id, COALESCE(user_id, 0), source, source_ref, name, icon,
-		       description, directive, mode, unconscious, recommended_apps,
+		       description, highlights, directive, mode, unconscious, recommended_apps,
 		       requirements, sort_order, created_at, updated_at
 		  FROM agent_templates
 		 WHERE id = ?
@@ -613,6 +624,7 @@ func (s *Store) CreateAgentTemplate(userID int64, t AgentTemplate) (*AgentTempla
 		t.ID = userTemplateID(userID, t.Name)
 	}
 	appsJSON, _ := json.Marshal(t.RecommendedApps)
+	highlightsJSON, _ := json.Marshal(t.Highlights)
 	reqJSON, _ := json.Marshal(t.Requirements)
 	if t.Requirements == nil {
 		reqJSON = []byte("[]")
@@ -620,10 +632,10 @@ func (s *Store) CreateAgentTemplate(userID int64, t AgentTemplate) (*AgentTempla
 	_, err := s.db.Exec(`
 		INSERT INTO agent_templates
 			(id, user_id, source, source_ref, name, icon, description,
-			 directive, mode, unconscious, recommended_apps, requirements,
+			 highlights, directive, mode, unconscious, recommended_apps, requirements,
 			 sort_order)
-		VALUES (?, ?, 'user', '', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, userID, t.Name, t.Icon, t.Description, t.Directive,
+		VALUES (?, ?, 'user', '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, userID, t.Name, t.Icon, t.Description, string(highlightsJSON), t.Directive,
 		t.Mode, boolToInt(t.Unconscious), string(appsJSON), string(reqJSON),
 		t.SortOrder,
 	)
@@ -633,41 +645,51 @@ func (s *Store) CreateAgentTemplate(userID int64, t AgentTemplate) (*AgentTempla
 	return s.GetAgentTemplate(userID, t.ID)
 }
 
-// UpdateAgentTemplate edits a row the caller is allowed to write
-// (their own user-owned rows, or the global builtin/app rows). Edits
-// to builtin/app rows are allowed by design — operators have
-// permission to tune the shipped templates to their preferences and
-// the seed step's INSERT OR IGNORE keeps their edits across upgrades.
+// UpdateAgentTemplate edits only a caller-owned template. Builtin and app
+// templates are shared catalog entries and must never be mutated by a tenant.
 func (s *Store) UpdateAgentTemplate(userID int64, id string, t AgentTemplate) error {
 	appsJSON, _ := json.Marshal(t.RecommendedApps)
+	highlightsJSON, _ := json.Marshal(t.Highlights)
 	reqJSON, _ := json.Marshal(t.Requirements)
 	if t.Requirements == nil {
 		reqJSON = []byte("[]")
 	}
-	_, err := s.db.Exec(`
+	result, err := s.db.Exec(`
 		UPDATE agent_templates
-		   SET name = ?, icon = ?, description = ?, directive = ?,
+		   SET name = ?, icon = ?, description = ?, highlights = ?, directive = ?,
 		       mode = ?, unconscious = ?, recommended_apps = ?,
 		       requirements = ?, sort_order = ?,
 		       updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?
-		   AND (user_id IS NULL OR user_id = ?)`,
-		t.Name, t.Icon, t.Description, t.Directive, t.Mode,
+		   AND user_id = ?`,
+		t.Name, t.Icon, t.Description, string(highlightsJSON), t.Directive, t.Mode,
 		boolToInt(t.Unconscious), string(appsJSON), string(reqJSON),
 		t.SortOrder, id, userID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // DeleteAgentTemplate removes a user-owned row. For builtin/app rows,
 // the caller should use HideAgentTemplate instead — those rows stay
 // in the table so other users / fresh logins still see them.
 func (s *Store) DeleteAgentTemplate(userID int64, id string) error {
-	_, err := s.db.Exec(
+	result, err := s.db.Exec(
 		`DELETE FROM agent_templates WHERE id = ? AND user_id = ?`,
 		id, userID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // HideAgentTemplate adds the template to the user's hide list. No-op
@@ -727,17 +749,18 @@ func i64s(v int64) string {
 // shared rowScanner interface from skills_handlers.go (same package).
 func scanAgentTemplate(r rowScanner) (AgentTemplate, error) {
 	var (
-		t         AgentTemplate
-		uid       int64
-		unc       int
-		appsJSON  string
-		reqJSON   string
-		createdAt string
-		updatedAt string
+		t              AgentTemplate
+		uid            int64
+		unc            int
+		appsJSON       string
+		highlightsJSON string
+		reqJSON        string
+		createdAt      string
+		updatedAt      string
 	)
 	if err := r.Scan(
 		&t.ID, &uid, &t.Source, &t.SourceRef, &t.Name, &t.Icon,
-		&t.Description, &t.Directive, &t.Mode, &unc, &appsJSON,
+		&t.Description, &highlightsJSON, &t.Directive, &t.Mode, &unc, &appsJSON,
 		&reqJSON, &t.SortOrder, &createdAt, &updatedAt,
 	); err != nil {
 		return t, err
@@ -751,6 +774,12 @@ func scanAgentTemplate(r rowScanner) (AgentTemplate, error) {
 	}
 	if t.RecommendedApps == nil {
 		t.RecommendedApps = []string{}
+	}
+	if highlightsJSON != "" {
+		_ = json.Unmarshal([]byte(highlightsJSON), &t.Highlights)
+	}
+	if t.Highlights == nil {
+		t.Highlights = []string{}
 	}
 	if reqJSON != "" {
 		_ = json.Unmarshal([]byte(reqJSON), &t.Requirements)
@@ -925,6 +954,27 @@ func (s *Server) resolveTemplateLogos(t *AgentTemplate) {
 
 // ─── HTTP handlers ─────────────────────────────────────────────────
 
+func validateWritableAgentTemplate(t AgentTemplate) error {
+	if strings.TrimSpace(t.Name) == "" || len(t.Name) > 120 {
+		return errors.New("name is required and must be at most 120 characters")
+	}
+	if strings.TrimSpace(t.Directive) == "" || len(t.Directive) > 32000 {
+		return errors.New("directive is required and must be at most 32000 characters")
+	}
+	if t.Mode != "autonomous" && t.Mode != "cautious" && t.Mode != "learn" {
+		return errors.New("mode must be autonomous, cautious, or learn")
+	}
+	if len(t.Highlights) > 6 {
+		return errors.New("template may contain at most 6 highlights")
+	}
+	for _, highlight := range t.Highlights {
+		if strings.TrimSpace(highlight) == "" || len(highlight) > 200 {
+			return errors.New("template contains an invalid highlight")
+		}
+	}
+	return nil
+}
+
 // GET /agent-templates
 func (s *Server) handleListAgentTemplates(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
@@ -947,20 +997,17 @@ func (s *Server) handleListAgentTemplates(w http.ResponseWriter, r *http.Request
 func (s *Server) handleCreateAgentTemplate(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 	var body AgentTemplate
+	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(body.Name) == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(body.Directive) == "" {
-		http.Error(w, "directive required", http.StatusBadRequest)
-		return
-	}
 	if body.Mode == "" {
 		body.Mode = "learn"
+	}
+	if err := validateWritableAgentTemplate(body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	t, err := s.store.CreateAgentTemplate(userID, body)
 	if err != nil {
@@ -1007,12 +1054,33 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 		s.resolveTemplateLogos(t)
 		writeJSON(w, t)
 	case http.MethodPut:
+		current, err := s.store.GetAgentTemplate(userID, id)
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if current.Source != "user" || current.UserID != userID {
+			http.Error(w, "builtin and app templates are read-only", http.StatusForbidden)
+			return
+		}
 		var body AgentTemplate
+		r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
+		if body.Mode == "" {
+			body.Mode = "learn"
+		}
+		if err := validateWritableAgentTemplate(body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := s.store.UpdateAgentTemplate(userID, id, body); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1023,6 +1091,10 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, t)
 	case http.MethodDelete:
 		if err := s.store.DeleteAgentTemplate(userID, id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 			http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

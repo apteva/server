@@ -28,8 +28,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Presets) != 18 {
-		t.Fatalf("got %d presets, want 18", len(catalog.Presets))
+	if len(catalog.Presets) != 19 {
+		t.Fatalf("got %d presets, want 19", len(catalog.Presets))
 	}
 	counts := map[string]int{}
 	knownApps := map[string]bool{
@@ -44,6 +44,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"screenshots": true, "signatures": true, "billing": true, "commerce": true,
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
 		"webinars": true, "builder": true, "workspaces": true, "a2a": true,
+		"media-downloader": true, "media": true,
 	}
 	requiredDomainApps := map[string][]string{
 		"personal-assistant":             {"todo", "notes", "calendar"},
@@ -54,6 +55,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"work-sales":                     {"crm", "web", "email-checker", "campaigns", "bookings"},
 		"work-support":                   {"tickets", "crm", "storage"},
 		"work-research":                  {"web", "notes", "tables"},
+		"work-youtube-to-blog":           {"media-downloader", "media", "storage", "content"},
 		"development-software":           {"code", "environments", "deploy"},
 		"development-engineering-team":   {"builder", "tasks", "code", "workspaces", "a2a", "deploy"},
 		"development-devops":             {"deploy", "instances", "containers", "backup"},
@@ -67,6 +69,9 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	}
 	for _, preset := range catalog.Presets {
 		counts[preset.Category]++
+		if len(preset.Highlights) < 2 {
+			t.Fatalf("preset %s must describe what it enables: %v", preset.ID, preset.Highlights)
+		}
 		if len(preset.Agents) == 0 {
 			t.Fatalf("preset %s has no starter agent", preset.ID)
 		}
@@ -105,16 +110,16 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 			t.Fatalf("preset %s has %d Conversations widgets, want 1: %v", preset.ID, conversationWidgets, preset.Dashboard)
 		}
 	}
-	// Development and business each include one additional specialist preset.
-	wantCounts := map[string]int{"personal": 4, "work": 4, "development": 5, "business": 5}
+	// Work, development, and business each include a specialist preset.
+	wantCounts := map[string]int{"personal": 4, "work": 5, "development": 5, "business": 5}
 	for category, want := range wantCounts {
 		if counts[category] != want {
 			t.Fatalf("category %s has %d presets, want %d", category, counts[category], want)
 		}
 	}
-	raw, _ := json.Marshal(catalog.Presets)
-	if strings.Contains(strings.ToLower(string(raw)), "workflow") {
-		t.Fatalf("presets must configure agents, not deterministic workflows: %s", raw)
+	youtube := catalog.ByID["work-youtube-to-blog"]
+	if len(youtube.Agents) != 1 || youtube.Agents[0].Unconscious || !strings.Contains(youtube.Agents[0].Directive, "Never publish") {
+		t.Fatalf("youtube-to-blog safety contract is incomplete: %+v", youtube)
 	}
 }
 

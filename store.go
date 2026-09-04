@@ -677,6 +677,7 @@ func (s *Store) migrate() error {
 			name             TEXT NOT NULL,
 			icon             TEXT NOT NULL DEFAULT '',
 			description      TEXT NOT NULL DEFAULT '',
+			highlights       TEXT NOT NULL DEFAULT '[]',
 			directive        TEXT NOT NULL,
 			mode             TEXT NOT NULL DEFAULT 'learn',
 			unconscious      INTEGER NOT NULL DEFAULT 0,
@@ -759,6 +760,9 @@ func (s *Store) migrate() error {
 	// CREATE above. Default '[]' keeps existing rows valid JSON.
 	if !columnExists(s.db, "agent_templates", "requirements") {
 		s.db.Exec("ALTER TABLE agent_templates ADD COLUMN requirements TEXT NOT NULL DEFAULT '[]'")
+	}
+	if !columnExists(s.db, "agent_templates", "highlights") {
+		s.db.Exec("ALTER TABLE agent_templates ADD COLUMN highlights TEXT NOT NULL DEFAULT '[]'")
 	}
 	// Catch-up: kind column for DBs created before the meta-agent
 	// rollout. Existing rows default to 'user' so dashboards keep

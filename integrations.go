@@ -595,6 +595,9 @@ type AppToolDef struct {
 	// stay consistent but the upstream API uses an odd name, e.g. Bunny Stream
 	// list_videos accepts input collectionId but requires query key collection.
 	QueryParamAliases map[string]string `json:"query_param_aliases,omitempty"`
+	// RateLimit optionally paces requests per app/tool/credential and retries
+	// only explicitly declared transport statuses or provider error codes.
+	RateLimit *ToolRateLimitDef `json:"rate_limit,omitempty"`
 	// ContinuationURLParam names an input field containing an opaque absolute
 	// next-page URL returned by the provider. The executor requires the same
 	// scheme and host as the resolved tool base URL before following it.
@@ -608,6 +611,11 @@ type AppToolDef struct {
 	// byte_range transform emits an RFC 7233 Range header.
 	HeaderTransforms []HeaderTransformDef `json:"header_transforms,omitempty"`
 	ResponsePath     *string              `json:"response_path,omitempty"`
+	// ResponseError detects provider-level failures carried inside an HTTP
+	// success response. GraphQL is the first supported envelope: a non-empty
+	// configured errors/userErrors array makes ExecuteResult.Success false
+	// before response_path extracts the success payload.
+	ResponseError *ResponseErrorDef `json:"response_error,omitempty"`
 
 	// MockResponse is the curated, real-shaped reply returned for this tool
 	// when it runs inside a test Environment and no per-environment fixture/cassette
@@ -709,6 +717,25 @@ type AppToolDef struct {
 	Signing *ToolSigningConfig `json:"signing,omitempty"`
 
 	ExternalFetchInputs []ExternalFetchInput `json:"external_fetch_inputs,omitempty"`
+}
+
+// ResponseErrorDef describes semantic errors embedded in a successful HTTP
+// response. Paths use the same dot notation as response_path. For GraphQL,
+// Paths defaults to ["errors"] when omitted.
+type ResponseErrorDef struct {
+	Type             string   `json:"type"`
+	Paths            []string `json:"paths,omitempty"`
+	CodePath         string   `json:"code_path,omitempty"`
+	SuccessCodes     []any    `json:"success_codes,omitempty"`
+	FailureFlagPaths []string `json:"failure_flag_paths,omitempty"`
+	MessagePath      string   `json:"message_path,omitempty"`
+}
+
+type ToolRateLimitDef struct {
+	MinIntervalMS   int   `json:"min_interval_ms"`
+	MaxRetries      int   `json:"max_retries,omitempty"`
+	RetryStatuses   []int `json:"retry_statuses,omitempty"`
+	RetryErrorCodes []any `json:"retry_error_codes,omitempty"`
 }
 
 type MultipartFormDef struct {

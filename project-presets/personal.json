@@ -14,6 +14,11 @@
         "reminders",
         "daily planning"
       ],
+      "highlights": [
+        "Turn incoming commitments into an organized plan",
+        "Keep notes, reminders, and calendar context together",
+        "Prepare communication while reserving consequential actions for approval"
+      ],
       "agents": [
         {
           "key": "assistant",
@@ -47,6 +52,11 @@
         "home maintenance",
         "chores",
         "errands"
+      ],
+      "highlights": [
+        "Coordinate errands, chores, and recurring home responsibilities",
+        "Keep household schedules and food planning in one place",
+        "Surface conflicts before they become missed commitments"
       ],
       "agents": [
         {
@@ -82,6 +92,11 @@
         "fitness planning",
         "health routine"
       ],
+      "highlights": [
+        "Build sustainable routines and track user-provided observations",
+        "Preserve reflections and prepare useful appointment context",
+        "Support wellbeing without diagnosing or prescribing"
+      ],
       "agents": [
         {
           "key": "planner",
@@ -116,6 +131,11 @@
         "podcast",
         "personal brand",
         "content"
+      ],
+      "highlights": [
+        "Turn ideas and research into organized content drafts",
+        "Prepare channel-specific media and social material",
+        "Learn from audience performance while keeping publishing approval explicit"
       ],
       "agents": [
         {

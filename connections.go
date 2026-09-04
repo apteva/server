@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
@@ -45,6 +46,16 @@ var binaryMIMEPrefixes = []string{
 }
 
 var integrationProxyEnvNameRE = regexp.MustCompile(`[^A-Z0-9]+`)
+
+var integrationToolRateLimits = struct {
+	sync.Mutex
+	nextStart map[string]time.Time
+}{nextStart: make(map[string]time.Time)}
+
+const (
+	maxIntegrationRateLimitRetries  = 3
+	maxIntegrationRateLimitInterval = time.Minute
+)
 
 func isBinaryContentType(ct string) bool {
 	ct = strings.ToLower(strings.TrimSpace(ct))
@@ -1774,7 +1785,123 @@ func inputSchemaRequires(schema map[string]any, field string) bool {
 	return false
 }
 
+func integrationToolRateLimitKey(app *AppTemplate, tool *AppToolDef, credentials map[string]string) string {
+	identity := credentials["api_key"]
+	if identity == "" {
+		identity = credentials["access_token"]
+	}
+	if identity == "" {
+		identity = credentials["token"]
+	}
+	if identity == "" {
+		identity = credentials["username"]
+	}
+	if identity == "" {
+		identity = "anonymous"
+	}
+	digest := sha256.Sum256([]byte(identity))
+	return fmt.Sprintf("%s:%s:%x", app.Slug, tool.Name, digest[:8])
+}
+
+func waitForIntegrationToolRateLimit(ctx context.Context, app *AppTemplate, tool *AppToolDef, credentials map[string]string) error {
+	if app == nil || tool == nil || tool.RateLimit == nil || tool.RateLimit.MinIntervalMS <= 0 {
+		return nil
+	}
+	interval := time.Duration(tool.RateLimit.MinIntervalMS) * time.Millisecond
+	if interval > maxIntegrationRateLimitInterval {
+		interval = maxIntegrationRateLimitInterval
+	}
+	key := integrationToolRateLimitKey(app, tool, credentials)
+
+	integrationToolRateLimits.Lock()
+	now := time.Now()
+	startAt := now
+	if next := integrationToolRateLimits.nextStart[key]; next.After(startAt) {
+		startAt = next
+	}
+	integrationToolRateLimits.nextStart[key] = startAt.Add(interval)
+	integrationToolRateLimits.Unlock()
+
+	delay := time.Until(startAt)
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func matchesIntegrationRateLimitRetry(tool *AppToolDef, result *ExecuteResult) bool {
+	if tool == nil || tool.RateLimit == nil || result == nil {
+		return false
+	}
+	for _, status := range tool.RateLimit.RetryStatuses {
+		if result.Status == status {
+			return true
+		}
+	}
+	body, ok := result.Data.(map[string]any)
+	if !ok {
+		return false
+	}
+	code, exists := body["code"]
+	if !exists {
+		return false
+	}
+	for _, candidate := range tool.RateLimit.RetryErrorCodes {
+		if integrationRateLimitCode(candidate) == integrationRateLimitCode(code) {
+			return true
+		}
+	}
+	return false
+}
+
+func integrationRateLimitCode(value any) string {
+	switch number := value.(type) {
+	case json.Number:
+		return number.String()
+	case float64:
+		return strconv.FormatFloat(number, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(number), 'f', -1, 32)
+	default:
+		return fmt.Sprint(value)
+	}
+}
+
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
+	maxRetries := 0
+	if tool != nil && tool.RateLimit != nil {
+		maxRetries = tool.RateLimit.MaxRetries
+		if maxRetries < 0 {
+			maxRetries = 0
+		}
+		if maxRetries > maxIntegrationRateLimitRetries {
+			maxRetries = maxIntegrationRateLimitRetries
+		}
+	}
+
+	for attempt := 0; ; attempt++ {
+		result, err := executeIntegrationToolOnce(app, tool, credentials, input, environmentID)
+		if err != nil || result == nil || !matchesIntegrationRateLimitRetry(tool, result) {
+			return result, err
+		}
+		if attempt >= maxRetries {
+			// Some providers, including CJ, encode QPS failures in an HTTP 200
+			// JSON envelope. Do not let those become successful tool calls once
+			// the bounded retry policy is exhausted.
+			result.Success = false
+			return result, nil
+		}
+	}
+}
+
+func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
 	credentials = applyCredentialFieldDefaults(app, credentials)
 	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
 	// API. Resolve it fail-safe, in order:
@@ -2246,6 +2373,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	if err != nil {
 		return nil, err
 	}
+	if err := waitForIntegrationToolRateLimit(req.Context(), app, tool, credentials); err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -2315,6 +2445,15 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		data = string(respBody)
 	}
 
+	// Preserve configured provider-level throttle envelopes before any
+	// success projection can remove their code. The outer loop owns retries.
+	if tool.RateLimit != nil {
+		limited := &ExecuteResult{Success: false, Status: resp.StatusCode, Data: data, Headers: hdrs}
+		if matchesIntegrationRateLimitRetry(tool, limited) {
+			return limited, nil
+		}
+	}
+
 	// Success transforms describe provider success payloads. Applying them
 	// to errors can erase the provider's error object and make failures look
 	// like empty resources (notably Gmail thread 404 responses).
@@ -2327,11 +2466,44 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		}, nil
 	}
 
-	// Apply response_path extraction
-	if tool.ResponsePath != nil && data != nil {
-		if m, ok := data.(map[string]any); ok {
-			data = extractPath(m, *tool.ResponsePath)
+	// Some protocols report operation failures inside an HTTP 2xx response.
+	// Detect those envelopes before response_path removes the error fields.
+	if tool.ResponseError != nil && !binary {
+		errorData, contractDetail := inspectIntegrationResponseError(tool.ResponseError, data)
+		if contractDetail != "" {
+			return integrationResponseContractFailure(resp.StatusCode, hdrs, contractDetail), nil
 		}
+		if errorData != nil {
+			return &ExecuteResult{
+				Success: false,
+				Status:  resp.StatusCode,
+				Data:    errorData,
+				Headers: hdrs,
+			}, nil
+		}
+	}
+
+	// Apply response_path extraction. A declared path is a response contract,
+	// not a best-effort projection: accepting nil here turns upstream schema
+	// drift into a successful empty MCP result.
+	if tool.ResponsePath != nil && strings.TrimSpace(*tool.ResponsePath) != "" && !binary {
+		path := strings.TrimSpace(*tool.ResponsePath)
+		if _, ok := data.(map[string]any); !ok {
+			return integrationResponseContractFailure(
+				resp.StatusCode,
+				hdrs,
+				"Expected a JSON object containing response_path "+path,
+			), nil
+		}
+		extracted, found := lookupIntegrationResponsePath(data, path)
+		if !found || extracted == nil {
+			return integrationResponseContractFailure(
+				resp.StatusCode,
+				hdrs,
+				"Missing response_path "+path,
+			), nil
+		}
+		data = extracted
 	}
 
 	if tool.ResponseTransform != nil && data != nil && !binary {
@@ -2387,17 +2559,166 @@ func environmentIntegrationMode(environmentID string) string {
 	return IntegrationModeMock
 }
 
-func extractPath(data map[string]any, path string) any {
+func lookupIntegrationResponsePath(data any, path string) (any, bool) {
+	current := data
 	parts := strings.Split(path, ".")
-	var current any = data
-	for _, p := range parts {
-		if m, ok := current.(map[string]any); ok {
-			current = m[p]
-		} else {
-			return current
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		next, exists := object[part]
+		if !exists {
+			return nil, false
+		}
+		current = next
+	}
+	return current, true
+}
+
+// extractPath is retained for catalog helpers that use best-effort extraction.
+// Response contracts use lookupIntegrationResponsePath directly so they can
+// distinguish a missing path from a present value.
+func extractPath(data map[string]any, path string) any {
+	value, _ := lookupIntegrationResponsePath(data, path)
+	return value
+}
+
+func integrationResponseContractFailure(status int, headers map[string]string, detail string) *ExecuteResult {
+	return &ExecuteResult{
+		Success: false,
+		Status:  status,
+		Data: map[string]any{
+			"error":  "response contract violation",
+			"detail": detail,
+		},
+		Headers: headers,
+	}
+}
+
+// inspectIntegrationResponseError returns either a normalized semantic error
+// payload or a response-contract detail. A nil payload and empty detail means
+// the response contains no configured errors.
+func inspectIntegrationResponseError(def *ResponseErrorDef, data any) (map[string]any, string) {
+	if def == nil {
+		return nil, ""
+	}
+	root, ok := data.(map[string]any)
+	if !ok {
+		return nil, "Expected a JSON object for response_error inspection"
+	}
+
+	responseErrorType := strings.ToLower(strings.TrimSpace(def.Type))
+	if responseErrorType == "json_status" {
+		codePath := strings.TrimSpace(def.CodePath)
+		if codePath == "" {
+			return nil, "json_status response_error requires code_path"
+		}
+		if len(def.SuccessCodes) == 0 {
+			return nil, "json_status response_error requires at least one success_code"
+		}
+		code, found := lookupIntegrationResponsePath(root, codePath)
+		if !found || code == nil {
+			return nil, "Expected response_error code_path " + codePath + " to be present"
+		}
+		codeValue := integrationRateLimitCode(code)
+		codeSucceeded := false
+		for _, successCode := range def.SuccessCodes {
+			if integrationRateLimitCode(successCode) == codeValue {
+				codeSucceeded = true
+				break
+			}
+		}
+		failedFlag := ""
+		for _, path := range def.FailureFlagPaths {
+			path = strings.TrimSpace(path)
+			if path == "" {
+				continue
+			}
+			value, exists := lookupIntegrationResponsePath(root, path)
+			if exists {
+				if flag, isBool := value.(bool); isBool && !flag {
+					failedFlag = path
+					break
+				}
+			}
+		}
+		if codeSucceeded && failedFlag == "" {
+			return nil, ""
+		}
+
+		message := "Upstream API request failed"
+		if messagePath := strings.TrimSpace(def.MessagePath); messagePath != "" {
+			if value, exists := lookupIntegrationResponsePath(root, messagePath); exists {
+				if candidate, isString := value.(string); isString && strings.TrimSpace(candidate) != "" {
+					message = candidate
+				}
+			}
+		}
+		errorData := map[string]any{
+			"error":          "upstream_api_error",
+			"message":        message,
+			"code":           code,
+			"provider_error": root,
+		}
+		if failedFlag != "" {
+			errorData["failed_flag"] = failedFlag
+		}
+		return errorData, ""
+	}
+	if responseErrorType != "graphql" {
+		return nil, "Unsupported response_error type " + strings.TrimSpace(def.Type)
+	}
+	paths := def.Paths
+	if len(paths) == 0 {
+		paths = []string{"errors"}
+	}
+	details := make([]any, 0)
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		value, found := lookupIntegrationResponsePath(root, path)
+		if !found || value == nil {
+			continue
+		}
+		errors, ok := value.([]any)
+		if !ok {
+			return nil, "Expected response_error path " + path + " to contain an array"
+		}
+		details = append(details, errors...)
+	}
+	if len(details) == 0 {
+		return nil, ""
+	}
+	message := graphqlResponseErrorMessage(details[0])
+	partialData := any(map[string]any{})
+	if value, exists := root["data"]; exists && value != nil {
+		partialData = value
+	}
+	return map[string]any{
+		"error":        "upstream_graphql_error",
+		"message":      message,
+		"details":      details,
+		"partial_data": partialData,
+	}, ""
+}
+
+func graphqlResponseErrorMessage(detail any) string {
+	if object, ok := detail.(map[string]any); ok {
+		if message, ok := object["message"].(string); ok && strings.TrimSpace(message) != "" {
+			return message
 		}
 	}
-	return current
+	if message, ok := detail.(string); ok && strings.TrimSpace(message) != "" {
+		return message
+	}
+	return "GraphQL request failed"
 }
 
 // omitPath walks `data` along the dot-separated path and deletes the

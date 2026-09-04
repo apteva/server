@@ -44,6 +44,7 @@ type ProjectPreset struct {
 	Name            string                    `json:"name"`
 	Description     string                    `json:"description"`
 	Match           []string                  `json:"match,omitempty"`
+	Highlights      []string                  `json:"highlights,omitempty"`
 	Agents          []ProjectPresetAgent      `json:"agents"`
 	Dashboard       []string                  `json:"dashboard,omitempty"`
 	DashboardLayout []dashboardWidgetInstance `json:"dashboard_layout,omitempty"`
@@ -158,6 +159,14 @@ func validateProjectPreset(preset ProjectPreset) error {
 	case "personal", "work", "development", "business":
 	default:
 		return fmt.Errorf("preset %q has invalid category %q", preset.ID, preset.Category)
+	}
+	if len(preset.Highlights) > 6 {
+		return fmt.Errorf("preset %q has more than 6 highlights", preset.ID)
+	}
+	for _, highlight := range preset.Highlights {
+		if strings.TrimSpace(highlight) == "" || len(highlight) > 200 {
+			return fmt.Errorf("preset %q has an invalid highlight", preset.ID)
+		}
 	}
 	seenAgents := map[string]bool{}
 	for _, agent := range preset.Agents {

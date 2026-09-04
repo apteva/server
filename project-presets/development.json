@@ -14,6 +14,11 @@
         "engineering",
         "saas"
       ],
+      "highlights": [
+        "Inspect a codebase and turn requests into verified changes",
+        "Track substantial engineering work and preserve evidence",
+        "Keep destructive and production actions behind approval"
+      ],
       "agents": [
         {
           "key": "engineer",
@@ -48,6 +53,11 @@
         "multi-agent development",
         "autonomous coding",
         "build software with agents"
+      ],
+      "highlights": [
+        "Split software delivery into coordinated, isolated assignments",
+        "Review changes independently before approval",
+        "Release only reviewed work with explicit production authority"
       ],
       "agents": [
         {
@@ -126,6 +136,11 @@
         "kubernetes",
         "operations"
       ],
+      "highlights": [
+        "Inspect infrastructure and deployment state before acting",
+        "Prepare changes with evidence and rollback plans",
+        "Keep production mutations behind explicit authority"
+      ],
       "agents": [
         {
           "key": "operator",
@@ -161,6 +176,11 @@
         "regression",
         "test automation"
       ],
+      "highlights": [
+        "Turn acceptance criteria into reproducible checks",
+        "Capture browser, environment, and code evidence",
+        "Separate product failures from test-environment failures"
+      ],
       "agents": [
         {
           "key": "qa",
@@ -195,6 +215,11 @@
         "reporting",
         "data pipeline",
         "business intelligence"
+      ],
+      "highlights": [
+        "Explore datasets without altering source data",
+        "Build reproducible analysis and comparable evidence",
+        "Prepare clear findings while protecting sensitive results"
       ],
       "agents": [
         {

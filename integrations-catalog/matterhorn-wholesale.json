@@ -1,0 +1,355 @@
+{
+  "slug": "matterhorn-wholesale",
+  "name": "Matterhorn Wholesale",
+  "description": "Matterhorn Wholesale B2B dropshipping API for fashion catalog discovery, product variants and stock, delivery methods, and order creation and tracking.",
+  "logo": "https://www.google.com/s2/favicons?domain=matterhorn-wholesale.com&sz=128",
+  "categories": [
+    "dropshipping",
+    "ecommerce",
+    "fashion",
+    "supplier-catalog",
+    "fulfillment",
+    "inventory"
+  ],
+  "base_url": "https://matterhorn-wholesale.com/B2BAPI",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "required": true,
+        "description": "Generate the API key after logging in to the Matterhorn Wholesale customer panel.",
+        "setup_url": "https://help.matterhorn-wholesale.com/CMS2/article/api/"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "currencies_list"
+  },
+  "tools": [
+    {
+      "name": "categories_list",
+      "description": "List Matterhorn product categories with their IDs, names, and category paths. Use category IDs to filter products and inventory.",
+      "method": "GET",
+      "path": "/DICTIONARIES/CATEGORIES",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "brands_list",
+      "description": "List Matterhorn brands with their IDs and names. Use brand IDs to filter products and inventory.",
+      "method": "GET",
+      "path": "/DICTIONARIES/BRANDS",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "currencies_list",
+      "description": "List currencies available to the authenticated Matterhorn account.",
+      "method": "GET",
+      "path": "/DICTIONARIES/CURRENCIES",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "delivery_methods_list",
+      "description": "List Matterhorn delivery methods across countries, including delivery method ID, price, minimum order value, carrier, and estimated delivery days.",
+      "method": "GET",
+      "path": "/DICTIONARIES/DELIVERY/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "delivery_methods_by_country",
+      "description": "List Matterhorn delivery methods available for a destination country. Use the returned ID as delivery_method_id when creating an order.",
+      "method": "GET",
+      "path": "/DICTIONARIES/DELIVERY/{country_code}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country_code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 2,
+            "description": "Two-letter destination country code, for example DE, ES, FR, or US."
+          }
+        },
+        "required": [
+          "country_code"
+        ]
+      }
+    },
+    {
+      "name": "products_list",
+      "description": "List full Matterhorn product records, including descriptions, images, prices, variants, and stock. Supports incremental synchronization with last_update.",
+      "method": "GET",
+      "path": "/ITEMS/",
+      "query_params": [
+        "page",
+        "brand_id",
+        "category_id",
+        "new_collection",
+        "last_update",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "description": "Result page, starting at 1."
+          },
+          "brand_id": {
+            "type": "integer",
+            "description": "Matterhorn brand ID from brands_list."
+          },
+          "category_id": {
+            "type": "integer",
+            "description": "Matterhorn category ID from categories_list."
+          },
+          "new_collection": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "Set to 1 to return products added within the last 60 days."
+          },
+          "last_update": {
+            "type": "string",
+            "description": "Return products whose price or stock changed since this timestamp, formatted YYYY-MM-DD HH:MM:SS."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Products per page; Matterhorn allows up to 1000."
+          }
+        }
+      }
+    },
+    {
+      "name": "inventory_list",
+      "description": "List lightweight Matterhorn prices and inventory levels without full descriptions and images. Supports incremental synchronization with last_update.",
+      "method": "GET",
+      "path": "/ITEMS/INVENTORY/",
+      "query_params": [
+        "page",
+        "brand_id",
+        "category_id",
+        "new_collection",
+        "last_update",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "description": "Result page, starting at 1."
+          },
+          "brand_id": {
+            "type": "integer",
+            "description": "Matterhorn brand ID from brands_list."
+          },
+          "category_id": {
+            "type": "integer",
+            "description": "Matterhorn category ID from categories_list."
+          },
+          "new_collection": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "Set to 1 to return products added within the last 60 days."
+          },
+          "last_update": {
+            "type": "string",
+            "description": "Return products whose price or stock changed since this timestamp, formatted YYYY-MM-DD HH:MM:SS."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Products per page; Matterhorn allows up to 1000."
+          }
+        }
+      }
+    },
+    {
+      "name": "product_get",
+      "description": "Get one Matterhorn product by ID with images, prices, variants, and current stock.",
+      "method": "GET",
+      "path": "/ITEMS/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "description": "Matterhorn product ID."
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "product_get_by_ean",
+      "description": "Get a Matterhorn product using the EAN of one of its variants.",
+      "method": "GET",
+      "path": "/ITEMS/BYEAN/{ean}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ean": {
+            "type": "string",
+            "description": "EAN belonging to a Matterhorn product variant."
+          }
+        },
+        "required": [
+          "ean"
+        ]
+      }
+    },
+    {
+      "name": "orders_list",
+      "description": "List orders belonging to the authenticated Matterhorn account.",
+      "method": "GET",
+      "path": "/ACCOUNT/ORDERS/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "order_get",
+      "description": "Get a Matterhorn order by ID, including status, completion rate, totals, delivery address, positions, invoice, payment, and tracking information.",
+      "method": "GET",
+      "path": "/ACCOUNT/ORDERS/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "integer",
+            "description": "Matterhorn order ID."
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "order_create",
+      "description": "Create a Matterhorn order. This endpoint intentionally uses PUT. Orders cannot be paid through the API; use the returned payment_url or the customer panel.",
+      "method": "PUT",
+      "path": "/ACCOUNT/ORDERS/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Matterhorn variants and quantities to order.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "variant_uid": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Matterhorn variant UID or variant EAN."
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Supplier-unit quantity."
+                }
+              },
+              "required": [
+                "variant_uid",
+                "quantity"
+              ]
+            }
+          },
+          "delivery_to": {
+            "type": "object",
+            "description": "Optional dropshipping destination. Omit it to use the account address.",
+            "properties": {
+              "first_name": {
+                "type": "string"
+              },
+              "second_name": {
+                "type": "string",
+                "description": "Recipient surname."
+              },
+              "country": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 2,
+                "description": "Two-letter destination country code."
+              },
+              "street": {
+                "type": "string"
+              },
+              "house_number": {
+                "type": "string"
+              },
+              "zip": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              }
+            }
+          },
+          "currency": {
+            "type": "string",
+            "default": "EUR",
+            "description": "Order currency returned by currencies_list."
+          },
+          "delivery_method_id": {
+            "type": "integer",
+            "description": "Delivery method ID returned by delivery_methods_by_country. If omitted, Matterhorn chooses the cheapest available method."
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    }
+  ]
+}

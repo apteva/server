@@ -46,8 +46,8 @@ func TestGenericPresetCRUDAndSystemReadOnly(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Presets) != 19 {
-		t.Fatalf("catalog has %d presets, want 18 system + 1 personal", len(catalog.Presets))
+	if len(catalog.Presets) != 20 {
+		t.Fatalf("catalog has %d presets, want 19 system + 1 personal", len(catalog.Presets))
 	}
 
 	patch := authedRequest(t, http.MethodPatch, "/presets/"+created.ID, "", map[string]any{"description": ""})

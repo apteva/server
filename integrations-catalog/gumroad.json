@@ -8,7 +8,8 @@
   "auth": {
     "types": ["bearer"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/x-www-form-urlencoded"
     },
     "credential_fields": [
       {
@@ -328,11 +329,11 @@
     },
     {
       "name": "list_emails",
-      "description": "List audience emails/newsletters.",
+      "description": "List audience emails/newsletters by publication state. Gumroad returns up to 10 items per page; pass the response page_key to fetch the next page.",
       "method": "GET",
       "path": "/emails",
-      "query_params": ["page", "per_page"],
-      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+      "query_params": ["type", "page_key"],
+      "input_schema": {"type": "object", "properties": {"type": {"type": "string", "enum": ["published", "scheduled", "draft"]}, "page_key": {"type": "string", "description": "Opaque page key returned by the previous response."}}}
     },
     {
       "name": "get_email",
@@ -344,22 +345,14 @@
     },
     {
       "name": "create_email",
-      "description": "Create an audience email/newsletter. Include subject, body/content fields, published_at/scheduled_at, shown_on_profile, and other fields accepted by Gumroad.",
+      "description": "Create an audience email/newsletter draft, or publish it immediately when publish is true. For a product audience, provide product_id (or Gumroad's legacy link_id).",
       "method": "POST",
       "path": "/emails",
-      "input_schema": {"type": "object", "properties": {"subject": {"type": "string"}, "body": {"type": "string"}, "content": {"type": "string"}, "published_at": {"type": "string"}, "scheduled_at": {"type": "string"}, "shown_on_profile": {"type": "boolean"}}, "required": ["subject"]}
-    },
-    {
-      "name": "update_email",
-      "description": "Update an audience email/newsletter.",
-      "method": "PUT",
-      "path": "/emails/{emailId}",
-      "path_params": ["emailId"],
-      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}, "content": {"type": "string"}, "published_at": {"type": "string"}, "scheduled_at": {"type": "string"}, "shown_on_profile": {"type": "boolean"}}, "required": ["emailId"]}
+      "input_schema": {"type": "object", "properties": {"subject": {"type": "string"}, "body": {"type": "string"}, "audience": {"type": "string", "enum": ["all", "audience", "customers", "seller", "followers", "follower", "product"]}, "product_id": {"type": "string", "description": "Product ID required when audience is product."}, "link_id": {"type": "string", "description": "Legacy alias for product_id accepted by Gumroad."}, "publish": {"type": "boolean", "description": "Publish and send immediately instead of saving a draft."}, "draft": {"type": "boolean", "description": "Explicitly save as a draft."}}, "required": ["subject", "body"]}
     },
     {
       "name": "preview_email",
-      "description": "Preview an audience email/newsletter.",
+      "description": "Send a preview copy of an audience email/newsletter to the authenticated seller and return its preview URL.",
       "method": "POST",
       "path": "/emails/{emailId}/preview",
       "path_params": ["emailId"],
@@ -367,9 +360,25 @@
     },
     {
       "name": "send_email",
-      "description": "Send or publish an audience email/newsletter.",
+      "description": "Immediately publish and send an audience email/newsletter to its configured audience. This is irreversible and subject to Gumroad account eligibility rules.",
       "method": "POST",
       "path": "/emails/{emailId}/send",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}}, "required": ["emailId"]}
+    },
+    {
+      "name": "schedule_email",
+      "description": "Schedule a draft audience email/newsletter for future publication and delivery.",
+      "method": "POST",
+      "path": "/emails/{emailId}/schedule",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}, "to_be_published_at": {"type": "string", "description": "Future publication time accepted by Gumroad, preferably an ISO 8601 timestamp with timezone."}}, "required": ["emailId", "to_be_published_at"]}
+    },
+    {
+      "name": "unschedule_email",
+      "description": "Return a scheduled audience email/newsletter to draft state.",
+      "method": "POST",
+      "path": "/emails/{emailId}/unschedule",
       "path_params": ["emailId"],
       "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}}, "required": ["emailId"]}
     },
@@ -383,17 +392,18 @@
     },
     {
       "name": "list_resource_subscriptions",
-      "description": "List resource subscriptions/webhooks.",
+      "description": "List resource subscriptions/webhooks for one Gumroad event type.",
       "method": "GET",
       "path": "/resource_subscriptions",
-      "input_schema": {"type": "object", "properties": {}}
+      "query_params": ["resource_name"],
+      "input_schema": {"type": "object", "properties": {"resource_name": {"type": "string", "enum": ["sale", "refund", "cancellation", "subscription_ended", "subscription_restarted", "subscription_updated", "dispute", "dispute_won"]}}, "required": ["resource_name"]}
     },
     {
       "name": "create_resource_subscription",
-      "description": "Create a resource subscription/webhook. Common fields include resource_name, post_url, and subscriber_id/resource_id depending on the event type.",
-      "method": "POST",
+      "description": "Create a Gumroad resource subscription/webhook for an account event. The callback must be a public HTTP or HTTPS URL.",
+      "method": "PUT",
       "path": "/resource_subscriptions",
-      "input_schema": {"type": "object", "properties": {"resource_name": {"type": "string", "description": "For example sale or refund."}, "post_url": {"type": "string"}, "subscriber_id": {"type": "string"}, "resource_id": {"type": "string"}}, "required": ["resource_name", "post_url"]}
+      "input_schema": {"type": "object", "properties": {"resource_name": {"type": "string", "enum": ["sale", "refund", "cancellation", "subscription_ended", "subscription_restarted", "subscription_updated", "dispute", "dispute_won"]}, "post_url": {"type": "string", "format": "uri", "description": "Public HTTP or HTTPS callback URL; localhost addresses are rejected by Gumroad."}}, "required": ["resource_name", "post_url"]}
     },
     {
       "name": "delete_resource_subscription",

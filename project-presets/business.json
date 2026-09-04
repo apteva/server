@@ -14,6 +14,11 @@
         "prospecting",
         "appointment setting"
       ],
+      "highlights": [
+        "Research and validate prospects before they enter the pipeline",
+        "Keep outreach, CRM, and appointment context synchronized",
+        "Measure outcomes while holding outbound sends for approval"
+      ],
       "agents": [
         {
           "key": "lead-ops",
@@ -52,6 +57,11 @@
         "client work",
         "advisory"
       ],
+      "highlights": [
+        "Coordinate client work from intake through delivery",
+        "Prepare documents, approvals, signatures, and billing context",
+        "Keep external commitments behind explicit review"
+      ],
       "agents": [
         {
           "key": "client-ops",
@@ -89,6 +99,11 @@
         "shopify",
         "products",
         "orders"
+      ],
+      "highlights": [
+        "Keep catalog, inventory, orders, and customer context aligned",
+        "Surface stock and fulfillment exceptions",
+        "Prepare storefront and campaign changes for approval"
       ],
       "agents": [
         {
@@ -129,6 +144,11 @@
         "appointments",
         "service business"
       ],
+      "highlights": [
+        "Turn enquiries into organized customer and appointment follow-up",
+        "Keep schedules, messaging, and billing context current",
+        "Surface exceptions without making unauthorized commitments"
+      ],
       "agents": [
         {
           "key": "operations",
@@ -166,6 +186,11 @@
         "live training",
         "product demo",
         "virtual summit"
+      ],
+      "highlights": [
+        "Plan registration, reminders, live delivery, and replay follow-up",
+        "Coordinate promotion across campaigns and social channels",
+        "Report attendance and engagement through the complete event funnel"
       ],
       "agents": [
         {

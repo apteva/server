@@ -1,40 +1,168 @@
 {
   "slug": "orderchamp",
   "name": "Orderchamp Dropshipping",
-  "description": "Orderchamp GraphQL API for dropshipping catalog/import-list flows, order creation, fulfillment updates, and webhooks.",
+  "description": "Orderchamp GraphQL API for dropshipping channels, publications, inventory, test and live orders, fulfilment, tracking, and webhooks.",
   "logo": "https://www.google.com/s2/favicons?domain=orderchamp.com&sz=128",
-  "categories": ["dropshipping", "ecommerce", "supplier-catalog", "fulfillment", "graphql"],
+  "categories": ["dropshipping", "ecommerce", "supplier-catalog", "inventory", "orders", "fulfillment", "webhooks", "graphql"],
   "base_url": "https://api.orderchamp.com",
   "auth": {
     "types": ["bearer"],
-    "headers": {
-      "Authorization": "Bearer {{token}}",
-      "Content-Type": "application/json",
-      "Accept": "application/json"
-    },
-    "credential_fields": [
-      {
-        "name": "token",
-        "label": "Access Token",
-        "description": "Orderchamp private app or OAuth access token."
-      }
-    ]
+    "headers": { "Authorization": "Bearer {{token}}", "Content-Type": "application/json", "Accept": "application/json" },
+    "credential_fields": [{ "name": "token", "label": "Access Token", "description": "Private token from the Orderchamp back office or an OAuth access token. Orderchamp must first enable custom dropshipping integrations." }]
   },
+  "health_check": { "tool": "get_account", "input": {} },
   "tools": [
     {
-      "name": "graphql",
-      "description": "Call Orderchamp's GraphQL API. Use queries such as account, products, product, publications, publication, orders, order, shipments, webhooks; use mutations such as ingestedOrderCreate, integrationOrderCreate, integrationOrderCancel, inventoryLevelAdjust, and webhook create/update mutations according to the Orderchamp schema.",
-      "method": "POST",
-      "path": "/v1/graphql",
+      "name": "get_account", "description": "Return the authenticated account and its dropshipping and fulfilment capabilities.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query GetAccount { account { id name companyName slug type email phone website currency contentLocale userLocale hasDropshippingActivated hasFulfilmentServiceEnabled vacationModeEnabled createdAt updatedAt } }", "operationName": "GetAccount", "variables": {} } },
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_channels", "description": "List the authenticated retailer's dropshipping channels or webshops.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query ListChannels($first: Int, $after: String, $sort: ChannelSort) { channels(first: $first, after: $after, sort: $sort) { nodes { id name url email type behavior status } pageInfo { startCursor endCursor hasNextPage hasPreviousPage } totalCount } }", "operationName": "ListChannels" }, "include_fields": { "first": "variables.first", "after": "variables.after", "sort": "variables.sort" } },
+      "input_schema": { "type": "object", "properties": { "first": { "type": "integer", "minimum": 1, "maximum": 100 }, "after": { "type": "string" }, "sort": { "type": "string", "enum": ["ID_ASC", "ID_DESC"] } } }
+    },
+    {
+      "name": "list_publications", "description": "List products in the dropshipping import list. Use endCursor for pagination and need_update_only for incremental synchronization.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query ListPublications($first: Int, $after: String, $needUpdateOnly: Boolean, $sort: PublicationSort) { publications(first: $first, after: $after, needUpdateOnly: $needUpdateOnly, sort: $sort) { nodes { id status createdAt updatedAt failedAt succeededAt channel { id name url } listing { id title brand status contentLocale dropshippingReturns updatedAt variants(first: 100) { nodes { id variantId title sku ean price msrp inventoryQuantity inventoryPolicy updatedAt } pageInfo { endCursor hasNextPage } } } } pageInfo { startCursor endCursor hasNextPage hasPreviousPage } totalCount } }", "operationName": "ListPublications" }, "include_fields": { "first": "variables.first", "after": "variables.after", "need_update_only": "variables.needUpdateOnly", "sort": "variables.sort" } },
+      "input_schema": { "type": "object", "properties": { "first": { "type": "integer", "minimum": 1, "maximum": 100 }, "after": { "type": "string" }, "need_update_only": { "type": "boolean" }, "sort": { "type": "string", "enum": ["ID_ASC", "ID_DESC", "UPDATED_AT_ASC", "UPDATED_AT_DESC"] } } }
+    },
+    {
+      "name": "get_publication", "description": "Fetch a publication with listing content, variants, prices, inventory, shipping details, and images.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query GetPublication($id: ID!) { publication(id: $id) { id status createdAt updatedAt failedAt succeededAt channel { id name url } listing { id title brand description status contentLocale dropshippingReturns createdAt updatedAt category { id name path rawPath } dropshippingShippingDetails { countryGroup fixedCosts variableCosts estimatedShippingDays } translations { en { title description } nl { title description } de { title description } fr { title description } } variants(first: 100) { nodes { id variantId title options { name value } sku ean barcode price msrp currency inventoryQuantity inventoryPolicy position updatedAt } pageInfo { endCursor hasNextPage } totalCount } images(first: 20, sort: POSITION_ASC) { nodes { id position originalUrl thumbnailUrl transformedUrl(width: 1200, height: 1200, method: FILL) } pageInfo { endCursor hasNextPage } totalCount } } } }", "operationName": "GetPublication" }, "include_fields": { "publication_id": "variables.id" } },
+      "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" } }, "required": ["publication_id"] }
+    },
+    {
+      "name": "update_publication_status", "description": "Report a publication sync as success or failed. Inspect data.publicationStatusUpdated.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation UpdatePublicationStatus($input: PublicationStatusUpdatedInput!) { publicationStatusUpdated(input: $input) { publication { id status failedAt succeededAt updatedAt } userErrors { field message name } } }", "operationName": "UpdatePublicationStatus" }, "include_fields": { "publication_id": "variables.input.id", "status": "variables.input.status", "product_url": "variables.input.productUrl", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "status": { "type": "string", "enum": ["success", "failed"] }, "product_url": { "type": "string", "format": "uri" }, "client_mutation_id": { "type": "string" } }, "required": ["publication_id", "status"] }
+    },
+    {
+      "name": "get_inventory_by_sku", "description": "Get a product variant and its per-location inventory levels by SKU.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query GetInventoryBySku($sku: String!) { productVariantBySku(sku: $sku) { id sku ean barcode title productTitle inventory inventoryQuantity inventoryPolicy updatedAt inventoryLevels(first: 100) { nodes { id quantity availableQuantity createdAt updatedAt location { id } } pageInfo { endCursor hasNextPage } totalCount } } }", "operationName": "GetInventoryBySku" }, "include_fields": { "sku": "variables.sku" } },
+      "input_schema": { "type": "object", "properties": { "sku": { "type": "string" } }, "required": ["sku"] }
+    },
+    {
+      "name": "set_inventory_by_sku", "description": "Replace inventory for one SKU, optionally at a warehouse. Inspect data.inventoryLevelAdjust.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation SetInventoryBySku($input: InventoryLevelAdjustInput!) { inventoryLevelAdjust(input: $input) { inventoryLevel { id quantity availableQuantity updatedAt location { id } productVariant { id sku } } userErrors { field message name } } }", "operationName": "SetInventoryBySku", "variables": { "input": { "action": "SET" } } }, "include_fields": { "sku": "variables.input.sku", "quantity": "variables.input.adjustment", "location_id": "variables.input.locationId", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "sku": { "type": "string" }, "quantity": { "type": "integer", "minimum": 0 }, "location_id": { "type": "string" }, "client_mutation_id": { "type": "string" } }, "required": ["sku", "quantity"] }
+    },
+    {
+      "name": "adjust_inventory_by_sku", "description": "Increase or decrease inventory for one SKU. Negative adjustments subtract stock. Inspect data.inventoryLevelAdjust.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation AdjustInventoryBySku($input: InventoryLevelAdjustInput!) { inventoryLevelAdjust(input: $input) { inventoryLevel { id quantity availableQuantity updatedAt location { id } productVariant { id sku } } userErrors { field message name } } }", "operationName": "AdjustInventoryBySku", "variables": { "input": { "action": "ADJUST" } } }, "include_fields": { "sku": "variables.input.sku", "adjustment": "variables.input.adjustment", "location_id": "variables.input.locationId", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "sku": { "type": "string" }, "adjustment": { "type": "integer" }, "location_id": { "type": "string" }, "client_mutation_id": { "type": "string" } }, "required": ["sku", "adjustment"] }
+    },
+    {
+      "name": "bulk_adjust_inventory", "description": "Set or adjust multiple inventory levels. Each item identifies stock by sku, productVariantId, or inventoryLevelId. Inspect userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation BulkAdjustInventory($input: InventoryLevelBulkAdjustInput!) { inventoryLevelBulkAdjust(input: $input) { inventoryLevels { id quantity availableQuantity updatedAt location { id } productVariant { id sku } } userErrors { field message name } } }", "operationName": "BulkAdjustInventory" }, "include_fields": { "inventory_levels": "variables.input.inventoryLevels", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "inventory_levels": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": { "sku": { "type": "string" }, "productVariantId": { "type": "string" }, "inventoryLevelId": { "type": "string" }, "locationId": { "type": "string" }, "action": { "type": "string", "enum": ["SET", "ADJUST"] }, "adjustment": { "type": "integer" } }, "required": ["action", "adjustment"] } }, "client_mutation_id": { "type": "string" } }, "required": ["inventory_levels"] }
+    },
+    {
+      "name": "list_ingested_orders", "description": "List dropshipping orders submitted through the integration, with conversion and product-matching status.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query ListIngestedOrders($first: Int, $after: String, $status: IngestedOrderStatus, $since: DateTime, $updatedSince: DateTime, $sort: IngestedOrderSort) { ingestedOrders(first: $first, after: $after, status: $status, since: $since, updatedSince: $updatedSince, sort: $sort) { nodes { id externalOrderId externalOrderNumber externalOrderUrl status paymentUrl retailerOrderId createdAt updatedAt retailerOrder { id number status isTest totalPrice currency } products { id status listingVariant { id variantId sku title } } } pageInfo { startCursor endCursor hasNextPage hasPreviousPage } totalCount } }", "operationName": "ListIngestedOrders" }, "include_fields": { "first": "variables.first", "after": "variables.after", "status": "variables.status", "since": "variables.since", "updated_since": "variables.updatedSince", "sort": "variables.sort" } },
+      "input_schema": { "type": "object", "properties": { "first": { "type": "integer", "minimum": 1, "maximum": 100 }, "after": { "type": "string" }, "status": { "type": "string", "enum": ["PENDING", "CONVERTED", "PARTIALLY_CONVERTED", "FAILED"] }, "since": { "type": "string", "format": "date-time" }, "updated_since": { "type": "string", "format": "date-time" }, "sort": { "type": "string", "enum": ["CREATED_AT_ASC", "CREATED_AT_DESC", "ID_ASC", "ID_DESC", "UPDATED_AT_ASC", "UPDATED_AT_DESC"] } } }
+    },
+    {
+      "name": "create_ingested_order", "description": "Create a dropshipping order. is_test is mandatory: true creates a removable non-fulfilling test; false creates a real order that may be charged and fulfilled. Inspect userErrors and every product status.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation CreateIngestedOrder($input: IngestedOrderCreateInput!) { ingestedOrderCreate(input: $input) { ingestedOrder { id externalOrderId externalOrderNumber status paymentUrl retailerOrderId createdAt updatedAt retailerOrder { id number status isTest totalPrice currency } products { id status listingVariant { id variantId sku title } } } userErrors { field message name } } }", "operationName": "CreateIngestedOrder" }, "include_fields": { "external_order_id": "variables.input.externalOrderId", "external_order_number": "variables.input.externalOrderNumber", "external_order_url": "variables.input.externalOrderUrl", "order_created_at": "variables.input.orderCreatedAt", "email": "variables.input.email", "currency": "variables.input.currency", "is_test": "variables.input.isTest", "shipping_address": "variables.input.shippingAddress", "products": "variables.input.products", "subtotal_price": "variables.input.subtotalPrice", "shipping_price": "variables.input.shippingPrice", "discount_price": "variables.input.discountPrice", "tax_price": "variables.input.taxPrice", "total_price": "variables.input.totalPrice", "client_mutation_id": "variables.input.clientMutationId" } },
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "GraphQL query or mutation document." },
-          "variables": { "type": "object", "description": "GraphQL variables object." },
-          "operationName": { "type": "string", "description": "Operation name when the document contains multiple operations." }
+          "external_order_id": { "type": "string" }, "external_order_number": { "type": "string" }, "external_order_url": { "type": "string", "format": "uri" }, "order_created_at": { "type": "string", "format": "date-time" }, "email": { "type": "string", "format": "email" }, "currency": { "type": "string" },
+          "is_test": { "type": "boolean", "description": "Use true while integrating. False creates a real order." },
+          "shipping_address": { "type": "object", "properties": { "companyName": { "type": "string" }, "firstName": { "type": "string" }, "lastName": { "type": "string" }, "street": { "type": "string" }, "houseNumber": { "type": "string" }, "postalCode": { "type": "string" }, "city": { "type": "string" }, "region": { "type": "string" }, "country": { "type": "string", "description": "ISO 3166-1 alpha-2 country code." }, "phone": { "type": "string" } }, "required": ["street", "postalCode", "city", "country"] },
+          "products": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": { "listingVariantId": { "type": "string" }, "productVariantId": { "type": "string" }, "ean": { "type": "string" }, "sku": { "type": "string" }, "title": { "type": "string" }, "variantTitle": { "type": "string" }, "quantity": { "type": "integer", "minimum": 1 }, "unitPrice": { "type": "integer", "description": "Minor currency units." }, "subtotalPrice": { "type": "integer", "description": "Minor currency units." } }, "required": ["sku", "title", "quantity"] } },
+          "subtotal_price": { "type": "integer" }, "shipping_price": { "type": "integer" }, "discount_price": { "type": "integer" }, "tax_price": { "type": "integer" }, "total_price": { "type": "integer" }, "client_mutation_id": { "type": "string" }
         },
-        "required": ["query"]
+        "required": ["external_order_id", "external_order_number", "is_test", "shipping_address", "products"]
       }
+    },
+    {
+      "name": "delete_test_order", "description": "Permanently delete an ingested test order and free its externalOrderId. Real orders cannot be deleted. Inspect userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation DeleteTestOrder($input: IngestedOrderDeleteInput!) { ingestedOrderDelete(input: $input) { deletedIngestedOrderId userErrors { field message name } } }", "operationName": "DeleteTestOrder" }, "include_fields": { "ingested_order_id": "variables.input.id", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "ingested_order_id": { "type": "string" }, "client_mutation_id": { "type": "string" } }, "required": ["ingested_order_id"] }
+    },
+    {
+      "name": "get_retailer_order", "description": "Fetch an ingested order's retailer order, supplier orders, line items, shipments, and tracking.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query GetRetailerOrder($id: ID!) { retailerOrder(id: $id) { id number status isTest currency subtotalPrice shippingPrice taxPrice totalPrice city country shipDirectlyToCustomer paymentMethod createdAt updatedAt cancelledAt supplierOrders { id number status source isPaid isConfirmed isFulfilled isCancelled currency totalPrice createdAt updatedAt products(first: 100) { nodes { id sku ean title variantTitle quantity unshippedQuantity unitPrice totalPrice listingVariant { id variantId sku } } pageInfo { endCursor hasNextPage } totalCount } shipments(first: 100) { nodes { id number status externalShipmentId carrier trackingNumber trackingUrl isShipped isDelivered isCancelled shippedAt deliveredAt estimatedDeliveryAt createdAt updatedAt } pageInfo { endCursor hasNextPage } totalCount } } } }", "operationName": "GetRetailerOrder" }, "include_fields": { "retailer_order_id": "variables.id" } },
+      "input_schema": { "type": "object", "properties": { "retailer_order_id": { "type": "string" } }, "required": ["retailer_order_id"] }
+    },
+    {
+      "name": "list_orders", "description": "List supplier orders. Set is_fulfilled=false to find fulfilment work; exclude unconfirmed and cancelled orders before shipping.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query ListOrders($first: Int, $after: String, $isConfirmed: Boolean, $isFulfilled: Boolean, $includeUnconfirmed: Boolean, $includeCancelled: Boolean, $number: String, $source: String, $since: DateTime, $updatedSince: DateTime, $sort: OrderSort) { orders(first: $first, after: $after, isConfirmed: $isConfirmed, isFulfilled: $isFulfilled, includeUnconfirmed: $includeUnconfirmed, includeCancelled: $includeCancelled, number: $number, source: $source, since: $since, updatedSince: $updatedSince, sort: $sort) { nodes { id number status source reference isTest isPaid isConfirmed isFulfilled isCancelled currency productsCount totalPrice confirmedAt estimatedDeliveryAt createdAt updatedAt products(first: 100) { nodes { id sku ean title variantTitle quantity unshippedQuantity unitPrice totalPrice } pageInfo { endCursor hasNextPage } totalCount } } pageInfo { startCursor endCursor hasNextPage hasPreviousPage } totalCount } }", "operationName": "ListOrders" }, "include_fields": { "first": "variables.first", "after": "variables.after", "is_confirmed": "variables.isConfirmed", "is_fulfilled": "variables.isFulfilled", "include_unconfirmed": "variables.includeUnconfirmed", "include_cancelled": "variables.includeCancelled", "number": "variables.number", "source": "variables.source", "since": "variables.since", "updated_since": "variables.updatedSince", "sort": "variables.sort" } },
+      "input_schema": { "type": "object", "properties": { "first": { "type": "integer", "minimum": 1, "maximum": 100 }, "after": { "type": "string" }, "is_confirmed": { "type": "boolean" }, "is_fulfilled": { "type": "boolean" }, "include_unconfirmed": { "type": "boolean" }, "include_cancelled": { "type": "boolean" }, "number": { "type": "string" }, "source": { "type": "string" }, "since": { "type": "string", "format": "date-time" }, "updated_since": { "type": "string", "format": "date-time" }, "sort": { "type": "string", "enum": ["CONFIRMED_AT_ASC", "CONFIRMED_AT_DESC", "CREATED_AT_ASC", "CREATED_AT_DESC", "ID_ASC", "ID_DESC", "UPDATED_AT_ASC", "UPDATED_AT_DESC"] } } }
+    },
+    {
+      "name": "get_order", "description": "Fetch one supplier order with products, invoices, shipments, tracking, and fulfilment state.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query GetOrder($id: ID!) { order(id: $id) { id number status source reference note isTest isPaid isConfirmed isFulfilled isCancelled paymentStatus paymentMethod currency subtotalPrice shippingPrice taxPrice totalPrice productsCount paidAt confirmedAt estimatedDeliveryAt deliveredAt cancelledAt createdAt updatedAt products(first: 100) { nodes { id brand title variantTitle sku ean caseQuantity quantity unshippedQuantity unitPrice subtotalPrice taxPrice totalPrice buyingTier { id name quantity reductionType reduction fixedPrice } } pageInfo { endCursor hasNextPage } totalCount } shipments(first: 100) { nodes { id number status externalShipmentId carrier trackingNumber trackingUrl isShipped isDelivered isCancelled shippedAt deliveredAt estimatedDeliveryAt createdAt updatedAt } pageInfo { endCursor hasNextPage } totalCount } invoices { id type number currency subtotalPrice taxPrice totalPrice isPaid paidAt createdAt } } }", "operationName": "GetOrder" }, "include_fields": { "order_id": "variables.id" } },
+      "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" } }, "required": ["order_id"] }
+    },
+    {
+      "name": "cancel_order", "description": "Cancel a real supplier order. This is consequential; use delete_test_order for tests. Inspect data.orderCancel.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation CancelOrder($input: OrderCancelInput!) { orderCancel(input: $input) { order { id number status isCancelled cancelledAt updatedAt } userErrors { field message name } } }", "operationName": "CancelOrder" }, "include_fields": { "order_id": "variables.input.orderId", "reason": "variables.input.reason", "other_reason_message": "variables.input.otherReasonMessage", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" }, "reason": { "type": "string", "enum": ["REASON_DUPLICATE_ORDER", "REASON_INCOMPATIBLE_RETAILER", "REASON_OTHER", "REASON_OUT_OF_STOCK", "REASON_PARTIALLY_OUT_OF_STOCK"] }, "other_reason_message": { "type": "string", "description": "Required when reason is REASON_OTHER." }, "client_mutation_id": { "type": "string" } }, "required": ["order_id", "reason"] }
+    },
+    {
+      "name": "list_shipments", "description": "List shipments with tracking and delivery state.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query ListShipments($first: Int, $after: String, $sort: ShipmentSort) { shipments(first: $first, after: $after, sort: $sort) { nodes { id number status externalShipmentId carrier trackingNumber trackingUrl isShipped isDelivered isCancelled productsCount shippedAt deliveredAt estimatedDeliveryAt createdAt updatedAt order { id number status } } pageInfo { startCursor endCursor hasNextPage hasPreviousPage } totalCount } }", "operationName": "ListShipments" }, "include_fields": { "first": "variables.first", "after": "variables.after", "sort": "variables.sort" } },
+      "input_schema": { "type": "object", "properties": { "first": { "type": "integer", "minimum": 1, "maximum": 100 }, "after": { "type": "string" }, "sort": { "type": "string", "enum": ["ID_ASC", "ID_DESC", "UPDATED_AT_ASC", "UPDATED_AT_DESC"] } } }
+    },
+    {
+      "name": "get_shipment", "description": "Fetch one shipment with tracking, order, and shipped products.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query GetShipment($id: ID!) { shipment(id: $id) { id number status externalShipmentId carrier trackingNumber trackingUrl isShipped isDelivered isCancelled weight width height length productsCount shippedAt deliveredAt estimatedDeliveryAt createdAt updatedAt order { id number status } retailerOrder { id number status } products(first: 100) { nodes { id sku quantity listingVariant { id variantId sku } } pageInfo { endCursor hasNextPage } totalCount } } }", "operationName": "GetShipment" }, "include_fields": { "shipment_id": "variables.id" } },
+      "input_schema": { "type": "object", "properties": { "shipment_id": { "type": "string" } }, "required": ["shipment_id"] }
+    },
+    {
+      "name": "create_shipment", "description": "Create a shipment from OrderProduct IDs and quantities. Do not use product catalog IDs. Inspect data.shipmentCreate.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation CreateShipment($input: ShipmentCreateInput!) { shipmentCreate(input: $input) { shipment { id number status externalShipmentId productsCount createdAt updatedAt order { id number status } products(first: 100) { nodes { id sku quantity } totalCount } } userErrors { field message name } } }", "operationName": "CreateShipment" }, "include_fields": { "order_id": "variables.input.orderId", "products": "variables.input.products", "external_shipment_id": "variables.input.externalShipmentId", "weight": "variables.input.weight", "width": "variables.input.width", "height": "variables.input.height", "length": "variables.input.length", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" }, "products": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": { "id": { "type": "string", "description": "OrderProduct ID." }, "quantity": { "type": "integer", "minimum": 1 } }, "required": ["id", "quantity"] } }, "external_shipment_id": { "type": "string" }, "weight": { "type": "integer" }, "width": { "type": "number" }, "height": { "type": "number" }, "length": { "type": "number" }, "client_mutation_id": { "type": "string" } }, "required": ["order_id", "products"] }
+    },
+    {
+      "name": "mark_shipment_shipped", "description": "Mark a shipment shipped with tracking, or explicitly untracked with a delivery timeframe. Inspect userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation MarkShipmentShipped($input: ShipmentShippedInput!) { shipmentShipped(input: $input) { shipment { id number status carrier trackingNumber trackingUrl isShipped shippedAt estimatedDeliveryAt updatedAt } userErrors { field message name } } }", "operationName": "MarkShipmentShipped" }, "include_fields": { "shipment_id": "variables.input.shipmentId", "tracking_number": "variables.input.trackingNumber", "carrier": "variables.input.carrier", "custom_carrier": "variables.input.customCarrier", "is_tracked": "variables.input.isTracked", "delivery_timeframe": "variables.input.deliveryTimeframe", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "shipment_id": { "type": "string" }, "tracking_number": { "type": "string" }, "carrier": { "type": "string", "enum": ["CARRIER_BPOST", "CARRIER_CHRONOPOST", "CARRIER_COLISSIMO", "CARRIER_DACHSER", "CARRIER_DBSCHENKERSE", "CARRIER_DEUTSCHPOST", "CARRIER_DHL", "CARRIER_DPD", "CARRIER_DSV", "CARRIER_FEDEX", "CARRIER_GLS", "CARRIER_HERMES", "CARRIER_MIKROPAKKET", "CARRIER_OTHER", "CARRIER_POSTNL", "CARRIER_TNTFRANCE", "CARRIER_UPS"] }, "custom_carrier": { "type": "string" }, "is_tracked": { "type": "boolean" }, "delivery_timeframe": { "type": "string", "enum": ["ONE_TO_TWO_DAYS", "THREE_TO_FOUR_DAYS", "FIVE_TO_SEVEN_DAYS", "EIGHT_TO_TEN_DAYS", "TEN_TO_FOURTEEN_DAYS"] }, "client_mutation_id": { "type": "string" } }, "required": ["shipment_id"] }
+    },
+    {
+      "name": "list_webhooks", "description": "List webhook registrations and subscribed events.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query ListWebhooks($first: Int, $after: String, $sort: WebhookSort) { webhooks(first: $first, after: $after, sort: $sort) { nodes { id databaseId callbackUrl events active template createdAt updatedAt } pageInfo { startCursor endCursor hasNextPage hasPreviousPage } totalCount } }", "operationName": "ListWebhooks" }, "include_fields": { "first": "variables.first", "after": "variables.after", "sort": "variables.sort" } },
+      "input_schema": { "type": "object", "properties": { "first": { "type": "integer", "minimum": 1, "maximum": 100 }, "after": { "type": "string" }, "sort": { "type": "string", "enum": ["ID_ASC", "ID_DESC", "UPDATED_AT_ASC", "UPDATED_AT_DESC"] } } }
+    },
+    {
+      "name": "get_webhook", "description": "Fetch one webhook registration.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "query GetWebhook($id: ID!) { webhook(id: $id) { id databaseId callbackUrl events active template createdAt updatedAt } }", "operationName": "GetWebhook" }, "include_fields": { "webhook_id": "variables.id" } },
+      "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "string" } }, "required": ["webhook_id"] }
+    },
+    {
+      "name": "create_webhook", "description": "Create a webhook for selected events. The callback must be public HTTPS. Inspect data.webhookCreate.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation CreateWebhook($input: WebhookCreateInput!) { webhookCreate(input: $input) { webhook { id databaseId callbackUrl events active template createdAt updatedAt } userErrors { field message name } } }", "operationName": "CreateWebhook" }, "include_fields": { "callback_url": "variables.input.callbackUrl", "events": "variables.input.events", "active": "variables.input.active", "template": "variables.input.template", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "callback_url": { "type": "string", "format": "uri" }, "events": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["APPLICATION_UNINSTALLED", "CUSTOMER_CREATED", "CUSTOMER_UPDATED", "INVOICE_CREATED", "INVOICE_UPDATED", "ORDER_CANCELLED", "ORDER_COMPLETED", "ORDER_CONFIRMED", "ORDER_CREATED", "ORDER_UPDATED", "PRODUCT_CREATED", "PRODUCT_DELETED", "PRODUCT_UPDATED", "PRODUCT_VARIANT_CREATED", "PRODUCT_VARIANT_DELETED", "PRODUCT_VARIANT_UPDATED", "PUBLICATION_CREATED", "PUBLICATION_DELETED", "PUBLICATION_UPDATED", "SHIPMENT_CREATED", "SHIPMENT_DELIVERED", "SHIPMENT_SHIPPED", "SHIPMENT_UPDATED", "SUPPLIER_BILL_CREATED", "SUPPLIER_BILL_UPDATED", "SUPPLIER_INVOICE_CREATED", "SUPPLIER_INVOICE_UPDATED"] } }, "active": { "type": "boolean" }, "template": { "type": "string", "enum": ["INVOICING"] }, "client_mutation_id": { "type": "string" } }, "required": ["callback_url", "events"] }
+    },
+    {
+      "name": "update_webhook", "description": "Update a webhook callback, events, active state, or template. Inspect data.webhookUpdate.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation UpdateWebhook($input: WebhookUpdateInput!) { webhookUpdate(input: $input) { webhook { id databaseId callbackUrl events active template createdAt updatedAt } userErrors { field message name } } }", "operationName": "UpdateWebhook" }, "include_fields": { "webhook_id": "variables.input.id", "callback_url": "variables.input.callbackUrl", "events": "variables.input.events", "active": "variables.input.active", "template": "variables.input.template", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "string" }, "callback_url": { "type": "string", "format": "uri" }, "events": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "active": { "type": "boolean" }, "template": { "type": "string", "enum": ["INVOICING"] }, "client_mutation_id": { "type": "string" } }, "required": ["webhook_id"] }
+    },
+    {
+      "name": "delete_webhook", "description": "Permanently delete a webhook registration. Inspect data.webhookDelete.userErrors.", "method": "POST", "path": "/v1/graphql",
+      "request_transform": { "type": "json_wrap", "fields": [], "constants": { "query": "mutation DeleteWebhook($input: WebhookDeleteInput!) { webhookDelete(input: $input) { deletedWebhookId userErrors { field message name } } }", "operationName": "DeleteWebhook" }, "include_fields": { "webhook_id": "variables.input.id", "client_mutation_id": "variables.input.clientMutationId" } },
+      "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "string" }, "client_mutation_id": { "type": "string" } }, "required": ["webhook_id"] }
+    },
+    {
+      "name": "graphql", "description": "Advanced escape hatch for operations not covered by a named tool. Prefer named tools for safer inputs.", "method": "POST", "path": "/v1/graphql",
+      "input_schema": { "type": "object", "properties": { "query": { "type": "string" }, "variables": { "type": "object" }, "operationName": { "type": "string" } }, "required": ["query"] }
     }
-  ]
+  ],
+  "webhooks": {
+    "signature_header": "x-orderchamp-signature",
+    "events": [
+      { "name": "APPLICATION_UNINSTALLED", "description": "Application uninstalled." }, { "name": "CUSTOMER_CREATED", "description": "Customer created." }, { "name": "CUSTOMER_UPDATED", "description": "Customer updated." },
+      { "name": "INVOICE_CREATED", "description": "Invoice created." }, { "name": "INVOICE_UPDATED", "description": "Invoice updated." },
+      { "name": "ORDER_CANCELLED", "description": "Order cancelled." }, { "name": "ORDER_COMPLETED", "description": "Order completed." }, { "name": "ORDER_CONFIRMED", "description": "Order confirmed and normally ready for fulfilment." }, { "name": "ORDER_CREATED", "description": "Order created." }, { "name": "ORDER_UPDATED", "description": "Order updated." },
+      { "name": "PRODUCT_CREATED", "description": "Product created." }, { "name": "PRODUCT_DELETED", "description": "Product deleted." }, { "name": "PRODUCT_UPDATED", "description": "Product updated." }, { "name": "PRODUCT_VARIANT_CREATED", "description": "Product variant created." }, { "name": "PRODUCT_VARIANT_DELETED", "description": "Product variant deleted." }, { "name": "PRODUCT_VARIANT_UPDATED", "description": "Product variant updated." },
+      { "name": "PUBLICATION_CREATED", "description": "Publication added." }, { "name": "PUBLICATION_DELETED", "description": "Publication removed." }, { "name": "PUBLICATION_UPDATED", "description": "Publication content, price, or inventory updated." },
+      { "name": "SHIPMENT_CREATED", "description": "Shipment created." }, { "name": "SHIPMENT_DELIVERED", "description": "Shipment delivered." }, { "name": "SHIPMENT_SHIPPED", "description": "Shipment marked shipped." }, { "name": "SHIPMENT_UPDATED", "description": "Shipment updated." },
+      { "name": "SUPPLIER_BILL_CREATED", "description": "Supplier bill created." }, { "name": "SUPPLIER_BILL_UPDATED", "description": "Supplier bill updated." }, { "name": "SUPPLIER_INVOICE_CREATED", "description": "Supplier invoice created." }, { "name": "SUPPLIER_INVOICE_UPDATED", "description": "Supplier invoice updated." }
+    ],
+    "registration": { "manual_setup": "Use orderchamp_create_webhook with the generated subscription callback URL. Automatic GraphQL registration will be added separately. Orderchamp signs requests in X-Orderchamp-Signature using the app shared secret." }
+  }
 }

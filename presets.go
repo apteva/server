@@ -19,6 +19,7 @@ const projectSetupPresetKind = "project_setup"
 type ProjectSetupPresetDefinition struct {
 	Category        string                    `json:"category"`
 	Match           []string                  `json:"match,omitempty"`
+	Highlights      []string                  `json:"highlights,omitempty"`
 	Agents          []ProjectPresetAgent      `json:"agents"`
 	Dashboard       []string                  `json:"dashboard,omitempty"`
 	DashboardLayout []dashboardWidgetInstance `json:"dashboard_layout,omitempty"`
@@ -175,7 +176,7 @@ func systemPresetEnvelope(preset ProjectPreset) Preset {
 		ID: preset.ID, Kind: projectSetupPresetKind, Scope: "system", Source: "system",
 		SchemaVersion: 1, Name: preset.Name, Description: preset.Description,
 		Definition: ProjectSetupPresetDefinition{
-			Category: preset.Category, Match: preset.Match, Agents: preset.Agents, Dashboard: preset.Dashboard,
+			Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
 		},
 	}
 }
@@ -185,7 +186,7 @@ func projectPresetFromEnvelope(preset Preset) ProjectPreset {
 		ID: preset.ID, Kind: preset.Kind, Scope: preset.Scope, Source: preset.Source,
 		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID, OwnerProjectID: preset.OwnerProjectID, Revision: preset.Revision,
 		Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
-		Match: preset.Definition.Match, Agents: preset.Definition.Agents,
+		Match: preset.Definition.Match, Highlights: preset.Definition.Highlights, Agents: preset.Definition.Agents,
 		Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout,
 	}
 }
@@ -633,12 +634,13 @@ func (s *Server) handlePresetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 type presetCaptureRequest struct {
-	ProjectID      string `json:"project_id"`
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	Category       string `json:"category"`
-	Scope          string `json:"scope"`
-	OwnerProjectID string `json:"-"`
+	ProjectID      string   `json:"project_id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Category       string   `json:"category"`
+	Highlights     []string `json:"highlights,omitempty"`
+	Scope          string   `json:"scope"`
+	OwnerProjectID string   `json:"-"`
 }
 
 func (s *Server) handlePresetCapture(w http.ResponseWriter, r *http.Request) {
@@ -744,7 +746,7 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 	}
 	preset := Preset{Kind: projectSetupPresetKind, Scope: scope, Source: "user", SchemaVersion: 2,
 		Name: name, Description: strings.TrimSpace(body.Description), OwnerProjectID: body.OwnerProjectID,
-		Definition: ProjectSetupPresetDefinition{Category: category, Agents: agents, DashboardLayout: layout}}
+		Definition: ProjectSetupPresetDefinition{Category: category, Highlights: body.Highlights, Agents: agents, DashboardLayout: layout}}
 	preset.ID = s.store.availablePresetID(userID, scope, preset.OwnerProjectID, name)
 	if err := validatePresetEnvelope(preset); err != nil {
 		return Preset{}, err

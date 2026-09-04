@@ -14,6 +14,11 @@
         "briefings",
         "decisions"
       ],
+      "highlights": [
+        "Turn ambiguous requests into clear priorities and next actions",
+        "Prepare decision briefs from retained notes and documents",
+        "Keep commitments visible across tasks and calendar"
+      ],
       "agents": [
         {
           "key": "chief-of-staff",
@@ -49,6 +54,11 @@
         "accounts",
         "outreach",
         "leads"
+      ],
+      "highlights": [
+        "Research and qualify accounts before outreach",
+        "Keep CRM and meeting context current",
+        "Draft personalized campaigns and surface the next best follow-up"
       ],
       "agents": [
         {
@@ -86,6 +96,11 @@
         "customer service",
         "support team"
       ],
+      "highlights": [
+        "Triage incoming issues using complete customer context",
+        "Prepare evidence-backed responses",
+        "Escalate uncertainty and important cases without inventing answers"
+      ],
       "agents": [
         {
           "key": "support",
@@ -120,6 +135,11 @@
         "competitive analysis",
         "due diligence"
       ],
+      "highlights": [
+        "Collect attributable evidence from multiple sources",
+        "Structure comparable findings and preserve research notes",
+        "Produce decision-ready synthesis with uncertainty made explicit"
+      ],
       "agents": [
         {
           "key": "researcher",
@@ -134,6 +154,45 @@
             "tables"
           ],
           "directive": "Use this project description as your operating context: {{description}}. Conduct evidence-based research, search and extract sources, preserve notes and artifacts, structure comparable evidence when useful, distinguish facts from inference, and report uncertainty and conflicting evidence clearly."
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "tasks:task-overview",
+        "native:activity"
+      ]
+    },
+    {
+      "id": "work-youtube-to-blog",
+      "category": "work",
+      "name": "YouTube video to blog post",
+      "description": "Turn a YouTube video or supplied transcript into an attributable article draft. Automatic transcription needs a configured provider.",
+      "match": [
+        "youtube to blog",
+        "video to article",
+        "repurpose video",
+        "video transcript",
+        "content repurposing"
+      ],
+      "highlights": [
+        "Use a supplied transcript or configured video transcription",
+        "Transform the source into a structured article without inventing claims",
+        "Create an editable CMS draft with publication held for approval"
+      ],
+      "agents": [
+        {
+          "key": "content-repurposer",
+          "name": "Content Repurposing Agent",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "media-downloader",
+            "media",
+            "storage",
+            "content"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Given a YouTube URL or supplied transcript, preserve the source link and use the supplied transcript when available. Otherwise probe the source, download authorized source media into project storage, and obtain the transcript through the media app when transcription is configured. Wait for download and transcription jobs to complete; never draft from a title or description alone. If no transcript can be obtained, stop and ask the operator to provide one. Build an attributable article draft that preserves the speaker's meaning, separates source claims from added context, and includes a proposed title, summary, section structure, source link, and SEO description. Create the result as a draft in the content app, asking which site to use if ambiguous. Never publish or schedule without explicit approval."
         }
       ],
       "dashboard": [
