@@ -171,6 +171,30 @@ func TestPrepareIntegrationExternalFetchAcceptsCurrentStoragePublicURL(t *testin
 	}
 }
 
+func TestPrepareIntegrationExternalFetchAcceptsStorageProxyURL(t *testing.T) {
+	s, app, credentials := testURLPropertyServer(t)
+	exp := time.Now().Add(time.Hour).Unix()
+	source := "https://agents.example.test/api/apps/storage/files/7/proxy/content/photo.jpg?sig=abc&exp=" + strconv.FormatInt(exp, 10) + "&project_id=project-1"
+	input := map[string]any{"source": map[string]any{"mode": "PULL", "urls": []string{source}}}
+
+	if err := s.prepareIntegrationExternalFetch(app, &app.Tools[0], credentials, input); err != nil {
+		t.Fatal(err)
+	}
+	got := input["source"].(map[string]any)["urls"].([]string)[0]
+	if !strings.HasPrefix(got, "https://agents.example.test/api/relay/") || !strings.HasSuffix(got, "/photo.jpg") {
+		t.Fatalf("rewritten URL=%q", got)
+	}
+	token := strings.Split(strings.TrimPrefix(got, "https://agents.example.test/api/relay/"), "/")[0]
+	plain, err := Decrypt(s.secret, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claims integrationRelayClaims
+	if json.Unmarshal([]byte(plain), &claims) != nil || claims.SourceURL != source {
+		t.Fatalf("claims=%+v", claims)
+	}
+}
+
 func TestValidateRelaySourceOnlyAcceptsStorageContentRoutes(t *testing.T) {
 	s, _, _ := testURLPropertyServer(t)
 	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
@@ -182,8 +206,13 @@ func TestValidateRelaySourceOnlyAcceptsStorageContentRoutes(t *testing.T) {
 		{name: "legacy content", path: "/api/apps/storage/files/7/content/photo.jpg", ok: true},
 		{name: "current public content", path: "/api/apps/storage/public/files/7/content/photo.jpg", ok: true},
 		{name: "content without filename", path: "/api/apps/storage/public/files/7/content", ok: true},
+		{name: "redirect-free proxy content", path: "/api/apps/storage/files/7/proxy/content/photo.jpg", ok: true},
+		{name: "redirect-free proxy content without filename", path: "/api/apps/storage/files/7/proxy/content", ok: true},
 		{name: "metadata", path: "/api/apps/storage/public/files/7", ok: false},
 		{name: "download", path: "/api/apps/storage/public/files/7/download/photo.jpg", ok: false},
+		{name: "proxy metadata", path: "/api/apps/storage/files/7/proxy", ok: false},
+		{name: "proxy download", path: "/api/apps/storage/files/7/proxy/download/photo.jpg", ok: false},
+		{name: "proxy content lookalike", path: "/api/apps/storage/files/7/proxy/content-evil/photo.jpg", ok: false},
 		{name: "lookalike prefix", path: "/api/apps/storage/public/files-evil/7/content/photo.jpg", ok: false},
 	}
 	for _, tc := range tests {

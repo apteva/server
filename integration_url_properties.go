@@ -349,6 +349,7 @@ func (s *Server) validateRelaySource(raw string) error {
 //
 //	/api/apps/storage/files/<id>/content[/<name>]         (legacy)
 //	/api/apps/storage/public/files/<id>/content[/<name>]  (current)
+//	/api/apps/storage/files/<id>/proxy/content[/<name>]   (redirect-free proxy)
 //
 // The current public route is the canonical signed URL emitted by
 // storage.files_get_url. "public" describes the unauthenticated HTTP route;
@@ -369,7 +370,8 @@ func isStorageRelayContentPath(path string) bool {
 			return false
 		}
 		action := rest[slash+1:]
-		return action == "content" || strings.HasPrefix(action, "content/")
+		return action == "content" || strings.HasPrefix(action, "content/") ||
+			action == "proxy/content" || strings.HasPrefix(action, "proxy/content/")
 	}
 	return false
 }
