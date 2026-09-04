@@ -1455,6 +1455,13 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 	s.installedApps.Remove(installID)
 	if body.Status == "running" {
 		s.LoadInstalledApps()
+		if err := s.registerAppMCP(installID); err != nil {
+			http.Error(w, "register app tools: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if err := s.unregisterAppMCP(installID); err != nil {
+		http.Error(w, "unregister app tools: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 	writeJSON(w, map[string]string{"status": body.Status})
 }

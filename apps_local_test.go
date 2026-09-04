@@ -257,6 +257,39 @@ func TestSetInstallStatusUsesManagedLocalPort(t *testing.T) {
 	}
 }
 
+func TestSetInstallStatusRefreshesAppMCPRegistration(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	installID := seedAppWithTools(t, s, "code", "proj-1", []string{"repos_list"})
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET status='pending' WHERE id=?`, installID); err != nil {
+		t.Fatal(err)
+	}
+
+	setStatus := func(status string) {
+		t.Helper()
+		req := httptest.NewRequest(
+			http.MethodPut,
+			"/apps/installs/"+strconv.FormatInt(installID, 10)+"/status",
+			bytes.NewBufferString(`{"status":"`+status+`","sidecar_url":"http://127.0.0.1:8080"}`),
+		)
+		rec := httptest.NewRecorder()
+		s.handleSetInstallStatus(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("set status %s: status=%d body=%s", status, rec.Code, rec.Body.String())
+		}
+	}
+
+	setStatus("running")
+	if row := readMCPRow(t, s, installID); row == nil {
+		t.Fatal("running install did not register its agent-visible MCP tools")
+	}
+
+	setStatus("disabled")
+	if row := readMCPRow(t, s, installID); row != nil {
+		t.Fatalf("disabled install retained its MCP registration: %+v", row)
+	}
+}
+
 func seedLocalInstallWithStaleOverride(t *testing.T, s *Server) int64 {
 	t.Helper()
 	res, err := s.store.db.Exec(
