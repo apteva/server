@@ -102,7 +102,7 @@
     },
     {
       "name": "register_domain",
-      "description": "Register a new domain. \u26a0\ufe0f This SPENDS REAL MONEY against your account balance. The price is whatever get_pricing currently returns for the TLD. Make sure to confirm with the user before calling.",
+      "description": "Register at the registry minimum duration using a confirmed USD-cent quote. dryRun validates without charging; a real purchase spends account balance and requires user confirmation. Reuse the same idempotency key when reconciling an uncertain purchase (24-hour provider window). Premium registrations are unsupported.",
       "method": "POST",
       "path": "/domain/create/{domain}",
       "input_schema": {
@@ -111,37 +111,41 @@
           "domain": {
             "type": "string"
           },
-          "years": {
+          "cost": {
             "type": "integer",
-            "description": "Number of years to register (1-10)",
-            "default": 1
+            "minimum": 1,
+            "description": "Confirmed total price in USD cents, including the minimum registration duration."
           },
-          "coupon": {
-            "type": "string",
-            "description": "Optional coupon code"
-          },
-          "renewAuto": {
+          "agreeToTerms": {
             "type": "string",
             "enum": [
-              "yes",
-              "no"
+              "yes"
             ],
-            "description": "Enable auto-renewal",
-            "default": "yes"
+            "description": "Acceptance of Porkbun registration terms."
           },
           "whoisPrivacy": {
+            "type": "boolean",
+            "default": true
+          },
+          "dryRun": {
+            "type": "boolean",
+            "default": false,
+            "description": "Validate eligibility and cost without purchasing."
+          },
+          "idempotency_key": {
             "type": "string",
-            "enum": [
-              "yes",
-              "no"
-            ],
-            "description": "Enable WHOIS privacy (free with all Porkbun registrations)",
-            "default": "yes"
+            "description": "Stable unique purchase identifier; reuse only for the identical request."
           }
         },
         "required": [
-          "domain"
+          "domain",
+          "cost",
+          "agreeToTerms",
+          "idempotency_key"
         ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
       }
     },
     {

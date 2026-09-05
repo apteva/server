@@ -552,9 +552,9 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 	// extra filepath.Abs call here costs nothing and keeps the
 	// failure mode "fail loudly during go build" instead of "every
 	// install error is the same opaque message."
-	absCache := cacheDir
-	if a, err := filepath.Abs(cacheDir); err == nil {
-		absCache = a
+	absCache, err := filepath.Abs(cacheDir)
+	if err != nil {
+		return fmt.Errorf("resolve app build cache: %w", err)
 	}
 	envv := os.Environ()
 	envv = append(envv,
@@ -566,6 +566,24 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 	// so a local-source build resolves sibling modules like app-sdk from
 	// the working copy). Appended last so it wins. Empty for git installs.
 	envv = append(envv, goEnv...)
+	// The checksum database keeps its trusted tree head under GOPATH/pkg/sumdb,
+	// independently of GOMODCACHE. Services without HOME or GOPATH otherwise
+	// cannot verify downloaded modules/toolchains. Inspect the effective child
+	// environment (last entry wins), preserving explicit build overrides.
+	gopath := ""
+	for i := len(envv) - 1; i >= 0; i-- {
+		if value, ok := strings.CutPrefix(envv[i], "GOPATH="); ok {
+			gopath = value
+			break
+		}
+	}
+	if gopath == "" {
+		gopath = filepath.Join(absCache, "gopath")
+		if err := os.MkdirAll(gopath, 0700); err != nil {
+			return fmt.Errorf("create app build GOPATH: %w", err)
+		}
+		envv = append(envv, "GOPATH="+gopath)
+	}
 	cmd.Env = envv
 
 	// Capture stdout + stderr together — `go build` emits download +
