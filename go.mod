@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/dop251/goja v0.0.0-20250630131328-58d95d85e994
-	golang.org/x/crypto v0.49.0
+	golang.org/x/crypto v0.51.0
 	modernc.org/sqlite v1.50.0
 )
 
@@ -19,8 +19,8 @@ require (
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
-	golang.org/x/net v0.51.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )
 
 require (
