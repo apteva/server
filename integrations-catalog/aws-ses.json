@@ -930,6 +930,87 @@
         },
         "required": ["RuleSetName", "RuleName"]
       }
+    },
+    {
+      "name": "describe_receipt_rule",
+      "description": "Read the complete receipt rule from the specified rule set before updating it.",
+      "method": "GET",
+      "path": "/?Action=DescribeReceiptRule&Version=2010-12-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RuleName": {
+            "type": "string"
+          },
+          "RuleSetName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "RuleName",
+          "RuleSetName"
+        ]
+      }
+    },
+    {
+      "name": "update_receipt_rule",
+      "description": "Update a receipt rule in place. Supply the complete rule, preserving its actions and settings.",
+      "method": "GET",
+      "path": "/?Action=UpdateReceiptRule&Version=2010-12-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RuleSetName": {
+            "type": "string",
+            "description": "Name of the existing rule set."
+          },
+          "Rule.Name": {
+            "type": "string",
+            "description": "1\u201364 chars."
+          },
+          "Rule.Enabled": {
+            "type": "string",
+            "description": "'true' or 'false'."
+          },
+          "Rule.ScanEnabled": {
+            "type": "string",
+            "description": "Run SES spam + virus scanning. 'true' or 'false'."
+          },
+          "Rule.TlsPolicy": {
+            "type": "string",
+            "description": "'Optional' (default) or 'Require'."
+          },
+          "Rule.Recipients.member.1": {
+            "type": "string",
+            "description": "First recipient pattern (e.g. 'yourdomain.com' or 'support@yourdomain.com'). Use .member.2, .member.3 for additional recipients."
+          },
+          "Rule.Actions.member.1.S3Action.BucketName": {
+            "type": "string",
+            "description": "S3 bucket where SES drops the raw .eml. Bucket must allow ses.amazonaws.com s3:PutObject."
+          },
+          "Rule.Actions.member.1.S3Action.ObjectKeyPrefix": {
+            "type": "string",
+            "description": "Optional key prefix inside the bucket (e.g. 'inbound/')."
+          },
+          "Rule.Actions.member.1.S3Action.TopicArn": {
+            "type": "string",
+            "description": "Optional. SNS topic to notify after the .eml lands in S3."
+          },
+          "Rule.Actions.member.2.SNSAction.TopicArn": {
+            "type": "string",
+            "description": "SNS topic for the inbound notification. Topic policy must allow ses.amazonaws.com sns:Publish."
+          },
+          "Rule.Actions.member.2.SNSAction.Encoding": {
+            "type": "string",
+            "description": "'UTF-8' (default) or 'Base64'."
+          }
+        },
+        "required": [
+          "RuleSetName",
+          "Rule.Name"
+        ],
+        "additionalProperties": true
+      }
     }
   ]
 }

@@ -802,6 +802,10 @@
             "type": "integer",
             "default": 50,
             "description": "Number of results (max 1000)"
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Continuation token from the previous response next page URL."
           }
         }
       }
@@ -1693,6 +1697,10 @@
             "type": "integer",
             "default": 50,
             "description": "Number of senders to return"
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Continuation token from the previous response next page URL."
           }
         }
       }
