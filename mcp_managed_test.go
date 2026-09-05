@@ -49,7 +49,6 @@ func buildManagedMCPRunner(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "apteva-mcp-runner")
 	cmd := exec.Command("go", "build", "-o", path, "./cmd/apteva-mcp-runner")
-	cmd.Env = append(os.Environ(), "GOCACHE=/private/tmp/codex-go-build")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build runner: %v\n%s", err, output)
 	}
