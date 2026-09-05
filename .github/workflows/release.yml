@@ -17,7 +17,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.6'
-      - run: go mod edit -dropreplace=github.com/apteva/app-sdk
+      - run: |
+          go mod edit -dropreplace=github.com/apteva/app-sdk
+          go mod download github.com/apteva/app-sdk
       - run: go test ./... -count=1 -timeout=10m
       - run: go vet ./...
       - run: go test -race ./... -short -count=1 -timeout=30m
