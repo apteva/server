@@ -215,9 +215,9 @@ func readAutocertCachedLeaf(cacheDir, host string) (*x509.Certificate, string, e
 	return nil, "", os.ErrNotExist
 }
 
-func startIngressTLSListener(addr string, handler http.Handler, certs *IngressCertManager) {
+func startIngressTLSListener(addr string, handler http.Handler, certs *IngressCertManager) *http.Server {
 	if strings.TrimSpace(addr) == "" {
-		return
+		return nil
 	}
 	cfg := &tls.Config{
 		MinVersion:     tls.VersionTLS12,
@@ -239,11 +239,12 @@ func startIngressTLSListener(addr string, handler http.Handler, certs *IngressCe
 			log.Printf("[ingress-tls] listener exited: %v", err)
 		}
 	}()
+	return srv
 }
 
-func startIngressHTTPListener(addr string, handler http.Handler) {
+func startIngressHTTPListener(addr string, handler http.Handler) *http.Server {
 	if strings.TrimSpace(addr) == "" {
-		return
+		return nil
 	}
 	srv := &http.Server{
 		Addr:              addr,
@@ -259,6 +260,7 @@ func startIngressHTTPListener(addr string, handler http.Handler) {
 			log.Printf("[ingress-http] listener exited: %v", err)
 		}
 	}()
+	return srv
 }
 
 func ingressListenAddrs(primaryHTTPAddr string) (string, string) {

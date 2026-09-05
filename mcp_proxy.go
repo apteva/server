@@ -181,7 +181,7 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 				err = relayServer.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
 				var execResult *ExecuteResult
 				if err == nil {
-					execResult, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
+					execResult, err = (&Server{store: store, secret: secret}).executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
 				}
 				if err != nil {
 					result = map[string]any{

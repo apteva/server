@@ -65,7 +65,7 @@ func filterMCPTools(tools []mcpToolDef, allowed []string) []mcpToolDef {
 // ordinary Streamable-HTTP MCP URL and never receive subprocess commands,
 // source paths, environment variables, or runtime gateway tokens.
 func (s *Server) handleCustomMCPBridge(w http.ResponseWriter, r *http.Request) {
-	if !requestIsLoopback(r) {
+	if !requestIsLoopback(r) || !s.authorizedInternalMCPRequest(r) {
 		http.Error(w, "loopback only", http.StatusForbidden)
 		return
 	}

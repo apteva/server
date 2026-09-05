@@ -1,6 +1,6 @@
 module github.com/apteva/server
 
-go 1.25.1
+go 1.26.6
 
 require (
 	github.com/dop251/goja v0.0.0-20250630131328-58d95d85e994
@@ -24,7 +24,7 @@ require (
 )
 
 require (
-	github.com/apteva/app-sdk v0.73.0
+	github.com/apteva/app-sdk v0.74.1
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3

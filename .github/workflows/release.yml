@@ -9,7 +9,21 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+      - run: go mod edit -dropreplace=github.com/apteva/app-sdk
+      - run: go test ./... -count=1 -timeout=10m
+      - run: go vet ./...
+      - run: go test -race ./... -short -count=1 -timeout=30m
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
   build:
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -28,7 +42,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26.6'
 
       # Local monorepo builds overlay ../app-sdk, but the standalone server
       # release checkout has no sibling directory. Release against the pinned
@@ -44,7 +58,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w" -o apteva-server-${{ matrix.goos }}-${{ matrix.goarch }} .
+          go build -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o apteva-server-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

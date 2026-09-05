@@ -500,78 +500,6 @@ func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMess
 	return msgs, nil
 }
 
-func (s *Store) TelemetryStats(instanceID int64, since time.Time) (*TelemetryStats, error) {
-	sinceStr := since.UTC().Format(time.RFC3339)
-	stats := &TelemetryStats{}
-
-	// Total events
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND time >= ?",
-		instanceID, sinceStr,
-	).Scan(&stats.TotalEvents)
-
-	// Model calls + token/cost aggregation. Realtime responses emit their
-	// own usage shape because audio tokens are priced separately by core.
-	rows, err := s.db.Query(
-		"SELECT type, data FROM telemetry WHERE agent_id = ? AND type IN ('llm.done','realtime.usage') AND time >= ?",
-		instanceID, sinceStr,
-	)
-	if err == nil {
-		defer rows.Close()
-		var totalDuration float64
-		var durationCalls int
-		for rows.Next() {
-			var eventType, dataStr string
-			rows.Scan(&eventType, &dataStr)
-			var d map[string]any
-			if json.Unmarshal([]byte(dataStr), &d) == nil {
-				stats.LLMCalls++
-				if eventType == "realtime.usage" {
-					stats.TotalTokensIn += jsonInt(d, "text_input_tokens") + jsonInt(d, "audio_input_tokens")
-					stats.TotalTokensOut += jsonInt(d, "text_output_tokens") + jsonInt(d, "audio_output_tokens")
-					stats.TotalCost += jsonFloat(d, "cost")
-				} else {
-					stats.TotalTokensIn += jsonInt(d, "tokens_in")
-					stats.TotalTokensOut += jsonInt(d, "tokens_out")
-					stats.TotalCost += jsonFloat(d, "cost_usd")
-				}
-				if v, ok := d["duration_ms"].(float64); ok {
-					totalDuration += v
-					durationCalls++
-				}
-			}
-		}
-		if durationCalls > 0 {
-			stats.AvgDurationMs = totalDuration / float64(durationCalls)
-		}
-	}
-
-	// Thread counts
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type = 'thread.spawn' AND time >= ?",
-		instanceID, sinceStr,
-	).Scan(&stats.ThreadsSpawned)
-
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type = 'thread.done' AND time >= ?",
-		instanceID, sinceStr,
-	).Scan(&stats.ThreadsDone)
-
-	// Tool calls
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type = 'tool.call' AND time >= ?",
-		instanceID, sinceStr,
-	).Scan(&stats.ToolCalls)
-
-	// Errors
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type LIKE '%.error' AND time >= ?",
-		instanceID, sinceStr,
-	).Scan(&stats.Errors)
-
-	return stats, nil
-}
-
 func jsonFloat(data map[string]any, key string) float64 {
 	value, _ := data[key].(float64)
 	return value
@@ -583,15 +511,21 @@ func jsonInt(data map[string]any, key string) int {
 
 func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-maxAge).UTC().Format(time.RFC3339)
-	result, err := s.db.Exec(`DELETE FROM telemetry
-		WHERE time < ?
-		  AND id NOT IN (
-			SELECT telemetry_id FROM agent_event_deliveries WHERE delivered_at IS NULL
-		  )`, cutoff)
-	if err != nil {
-		return 0, err
+	var total int64
+	for {
+		result, err := s.db.Exec(`DELETE FROM telemetry WHERE id IN (
+ SELECT id FROM telemetry WHERE time < ? AND NOT EXISTS
+ (SELECT 1 FROM agent_event_deliveries d WHERE d.telemetry_id=telemetry.id AND delivered_at IS NULL) LIMIT 1000)`, cutoff)
+		if err != nil {
+			return total, err
+		}
+		n, err := result.RowsAffected()
+		total += n
+		if err != nil || n < 1000 {
+			return total, err
+		}
 	}
-	return result.RowsAffected()
+
 }
 
 func (s *Store) WipeTelemetry() (int64, error) {
@@ -1159,7 +1093,7 @@ func (s *Server) handleTelemetryStats(w http.ResponseWriter, r *http.Request) {
 		since = time.Now().Add(-24 * time.Hour)
 	}
 
-	stats, err := s.store.TelemetryStats(instanceID, since)
+	stats, err := s.store.TelemetryStatsContext(r.Context(), instanceID, since)
 	if err != nil {
 		http.Error(w, "stats failed", http.StatusInternalServerError)
 		return
@@ -1179,292 +1113,6 @@ type TimelineBucket struct {
 	Threads   map[string]int `json:"threads"` // thread_id → call count
 }
 
-func (s *Store) TelemetryTimeline(instanceID int64, since time.Time, bucketMinutes int) ([]TimelineBucket, error) {
-	rows, err := s.db.Query(
-		"SELECT type, thread_id, time, data FROM telemetry WHERE agent_id = ? AND time >= ? ORDER BY time",
-		instanceID, since.UTC().Format(time.RFC3339),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	buckets := map[string]*TimelineBucket{}
-
-	for rows.Next() {
-		var evType, threadID, timeStr, dataStr string
-		rows.Scan(&evType, &threadID, &timeStr, &dataStr)
-
-		t, _ := parseTime(timeStr)
-		// Round down to bucket
-		bucket := t.Truncate(time.Duration(bucketMinutes) * time.Minute).UTC().Format(time.RFC3339)
-
-		b, ok := buckets[bucket]
-		if !ok {
-			b = &TimelineBucket{Time: bucket, Threads: map[string]int{}}
-			buckets[bucket] = b
-		}
-
-		switch evType {
-		case "llm.done":
-			b.LLMCalls++
-			b.Threads[threadID]++
-			var d map[string]any
-			if json.Unmarshal([]byte(dataStr), &d) == nil {
-				if v, ok := d["tokens_in"].(float64); ok {
-					b.TokensIn += int(v)
-				}
-				if v, ok := d["tokens_out"].(float64); ok {
-					b.TokensOut += int(v)
-				}
-				if v, ok := d["cost_usd"].(float64); ok {
-					b.Cost += v
-				}
-			}
-		case "tool.call":
-			b.ToolCalls++
-		case "llm.error":
-			b.Errors++
-		}
-	}
-
-	// Sort by time
-	var result []TimelineBucket
-	for _, b := range buckets {
-		result = append(result, *b)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Time < result[j].Time
-	})
-	return result, nil
-}
-
-// TelemetryStatsByProject aggregates llm.done / realtime.usage / tool.call / *.error
-// events across every instance in (userID, projectID) since `since`.
-// Returns one InstanceStats per instance that has at least one event
-// in the window, with zero-count instances omitted so the caller can
-// do a clean "top N spenders" render. projectID="" means "all projects
-// this user owns".
-func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since time.Time) ([]InstanceStats, error) {
-	insts, err := s.listAgentsForTelemetry(userID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if len(insts) == 0 {
-		return []InstanceStats{}, nil
-	}
-	// Build lookup + id list for the IN clause.
-	byID := map[int64]*InstanceStats{}
-	ids := make([]any, 0, len(insts))
-	placeholders := make([]string, 0, len(insts))
-	for i := range insts {
-		byID[insts[i].ID] = &InstanceStats{
-			AgentID: insts[i].ID,
-			Name:    insts[i].Name,
-			Status:  insts[i].Status,
-		}
-		ids = append(ids, insts[i].ID)
-		placeholders = append(placeholders, "?")
-	}
-
-	args := append([]any{}, ids...)
-	args = append(args, since.UTC().Format(time.RFC3339))
-	q := fmt.Sprintf(
-		"SELECT agent_id, thread_id, type, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','realtime.usage','tool.call','llm.error','tool.error','realtime.error')",
-		strings.Join(placeholders, ","),
-	)
-	rows, err := s.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	// Distinct (instance, thread) pairs for DistinctThreads — a
-	// cheap proxy for "how many threads ran inside this instance in
-	// the window". We count from llm.done rather than thread.spawn
-	// because the spawn event is optional in older runs.
-	threadSeen := map[int64]map[string]struct{}{}
-	durationByInstance := map[int64]float64{}
-	durationCallsByInstance := map[int64]int{}
-
-	for rows.Next() {
-		var instanceID int64
-		var threadID, evType, dataStr string
-		if err := rows.Scan(&instanceID, &threadID, &evType, &dataStr); err != nil {
-			continue
-		}
-		agg, ok := byID[instanceID]
-		if !ok {
-			continue
-		}
-		switch evType {
-		case "llm.done":
-			agg.LLMCalls++
-			if threadID != "" {
-				seen, ok := threadSeen[instanceID]
-				if !ok {
-					seen = map[string]struct{}{}
-					threadSeen[instanceID] = seen
-				}
-				seen[threadID] = struct{}{}
-			}
-			var d map[string]any
-			if json.Unmarshal([]byte(dataStr), &d) == nil {
-				if v, ok := d["tokens_in"].(float64); ok {
-					agg.TokensIn += int(v)
-				}
-				if v, ok := d["tokens_out"].(float64); ok {
-					agg.TokensOut += int(v)
-				}
-				if v, ok := d["tokens_cached"].(float64); ok {
-					agg.TokensCached += int(v)
-				}
-				if v, ok := d["cost_usd"].(float64); ok {
-					agg.Cost += v
-				}
-				if v, ok := d["duration_ms"].(float64); ok {
-					durationByInstance[instanceID] += v
-					durationCallsByInstance[instanceID]++
-				}
-			}
-		case "realtime.usage":
-			agg.LLMCalls++
-			if threadID != "" {
-				seen, ok := threadSeen[instanceID]
-				if !ok {
-					seen = map[string]struct{}{}
-					threadSeen[instanceID] = seen
-				}
-				seen[threadID] = struct{}{}
-			}
-			var d map[string]any
-			if json.Unmarshal([]byte(dataStr), &d) == nil {
-				agg.TokensIn += jsonInt(d, "text_input_tokens") + jsonInt(d, "audio_input_tokens")
-				agg.TokensOut += jsonInt(d, "text_output_tokens") + jsonInt(d, "audio_output_tokens")
-				agg.TokensCached += jsonInt(d, "text_cached_tokens") + jsonInt(d, "audio_cached_tokens")
-				agg.Cost += jsonFloat(d, "cost")
-			}
-		case "tool.call":
-			agg.ToolCalls++
-		case "llm.error", "tool.error", "realtime.error":
-			agg.Errors++
-		}
-	}
-	for id, seen := range threadSeen {
-		if agg, ok := byID[id]; ok {
-			agg.DistinctThreads = len(seen)
-		}
-	}
-	for id, total := range durationByInstance {
-		if agg, ok := byID[id]; ok && durationCallsByInstance[id] > 0 {
-			agg.AvgDurationMs = total / float64(durationCallsByInstance[id])
-		}
-	}
-
-	// Materialize + drop instances with zero activity so the caller's
-	// top-N render doesn't pad with empty rows. Sorted by cost desc.
-	out := make([]InstanceStats, 0, len(byID))
-	for _, agg := range byID {
-		if agg.LLMCalls == 0 && agg.ToolCalls == 0 && agg.Errors == 0 {
-			continue
-		}
-		out = append(out, *agg)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Cost > out[j].Cost })
-	return out, nil
-}
-
-// TelemetryTimelineByProject buckets model usage events by time and
-// instance, so the dashboard can render a stacked chart of spend over
-// time with one stack per instance. bucketMinutes controls the slice
-// width. Instances with zero events in the window are omitted from
-// every bucket to keep the payload tight.
-func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since time.Time, bucketMinutes int) ([]ProjectTimelineBucket, error) {
-	insts, err := s.listAgentsForTelemetry(userID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if len(insts) == 0 {
-		return []ProjectTimelineBucket{}, nil
-	}
-	ids := make([]any, 0, len(insts))
-	placeholders := make([]string, 0, len(insts))
-	for _, inst := range insts {
-		ids = append(ids, inst.ID)
-		placeholders = append(placeholders, "?")
-	}
-	args := append([]any{}, ids...)
-	args = append(args, since.UTC().Format(time.RFC3339))
-	q := fmt.Sprintf(
-		"SELECT agent_id, type, time, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','realtime.usage','llm.error','tool.error','realtime.error') ORDER BY time",
-		strings.Join(placeholders, ","),
-	)
-	rows, err := s.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	buckets := map[string]*ProjectTimelineBucket{}
-	for rows.Next() {
-		var instanceID int64
-		var evType, timeStr, dataStr string
-		if err := rows.Scan(&instanceID, &evType, &timeStr, &dataStr); err != nil {
-			continue
-		}
-		t, _ := parseTime(timeStr)
-		bucket := t.Truncate(time.Duration(bucketMinutes) * time.Minute).UTC().Format(time.RFC3339)
-		b, ok := buckets[bucket]
-		if !ok {
-			b = &ProjectTimelineBucket{
-				Time:            bucket,
-				CostByInstance:  map[string]float64{},
-				CallsByInstance: map[string]int{},
-			}
-			buckets[bucket] = b
-		}
-		instKey := strconv.FormatInt(instanceID, 10)
-		switch evType {
-		case "llm.done":
-			b.LLMCalls++
-			b.CallsByInstance[instKey]++
-			var d map[string]any
-			if json.Unmarshal([]byte(dataStr), &d) == nil {
-				if v, ok := d["tokens_in"].(float64); ok {
-					b.TokensIn += int(v)
-				}
-				if v, ok := d["tokens_out"].(float64); ok {
-					b.TokensOut += int(v)
-				}
-				if v, ok := d["cost_usd"].(float64); ok {
-					b.Cost += v
-					b.CostByInstance[instKey] += v
-				}
-			}
-		case "realtime.usage":
-			b.LLMCalls++
-			b.CallsByInstance[instKey]++
-			var d map[string]any
-			if json.Unmarshal([]byte(dataStr), &d) == nil {
-				b.TokensIn += jsonInt(d, "text_input_tokens") + jsonInt(d, "audio_input_tokens")
-				b.TokensOut += jsonInt(d, "text_output_tokens") + jsonInt(d, "audio_output_tokens")
-				cost := jsonFloat(d, "cost")
-				b.Cost += cost
-				b.CostByInstance[instKey] += cost
-			}
-		case "llm.error", "tool.error":
-			b.Errors++
-		}
-	}
-	out := make([]ProjectTimelineBucket, 0, len(buckets))
-	for _, b := range buckets {
-		out = append(out, *b)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Time < out[j].Time })
-	return out, nil
-}
-
-// GET /telemetry/project-stats?project_id=X&period=24h
 func (s *Server) handleTelemetryProjectStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -1479,7 +1127,7 @@ func (s *Server) handleTelemetryProjectStats(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	since := parsePeriod(q.Get("period"))
-	stats, err := s.store.TelemetryStatsByProject(userID, projectID, since)
+	stats, err := s.store.TelemetryStatsByProjectContext(r.Context(), userID, projectID, since)
 	if err != nil {
 		http.Error(w, "stats failed", http.StatusInternalServerError)
 		return
@@ -1633,7 +1281,7 @@ func (s *Server) handleTelemetryProjectTimeline(w http.ResponseWriter, r *http.R
 	period := q.Get("period")
 	since := parsePeriod(period)
 	bucketMinutes := bucketWidthFor(period)
-	timeline, err := s.store.TelemetryTimelineByProject(userID, projectID, since, bucketMinutes)
+	timeline, err := s.store.TelemetryTimelineByProjectContext(r.Context(), userID, projectID, since, bucketMinutes)
 	if err != nil {
 		http.Error(w, "timeline failed", http.StatusInternalServerError)
 		return
@@ -1699,7 +1347,7 @@ func (s *Server) handleTelemetryTimeline(w http.ResponseWriter, r *http.Request)
 		bucketMinutes = 60
 	}
 
-	timeline, err := s.store.TelemetryTimeline(instanceID, since, bucketMinutes)
+	timeline, err := s.store.TelemetryTimelineContext(r.Context(), instanceID, since, bucketMinutes)
 	if err != nil {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return

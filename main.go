@@ -390,6 +390,9 @@ func main() {
 	// If a snapshot was uploaded via /api/platform/restore, the server DB
 	// it shipped sits next to dbPath as <dbPath>.restored with a marker.
 	// Swap it in before opening the store. No-op when no restore is pending.
+	if err := applyPendingRecovery(dbPath); err != nil {
+		log.Fatalf("apply recovery: %v", err)
+	}
 	applyPendingRestore(dbPath)
 
 	store, err := NewStore(dbPath)
@@ -568,6 +571,11 @@ func main() {
 		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 		geoCountry:     newManagedGeoCountryLookup(dataDir),
 	}
+	s.agents.internalMCPSecret = s.instanceSecret
+	s.agents.AuthorizeMCPConfig = s.authorizeAgentMCPConfig
+	if _, err := s.store.db.Exec("UPDATE managed_provisioning_requests SET status='error',last_error='server restarted during apply',updated_at=CURRENT_TIMESTAMP WHERE status='applying'"); err != nil {
+		log.Fatalf("recover provisioning: %v", err)
+	}
 	s.startupIntent = s.readLifecycleIntent(false)
 	quarantined := cloneQuarantineEnabled()
 	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
@@ -728,6 +736,7 @@ func main() {
 	// as this refactor.
 	apiMux.HandleFunc("/telemetry/timeline", s.authMiddleware(s.handleTelemetryTimeline))
 	apiMux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
+	apiMux.HandleFunc("/telemetry/project-activity", s.authMiddleware(s.handleProjectActivity))
 	apiMux.HandleFunc("/telemetry/project-stats", s.authMiddleware(s.handleTelemetryProjectStats))
 	apiMux.HandleFunc("/telemetry/project-timeline", s.authMiddleware(s.handleTelemetryProjectTimeline))
 	apiMux.HandleFunc("/telemetry/project-tools", s.authMiddleware(s.handleTelemetryProjectTools))
@@ -1586,8 +1595,9 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "apteva-server listening on %s\n", listenAddr)
+	drain := newRequestDrain(hostRouter)
 	httpServer := &http.Server{
-		Handler:           hostRouter,
+		Handler:           drain,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Minute,
 		IdleTimeout:       120 * time.Second,
@@ -1604,11 +1614,12 @@ func main() {
 	if !quarantined && s.ingressCerts != nil && httpsIngressAddr != "" {
 		s.ingressCerts.Start(60 * time.Second)
 	}
+	listeners := []*http.Server{httpServer}
 	if httpIngressAddr != "" && httpIngressAddr != listenAddr {
-		startIngressHTTPListener(httpIngressAddr, hostRouter)
+		listeners = append(listeners, startIngressHTTPListener(httpIngressAddr, drain))
 	}
 	if httpsIngressAddr != "" {
-		startIngressTLSListener(httpsIngressAddr, hostRouter, s.ingressCerts)
+		listeners = append(listeners, startIngressTLSListener(httpsIngressAddr, drain, s.ingressCerts))
 	}
 
 	if quarantined {
@@ -1657,17 +1668,33 @@ func main() {
 	resumeInstancesAfterApps()
 	if !quarantined {
 	}
+	runtimeCtx, stopRuntimeMonitor := context.WithCancel(context.Background())
+	defer stopRuntimeMonitor()
+	runtimeDone := make(chan struct{})
+	go func() { defer close(runtimeDone); s.RunRuntimeMonitor(runtimeCtx) }()
 	s.ready.Store(true)
 	if !quarantined && aptevaCfg != nil && aptevaCfg.Managed.ControllerURL != "" {
-		s.startManagedTenantReconciler(context.Background(), aptevaCfg.Managed)
+		s.startManagedTenantReconciler(runtimeCtx, aptevaCfg.Managed)
 	}
 	if !quarantined && providerAuthRefreshEnvEnabled() {
-		s.startProviderAuthRefresher(context.Background())
+		s.startProviderAuthRefresher(runtimeCtx)
 	}
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		sig := <-sigCh
+		stopRuntimeMonitor()
 		s.ready.Store(false)
+		drain.begin()
+		drain.wait(5 * time.Second)
+		<-runtimeDone
+		if s.pollingDispatcher != nil {
+			s.pollingDispatcher.Stop()
+		}
+		if s.appEventDispatcher != nil {
+			s.appEventDispatcher.Stop()
+		}
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — shutting down\n", sig)
 		intent := s.readLifecycleIntent(false)
 		shutdownPolicy := s.resolvedShutdownPolicy(intent)
@@ -1716,7 +1743,15 @@ func main() {
 		if s.mcpManager != nil {
 			s.mcpManager.StopAll()
 		}
-		os.Exit(0)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for _, listener := range listeners {
+			if listener != nil {
+				if err := listener.Shutdown(ctx); err != nil {
+					listener.Close()
+				}
+			}
+		}
 	}()
 
 	fmt.Fprintf(os.Stderr, "apteva-server v%s (core=%s cli=%s dashboard=%s integrations=%s build=%s) running on :%s\n",
@@ -1732,7 +1767,7 @@ func main() {
 
 	// Listener was started earlier (before sidecar spawn) so apps can
 	// call back during their OnMount. Just block here until shutdown.
-	select {}
+	<-shutdownDone
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

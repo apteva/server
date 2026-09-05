@@ -750,7 +750,7 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 		t.Fatalf("CreateMCPServer custom: %v", err)
 	}
 
-	all, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{}, "5280", "/tmp/apteva-server")
+	all, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{}, "5280", s.instanceSecret)
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
@@ -779,7 +779,7 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 	if got := byID[custom.ID].Kind; got != "custom" {
 		t.Fatalf("custom MCP kind = %q, want custom", got)
 	}
-	if got := byID[custom.ID].MCPURL; got != "http://127.0.0.1:5280/mcp/custom/"+strconv.FormatInt(custom.ID, 10) {
+	if got := byID[custom.ID].MCPURL; got != authorizeMCPURL("http://127.0.0.1:5280/mcp/custom/"+strconv.FormatInt(custom.ID, 10), s.instanceSecret) {
 		t.Fatalf("custom MCP must use the server bridge, got %q", got)
 	}
 	if _, leaked := byID[custom.ID].ProxyConfig["command"]; leaked {
@@ -788,14 +788,14 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 	if byID[appOwnedMCPID].CreatedVia != "app_install" || byID[appOwnedMCPID].OwnerAppInstallID != 77 {
 		t.Fatalf("expected app-owned metadata, got created_via=%q owner=%d", byID[appOwnedMCPID].CreatedVia, byID[appOwnedMCPID].OwnerAppInstallID)
 	}
-	if byID[operatorMCPID].MCPURL != "http://127.0.0.1:5280/mcp/"+strconv.FormatInt(operatorMCPID, 10) {
+	if byID[operatorMCPID].MCPURL != authorizeMCPURL("http://127.0.0.1:5280/mcp/"+strconv.FormatInt(operatorMCPID, 10), s.instanceSecret) {
 		t.Fatalf("unexpected operator mcp_url: %q", byID[operatorMCPID].MCPURL)
 	}
 	if got := byID[directApp.ID].MCPURL; !strings.Contains(got, "project_id=proj-a") {
 		t.Fatalf("expected direct app mcp_url to include project id, got %q", got)
 	}
 
-	appOnly, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "app"}, "5280", "/tmp/apteva-server")
+	appOnly, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "app"}, "5280", s.instanceSecret)
 	if err != nil {
 		t.Fatalf("list app only: %v", err)
 	}
@@ -808,7 +808,7 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 		}
 	}
 
-	integrationOnly, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "integration"}, "5280", "/tmp/apteva-server")
+	integrationOnly, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "integration"}, "5280", s.instanceSecret)
 	if err != nil {
 		t.Fatalf("list integration only: %v", err)
 	}
@@ -816,7 +816,7 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 		t.Fatalf("expected only operator integration MCP, got %#v", integrationOnly)
 	}
 
-	noApps, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"include_app_owned": "false"}, "5280", "/tmp/apteva-server")
+	noApps, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"include_app_owned": "false"}, "5280", s.instanceSecret)
 	if err != nil {
 		t.Fatalf("list without app-owned: %v", err)
 	}
@@ -826,7 +826,7 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 		}
 	}
 
-	if _, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "bogus"}, "5280", "/tmp/apteva-server"); err == nil {
+	if _, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "bogus"}, "5280", s.instanceSecret); err == nil {
 		t.Fatalf("expected invalid kind to return an error")
 	}
 }

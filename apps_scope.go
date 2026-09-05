@@ -101,6 +101,19 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
 	}
+	if oldProjectID == "" || target == "" {
+		if s.store.GetPlatformRole(getUserID(r)) != PlatformAdmin {
+			http.Error(w, "global scope requires platform admin", http.StatusForbidden)
+			return
+		}
+	}
+	for _, project := range []string{oldProjectID, target} {
+		if project != "" {
+			if _, _, ok := s.requireProjectAccess(w, r, project, ProjectEditor); !ok {
+				return
+			}
+		}
+	}
 	if oldProjectID == target {
 		// No-op. Return the same shape so callers don't have to
 		// special-case it; just don't restart the sidecar.
@@ -186,6 +199,19 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 	}
 	connsMoved, _ := connRes.RowsAffected()
 
+	// Connection-backed MCP rows and grants must follow the same scope boundary.
+	if _, err := tx.Exec("UPDATE mcp_servers SET project_id=? WHERE connection_id IN (SELECT id FROM connections WHERE owner_app_install_id=?)", target, installID); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if target != "" {
+		for _, table := range []string{"app_agent_bindings", "app_grants", "app_grant_defaults"} {
+			if _, err := tx.Exec("DELETE FROM "+table+" WHERE install_id=? AND agent_id IN (SELECT id FROM agents WHERE COALESCE(project_id,'')<>?)", installID, target); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		http.Error(w, "commit: "+err.Error(), http.StatusInternalServerError)
 		return

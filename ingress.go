@@ -226,12 +226,12 @@ func (s *Server) ExposeIngressRoute(req IngressExposeRequest) (*IngressRoute, er
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	if err == nil && req.OwnerInstallID > 0 && existingOwner > 0 && existingOwner != req.OwnerInstallID {
+	if err == nil && req.OwnerInstallID > 0 && existingOwner != req.OwnerInstallID {
 		return nil, fmt.Errorf("hostname %q is already owned by install %d", host, existingOwner)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = s.store.db.Exec(`
+	result, err := s.store.db.Exec(`
 		INSERT INTO ingress_routes
 			(hostname, target, project_id, owner_install_id, owner_kind, cert_fqdn, allow_http, tls_mode, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
@@ -245,9 +245,15 @@ func (s *Server) ExposeIngressRoute(req IngressExposeRequest) (*IngressRoute, er
 			tls_mode=excluded.tls_mode,
 			status='active',
 			updated_at=excluded.updated_at
+ WHERE excluded.owner_install_id=0 OR ingress_routes.owner_install_id=excluded.owner_install_id
 	`, host, strings.TrimSpace(req.Target), projectID, req.OwnerInstallID, ownerKind, certFQDN, ingressBoolToInt(req.AllowHTTP), tlsMode, now, now)
 	if err != nil {
 		return nil, err
+	}
+	if n, e := result.RowsAffected(); e != nil {
+		return nil, e
+	} else if n != 1 {
+		return nil, fmt.Errorf("hostname ownership changed")
 	}
 	route, err := s.GetIngressRoute(host)
 	if err != nil {

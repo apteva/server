@@ -51,17 +51,19 @@ type Route struct {
 // per routes.changed event) take Lock. The cache is authoritative —
 // the matcher never falls back to a live DB query.
 type RouteCache struct {
-	mu     sync.RWMutex
-	byHost map[string]parsedRoute
+	mu         sync.RWMutex
+	byHost     map[string]parsedRoute
+	generation uint64
 }
 
 type parsedRoute struct {
-	hostname  string
-	target    *url.URL
-	certFQDN  string
-	allowHTTP bool
-	owner     int64
-	kind      string
+	generation uint64
+	hostname   string
+	target     *url.URL
+	certFQDN   string
+	allowHTTP  bool
+	owner      int64
+	kind       string
 	// originApp is set (to the bare app name) when target is an
 	// "app://<name>" reference. In that case `target` is NOT a usable
 	// backend URL — HostRouter resolves the app's LIVE sidecar address
@@ -107,6 +109,11 @@ func (c *RouteCache) Replace(routes []Route) {
 		next[strings.ToLower(r.Hostname)] = p
 	}
 	c.mu.Lock()
+	c.generation++
+	for host, r := range next {
+		r.generation = c.generation
+		next[host] = r
+	}
 	c.byHost = next
 	c.mu.Unlock()
 }
@@ -137,6 +144,8 @@ func (c *RouteCache) Apply(action, hostname string, target, certFQDN string, all
 	if !ok {
 		return
 	}
+	c.generation++
+	p.generation = c.generation
 	c.byHost[host] = p
 }
 
@@ -349,6 +358,7 @@ func applyRouteEvent(s *Server, data map[string]any) {
 // release the cache lock immediately.
 
 type RouteHit struct {
+	Generation     uint64
 	Hostname       string
 	Target         *url.URL
 	CertFQDN       string
@@ -369,6 +379,7 @@ func (c *RouteCache) LookupForRouter(host string) (RouteHit, bool) {
 		return RouteHit{}, false
 	}
 	return RouteHit{
+		Generation:         r.generation,
 		Hostname:           r.hostname,
 		Target:             r.target,
 		CertFQDN:           r.certFQDN,

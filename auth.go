@@ -170,21 +170,13 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// These identity headers are owned by the server. A network client
 		// cannot select a user or app install by supplying them directly.
-		r.Header.Del("X-User-ID")
-		r.Header.Del("X-Apteva-App-Install-ID")
-		for _, header := range []string{
-			"X-Apteva-Project-ID", "X-Apteva-Issuer-App", "X-Apteva-Issuer-Install-ID",
-			"X-Apteva-Subject-Type", "X-Apteva-Subject-ID", "X-Apteva-Subject-Email",
-			"X-Apteva-Organization-ID", "X-Apteva-Organization-Slug", "X-Apteva-Scopes",
-			"X-Apteva-Conversation-ID",
-			sdk.HeaderBoundCallerInstallID,
-			sdk.HeaderBoundCallerAppName,
-		} {
-			r.Header.Del(header)
-		}
+		clearPrincipalHeaders(r)
 		// Try session cookie first
 		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
 			if userID, err := s.store.GetSession(cookie.Value); err == nil {
+				if !s.allowSessionMutation(w, r) {
+					return
+				}
 				r.Header.Set("X-User-ID", itoa(userID))
 				next(w, r)
 				return
@@ -301,14 +293,6 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// accepted temporarily for sidecars started by an older server build.
 		if token != "" && appTokenRouteAllowed(r.URL.Path) {
 			id, installedBy, status, appErr := s.appInstallForToken(token)
-			if appErr != nil && strings.HasPrefix(token, "dev-") {
-				id = legacyAppTokenInstallID(r, token)
-				if id > 0 {
-					appErr = s.store.db.QueryRow(
-						`SELECT COALESCE(installed_by,0), status FROM app_installs WHERE id=?`, id,
-					).Scan(&installedBy, &status)
-				}
-			}
 			if appErr == nil && id > 0 {
 				// Accept "running" plus any pre-running state. The
 				// supervisor only flips status to "running" AFTER
@@ -1113,4 +1097,20 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.DeleteAPIKey(userID, keyID)
 	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+func clearPrincipalHeaders(r *http.Request) {
+	r.Header.Del("X-User-ID")
+	r.Header.Del("X-Apteva-App-Install-ID")
+	for _, header := range []string{
+		"X-Apteva-Project-ID", "X-Apteva-Issuer-App", "X-Apteva-Issuer-Install-ID",
+		"X-Apteva-Subject-Type", "X-Apteva-Subject-ID", "X-Apteva-Subject-Email",
+		"X-Apteva-Organization-ID", "X-Apteva-Organization-Slug", "X-Apteva-Scopes",
+		"X-Apteva-Conversation-ID",
+		"X-Apteva-Caller-Agent-ID", "X-Apteva-Caller-App", "X-Apteva-Caller-Install-ID",
+		sdk.HeaderBoundCallerInstallID,
+		sdk.HeaderBoundCallerAppName,
+	} {
+		r.Header.Del(header)
+	}
 }

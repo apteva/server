@@ -306,7 +306,7 @@ func (s *Server) executeImportIntegrationTool(r *http.Request, connID int64, too
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = executeIntegrationToolWithRefresh(resolved.App, tool, resolved.Credentials, resolved.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefresh(persistTargetID, resolved.App, tool, resolved.Credentials, resolved.Input, environmentID, persist)
 	}
 	if err != nil {
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "imports", tool.Name, input, nil, err))

@@ -644,6 +644,23 @@ func installIDFromDevAPIKey(apiKey string) int64 {
 	return id
 }
 
+// decodeMCPProxyRequest preserves numeric literals while the proxy edits caller
+// and project metadata. Decoding through float64 here would irreversibly round
+// nested app values and JSON-RPC IDs before an exact-number SDK can see them.
+func decodeMCPProxyRequest(body []byte, dst any) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	// Keep json.Unmarshal's single-value validation: malformed trailing data
+	// must pass through unchanged, not be silently discarded by the rewrite.
+	if len(bytes.TrimSpace(body[decoder.InputOffset():])) != 0 {
+		return fmt.Errorf("unexpected data after MCP request")
+	}
+	return nil
+}
+
 func injectProjectIntoMCPRequest(r *http.Request, projectID string) error {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -662,7 +679,7 @@ func injectProjectIntoMCPRequest(r *http.Request, projectID string) error {
 		return nil
 	}
 	var decoded any
-	if err := json.Unmarshal(body, &decoded); err != nil {
+	if err := decodeMCPProxyRequest(body, &decoded); err != nil {
 		return nil
 	}
 	rpc, _ := decoded.(map[string]any)
@@ -718,7 +735,7 @@ func extractCallerThreadFromMCPRequest(r *http.Request) error {
 		return nil
 	}
 	var rpc map[string]any
-	if err := json.Unmarshal(body, &rpc); err != nil {
+	if err := decodeMCPProxyRequest(body, &rpc); err != nil {
 		return nil
 	}
 	if method, _ := rpc["method"].(string); method != "tools/call" {

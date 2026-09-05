@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,17 +27,20 @@ import (
 var errAgentAlreadyRunning = errors.New("agent already running")
 
 type runningAgent struct {
-	cmd        *exec.Cmd
-	port       int
-	pid        int
-	coreAPIKey string         // API key injected into core for auth
-	channels   *AgentChannels // channel infrastructure for this instance
-	reattached bool           // process was inherited from an older server process
-	waitOnce   sync.Once
-	done       chan struct{}
-	waitErr    error
-	diagMu     sync.Mutex
-	lastProc   string // latest /proc snapshot captured while the child was alive
+	cmd         *exec.Cmd
+	port        int
+	pid         int
+	coreAPIKey  string         // API key injected into core for auth
+	channels    *AgentChannels // channel infrastructure for this instance
+	reattached  bool           // process was inherited from an older server process
+	runtimeMu   sync.Mutex
+	runtimeInfo coreRuntimeInfo
+	runtimeAt   time.Time
+	waitOnce    sync.Once
+	done        chan struct{}
+	waitErr     error
+	diagMu      sync.Mutex
+	lastProc    string // latest /proc snapshot captured while the child was alive
 }
 
 func (r *runningAgent) wait() error {
@@ -76,7 +80,15 @@ func (r *runningAgent) processState() *os.ProcessState {
 	if r == nil || r.cmd == nil {
 		return nil
 	}
-	return r.cmd.ProcessState
+	if r.done != nil {
+		select {
+		case <-r.done:
+			return r.cmd.ProcessState
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 func (r *runningAgent) isRunning() bool {
@@ -87,7 +99,7 @@ func (r *runningAgent) isRunning() bool {
 		return true
 	}
 	if r.cmd != nil && r.cmd.Process == nil {
-		return r.cmd.ProcessState == nil
+		return r.processState() == nil
 	}
 	return r.process() != nil && r.processState() == nil
 }
@@ -121,11 +133,13 @@ func (r *runningAgent) procSnapshot() string {
 }
 
 type AgentManager struct {
-	mu        sync.RWMutex
-	processes map[int64]*runningAgent // instanceID → running process + port
-	dataDir   string
-	coreCmd   string // path to core binary
-	serverCmd string // optional apteva-server binary override for the stdio management gateway
+	internalMCPSecret  string
+	AuthorizeMCPConfig func(*Agent, map[string]any) error
+	mu                 sync.RWMutex
+	processes          map[int64]*runningAgent // instanceID → running process + port
+	dataDir            string
+	coreCmd            string // path to core binary
+	serverCmd          string // optional apteva-server binary override for the stdio management gateway
 
 	// PostChannelsInit is invoked right after an instance's
 	// ChannelRegistry is created and the CLI bridge is registered,
@@ -680,6 +694,12 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		systemEntries = append(systemEntries, outputEntry, channelsEntry)
 	}
 	config["mcp_servers"] = append(systemEntries, userServers...)
+	if im.AuthorizeMCPConfig != nil {
+		if err := im.AuthorizeMCPConfig(inst, config); err != nil {
+			ic.Stop()
+			return err
+		}
+	}
 
 	if im.CapabilityMemorySync != nil {
 		if err := im.CapabilityMemorySync(inst, includeChannels, false); err != nil {
@@ -789,7 +809,10 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 				if ck != "" {
 					req.Header.Set("Authorization", "Bearer "+ck)
 				}
-				http.DefaultClient.Do(req)
+				if resp, err := (&http.Client{Transport: coreProxyClient.Transport, Timeout: 15 * time.Second}).Do(req); err == nil {
+					io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+					resp.Body.Close()
+				}
 			}
 			gw := NewTelegramGateway(cc.Config["bot_token"], ic.registry, sendEvent)
 			if botName, err := gw.Start(); err == nil {
@@ -814,12 +837,13 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		log.Printf("[SPAWN] core EXITED agent=%d pid=%d port=%d lived=%s waitErr=%v %s lastProc={%s}",
 			instID, spawnedPid, spawnedPort, lived, waitErr, stateDesc, procSnapshot)
 		im.mu.Lock()
-		current := im.processes[instID]
-		if current != nil && current.channels != nil {
-			current.channels.Stop()
+		if im.processes[instID] == ri {
+			delete(im.processes, instID)
 		}
-		delete(im.processes, instID)
 		im.mu.Unlock()
+		if ri.channels != nil {
+			ri.channels.Stop()
+		}
 		log.Printf("[SPAWN] cleaned up process map for agent=%d", instID)
 	}()
 
@@ -1157,6 +1181,12 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		systemEntries = append(systemEntries, outputEntry, channelsEntry)
 	}
 	config["mcp_servers"] = append(systemEntries, userServers...)
+	if im.AuthorizeMCPConfig != nil {
+		if err := im.AuthorizeMCPConfig(inst, config); err != nil {
+			ic.Stop()
+			return err
+		}
+	}
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), configData, 0600); err != nil {
 		ic.Stop()
@@ -1201,7 +1231,10 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 				if ck != "" {
 					req.Header.Set("Authorization", "Bearer "+ck)
 				}
-				http.DefaultClient.Do(req)
+				if resp, err := (&http.Client{Transport: coreProxyClient.Transport, Timeout: 15 * time.Second}).Do(req); err == nil {
+					io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+					resp.Body.Close()
+				}
 			}
 			gw := NewTelegramGateway(cc.Config["bot_token"], ic.registry, sendEvent)
 			if botName, err := gw.Start(); err == nil {
@@ -1303,7 +1336,10 @@ func (im *AgentManager) StartTelegram(instanceID int64, token string) (string, e
 		if coreKey != "" {
 			req.Header.Set("Authorization", "Bearer "+coreKey)
 		}
-		http.DefaultClient.Do(req)
+		if resp, err := (&http.Client{Transport: coreProxyClient.Transport, Timeout: 15 * time.Second}).Do(req); err == nil {
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+		}
 	}
 	gw := NewTelegramGateway(token, ri.channels.registry, sendEvent)
 	botName, err := gw.Start()
@@ -1459,6 +1495,9 @@ func (im *AgentManager) GetPort(instanceID int64) int {
 }
 
 func (im *AgentManager) CoreRuntimeInfo(instanceID int64) (coreRuntimeInfo, bool) {
+	return im.coreRuntimeInfoContext(context.Background(), instanceID)
+}
+func (im *AgentManager) coreRuntimeInfoContext(ctx context.Context, instanceID int64) (coreRuntimeInfo, bool) {
 	im.mu.RLock()
 	ri, ok := im.processes[instanceID]
 	if !ok || !ri.isRunning() {
@@ -1469,7 +1508,7 @@ func (im *AgentManager) CoreRuntimeInfo(instanceID int64) (coreRuntimeInfo, bool
 	coreAPIKey := ri.coreAPIKey
 	im.mu.RUnlock()
 
-	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/status", port), nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/status", port), nil)
 	if coreAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
 	}
@@ -1489,11 +1528,16 @@ func (im *AgentManager) CoreRuntimeInfo(instanceID int64) (coreRuntimeInfo, bool
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return coreRuntimeInfo{}, false
 	}
-	return coreRuntimeInfo{
+	info := coreRuntimeInfo{
 		Version:       strings.TrimSpace(body.Version),
 		BuildTime:     strings.TrimSpace(body.BuildTime),
 		UptimeSeconds: body.UptimeSeconds,
-	}, true
+	}
+	ri.runtimeMu.Lock()
+	ri.runtimeInfo = info
+	ri.runtimeAt = time.Now()
+	ri.runtimeMu.Unlock()
+	return info, true
 }
 
 func coreVersionOutdated(runtimeVersion, targetVersion string) bool {
@@ -1515,31 +1559,15 @@ func (s *Server) enrichAgentRuntime(inst *Agent) {
 		return
 	}
 	inst.Status = "running"
-	info, ok := s.agents.CoreRuntimeInfo(inst.ID)
-	if !ok {
-		inst.CoreUpdateAvailable = coreVersionOutdated(inst.CoreVersion, CoreVersion)
-		return
-	}
-	versionChanged := info.Version != "" && info.Version != inst.CoreVersion
-	buildChanged := info.BuildTime != "" && info.BuildTime != inst.CoreBuildTime
-	startedAt := coreRuntimeStartedAt(info)
-	startChanged := inst.CoreStartedAt == ""
-	if existing, err := parseTime(inst.CoreStartedAt); err != nil || existing.Sub(startedAt).Abs() > 2*time.Second {
-		startChanged = true
-	}
-	shouldPersist := versionChanged || buildChanged || startChanged
-	if info.Version != "" {
-		inst.CoreVersion = info.Version
-	}
-	if info.BuildTime != "" {
-		inst.CoreBuildTime = info.BuildTime
-	}
-	if shouldPersist {
-		inst.CoreStartedAt = startedAt.Format(time.RFC3339Nano)
-	}
-	if shouldPersist && inst.CoreVersion != "" {
-		if err := s.store.SetAgentRuntimeRunning(inst, startedAt); err != nil {
-			log.Printf("[RUNTIME] reconcile agent=%d: %v", inst.ID, err)
+	if info, ok := s.agents.CachedCoreRuntimeInfo(inst.ID); ok {
+		if info.Version != "" {
+			inst.CoreVersion = info.Version
+		}
+		if info.BuildTime != "" {
+			inst.CoreBuildTime = info.BuildTime
+		}
+		if inst.CoreStartedAt == "" {
+			inst.CoreStartedAt = coreRuntimeStartedAt(info).Format(time.RFC3339Nano)
 		}
 	}
 	inst.CoreUpdateAvailable = coreVersionOutdated(inst.CoreVersion, CoreVersion)
@@ -1818,7 +1846,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			extraServers = append(extraServers, map[string]any{
 				"name":      mcpRecord.Name,
 				"transport": "http",
-				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, mcpRecord.ID),
+				"url":       authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, mcpRecord.ID), s.instanceSecret),
 				// main_access stays implicit (default true); no_spawn
 				// not set so worker threads can also attach if they
 				// inherit this connection's role.
@@ -1952,28 +1980,7 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 		}
 		instances, err = s.store.ListAgentsInProject(projectID)
 	} else {
-		// Walk every visible project and concat their agents.
-		visible, lerr := s.store.ListProjectsForUser(userID)
-		if lerr != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		for _, p := range visible {
-			batch, berr := s.store.ListAgentsInProject(p.ID)
-			if berr != nil {
-				continue
-			}
-			instances = append(instances, batch...)
-		}
-		// Plus any legacy agents that have no project_id — surface them
-		// for the user that owns them so single-user installs from
-		// before projects existed keep working.
-		legacy, _ := s.store.ListAgents(userID, "")
-		for _, a := range legacy {
-			if a.ProjectID == "" {
-				instances = append(instances, a)
-			}
-		}
+		instances, err = s.store.ListVisibleAgents(userID)
 	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -2059,7 +2066,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		inst.Name = name
-		if err := s.store.UpdateAgent(inst); err != nil {
+		if err := s.store.RenameAgent(inst.ID, inst.Name); err != nil {
 			http.Error(w, "failed to update instance", http.StatusInternalServerError)
 			return
 		}
@@ -2458,7 +2465,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
 		coreKey := s.agents.GetCoreAPIKey(inst.ID)
-		resp, err := s.coreDoWithBootWait(inst.ID, "GET", targetURL, nil, coreKey)
+		resp, err := s.coreDoWithBootWaitContext(r.Context(), inst.ID, "GET", targetURL, nil, coreKey)
 		if err != nil {
 			log.Printf("[PROXY] core unreachable agent=%d path=/config: %v", inst.ID, err)
 			http.Error(w, fmt.Sprintf("core unreachable: %v", err), http.StatusBadGateway)
@@ -2564,6 +2571,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		rawBody["mcp_servers"] = mcpMapsAsAny(current)
 	}
 	normalizeAppMCPProjectURLs(rawBody, inst.ProjectID)
+	if err := s.authorizeAgentMCPConfig(inst, rawBody); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	effectiveDefault := ""
 	if len(body.Providers) > 0 {
@@ -2676,7 +2687,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if port > 0 {
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
 		coreKey := s.agents.GetCoreAPIKey(inst.ID)
-		resp, err := s.coreDoWithBootWait(inst.ID, "PUT", targetURL, bodyBytes, coreKey, http.Header{"Content-Type": []string{"application/json"}})
+		resp, err := s.coreDoWithBootWaitContext(r.Context(), inst.ID, "PUT", targetURL, bodyBytes, coreKey, http.Header{"Content-Type": []string{"application/json"}})
 		if err != nil {
 			log.Printf("[CONFIG] PUT forward to core failed agent=%d: %v", inst.ID, err)
 			http.Error(w, fmt.Sprintf("core unreachable: %v", err), http.StatusBadGateway)
@@ -2791,12 +2802,17 @@ var errInstanceNotRunning = fmt.Errorf("instance not running")
 // headers is optional; when non-nil it's cloned onto every retry so the
 // original request's headers (content-type, tracing, etc.) survive.
 func (s *Server) coreDoWithBootWait(instanceID int64, method, targetURL string, bodyBytes []byte, coreKey string, headers ...http.Header) (*http.Response, error) {
-	build := func() (*http.Request, error) {
+	return s.coreDoWithBootWaitContext(context.Background(), instanceID, method, targetURL, bodyBytes, coreKey, headers...)
+}
+
+func (s *Server) coreDoWithBootWaitContext(ctx context.Context, instanceID int64, method, targetURL string, bodyBytes []byte, coreKey string, headers ...http.Header) (*http.Response, error) {
+	deadline := time.Now().Add(3 * time.Second)
+	for {
 		var body io.Reader
 		if bodyBytes != nil {
 			body = bytes.NewReader(bodyBytes)
 		}
-		req, err := http.NewRequest(method, targetURL, body)
+		req, err := http.NewRequestWithContext(ctx, method, targetURL, body)
 		if err != nil {
 			return nil, err
 		}
@@ -2806,34 +2822,23 @@ func (s *Server) coreDoWithBootWait(instanceID int64, method, targetURL string, 
 		if coreKey != "" {
 			req.Header.Set("Authorization", "Bearer "+coreKey)
 		}
-		return req, nil
-	}
-
-	req, err := build()
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err == nil {
-		return resp, nil
-	}
-
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+		resp, err := coreProxyClient.Do(req)
+		// Refusal happens before transmission. EOF/reset may follow a committed
+		// mutation and must never cause a blind replay.
+		if err == nil || !errors.Is(err, syscall.ECONNREFUSED) || time.Now().After(deadline) {
+			return resp, err
+		}
 		if s.agents.GetPort(instanceID) == 0 {
 			return nil, errInstanceNotRunning
 		}
-		time.Sleep(100 * time.Millisecond)
-		req, err = build()
-		if err != nil {
-			return nil, err
-		}
-		resp, err = http.DefaultClient.Do(req)
-		if err == nil {
-			return resp, nil
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
 		}
 	}
-	return nil, err
 }
 
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
@@ -2875,17 +2880,26 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
 		return
 	}
-	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, corePath)
+	target := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port), Path: corePath, RawQuery: r.URL.RawQuery}
+	if r.URL.RawPath != "" {
+		target.RawPath = strings.TrimPrefix(r.URL.EscapedPath(), "/instances/"+parts[0])
+	}
+	targetURL := target.String()
 
 	// Read the body once so we can replay it across boot-wait retries. SSE/GET
 	// paths have no body so this is cheap in practice.
 	var bodyBytes []byte
 	if r.Body != nil {
-		bodyBytes, _ = io.ReadAll(r.Body)
+		var readErr error
+		bodyBytes, readErr = io.ReadAll(r.Body)
+		if readErr != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
 	}
 
 	coreKey := s.agents.GetCoreAPIKey(inst.ID)
-	resp, err := s.coreDoWithBootWait(inst.ID, r.Method, targetURL, bodyBytes, coreKey, r.Header)
+	resp, err := s.coreDoWithBootWaitContext(r.Context(), inst.ID, r.Method, targetURL, bodyBytes, coreKey, r.Header)
 	if err != nil {
 		if err == errInstanceNotRunning {
 			http.Error(w, "instance not running", http.StatusServiceUnavailable)
@@ -2927,9 +2941,13 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				// verbatim.
 				if bytes.HasPrefix(line, []byte("data: ")) {
 					rewritten := enrichLLMDoneSSELine(line)
-					w.Write(rewritten)
+					if _, err := w.Write(rewritten); err != nil {
+						return
+					}
 				} else {
-					w.Write(line)
+					if _, err := w.Write(line); err != nil {
+						return
+					}
 				}
 				if len(bytes.TrimSpace(line)) == 0 {
 					flusher.Flush()
@@ -2940,7 +2958,20 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		body, readErr := io.ReadAll(resp.Body)
+		needsRewrite := resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet && (corePath == "/status" || corePath == "/threads")
+		if !needsRewrite {
+			for k, v := range resp.Header {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
+			return
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
+		if len(body) > 16<<20 {
+			http.Error(w, "core response too large", http.StatusBadGateway)
+			return
+		}
 		if readErr != nil {
 			http.Error(w, "failed to read core response", http.StatusBadGateway)
 			return
@@ -3328,7 +3359,10 @@ func proxyPUT(port int, path string, body any, coreAPIKey string) {
 	if coreAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
 	}
-	http.DefaultClient.Do(req)
+	if resp, err := (&http.Client{Transport: coreProxyClient.Transport, Timeout: 15 * time.Second}).Do(req); err == nil {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+	}
 }
 
 // POST /instances/:id/system-mcp

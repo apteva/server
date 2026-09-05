@@ -21,8 +21,10 @@ package main
 // remains the source app's responsibility.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -32,7 +34,11 @@ import (
 
 // AppEventDispatcher owns the bus→subscription bridge. One per Server.
 type AppEventDispatcher struct {
-	server *Server
+	server     *Server
+	wake       chan struct{}
+	stopOutbox context.CancelFunc
+	stopped    bool
+	wg         sync.WaitGroup
 
 	mu    sync.Mutex
 	lanes map[busKey]*appEventLane
@@ -57,6 +63,7 @@ type appEventLane struct {
 func NewAppEventDispatcher(server *Server) *AppEventDispatcher {
 	return &AppEventDispatcher{
 		server: server,
+		wake:   make(chan struct{}, 1),
 		lanes:  make(map[busKey]*appEventLane),
 	}
 }
@@ -65,6 +72,19 @@ func NewAppEventDispatcher(server *Server) *AppEventDispatcher {
 // online. Idempotent — calling twice is a no-op as long as no rows
 // have changed in between.
 func (d *AppEventDispatcher) Start() {
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		return
+	}
+	if d.stopOutbox == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		d.stopOutbox = cancel
+		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='pending' WHERE status='sending'")
+		d.wg.Add(1)
+		go func() { defer d.wg.Done(); d.runOutbox(ctx) }()
+	}
+	d.mu.Unlock()
 	if err := d.Reconcile(); err != nil {
 		log.Printf("[APP-SUB] startup reconcile failed: %v", err)
 	}
@@ -103,6 +123,10 @@ func (d *AppEventDispatcher) Reconcile() error {
 	}
 
 	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		return nil
+	}
 	defer d.mu.Unlock()
 
 	// Drop lanes that no longer have any subscribers.
@@ -138,7 +162,8 @@ func (d *AppEventDispatcher) Reconcile() error {
 		lane.ch = ch
 		lane.cancel = cancel
 		d.lanes[k] = lane
-		go d.run(lane, replay)
+		d.wg.Add(1)
+		go func() { defer d.wg.Done(); d.run(lane, replay) }()
 		log.Printf("[APP-SUB] lane started app=%s project=%s rows=%d since=%d floor=%d replay=%d",
 			k.app, k.projectID, len(subs), since, sequenceFloor, len(replay))
 	}
@@ -185,42 +210,24 @@ func (d *AppEventDispatcher) run(lane *appEventLane, replay []AppEvent) {
 // holding the map mutex during HTTP delivery).
 func (d *AppEventDispatcher) dispatch(lane *appEventLane, ev AppEvent) {
 	d.mu.Lock()
-	rows := lane.rows
+	stopped := d.stopped
 	d.mu.Unlock()
-	for _, sub := range rows {
-		// Filter: skip events the row already saw on a prior
-		// boot (the lane resubscribes at min(last_seq_delivered),
-		// so other rows in the lane may be ahead).
-		if ev.Seq <= sub.LastSeqDelivered {
-			continue
-		}
-		_, pattern, ok := splitAppEventSlug(sub.Slug)
-		if !ok {
-			continue
-		}
-		if !appEventSubscriptionTopicMatches(sub, pattern, ev.Topic) {
-			continue
-		}
-		if !subscriptionPayloadMatches(sub, ev.Data) {
-			continue
-		}
-		if err := d.deliver(sub, ev); err != nil {
-			log.Printf("[APP-SUB] deliver failed sub=%s: %v", sub.ID, err)
-			continue
-		}
-		// Persist progress so a restart skips already-delivered
-		// events. Cheap — UPDATE by primary key, and the row
-		// pointer is a fresh copy each Reconcile so we mutate
-		// safely under the dispatcher's mu when we write back.
-		d.markDelivered(sub, ev.Seq)
-		if sub.DeleteOnMatch {
-			if err := d.server.store.DeleteEphemeralSubscriptionWaitGroup(sub.WaitGroupID); err != nil {
-				log.Printf("[APP-SUB] delete wait group sub=%s group=%q: %v", sub.ID, sub.WaitGroupID, err)
-				continue
-			}
-			if err := d.Reconcile(); err != nil {
-				log.Printf("[APP-SUB] reconcile after one-shot delete sub=%s: %v", sub.ID, err)
-			}
+	if stopped {
+		return
+	}
+	if ev.Durable {
+		d.wakeOutbox()
+		return
+	}
+	d.mu.Lock()
+	rows := make([]Subscription, 0, len(lane.rows))
+	for _, sub := range lane.rows {
+		rows = append(rows, *sub)
+	}
+	d.mu.Unlock()
+	for i := range rows {
+		if appSubscriptionMatches(&rows[i], ev) {
+			d.enqueueAndDeliver(&rows[i], ev)
 		}
 	}
 }
@@ -247,6 +254,9 @@ func (d *AppEventDispatcher) deliver(sub *Subscription, ev AppEvent) error {
 	eventMsg := fmt.Sprintf("[app:%s:%s] %s", ev.App, ev.Topic, dataStr)
 
 	body := map[string]string{"message": eventMsg}
+	if ev.deliveryID != "" {
+		body["event_id"] = ev.deliveryID
+	}
 	if sub.ThreadID != "" {
 		body["thread_id"] = sub.ThreadID
 	}
@@ -263,6 +273,7 @@ func (d *AppEventDispatcher) deliver(sub *Subscription, ev AppEvent) error {
 		return err
 	}
 	defer resp.Body.Close()
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("core rejected http %d", resp.StatusCode)
 	}
@@ -275,7 +286,9 @@ func (d *AppEventDispatcher) deliver(sub *Subscription, ev AppEvent) error {
 // value on the next event.
 func (d *AppEventDispatcher) markDelivered(sub *Subscription, seq uint64) {
 	d.mu.Lock()
-	sub.LastSeqDelivered = seq
+	if seq > sub.LastSeqDelivered {
+		sub.LastSeqDelivered = seq
+	}
 	d.mu.Unlock()
 	if _, err := d.server.store.db.Exec(
 		`UPDATE subscriptions SET last_seq_delivered = ? WHERE id = ? AND last_seq_delivered < ?`,

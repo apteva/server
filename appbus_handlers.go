@@ -102,7 +102,14 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 	if len(data) == 0 {
 		data = json.RawMessage(`null`)
 	}
-	ev := s.appBus.Publish(appName, resolvedProject, installID, body.Topic, data)
+	if err := s.queueAppSubscriptions(AppEvent{App: appName, ProjectID: resolvedProject, InstallID: installID, Topic: body.Topic, Data: data, Time: time.Now().UTC()}); err != nil {
+		http.Error(w, "event delivery storage unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	ev := s.appBus.Publish(appName, resolvedProject, installID, body.Topic, data, true)
+	if s.appEventDispatcher != nil {
+		s.appEventDispatcher.wakeOutbox()
+	}
 	go s.dispatchAppEventToSubscribers(ev)
 	writeJSON(w, map[string]any{
 		"ok":  true,

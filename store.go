@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -83,6 +84,7 @@ type EnvironmentRecord struct {
 }
 
 type Agent struct {
+	original            *Agent
 	ID                  int64     `json:"id"`
 	UserID              int64     `json:"user_id"`
 	Name                string    `json:"name"`
@@ -103,7 +105,11 @@ type Agent struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db              *sql.DB
+	path            string
+	credentialLocks [64]sync.Mutex
+}
 
 const (
 	sqliteBusyTimeoutMS = 30000
@@ -164,9 +170,25 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
+		return nil, err
+	}
+	if err := s.migrateReviewFixes(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.migrateTelemetryMetrics(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.migrateTelemetryRollups(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.migrateSubscriptionOutbox(); err != nil {
+		db.Close()
 		return nil, err
 	}
 	return s, nil
@@ -2774,6 +2796,7 @@ func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
 		return nil, err
 	}
 	inst.CreatedAt, _ = parseTime(createdAt)
+	inst.rememberOriginal()
 	return &inst, nil
 }
 
@@ -2807,6 +2830,7 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 		return nil, err
 	}
 	inst.CreatedAt, _ = parseTime(createdAt)
+	inst.rememberOriginal()
 	return &inst, nil
 }
 
@@ -2829,6 +2853,7 @@ func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 		return nil, err
 	}
 	ag.Kind = "platform_helper"
+	ag.rememberOriginal()
 	return &ag, nil
 }
 
@@ -2899,6 +2924,7 @@ func (s *Store) ListAgentsInProject(projectID string) ([]Agent, error) {
 			&a.Port, &a.Pid, &a.Status, &a.ProjectID,
 			&a.CoreVersion, &a.CoreBuildTime, &a.CoreStartedAt, &createdAt)
 		a.CreatedAt, _ = parseTime(createdAt)
+		a.rememberOriginal()
 		out = append(out, a)
 	}
 	return out, nil
@@ -2929,6 +2955,7 @@ func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 		inst.UserID = userID
 		inst.CreatedAt, _ = parseTime(createdAt)
+		inst.rememberOriginal()
 		instances = append(instances, inst)
 	}
 	return instances, nil
@@ -2981,22 +3008,43 @@ func (s *Store) ListTelemetryAgentIDs(userID int64, projectID string) (map[int64
 	return out, nil
 }
 
+func (a *Agent) rememberOriginal() { copy := *a; copy.original = nil; a.original = &copy }
+
 func (s *Store) UpdateAgent(inst *Agent) error {
-	if strings.EqualFold(inst.Status, "stopped") {
+	if strings.EqualFold(inst.Status, "stopped") && (inst.original == nil || inst.original.Status != inst.Status) {
 		inst.Port = 0
 		inst.Pid = 0
 		inst.CoreAPIKey = ""
 		inst.CoreStartedAt = ""
 	}
-	_, err := s.db.Exec(
-		`UPDATE agents
-		    SET name=?, directive=?, mode=?, config=?, port=?, pid=?, core_api_key=?,
-		        status=?, project_id=?,
-		        core_started_at=CASE WHEN LOWER(?)='stopped' THEN NULL ELSE core_started_at END
-		  WHERE id=?`,
-		inst.Name, inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.CoreAPIKey,
-		inst.Status, inst.ProjectID, inst.Status, inst.ID,
-	)
+	values := func(a *Agent) []any {
+		return []any{a.Name, a.Directive, a.Mode, a.Config, a.Port, a.Pid, a.CoreAPIKey, a.Status, a.ProjectID}
+	}
+	columns := []string{"name", "directive", "mode", "config", "port", "pid", "core_api_key", "status", "project_id"}
+	next := values(inst)
+	var prev []any
+	if inst.original != nil {
+		prev = values(inst.original)
+	}
+	set := []string{}
+	args := []any{}
+	for i, col := range columns {
+		if prev == nil || next[i] != prev[i] {
+			set = append(set, col+"=?")
+			args = append(args, next[i])
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	if strings.EqualFold(inst.Status, "stopped") && (inst.original == nil || inst.original.Status != inst.Status) {
+		set = append(set, "core_started_at=NULL")
+	}
+	args = append(args, inst.ID)
+	_, err := s.db.Exec("UPDATE agents SET "+strings.Join(set, ",")+" WHERE id=?", args...)
+	if err == nil {
+		inst.rememberOriginal()
+	}
 	return err
 }
 
@@ -3048,6 +3096,7 @@ func (s *Store) SetAgentRuntimeRunning(inst *Agent, startedAt time.Time) error {
 	}
 	inst.Status = "running"
 	inst.CoreStartedAt = started
+	inst.rememberOriginal()
 	return nil
 }
 
@@ -3078,6 +3127,7 @@ func (s *Store) SetAgentRuntimeStopped(inst *Agent) error {
 	inst.Port = 0
 	inst.CoreAPIKey = ""
 	inst.CoreStartedAt = ""
+	inst.rememberOriginal()
 	return nil
 }
 
@@ -3121,6 +3171,7 @@ func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 		var createdAt string
 		rows.Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 		inst.CreatedAt, _ = parseTime(createdAt)
+		inst.rememberOriginal()
 		instances = append(instances, inst)
 	}
 	return instances, nil
@@ -3281,6 +3332,11 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		}
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	stmts := []string{
 		"DELETE FROM telemetry             WHERE agent_id = ?",
 		"DELETE FROM channels              WHERE agent_id = ?",
@@ -3291,12 +3347,12 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		"DELETE FROM agents                 WHERE id = ?",
 	}
 	for _, q := range stmts {
-		_, err := s.db.Exec(q, instanceID)
+		_, err := tx.Exec(q, instanceID)
 		if err != nil {
 			return fmt.Errorf("delete instance %d: %s: %w", instanceID, q, err)
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // --- Projects ---
@@ -3716,4 +3772,34 @@ func (s *Store) SetSetting(key, value string) error {
 		key, value,
 	)
 	return err
+}
+
+func (s *Store) RenameAgent(id int64, name string) error {
+	_, err := s.db.Exec("UPDATE agents SET name=? WHERE id=?", name, id)
+	return err
+}
+
+// One query preserves project membership/admin visibility and creator-owned
+// legacy agents without N project queries or duplicate rows.
+func (s *Store) ListVisibleAgents(userID int64) ([]Agent, error) {
+	rows, err := s.db.Query(`SELECT id,user_id,name,directive,COALESCE(mode,'autonomous'),port,pid,status,COALESCE(project_id,''),COALESCE(core_version,''),COALESCE(core_build_time,''),COALESCE(core_started_at,''),created_at FROM agents
+ WHERE COALESCE(kind,'user')='user' AND (
+ (COALESCE(project_id,'')='' AND user_id=?) OR
+ (COALESCE(project_id,'')!='' AND (EXISTS(SELECT 1 FROM project_members m WHERE m.project_id=agents.project_id AND m.user_id=?) OR ?)))`, userID, userID, s.GetPlatformRole(userID) == PlatformAdmin)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Agent{}
+	for rows.Next() {
+		var a Agent
+		var created string
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Directive, &a.Mode, &a.Port, &a.Pid, &a.Status, &a.ProjectID, &a.CoreVersion, &a.CoreBuildTime, &a.CoreStartedAt, &created); err != nil {
+			return nil, err
+		}
+		a.CreatedAt, _ = parseTime(created)
+		a.rememberOriginal()
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }

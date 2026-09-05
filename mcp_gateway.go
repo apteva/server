@@ -23,6 +23,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		return fmt.Errorf("open db: %w", err)
 	}
 	defer store.Close()
+	instanceSecret := loadOrMintInstanceSecret(store)
 
 	// Load app catalog
 	appsDir := os.Getenv("APPS_DIR")
@@ -162,14 +163,14 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				// connection id in the numeric MCP-row namespace: ids from the
 				// two tables can collide and resolve to another integration.
 				serverName := c.AppSlug
-				serverURL := fmt.Sprintf("http://127.0.0.1:%s/mcp/connection/%d", serverPort, c.ID)
+				serverURL := authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/connection/%d", serverPort, c.ID), instanceSecret)
 				canonical, lookupErr := store.FindCanonicalMCPServerByConnection(c.ID)
 				if lookupErr != nil {
 					return nil, fmt.Errorf("resolve MCP server for connection %d: %w", c.ID, lookupErr)
 				}
 				if canonical != nil {
 					serverName = canonical.Name
-					serverURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, canonical.ID)
+					serverURL = authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, canonical.ID), instanceSecret)
 				}
 				result = append(result, connWithServer{
 					Connection: c,
@@ -268,7 +269,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if serverPort == "" {
 				serverPort = "8080"
 			}
-			mcpURL := fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srvID)
+			mcpURL := authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srvID), instanceSecret)
 			return map[string]any{
 				"connection_id": conn.ID,
 				"status":        "connected",
@@ -339,7 +340,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				"name":          row.Name,
 				"connection_id": conn.ID,
 				"allowed_tools": allowedTools,
-				"url":           fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID),
+				"url":           authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID), instanceSecret),
 			}, nil
 
 		case "update_mcp_server_tools":
@@ -366,7 +367,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if serverPort == "" {
 				serverPort = "8080"
 			}
-			return listGatewayMCPServers(store, userID, projectID, args, serverPort, selfPath)
+			return listGatewayMCPServers(store, userID, projectID, args, serverPort, instanceSecret)
 
 		case "create_mcp_server":
 			name, _ := args["name"].(string)
@@ -1026,7 +1027,7 @@ type gatewayMCPServer struct {
 	ProxyConfig       map[string]any `json:"proxy_config,omitempty"`
 }
 
-func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, args map[string]any, serverPort, _ string) ([]gatewayMCPServer, error) {
+func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, args map[string]any, serverPort, instanceSecret string) ([]gatewayMCPServer, error) {
 	projectID, _ := args["project_id"].(string)
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -1092,7 +1093,7 @@ func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, 
 		switch {
 		case srv.Source == "local" && srv.ConnectionID > 0:
 			row.Status = "running"
-			row.MCPURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srv.ID)
+			row.MCPURL = authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srv.ID), instanceSecret)
 			row.ProxyConfig = map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
@@ -1120,7 +1121,7 @@ func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, 
 				"url":       srv.URL,
 			}
 		case srv.Source == "custom" || srv.Source == managedMCPSource:
-			row.MCPURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", serverPort, srv.ID)
+			row.MCPURL = authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", serverPort, srv.ID), instanceSecret)
 			row.ProxyConfig = map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
@@ -1858,13 +1859,13 @@ func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, 
 	}, nil
 }
 
-func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, _ string) (map[string]any, error) {
+func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, instanceSecret string) (map[string]any, error) {
 	switch {
 	case record.Source == "local" && record.ConnectionID > 0:
 		return map[string]any{
 			"name":      record.Name,
 			"transport": "http",
-			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, record.ID),
+			"url":       authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, record.ID), instanceSecret),
 		}, nil
 	case record.Source == "app" && record.URL != "":
 		u := record.URL
@@ -1886,7 +1887,7 @@ func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, _
 		return map[string]any{
 			"name":      record.Name,
 			"transport": "http",
-			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", serverPort, record.ID),
+			"url":       authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", serverPort, record.ID), instanceSecret),
 		}, nil
 	default:
 		return nil, fmt.Errorf("missing URL or command")

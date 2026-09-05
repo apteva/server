@@ -152,6 +152,7 @@ func TestManagedMCPCreateBridgeCallAndInventory(t *testing.T) {
 	))
 	listReq.RemoteAddr = "127.0.0.1:40000"
 	listRec := httptest.NewRecorder()
+	authorizeTestMCPRequest(s, listReq)
 	s.handleCustomMCPBridge(listRec, listReq)
 	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"echo"`) {
 		t.Fatalf("tools/list status=%d body=%s", listRec.Code, listRec.Body.String())
@@ -162,6 +163,7 @@ func TestManagedMCPCreateBridgeCallAndInventory(t *testing.T) {
 	))
 	callReq.RemoteAddr = "127.0.0.1:40000"
 	callRec := httptest.NewRecorder()
+	authorizeTestMCPRequest(s, callReq)
 	s.handleCustomMCPBridge(callRec, callReq)
 	if callRec.Code != http.StatusOK {
 		t.Fatalf("tools/call status=%d body=%s", callRec.Code, callRec.Body.String())
@@ -178,6 +180,7 @@ func TestManagedMCPCreateBridgeCallAndInventory(t *testing.T) {
 	))
 	appCallReq.RemoteAddr = "127.0.0.1:40000"
 	appCallRec := httptest.NewRecorder()
+	authorizeTestMCPRequest(s, appCallReq)
 	s.handleCustomMCPBridge(appCallRec, appCallReq)
 	if appCallRec.Code != http.StatusOK || !strings.Contains(appCallRec.Body.String(), `\"row_id\":12`) {
 		t.Fatalf("bound app call status=%d body=%s", appCallRec.Code, appCallRec.Body.String())
@@ -206,7 +209,7 @@ func TestManagedMCPCreateBridgeCallAndInventory(t *testing.T) {
 	if inventory[0].ProxyConfig["transport"] != "http" {
 		t.Fatalf("managed server leaked stdio config: %#v", inventory[0].ProxyConfig)
 	}
-	if got, _ := inventory[0].ProxyConfig["url"].(string); !strings.HasSuffix(got, "/mcp/custom/"+itoa64(created.Server.ID)) {
+	if got, _ := inventory[0].ProxyConfig["url"].(string); got != authorizeMCPURL("http://127.0.0.1:"+s.port+"/mcp/custom/"+itoa64(created.Server.ID), s.instanceSecret) {
 		t.Fatalf("proxy url=%q", got)
 	}
 	if _, leaked := inventory[0].ProxyConfig["command"]; leaked {
@@ -414,13 +417,13 @@ func TestManagedMCPIsSharedWithProjectEditors(t *testing.T) {
 		t.Fatalf("editor list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
 	gatewayRows, err := listGatewayMCPServers(
-		s.store, editor.ID, project.ID, map[string]any{}, "5280", "/tmp/apteva-server",
+		s.store, editor.ID, project.ID, map[string]any{}, "5280", s.instanceSecret,
 	)
 	if err != nil || len(gatewayRows) != 1 {
 		t.Fatalf("gateway project inventory=%#v err=%v", gatewayRows, err)
 	}
 	if gatewayRows[0].ProxyConfig["transport"] != "http" ||
-		!strings.HasSuffix(gatewayRows[0].MCPURL, "/mcp/custom/"+itoa64(record.ID)) {
+		gatewayRows[0].MCPURL != authorizeMCPURL("http://127.0.0.1:5280/mcp/custom/"+itoa64(record.ID), s.instanceSecret) {
 		t.Fatalf("gateway managed config=%#v", gatewayRows[0])
 	}
 

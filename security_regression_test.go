@@ -124,7 +124,7 @@ func TestAppInstallTokensCanSubscribeOnlyWithinEventScope(t *testing.T) {
 	}
 }
 
-func TestLegacyAppTokenIsLoopbackOnly(t *testing.T) {
+func TestLegacyAppTokensAreRejected(t *testing.T) {
 	s := newTestServer(t)
 	installID := seedSecurityAppInstall(t, s)
 	legacy := "dev-" + itoa(installID)
@@ -144,7 +144,7 @@ func TestLegacyAppTokenIsLoopbackOnly(t *testing.T) {
 	local.Header.Set("Authorization", "Bearer "+legacy)
 	localRec := httptest.NewRecorder()
 	handler(localRec, local)
-	if localRec.Code != http.StatusNoContent {
+	if localRec.Code != http.StatusUnauthorized {
 		t.Fatalf("loopback transition token status=%d", localRec.Code)
 	}
 }

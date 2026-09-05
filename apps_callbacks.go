@@ -1023,7 +1023,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	}
 	if err != nil {
 		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))

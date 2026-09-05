@@ -104,9 +104,5 @@ func appTokenRouteAllowed(path string) bool {
 	}
 }
 
-func legacyAppTokenInstallID(r *http.Request, token string) int64 {
-	if !requestFromLoopback(r) || !appTokenRouteAllowed(r.URL.Path) {
-		return 0
-	}
-	return installIDFromDevAPIKey(token)
-}
+// Predictable tokens from old development builds are no longer credentials.
+func legacyAppTokenInstallID(r *http.Request, token string) int64 { return 0 }

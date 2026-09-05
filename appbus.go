@@ -53,13 +53,15 @@ import (
 
 // AppEvent — one entry on the bus.
 type AppEvent struct {
-	Topic     string          `json:"topic"`
-	App       string          `json:"app"`
-	ProjectID string          `json:"project_id"`
-	InstallID int64           `json:"install_id"`
-	Seq       uint64          `json:"seq"`
-	Time      time.Time       `json:"time"`
-	Data      json.RawMessage `json:"data"`
+	deliveryID string
+	Durable    bool            `json:"-"`
+	Topic      string          `json:"topic"`
+	App        string          `json:"app"`
+	ProjectID  string          `json:"project_id"`
+	InstallID  int64           `json:"install_id"`
+	Seq        uint64          `json:"seq"`
+	Time       time.Time       `json:"time"`
+	Data       json.RawMessage `json:"data"`
 }
 
 // busKey identifies a single (app, project) channel. Used for the
@@ -216,9 +218,10 @@ func (b *AppEventBus) EnsureLaneSequenceAtLeast(app, projectID string, floor uin
 //     on the wildcard lane (for global subscribers that want every
 //     cross-project event). Project-scoped dashboard tabs never see
 //     unanchored events.
-func (b *AppEventBus) Publish(app, projectID string, installID int64, topic string, data json.RawMessage) AppEvent {
+func (b *AppEventBus) Publish(app, projectID string, installID int64, topic string, data json.RawMessage, durable ...bool) AppEvent {
 	now := time.Now().UTC()
 	base := AppEvent{
+		Durable:   len(durable) > 0 && durable[0],
 		Topic:     topic,
 		App:       app,
 		ProjectID: projectID,

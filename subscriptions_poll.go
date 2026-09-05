@@ -52,6 +52,9 @@ type PollingSubscriptionDispatcher struct {
 	mu      sync.Mutex
 	running map[string]struct{}
 	wake    chan struct{}
+	stop    chan struct{}
+	stopped bool
+	wg      sync.WaitGroup
 }
 
 func NewPollingSubscriptionDispatcher(s *Server) *PollingSubscriptionDispatcher {
@@ -59,11 +62,13 @@ func NewPollingSubscriptionDispatcher(s *Server) *PollingSubscriptionDispatcher 
 		server:  s,
 		running: map[string]struct{}{},
 		wake:    make(chan struct{}, 1),
+		stop:    make(chan struct{}),
 	}
 }
 
 func (d *PollingSubscriptionDispatcher) Start() {
-	go d.loop()
+	d.wg.Add(1)
+	go func() { defer d.wg.Done(); d.loop() }()
 }
 
 func (d *PollingSubscriptionDispatcher) Wake() {
@@ -78,6 +83,8 @@ func (d *PollingSubscriptionDispatcher) loop() {
 	defer timer.Stop()
 	for {
 		select {
+		case <-d.stop:
+			return
 		case <-timer.C:
 			d.tick()
 			timer.Reset(5 * time.Second)
@@ -95,7 +102,17 @@ func (d *PollingSubscriptionDispatcher) loop() {
 }
 
 func (d *PollingSubscriptionDispatcher) tick() {
-	subs, err := d.server.store.ListDuePollSubscriptions(time.Now().UTC(), 20)
+	d.mu.Lock()
+	exclude := make([]string, 0, len(d.running))
+	for id := range d.running {
+		exclude = append(exclude, id)
+	}
+	available := 32 - len(exclude)
+	d.mu.Unlock()
+	if available <= 0 {
+		return
+	}
+	subs, err := d.server.store.listDuePollSubscriptionsExcluding(time.Now().UTC(), min(20, available), exclude)
 	if err != nil {
 		log.Printf("[SUB-POLL] list due: %v", err)
 		return
@@ -116,9 +133,10 @@ func (d *PollingSubscriptionDispatcher) tick() {
 func (d *PollingSubscriptionDispatcher) markRunning(id string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, ok := d.running[id]; ok {
+	if _, ok := d.running[id]; ok || len(d.running) >= 32 || d.stopped {
 		return false
 	}
+	d.wg.Add(1)
 	d.running[id] = struct{}{}
 	return true
 }
@@ -126,6 +144,7 @@ func (d *PollingSubscriptionDispatcher) markRunning(id string) bool {
 func (d *PollingSubscriptionDispatcher) clearRunning(id string) {
 	d.mu.Lock()
 	delete(d.running, id)
+	d.wg.Done()
 	d.mu.Unlock()
 }
 
@@ -188,7 +207,7 @@ func (d *PollingSubscriptionDispatcher) run(sub *Subscription) error {
 	err = d.server.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
 	var result *ExecuteResult
 	if err == nil {
-		result, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
+		result, err = d.server.executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
 	}
 	if err != nil {
 		d.server.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "subscription-poller", tool.Name, input, nil, err))
@@ -308,11 +327,11 @@ func (s *Server) deliverSubscriptionPayload(sub *Subscription, prefix string, pa
 	if ck := s.agents.GetCoreAPIKey(inst.ID); ck != "" {
 		req.Header.Set("Authorization", "Bearer "+ck)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
 		return err
 	}
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("core rejected %d: %s", resp.StatusCode, string(respBody))
@@ -532,4 +551,14 @@ func prunePollState(state *pollState, maxSeen int) {
 
 func formatPollTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func (d *PollingSubscriptionDispatcher) Stop() {
+	d.mu.Lock()
+	if !d.stopped {
+		d.stopped = true
+		close(d.stop)
+	}
+	d.mu.Unlock()
+	d.wg.Wait()
 }

@@ -413,7 +413,7 @@ func validateIntegrationProxyURL(raw string) error {
 	return nil
 }
 
-func integrationHTTPClient(app *AppTemplate, credentials map[string]string, timeout time.Duration) (*http.Client, error) {
+func newIntegrationHTTPClient(app *AppTemplate, credentials map[string]string, timeout time.Duration) (*http.Client, error) {
 	proxyRaw, proxyEnv, err := integrationProxyURL(app)
 	if err != nil {
 		return nil, err
@@ -1299,11 +1299,27 @@ func executeIntegrationToolWithRefresh(
 	input map[string]any,
 	environmentID string,
 	onRefresh onCredsRefresh,
+	coordinators ...credentialRefresh,
 ) (*ExecuteResult, error) {
 	credentials = applyCredentialFieldDefaults(app, credentials)
+	coordinate := func(fn func(map[string]string) error) error {
+		if len(coordinators) > 0 {
+			return coordinators[0](credentials, fn)
+		}
+		return fn(credentials)
+	}
+	exchange := func(force bool) (bool, error) {
+		changed := false
+		err := coordinate(func(c map[string]string) error {
+			var e error
+			changed, e = ensureCredentialExchangeToken(app, c, force)
+			return e
+		})
+		return changed, err
+	}
 	if app != nil && app.Auth.TokenExchange != nil &&
 		(environmentID == "" || environmentIntegrationMode(environmentID) == IntegrationModeReal) {
-		changed, err := ensureCredentialExchangeToken(app, credentials, false)
+		changed, err := exchange(false)
 		if err != nil {
 			return nil, err
 		}
@@ -1314,7 +1330,7 @@ func executeIntegrationToolWithRefresh(
 		}
 	}
 	if app != nil && app.Slug == integrationOpenAICodexSlug && connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
-		if err := refreshIntegrationOpenAICodexCredentials(credentials); err == nil && onRefresh != nil {
+		if err := coordinate(refreshIntegrationOpenAICodexCredentials); err == nil && onRefresh != nil {
 			if perr := onRefresh(credentials); perr != nil {
 				fmt.Fprintf(os.Stderr, "[codex-refresh] persist failed for %s: %v\n", app.Slug, perr)
 			}
@@ -1333,7 +1349,7 @@ func executeIntegrationToolWithRefresh(
 	if app != nil && app.Auth.OAuth2 != nil &&
 		oauthTokenNeedsRefresh(credentials, oauthTokenExpirySkew) &&
 		oauthCanRefresh(app.Auth.OAuth2, credentials) {
-		if err := refreshOAuthAccessToken(app, credentials); err != nil {
+		if err := coordinate(func(c map[string]string) error { return refreshOAuthAccessToken(app, c) }); err != nil {
 			// Non-fatal: the token may still have life left inside the
 			// skew, and the on-401 path below is the backstop.
 			fmt.Fprintf(os.Stderr, "[oauth-refresh] %s proactive refresh: %v\n", app.Slug, err)
@@ -1348,7 +1364,7 @@ func executeIntegrationToolWithRefresh(
 		return result, err
 	}
 	if app != nil && app.Slug == integrationOpenAICodexSlug && (result.Status == 401 || result.Status == 403) {
-		if err := refreshIntegrationOpenAICodexCredentials(credentials); err != nil {
+		if err := coordinate(refreshIntegrationOpenAICodexCredentials); err != nil {
 			fmt.Fprintf(os.Stderr, "[codex-refresh] %s: %v\n", app.Slug, err)
 			return result, nil
 		}
@@ -1363,7 +1379,7 @@ func executeIntegrationToolWithRefresh(
 		return result, nil
 	}
 	if app != nil && app.Auth.TokenExchange != nil {
-		changed, exchangeErr := ensureCredentialExchangeToken(app, credentials, true)
+		changed, exchangeErr := exchange(true)
 		if exchangeErr != nil {
 			fmt.Fprintf(os.Stderr, "[token-exchange] %s: %v\n", app.Slug, exchangeErr)
 			return result, nil
@@ -1385,7 +1401,7 @@ func executeIntegrationToolWithRefresh(
 	if !oauthCanRefresh(app.Auth.OAuth2, credentials) {
 		return result, nil
 	}
-	if err := refreshOAuthAccessToken(app, credentials); err != nil {
+	if err := coordinate(func(c map[string]string) error { return refreshOAuthAccessToken(app, c) }); err != nil {
 		// Refresh failed — surface the original 401 so the caller knows
 		// the connection needs manual re-auth. Log so the operator can
 		// see why refresh isn't working (likely revoked refresh token,
@@ -3569,7 +3585,7 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	}
 	if err != nil {
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "dashboard", tool.Name, body.Input, nil, err))
@@ -3690,6 +3706,6 @@ func (s *Server) handleCreateScopedMCP(w http.ResponseWriter, r *http.Request) {
 		"connection_id": conn.ID,
 		"app_slug":      conn.AppSlug,
 		"allowed_tools": body.AllowedTools,
-		"url":           fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID),
+		"url":           authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID), s.instanceSecret),
 	})
 }

@@ -95,13 +95,7 @@ func TestAppEventDispatcherRestartSeedsPersistedSequence(t *testing.T) {
 	if err := dispatcher.Reconcile(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		dispatcher.mu.Lock()
-		for _, lane := range dispatcher.lanes {
-			lane.cancel()
-		}
-		dispatcher.mu.Unlock()
-	})
+	t.Cleanup(dispatcher.Stop)
 
 	ev := s.appBus.Publish("storage", "project-a", 42, "file.added", json.RawMessage(`{"id":"new"}`))
 	if ev.Seq != 97 {

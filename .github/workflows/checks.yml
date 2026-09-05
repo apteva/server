@@ -1,0 +1,25 @@
+name: Checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+      - name: Resolve published SDK
+        run: go mod edit -dropreplace=github.com/apteva/app-sdk
+      - run: go test ./... -count=1 -timeout=10m
+      - run: go vet ./...
+      - run: go test -race ./... -short -count=1 -timeout=30m
+      - name: Vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - run: go build -o /tmp/apteva-server .

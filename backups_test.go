@@ -152,10 +152,10 @@ func TestSnapshot_ServerDBOnly(t *testing.T) {
 	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
 		t.Fatalf("manifest json: %v", err)
 	}
-	if manifest["format_version"] != float64(1) {
+	if manifest["format_version"] != float64(2) {
 		t.Errorf("format_version=%v", manifest["format_version"])
 	}
-	if _, ok := manifest["installs"]; !ok {
+	if _, ok := manifest["roots"]; !ok {
 		t.Errorf("installs key missing from manifest")
 	}
 }
@@ -206,9 +206,9 @@ func TestSnapshot_WithInstall(t *testing.T) {
 	s.localApps = NewLocalSupervisor(cacheDir)
 	s.installedApps = NewInstalledAppsRegistry()
 
-	const installID = int64(42)
+	installID := insertTestInstall(t, s, "demo-app")
 	const appName = "demo-app"
-	dbDir := filepath.Join(cacheDir, appName, "data", "42")
+	dbDir := filepath.Join(cacheDir, appName, "data", strconv.FormatInt(installID, 10))
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -239,25 +239,14 @@ func TestSnapshot_WithInstall(t *testing.T) {
 		t.Errorf("install dump is not a SQLite file")
 	}
 
-	var manifest struct {
-		Installs []struct {
-			InstallID  int64  `json:"install_id"`
-			Name       string `json:"name"`
-			DBIncluded bool   `json:"db_included"`
-			DBPath     string `json:"db_path_in_archive"`
-		} `json:"installs"`
-	}
+	var manifest recoveryManifest
 	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
-		t.Fatalf("manifest: %v", err)
+		t.Fatal(err)
 	}
-	if len(manifest.Installs) != 1 {
-		t.Fatalf("want 1 install in manifest, got %d", len(manifest.Installs))
+	if len(manifest.Roots) != 1 || manifest.Roots[0].ID != installID || !manifest.Files[wantPath].SQLite {
+		t.Fatalf("bad inventory: %+v", manifest)
 	}
-	got := manifest.Installs[0]
-	if got.InstallID != installID || got.Name != appName ||
-		!got.DBIncluded || got.DBPath != wantPath {
-		t.Errorf("manifest install = %+v", got)
-	}
+
 }
 
 func TestSnapshot_StaticInstallSkipped(t *testing.T) {
@@ -284,18 +273,14 @@ func TestSnapshot_StaticInstallSkipped(t *testing.T) {
 			t.Errorf("static install should not produce an apps/ entry, got %q", name)
 		}
 	}
-	var manifest struct {
-		Installs []struct {
-			Name       string `json:"name"`
-			DBIncluded bool   `json:"db_included"`
-			Note       string `json:"note"`
-		} `json:"installs"`
+	var manifest recoveryManifest
+	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
+		t.Fatal(err)
 	}
-	_ = json.Unmarshal(files["manifest.json"], &manifest)
-	if len(manifest.Installs) != 1 || manifest.Installs[0].DBIncluded ||
-		manifest.Installs[0].Note == "" {
-		t.Errorf("expected one install marked db_included=false with a note, got %+v", manifest.Installs)
+	if len(manifest.Files) != 1 {
+		t.Fatalf("unexpected persistent files: %+v", manifest.Files)
 	}
+
 }
 
 func TestVacuumIntoFromHandle_ProducesValidSqlite(t *testing.T) {
@@ -516,7 +501,12 @@ func TestRestore_ServerDBStaged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restoredBytes := []byte("SQLite format 3\x00FAKE-RESTORED-DB-PAYLOAD")
+	sourceDB := filepath.Join(t.TempDir(), "source.db")
+	mustSeedSqlite(t, sourceDB)
+	restoredBytes, err := os.ReadFile(sourceDB)
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := buildSnapshotTar(t,
 		map[string]any{"format_version": 1},
 		map[string][]byte{"server/apteva-server.db": restoredBytes})
@@ -735,6 +725,11 @@ func TestRestore_RoundTrip_AppDB(t *testing.T) {
 		t.Fatalf("restore failed: %d %s", w2.Code, w2.Body.String())
 	}
 
+	// Activation is coordinated at restart, never against live sidecars.
+	s.store.Close()
+	if err := applyPendingRecovery(s.dbPath); err != nil {
+		t.Fatal(err)
+	}
 	after, err := os.ReadFile(dbPath)
 	if err != nil {
 		t.Fatal(err)

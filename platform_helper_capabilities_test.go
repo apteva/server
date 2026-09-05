@@ -124,7 +124,7 @@ func TestPlatformHelperCapabilitiesAcceptOnlyGlobalAppsAndIntegrations(t *testin
 	if names["global-app"] != globalApp.URL {
 		t.Fatalf("global app config=%q want=%q", names["global-app"], globalApp.URL)
 	}
-	if names["global-integration"] != fmt.Sprintf("http://127.0.0.1:5280/mcp/%d", globalIntegration.ID) {
+	if names["global-integration"] != authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:5280/mcp/%d", globalIntegration.ID), s.instanceSecret) {
 		t.Fatalf("global integration config=%q", names["global-integration"])
 	}
 	if _, ok := names["project-app"]; ok {

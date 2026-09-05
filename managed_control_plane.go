@@ -693,7 +693,7 @@ func (s *Server) executeManagedGrantConnection(connID int64, appSlug, toolName s
 	if err := s.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input); err != nil {
 		return nil, err
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
+	result, err := s.executeConnectionToolWithRefresh(persistID, ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
 	s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "managed-tenant", tool.Name, input, result, err))
 	return result, err
 }

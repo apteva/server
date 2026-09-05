@@ -187,6 +187,7 @@ func TestMCPGraphQLFixedDocumentIsHiddenAndSemanticFailureIsError(t *testing.T) 
 		req := httptest.NewRequest(http.MethodPost, "/mcp/connection/"+strconv.FormatInt(conn.ID, 10), strings.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:41234"
 		rec := httptest.NewRecorder()
+		authorizeTestMCPRequest(s, req)
 		s.handleMCPEndpoint(rec, req)
 		return rec
 	}

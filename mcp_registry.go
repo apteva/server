@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -377,6 +378,7 @@ func (s *Store) DeleteMCPServer(userID, serverID int64) error {
 // --- MCP Process (running MCP server) ---
 
 type MCPProcess struct {
+	cancel   context.CancelFunc
 	ServerID int64
 	Name     string
 	// stdio fields — nil for remote transport
@@ -388,16 +390,20 @@ type MCPProcess struct {
 	// remote fields — empty for stdio transport
 	remoteURL string
 	// shared
-	mu      sync.Mutex
-	nextID  atomic.Int64
-	pending map[int64]chan jsonRPCResponse
-	pendMu  sync.Mutex
-	Tools   []mcpToolDef
+	mu       sync.Mutex
+	nextID   atomic.Int64
+	readDone chan struct{}
+	pending  map[int64]chan jsonRPCResponse
+	pendMu   sync.Mutex
+	Tools    []mcpToolDef
 }
 
 func (p *MCPProcess) isRemote() bool { return p.cmd == nil && p.remoteURL != "" }
 
 func (p *MCPProcess) readLoop() {
+	if p.readDone != nil {
+		defer close(p.readDone)
+	}
 	for p.scanner.Scan() {
 		line := p.scanner.Text()
 		if line == "" {
@@ -444,6 +450,11 @@ func (p *MCPProcess) call(method string, params any) (json.RawMessage, error) {
 			return nil, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
 		}
 		return resp.Result, nil
+	case <-p.readDone:
+		p.pendMu.Lock()
+		delete(p.pending, id)
+		p.pendMu.Unlock()
+		return nil, fmt.Errorf("MCP transport closed")
 	case <-time.After(30 * time.Second):
 		p.pendMu.Lock()
 		delete(p.pending, id)
@@ -465,6 +476,9 @@ func (p *MCPProcess) ListTools() ([]mcpToolDef, error) {
 }
 
 func (p *MCPProcess) Close() {
+	if p.cancel != nil {
+		p.cancel()
+	}
 	if p.isRemote() {
 		return
 	}
@@ -478,7 +492,10 @@ func (p *MCPProcess) Close() {
 
 // --- MCP Manager (manages running MCP processes) ---
 
+type mcpStart struct{ cancel context.CancelFunc }
+
 type MCPManager struct {
+	starting  map[int64]*mcpStart
 	mu        sync.RWMutex
 	processes map[int64]*MCPProcess // serverID → process
 }
@@ -509,11 +526,41 @@ func (m *MCPManager) StartIsolatedWithStderr(record *MCPServerRecord, env map[st
 }
 
 func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stderr io.WriteCloser, inheritEnv bool) (*MCPProcess, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	slot := &mcpStart{cancel: cancel}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, running := m.processes[record.ID]; running {
-		return nil, fmt.Errorf("MCP server %d already running", record.ID)
+	if m.starting == nil {
+		m.starting = make(map[int64]*mcpStart)
+	}
+	if m.processes[record.ID] != nil || m.starting[record.ID] != nil {
+		m.mu.Unlock()
+		cancel()
+		return nil, fmt.Errorf("MCP server %d already running or starting", record.ID)
+	}
+	m.starting[record.ID] = slot
+	m.mu.Unlock()
+	published := false
+	defer func() {
+		m.mu.Lock()
+		if m.starting[record.ID] == slot {
+			delete(m.starting, record.ID)
+		}
+		m.mu.Unlock()
+		if !published {
+			cancel()
+		}
+	}()
+	publish := func(proc *MCPProcess) bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.starting[record.ID] != slot || ctx.Err() != nil {
+			return false
+		}
+		proc.cancel = cancel
+		m.processes[record.ID] = proc
+		delete(m.starting, record.ID)
+		published = true
+		return true
 	}
 
 	// Remote HTTP transport: probe the URL with a tools/list and cache tools.
@@ -523,7 +570,7 @@ func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stder
 		if record.URL == "" {
 			return nil, fmt.Errorf("remote MCP server %d has no URL", record.ID)
 		}
-		tools, err := probeRemoteMCP(record.URL, env)
+		tools, err := probeRemoteMCPContext(ctx, record.URL, env)
 		if err != nil {
 			return nil, fmt.Errorf("probe %s: %w", record.URL, err)
 		}
@@ -534,14 +581,16 @@ func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stder
 			pending:   make(map[int64]chan jsonRPCResponse),
 			Tools:     tools,
 		}
-		m.processes[record.ID] = proc
+		if !publish(proc) {
+			return nil, context.Canceled
+		}
 		return proc, nil
 	}
 
 	var args []string
 	json.Unmarshal([]byte(record.Args), &args)
 
-	cmd := exec.Command(record.Command, args...)
+	cmd := exec.CommandContext(ctx, record.Command, args...)
 	if inheritEnv {
 		cmd.Env = os.Environ()
 	} else {
@@ -578,6 +627,7 @@ func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stder
 		cmd:      cmd,
 		stdin:    stdin,
 		scanner:  bufio.NewScanner(stdout),
+		readDone: make(chan struct{}),
 		stderr:   stderr,
 		done:     make(chan struct{}),
 		pending:  make(map[int64]chan jsonRPCResponse),
@@ -620,7 +670,12 @@ func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stder
 	}
 	proc.Tools = tools
 
-	m.processes[record.ID] = proc
+	if !publish(proc) {
+		proc.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, context.Canceled
+	}
 
 	// Wait for exit in background
 	go func() {
@@ -644,6 +699,10 @@ func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stder
 func (m *MCPManager) Stop(serverID int64) {
 	m.mu.Lock()
 	proc, ok := m.processes[serverID]
+	if start := m.starting[serverID]; start != nil {
+		start.cancel()
+		delete(m.starting, serverID)
+	}
 	delete(m.processes, serverID)
 	m.mu.Unlock()
 	if ok {
@@ -656,6 +715,10 @@ func (m *MCPManager) Stop(serverID int64) {
 // intent and ResumeManagedMCPs can restore managed servers on the next boot.
 func (m *MCPManager) StopAll() {
 	m.mu.Lock()
+	for id, start := range m.starting {
+		start.cancel()
+		delete(m.starting, id)
+	}
 	processes := make([]*MCPProcess, 0, len(m.processes))
 	for id, proc := range m.processes {
 		delete(m.processes, id)
@@ -882,7 +945,7 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 			es.ProxyConfig = &map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
-				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, srv.ID),
+				"url":       authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, srv.ID), s.instanceSecret),
 			}
 		} else if srv.Source == "custom" || srv.Source == managedMCPSource {
 			// Custom subprocesses are owned by apteva-server. Cores attach
@@ -891,7 +954,7 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 			es.ProxyConfig = &map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
-				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", s.port, srv.ID),
+				"url":       authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", s.port, srv.ID), s.instanceSecret),
 			}
 		}
 		enriched = append(enriched, es)
@@ -1466,7 +1529,7 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 		log.Printf("[CALL-RPC] → POST %s method=%s body_len=%d", targetURL, method, len(body))
 		currentURL := targetURL
 		for attempt := 0; attempt < 4; attempt++ {
-			httpReq, err := http.NewRequest("POST", currentURL, strings.NewReader(string(body)))
+			httpReq, err := http.NewRequestWithContext(context.Background(), "POST", currentURL, strings.NewReader(string(body)))
 			if err != nil {
 				return nil, "", err
 			}
@@ -1583,6 +1646,9 @@ type jsonRPCNotification struct {
 //     are added as headers. Many hosted MCPs embed the auth token
 //     in the URL and need no extra headers.
 func probeRemoteMCP(rawURL string, env map[string]string) ([]mcpToolDef, error) {
+	return probeRemoteMCPContext(context.Background(), rawURL, env)
+}
+func probeRemoteMCPContext(ctx context.Context, rawURL string, env map[string]string) ([]mcpToolDef, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 		// Accept both JSON and SSE; hosted MCPs may return either.
@@ -1611,7 +1677,7 @@ func probeRemoteMCP(rawURL string, env map[string]string) ([]mcpToolDef, error) 
 		// Try original URL, then follow up to 3 307/308 redirects.
 		currentURL := targetURL
 		for attempt := 0; attempt < 4; attempt++ {
-			httpReq, err := http.NewRequest("POST", currentURL, strings.NewReader(string(body)))
+			httpReq, err := http.NewRequestWithContext(ctx, "POST", currentURL, strings.NewReader(string(body)))
 			if err != nil {
 				return nil, "", err
 			}

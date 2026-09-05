@@ -114,12 +114,20 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit RouteHit) {
 	isUpgrade := requestIsProtocolUpgrade(r)
+	cacheHost := fmt.Sprintf("%s@%d", hit.Hostname, hit.Generation)
 	// Edge cache: serve fresh public assets without touching the origin.
 	// Protocol upgrades must retain the original ResponseWriter's Hijacker;
 	// neither cache lookup nor response wrapping applies to a connection that
 	// becomes a bidirectional stream.
-	if !isUpgrade && hr.server != nil && hr.server.edgeCache != nil && hr.server.edgeCache.serve(w, r, hit.Hostname) {
+	if !isUpgrade && hr.server != nil && hr.server.edgeCache != nil && hr.server.edgeCache.serve(w, r, cacheHost) {
 		return
+	}
+	if !isUpgrade && hr.server != nil && hr.server.edgeCache != nil {
+		handled, release := hr.server.edgeCache.coalesce(w, r, cacheHost)
+		defer release()
+		if handled {
+			return
+		}
 	}
 	// Resolve the effective backend. For app:// origins this looks up
 	// the app's LIVE sidecar URL per request, so a sidecar restart
@@ -141,9 +149,16 @@ func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit Rou
 		}
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = coreProxyClient.Transport
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
+		clearPrincipalHeaders(req)
+		for name := range req.Header {
+			if strings.HasPrefix(strings.ToLower(name), "x-apteva-caller-") {
+				req.Header.Del(name)
+			}
+		}
 		req.Host = r.Host
 		req.Header.Set("X-Forwarded-Host", r.Host)
 		if !isUpgrade {
@@ -172,7 +187,8 @@ func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit Rou
 	// On a cache miss, tee the origin response so eligible public assets
 	// get stored for next time.
 	if !isUpgrade && hr.server != nil && hr.server.edgeCache != nil {
-		cw := hr.server.edgeCache.wrap(w, r, hit.Hostname)
+		cw := hr.server.edgeCache.wrap(w, r, cacheHost)
+		defer cw.release()
 		proxy.ServeHTTP(cw, r)
 		cw.finalize()
 		return
@@ -198,8 +214,8 @@ func (hr *HostRouter) resolveTarget(hit RouteHit) (*url.URL, bool) {
 	if hit.OriginProject != "" {
 		entry = hr.server.installedApps.GetByNameAndProject(hit.OriginApp, hit.OriginProject)
 	}
-	if entry == nil {
-		entry = hr.server.installedApps.GetByName(hit.OriginApp)
+	if hit.OriginProject == "" {
+		entry = hr.server.installedApps.GetByNameAndProject(hit.OriginApp, "")
 	}
 	if entry == nil || entry.SidecarURL == "" {
 		return nil, false
@@ -254,8 +270,8 @@ func (hr *HostRouter) resolveAppToken(hit RouteHit) string {
 	if hit.OriginProject != "" {
 		entry = hr.server.installedApps.GetByNameAndProject(hit.OriginApp, hit.OriginProject)
 	}
-	if entry == nil {
-		entry = hr.server.installedApps.GetByName(hit.OriginApp)
+	if hit.OriginProject == "" {
+		entry = hr.server.installedApps.GetByNameAndProject(hit.OriginApp, "")
 	}
 	if entry == nil || entry.InstallID != hit.OwnerInstallID {
 		return ""

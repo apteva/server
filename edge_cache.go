@@ -28,9 +28,11 @@ import (
 
 type EdgeCache struct {
 	mu       sync.Mutex
+	fills    map[string]chan struct{}
 	entries  map[string]*cacheEntry
 	order    []string // insertion order, for oldest-out eviction
 	curBytes int64
+	inflight int64
 	maxBytes int64
 	maxItem  int64
 	ttlCap   time.Duration
@@ -98,11 +100,14 @@ func (c *EdgeCache) wrap(w http.ResponseWriter, r *http.Request, host string) *c
 }
 
 func (c *EdgeCache) store(key string, e *cacheEntry) {
-	if e.size > c.maxItem {
-		return
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.storeLocked(key, e)
+}
+func (c *EdgeCache) storeLocked(key string, e *cacheEntry) {
+	if e.size > c.maxItem || e.size > c.maxBytes {
+		return
+	}
 	if old, ok := c.entries[key]; ok {
 		c.curBytes -= old.size
 	} else {
@@ -110,16 +115,8 @@ func (c *EdgeCache) store(key string, e *cacheEntry) {
 	}
 	c.entries[key] = e
 	c.curBytes += e.size
-	for c.curBytes > c.maxBytes && len(c.order) > 0 {
-		oldest := c.order[0]
-		c.order = c.order[1:]
-		if oldest == key {
-			continue // never evict the entry we just stored
-		}
-		if oe, ok := c.entries[oldest]; ok {
-			c.curBytes -= oe.size
-			delete(c.entries, oldest)
-		}
+	for (c.curBytes+c.inflight > c.maxBytes || len(c.entries) > 4096) && len(c.order) > 0 {
+		c.removeLocked(c.order[0])
 	}
 }
 
@@ -127,6 +124,12 @@ func (c *EdgeCache) removeLocked(key string) {
 	if e, ok := c.entries[key]; ok {
 		c.curBytes -= e.size
 		delete(c.entries, key)
+		for i, k := range c.order {
+			if k == key {
+				c.order = append(c.order[:i], c.order[i+1:]...)
+				break
+			}
+		}
 	}
 }
 
@@ -148,6 +151,7 @@ type cacheWriter struct {
 	wroteHdr  bool
 	cacheable bool
 	tooBig    bool
+	reserved  int64
 	buf       bytes.Buffer
 }
 
@@ -169,14 +173,20 @@ func (cw *cacheWriter) Write(b []byte) (int, error) {
 		cw.WriteHeader(http.StatusOK)
 	}
 	if cw.cacheable && !cw.tooBig {
-		if int64(cw.buf.Len()+len(b)) > cw.cache.maxItem {
+		needed := int64(cw.buf.Len() + len(b))
+		if needed > cw.cache.maxItem || !cw.reserve(needed) {
 			cw.tooBig = true
-			cw.buf.Reset()
+			cw.release()
 		} else {
 			cw.buf.Write(b)
 		}
 	}
-	return cw.ResponseWriter.Write(b)
+	n, err := cw.ResponseWriter.Write(b)
+	if err != nil || n != len(b) {
+		cw.tooBig = true
+		cw.release()
+	}
+	return n, err
 }
 
 // Flush passes through so streaming responses (SSE etc.) aren't broken
@@ -188,22 +198,32 @@ func (cw *cacheWriter) Flush() {
 }
 
 func (cw *cacheWriter) finalize() {
+	defer cw.release()
 	if !cw.cacheable || cw.tooBig || cw.buf.Len() == 0 {
 		return
 	}
 	hdr := cw.ResponseWriter.Header()
+	if length, err := strconv.ParseInt(hdr.Get("Content-Length"), 10, 64); err == nil && length != int64(cw.buf.Len()) {
+		return
+	}
 	ttl := ttlFromCacheControl(hdr.Get("Cache-Control"), cw.cache.ttlCap)
 	if ttl <= 0 {
 		return
 	}
-	cw.cache.store(edgeKey(cw.host, cw.req.URL.RequestURI()), &cacheEntry{
+	body := cw.buf.Bytes()
+	cw.cache.mu.Lock()
+	cw.cache.inflight -= cw.reserved
+	cw.reserved = 0
+	cw.buf = bytes.Buffer{}
+	cw.cache.storeLocked(edgeKey(cw.host, cw.req.URL.RequestURI()), &cacheEntry{
 		status:  cw.status,
 		header:  cloneHeader(hdr),
-		body:    append([]byte(nil), cw.buf.Bytes()...),
+		body:    body,
 		etag:    hdr.Get("ETag"),
 		expires: time.Now().Add(ttl),
-		size:    int64(cw.buf.Len()),
+		size:    int64(cap(body)),
 	})
+	cw.cache.mu.Unlock()
 }
 
 // ─── policy helpers ────────────────────────────────────────────────
@@ -211,7 +231,7 @@ func (cw *cacheWriter) finalize() {
 // cacheableRequest gates which requests may be served from / stored in
 // the cache: safe GETs only, never anything carrying caller identity.
 func cacheableRequest(r *http.Request) bool {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet || strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		return false
 	}
 	if requestIsProtocolUpgrade(r) {
@@ -226,7 +246,7 @@ func cacheableRequest(r *http.Request) bool {
 // cacheableResponse requires an explicit public + max-age (or immutable)
 // signal and rejects anything that varies or carries Set-Cookie.
 func cacheableResponse(h http.Header) bool {
-	if h.Get("Set-Cookie") != "" || h.Get("Vary") != "" {
+	if h.Get("Set-Cookie") != "" || h.Get("Vary") != "" || strings.HasPrefix(strings.ToLower(h.Get("Content-Type")), "text/event-stream") {
 		return false
 	}
 	cc := strings.ToLower(h.Get("Cache-Control"))
@@ -299,4 +319,77 @@ func cloneHeader(src http.Header) http.Header {
 	dst := make(http.Header, len(src))
 	copyHeader(dst, src)
 	return dst
+}
+
+// reserve grows buffers explicitly so their capacity, not just length, is
+// charged against the global budget. Failure only disables caching.
+func (cw *cacheWriter) reserve(needed int64) bool {
+	if needed <= cw.reserved {
+		return true
+	}
+	capacity := needed
+	if doubled := cw.reserved * 2; doubled > capacity {
+		capacity = doubled
+	}
+	if capacity > cw.cache.maxItem {
+		capacity = cw.cache.maxItem
+	}
+	cw.cache.mu.Lock()
+	extra := capacity - cw.reserved
+	for cw.cache.curBytes+cw.cache.inflight+extra > cw.cache.maxBytes && len(cw.cache.order) > 0 {
+		cw.cache.removeLocked(cw.cache.order[0])
+	}
+	if cw.cache.curBytes+cw.cache.inflight+extra > cw.cache.maxBytes {
+		cw.cache.mu.Unlock()
+		return false
+	}
+	cw.cache.inflight += extra
+	cw.cache.mu.Unlock()
+	buf := make([]byte, cw.buf.Len(), int(capacity))
+	copy(buf, cw.buf.Bytes())
+	cw.buf = *bytes.NewBuffer(buf)
+	cw.reserved = capacity
+	return true
+}
+func (cw *cacheWriter) release() {
+	cw.cache.mu.Lock()
+	cw.cache.inflight -= cw.reserved
+	cw.reserved = 0
+	cw.cache.mu.Unlock()
+	cw.buf = bytes.Buffer{}
+}
+
+// Collapse concurrent cold reads without holding up live/private responses.
+// Followers abandon the wait quickly; failed fills never leave a stuck key.
+func (c *EdgeCache) coalesce(w http.ResponseWriter, r *http.Request, host string) (bool, func()) {
+	noop := func() {}
+	if !cacheableRequest(r) || strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return false, noop
+	}
+	key := edgeKey(host, r.URL.RequestURI())
+	c.mu.Lock()
+	if done := c.fills[key]; done != nil {
+		c.mu.Unlock()
+		timer := time.NewTimer(200 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return c.serve(w, r, host), noop
+		case <-r.Context().Done():
+			return true, noop
+		case <-timer.C:
+			return false, noop
+		}
+	}
+	if len(c.fills) >= 4096 {
+		c.mu.Unlock()
+		return false, noop
+	}
+	if c.fills == nil {
+		c.fills = map[string]chan struct{}{}
+	}
+	done := make(chan struct{})
+	c.fills[key] = done
+	c.mu.Unlock()
+	return false, func() { c.mu.Lock(); delete(c.fills, key); close(done); c.mu.Unlock() }
 }

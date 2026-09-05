@@ -537,17 +537,14 @@ func (r *AgentEventLifecycleService) relayOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for i := range agents {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+	parallelJobs(ctx, len(agents), 16, func(i int) {
 		if r.server.agents.GetPort(agents[i].ID) == 0 {
-			continue
+			return
 		}
 		if err := r.relayAgent(ctx, &agents[i]); err != nil {
 			log.Printf("[AGENT-EVENTS] relay agent=%d: %v", agents[i].ID, err)
 		}
-	}
+	})
 	return nil
 }
 
@@ -657,9 +654,10 @@ func (r *AgentEventLifecycleService) deliverOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, delivery := range deliveries {
+	parallelJobs(ctx, len(deliveries), 8, func(i int) {
+		delivery := deliveries[i]
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return
 		}
 		if err := r.deliver(ctx, delivery); err != nil {
 			attempts := delivery.Attempts + 1
@@ -667,12 +665,12 @@ func (r *AgentEventLifecycleService) deliverOnce(ctx context.Context) error {
 				delivery.TransitionID, err.Error(), attempts,
 				time.Now().UTC().Add(agentEventDeliveryBackoff(attempts)),
 			)
-			continue
+			return
 		}
 		if err := r.server.store.markAgentEventDeliverySucceeded(delivery.TransitionID); err != nil {
 			log.Printf("[AGENT-EVENTS] mark delivered transition=%s: %v", delivery.TransitionID, err)
 		}
-	}
+	})
 	return nil
 }
 

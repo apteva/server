@@ -104,17 +104,9 @@ func (s *Server) writeConnectionRuntimeToken(w http.ResponseWriter, conn runtime
 	}
 
 	if force || connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
-		if err := refreshIntegrationOpenAICodexCredentials(credentials); err != nil {
+		if err := s.refreshConnectionCredentials(conn.ID, credentials, refreshIntegrationOpenAICodexCredentials); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
-		}
-		if encoded, marshalErr := json.Marshal(credentials); marshalErr == nil {
-			if reEncrypted, encErr := Encrypt(s.secret, string(encoded)); encErr == nil {
-				// Persist so the next core process and the server's own
-				// tool calls share one refreshed token instead of each
-				// re-refreshing and racing the upstream rate limit.
-				_ = s.store.UpdateConnectionCredentials(conn.ID, reEncrypted)
-			}
 		}
 	}
 

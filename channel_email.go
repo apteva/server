@@ -202,6 +202,11 @@ func (g *EmailGateway) HandleInbound(payload json.RawMessage) {
 	}
 
 	from := event.Message.From
+	if from != "" && m.registry != nil {
+		if ch, ok := m.registry.Get("email:" + m.email).(*EmailChannel); ok {
+			ch.SetLastSender(from)
+		}
+	}
 	ev := fmt.Sprintf("[email:%s] %s", from, text)
 	m.sendEvent(ev, "main")
 }

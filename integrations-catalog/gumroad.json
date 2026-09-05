@@ -48,10 +48,11 @@
     },
     {
       "name": "create_product",
-      "description": "Create a digital product. Common fields include name, price, description, custom_permalink, custom_summary, currency, require_shipping, customizable_price, published, max_purchase_count, tags, and files. For audio/file products, use presign_file_upload, upload each part to the returned S3 URL, call complete_file_upload, then include the returned file_url in files[].url on create_product or update_product.",
+      "description": "Create a digital product. For downloadable product files, use presign_file_upload and complete_file_upload, then include the returned private file_url in files[].url. That private file_url cannot be used as a cover; use create_direct_upload and upload_direct_upload followed by add_cover with signed_blob_id instead.",
       "method": "POST",
       "path": "/products",
-      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "price": {"type": "number", "description": "Price in cents."}, "description": {"type": "string"}, "custom_permalink": {"type": "string"}, "custom_summary": {"type": "string"}, "price_currency_type": {"type": "string", "description": "Currency code accepted by Gumroad, such as usd or eur."}, "currency": {"type": "string", "description": "Legacy alias; prefer price_currency_type when possible."}, "require_shipping": {"type": "boolean"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Product files uploaded through presign_file_upload and complete_file_upload. Each new file must include url from complete_file_upload.", "items": {"type": "object", "properties": {"url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}}, "required": ["name", "price"]}
+      "query_param_aliases": {"tags": "tags[]"},
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "price": {"type": "number", "description": "Price in cents."}, "description": {"type": "string"}, "custom_permalink": {"type": "string"}, "custom_summary": {"type": "string"}, "price_currency_type": {"type": "string", "description": "Currency code accepted by Gumroad, such as usd or eur."}, "currency": {"type": "string", "description": "Legacy alias; prefer price_currency_type when possible."}, "require_shipping": {"type": "boolean"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Product files uploaded through presign_file_upload and complete_file_upload. Each new file must include url from complete_file_upload.", "items": {"type": "object", "properties": {"url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}}, "required": ["name", "price"], "not": {"required": ["category", "taxonomy_id"]}}
     },
     {
       "name": "update_product",
@@ -59,7 +60,8 @@
       "method": "PUT",
       "path": "/products/{productId}",
       "path_params": ["productId"],
-      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "price": {"type": "number"}, "description": {"type": "string"}, "custom_html": {"type": "string"}, "custom_summary": {"type": "string"}, "custom_permalink": {"type": "string"}, "price_currency_type": {"type": "string"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "quantity_enabled": {"type": "boolean"}, "is_adult": {"type": "boolean"}, "display_product_reviews": {"type": "boolean"}, "should_show_sales_count": {"type": "boolean"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "cover_ids": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Full replacement list. Existing files can be kept with id. New files need url returned by complete_file_upload.", "items": {"type": "object", "properties": {"id": {"type": "string"}, "url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}, "has_same_rich_content_for_all_variants": {"type": "boolean"}}, "required": ["productId"]}
+      "query_param_aliases": {"tags": "tags[]", "cover_ids": "cover_ids[]"},
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "price": {"type": "number"}, "description": {"type": "string"}, "custom_html": {"type": "string"}, "custom_summary": {"type": "string"}, "custom_permalink": {"type": "string"}, "price_currency_type": {"type": "string"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "quantity_enabled": {"type": "boolean"}, "is_adult": {"type": "boolean"}, "display_product_reviews": {"type": "boolean"}, "should_show_sales_count": {"type": "boolean"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "cover_ids": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Full replacement list. Existing files can be kept with id. New files need url returned by complete_file_upload.", "items": {"type": "object", "properties": {"id": {"type": "string"}, "url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}, "has_same_rich_content_for_all_variants": {"type": "boolean"}}, "required": ["productId"], "not": {"required": ["category", "taxonomy_id"]}}
     },
     {
       "name": "delete_product",
@@ -144,12 +146,52 @@
       "input_schema": {"type": "object", "properties": {"upload_id": {"type": "string"}, "key": {"type": "string"}}, "required": ["upload_id", "key"]}
     },
     {
+      "name": "create_direct_upload",
+      "description": "Reserve an Active Storage direct upload for a product cover/thumbnail or public media image. Compute checksum as base64-encoded MD5 of the exact file bytes. Omit purpose for a cover or thumbnail; use purpose=media before create_media.",
+      "method": "POST",
+      "path": "/direct_uploads",
+      "input_schema": {"type": "object", "properties": {"purpose": {"type": "string", "enum": ["media"], "description": "Set to media only when the uploaded image will be finalized with create_media."}, "blob": {"type": "object", "properties": {"filename": {"type": "string"}, "byte_size": {"type": "integer", "minimum": 1}, "checksum": {"type": "string", "description": "Base64-encoded MD5 checksum of the exact file bytes."}, "content_type": {"type": "string", "description": "JPEG, PNG, GIF, or supported video MIME type; purpose=media is image-only and capped at 10 MB."}}, "required": ["filename", "byte_size", "checksum", "content_type"]}}, "required": ["blob"]}
+    },
+    {
+      "name": "upload_direct_upload",
+      "description": "Upload raw bytes to the short-lived direct_upload.url returned by create_direct_upload. Pass the exact Content-Type and Content-MD5 values returned in direct_upload.headers. This storage call deliberately omits the Gumroad bearer token.",
+      "method": "PUT",
+      "path": "{uploadUrl}",
+      "path_params": ["uploadUrl"],
+      "omit_auth_headers": ["Authorization"],
+      "body_binary_param": "file",
+      "header_params": {"content_type": "Content-Type", "content_md5": "Content-MD5"},
+      "input_schema": {"type": "object", "properties": {"uploadUrl": {"type": "string", "format": "uri"}, "file": {"description": "Image/video bytes as a blob reference or binary value."}, "content_type": {"type": "string"}, "content_md5": {"type": "string"}}, "required": ["uploadUrl", "file", "content_type", "content_md5"]}
+    },
+    {
+      "name": "list_media",
+      "description": "List images in the authenticated seller's public Gumroad media library. Requires view_profile scope.",
+      "method": "GET",
+      "path": "/media",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "create_media",
+      "description": "Create a public Gumroad media-library image from a completed purpose=media direct upload or from a genuinely public image URL. Requires edit_profile scope.",
+      "method": "POST",
+      "path": "/media",
+      "input_schema": {"type": "object", "properties": {"signed_blob_id": {"type": "string"}, "url": {"type": "string", "format": "uri"}, "name": {"type": "string"}}, "anyOf": [{"required": ["signed_blob_id"]}, {"required": ["url"]}]}
+    },
+    {
+      "name": "delete_media",
+      "description": "Delete an image from the authenticated seller's public media library. Pages embedding its URL will break.",
+      "method": "DELETE",
+      "path": "/media/{mediaId}",
+      "path_params": ["mediaId"],
+      "input_schema": {"type": "object", "properties": {"mediaId": {"type": "string"}}, "required": ["mediaId"]}
+    },
+    {
       "name": "add_cover",
-      "description": "Add a cover to a product from a publicly accessible image, video, YouTube, or Vimeo URL.",
+      "description": "Add a cover to a product from either signed_blob_id returned by a completed create_direct_upload/upload_direct_upload flow, or a genuinely public image, video, YouTube, or Vimeo URL. Private file_url values returned by complete_file_upload are not valid cover URLs.",
       "method": "POST",
       "path": "/products/{productId}/covers",
       "path_params": ["productId"],
-      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "url": {"type": "string"}}, "required": ["productId", "url"]}
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "signed_blob_id": {"type": "string"}, "url": {"type": "string", "format": "uri"}}, "required": ["productId"], "anyOf": [{"required": ["signed_blob_id"]}, {"required": ["url"]}]}
     },
     {
       "name": "delete_cover",
@@ -165,7 +207,7 @@
       "method": "POST",
       "path": "/products/{productId}/thumbnail",
       "path_params": ["productId"],
-      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "signed_blob_id": {"type": "string"}, "url": {"type": "string"}}, "required": ["productId"]}
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "signed_blob_id": {"type": "string"}, "url": {"type": "string", "format": "uri"}}, "required": ["productId"], "anyOf": [{"required": ["signed_blob_id"]}, {"required": ["url"]}]}
     },
     {
       "name": "delete_thumbnail",

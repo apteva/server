@@ -69,6 +69,7 @@ func callMCPToolsList(t *testing.T, s *Server, path string) *httptest.ResponseRe
 	))
 	req.RemoteAddr = "127.0.0.1:40123"
 	rec := httptest.NewRecorder()
+	authorizeTestMCPRequest(s, req)
 	s.handleMCPEndpoint(rec, req)
 	return rec
 }

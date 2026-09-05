@@ -243,7 +243,7 @@ func (s *Server) platformHelperMCPConfig(record *MCPServerRecord) (map[string]an
 		return map[string]any{
 			"name":      name,
 			"transport": "http",
-			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, record.ID),
+			"url":       authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, record.ID), s.instanceSecret),
 		}, nil
 	case "remote":
 		if strings.TrimSpace(record.URL) == "" {

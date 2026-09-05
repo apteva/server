@@ -31,6 +31,9 @@ func LoadSecret(dataDir string) ([]byte, error) {
 		if err == nil && len(key) == 32 {
 			return key, nil
 		}
+		return nil, fmt.Errorf("invalid existing encryption key at %s", secretPath)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read encryption key: %w", err)
 	}
 
 	// Generate new key
@@ -39,10 +42,36 @@ func LoadSecret(dataDir string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to generate secret: %w", err)
 	}
 
-	// Save it
-	os.MkdirAll(dataDir, 0755)
-	if err := os.WriteFile(secretPath, []byte(hex.EncodeToString(key)), 0600); err != nil {
-		return nil, fmt.Errorf("failed to save secret: %w", err)
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		return nil, err
+	}
+	f, err := os.CreateTemp(dataDir, ".secret-init-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.WriteString(hex.EncodeToString(key)); err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return nil, err
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if err = os.Link(f.Name(), secretPath); err != nil {
+		if os.IsExist(err) {
+			return LoadSecret(dataDir)
+		}
+		return nil, fmt.Errorf("save encryption key: %w", err)
+	}
+	if dir, err := os.Open(dataDir); err == nil {
+		err = dir.Sync()
+		dir.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "generated new encryption key at %s\n", secretPath)

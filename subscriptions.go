@@ -58,6 +58,16 @@ type Subscription struct {
 // short-lived — no need to scope by user since the dispatcher routes
 // by lane key, not by ownership.
 func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
+	return s.listAppEventSubscriptions("", "")
+}
+
+func (s *Store) listAppEventSubscriptions(app, project string) ([]*Subscription, error) {
+	filter := ""
+	var args []any
+	if app != "" {
+		filter = " AND slug>=? AND slug<? AND (project_id='' OR project_id=?)"
+		args = []any{app + ":", app + ";", project}
+	}
 	rows, err := s.db.Query(
 		`SELECT id, user_id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
@@ -68,7 +78,7 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 		 FROM subscriptions
 		 WHERE source = 'app_event'
 		   AND enabled = 1
-		   AND (COALESCE(expires_at,'') = '' OR expires_at > datetime('now'))`,
+		   AND (COALESCE(expires_at,'') = '' OR expires_at > datetime('now'))`+filter, args...,
 	)
 	if err != nil {
 		return nil, err
@@ -602,9 +612,23 @@ func (s *Store) SetSubscriptionNotifyAgent(userID int64, id string, notifyAgent 
 }
 
 func (s *Store) ListDuePollSubscriptions(now time.Time, limit int) ([]*Subscription, error) {
+	return s.listDuePollSubscriptionsExcluding(now, limit, nil)
+}
+func (s *Store) listDuePollSubscriptionsExcluding(now time.Time, limit int, exclude []string) ([]*Subscription, error) {
 	if limit <= 0 {
 		limit = 20
 	}
+	args := []any{formatPollTime(now)}
+	excluded := ""
+	if len(exclude) > 0 {
+		slots := make([]string, len(exclude))
+		for i, id := range exclude {
+			slots[i] = "?"
+			args = append(args, id)
+		}
+		excluded = " AND id NOT IN (" + strings.Join(slots, ",") + ")"
+	}
+	args = append(args, limit)
 	rows, err := s.db.Query(
 		`SELECT id, user_id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
@@ -617,9 +641,9 @@ func (s *Store) ListDuePollSubscriptions(now time.Time, limit int) ([]*Subscript
 		 WHERE enabled = 1
 		   AND COALESCE(delivery,'webhook') = 'poll'
 		   AND (next_run_at IS NULL OR next_run_at = '' OR next_run_at <= ?)
-		 ORDER BY COALESCE(next_run_at, created_at), id
+		 `+excluded+` ORDER BY COALESCE(next_run_at, created_at), id
 		 LIMIT ?`,
-		formatPollTime(now), limit,
+		args...,
 	)
 	if err != nil {
 		return nil, err
@@ -679,7 +703,7 @@ func (s *Store) UpdatePollSubscriptionFailure(id, errMsg string, lastRunAt, next
 // --- HMAC verification ---
 
 func verifyHMAC(body []byte, signature string, secret string) bool {
-	if secret == "" || signature == "" {
+	if secret == "" {
 		return true // no HMAC configured
 	}
 	// Strip "sha256=" prefix

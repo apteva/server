@@ -5,7 +5,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 )
 
 // --- Email gateway lifecycle (per-project) ---
@@ -203,9 +206,11 @@ func (s *Server) handleEmailConfigure(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("[EMAIL] webhook registration failed: %v", err)
 		} else {
-			log.Printf("[EMAIL] webhook registered: %s (secret: %s...)", webhookID, secret[:8])
+			log.Printf("[EMAIL] webhook registered: %s", webhookID)
 			// Store the webhook secret for verification
-			s.store.SetSetting("email_webhook_secret_"+body.ProjectID, secret)
+			if encrypted, err := Encrypt(s.secret, secret); err == nil {
+				s.store.SetSetting("email_webhook_secret_"+body.ProjectID, "encrypted:"+encrypted)
+			}
 		}
 	}
 
@@ -251,27 +256,49 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	json.Unmarshal(body, &event)
 
-	// Try all email gateways — the one with the matching inbox_id will handle it
+	ts, err := strconv.ParseInt(r.Header.Get("webhook-timestamp"), 10, 64)
+	if err != nil || time.Since(time.Unix(ts, 0)).Abs() > 5*time.Minute {
+		http.Error(w, "invalid webhook timestamp", http.StatusUnauthorized)
+		return
+	}
+	type destination struct {
+		project string
+		gateway *EmailGateway
+	}
+	targets := []destination{}
 	emailMu.RLock()
-	for _, gw := range emailGateways {
-		gw.HandleInbound(json.RawMessage(body))
+	for project, gw := range emailGateways {
+		targets = append(targets, destination{project, gw})
 	}
 	emailMu.RUnlock()
-
-	// Update last sender on the channel for reply context
-	if event.Message.InboxID != "" && event.Message.From != "" {
-		emailMu.RLock()
-		for _, gw := range emailGateways {
-			gw.mu.RLock()
-			if m, ok := gw.mappings[event.Message.InboxID]; ok {
-				ch := m.registry.Get("email:" + m.email)
-				if ec, ok := ch.(*EmailChannel); ok {
-					ec.SetLastSender(event.Message.From)
-				}
+	verified := false
+	for _, target := range targets {
+		secret := s.store.GetSetting("email_webhook_secret_" + target.project)
+		if strings.HasPrefix(secret, "encrypted:") {
+			secret, err = Decrypt(s.secret, strings.TrimPrefix(secret, "encrypted:"))
+			if err != nil {
+				continue
 			}
-			gw.mu.RUnlock()
 		}
-		emailMu.RUnlock()
+		if secret == "" || !verifyStandardWebhook(body, r.Header.Get("webhook-id"), r.Header.Get("webhook-timestamp"), r.Header.Get("webhook-signature"), secret) {
+			continue
+		}
+		verified = true
+		result, err := s.store.db.Exec("INSERT OR IGNORE INTO email_webhook_receipts(project_id,message_id,received_at) VALUES(?,?,?)", target.project, r.Header.Get("webhook-id"), time.Now().Unix())
+		if err != nil {
+			http.Error(w, "webhook storage unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		count, _ := result.RowsAffected()
+		if count == 0 {
+			continue
+		}
+		target.gateway.HandleInbound(json.RawMessage(body))
+		s.store.db.Exec("DELETE FROM email_webhook_receipts WHERE received_at<?", time.Now().Add(-24*time.Hour).Unix())
+	}
+	if !verified {
+		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)

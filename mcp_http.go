@@ -28,7 +28,7 @@ import (
 func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	// MCP endpoints carry stored integration credentials and are only for
 	// cores on this host. IDs are identifiers, never credentials.
-	if !requestFromLoopback(r) {
+	if !requestFromLoopback(r) || !s.authorizedInternalMCPRequest(r) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -327,7 +327,7 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 			}
 			var execResult *ExecuteResult
 			if err == nil {
-				execResult, err = executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+				execResult, err = s.executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 			}
 			if err != nil {
 				s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "mcp-http", tool.Name, params.Arguments, nil, err))

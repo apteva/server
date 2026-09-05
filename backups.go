@@ -48,172 +48,6 @@ func (s *Server) handlePlatformSnapshot(w http.ResponseWriter, r *http.Request) 
 
 // writePlatformSnapshot contains the shared snapshot implementation. Its
 // callers must complete authentication and authorization before entering it.
-func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
-	tmpDir, err := os.MkdirTemp("", "apteva-snapshot-*")
-	if err != nil {
-		http.Error(w, "tempdir: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Build the file list before writing any response bytes. Failing
-	// here surfaces as a clean 500 rather than a half-written tar.
-	type entry struct {
-		archivePath string
-		srcFile     string
-	}
-	entries := []entry{}
-
-	serverDump := filepath.Join(tmpDir, "apteva-server.db")
-	if err := vacuumIntoFromHandle(s.store.db, serverDump); err != nil {
-		http.Error(w, "snapshot server db: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	entries = append(entries, entry{
-		archivePath: "server/apteva-server.db",
-		srcFile:     serverDump,
-	})
-
-	// Managed MCP source lives on disk while identity, encrypted bindings,
-	// revision, and status live in mcp_servers. Snapshot both halves or a
-	// restored registry row would point at a missing server.json.
-	managedRows, managedErr := s.store.db.Query(
-		`SELECT id FROM mcp_servers WHERE source = ? ORDER BY id`,
-		managedMCPSource,
-	)
-	if managedErr != nil {
-		http.Error(w, "snapshot managed MCP registry: "+managedErr.Error(), http.StatusInternalServerError)
-		return
-	}
-	for managedRows.Next() {
-		var serverID int64
-		if err := managedRows.Scan(&serverID); err != nil {
-			_ = managedRows.Close()
-			http.Error(w, "snapshot managed MCP registry: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		sourceDir := s.managedMCPSourceDir(serverID)
-		walkErr := filepath.WalkDir(sourceDir, func(path string, dirEntry os.DirEntry, walkErr error) error {
-			if walkErr != nil || dirEntry.IsDir() {
-				return walkErr
-			}
-			rel, err := filepath.Rel(sourceDir, path)
-			if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return err
-			}
-			entries = append(entries, entry{
-				archivePath: filepath.ToSlash(filepath.Join("mcp-servers", strconv.FormatInt(serverID, 10), "source", rel)),
-				srcFile:     path,
-			})
-			return nil
-		})
-		if walkErr != nil {
-			_ = managedRows.Close()
-			http.Error(w, "snapshot managed MCP source: "+walkErr.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-	_ = managedRows.Close()
-
-	type installMeta struct {
-		InstallID  int64  `json:"install_id"`
-		Name       string `json:"name"`
-		Version    string `json:"version,omitempty"`
-		ProjectID  string `json:"project_id,omitempty"`
-		DBIncluded bool   `json:"db_included"`
-		DBPath     string `json:"db_path_in_archive,omitempty"`
-		Note       string `json:"note,omitempty"`
-	}
-	installs := []installMeta{}
-
-	if s.installedApps != nil {
-		for _, app := range s.installedApps.List() {
-			meta := installMeta{
-				InstallID: app.InstallID,
-				Name:      app.AppName,
-				Version:   app.Manifest.Version,
-				ProjectID: app.ProjectID,
-			}
-			// Static apps have no sidecar process and no app.db.
-			if app.SidecarURL == "" {
-				meta.Note = "static app — no database"
-				installs = append(installs, meta)
-				continue
-			}
-			if s.localApps == nil {
-				meta.Note = "local supervisor not configured"
-				installs = append(installs, meta)
-				continue
-			}
-			srcDB := filepath.Join(s.localApps.cacheDir, app.AppName, "data",
-				fmt.Sprintf("%d", app.InstallID), "app.db")
-			if _, statErr := os.Stat(srcDB); statErr != nil {
-				// Sidecar may be running with the schema migrated but no
-				// data on disk yet, or the file moved. Record the gap
-				// rather than failing the whole snapshot — partial is
-				// more useful than nothing.
-				meta.Note = "no app.db on disk"
-				installs = append(installs, meta)
-				continue
-			}
-			dump := filepath.Join(tmpDir, fmt.Sprintf("install-%d.db", app.InstallID))
-			if vErr := vacuumIntoFromPath(srcDB, dump); vErr != nil {
-				meta.Note = "vacuum failed: " + vErr.Error()
-				installs = append(installs, meta)
-				continue
-			}
-			archivePath := fmt.Sprintf("apps/%d-%s/app.db", app.InstallID, safeArchiveSegment(app.AppName))
-			entries = append(entries, entry{archivePath: archivePath, srcFile: dump})
-			meta.DBIncluded = true
-			meta.DBPath = archivePath
-			installs = append(installs, meta)
-		}
-	}
-
-	manifest := map[string]any{
-		"format_version": 1,
-		"generated_at":   time.Now().UTC().Format(time.RFC3339),
-		"server_version": versionInfo(),
-		"installs":       installs,
-	}
-	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		http.Error(w, "marshal manifest: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	now := time.Now().UTC()
-	fname := "apteva-snapshot-" + now.Format("20060102-150405") + ".tar.gz"
-	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`"`)
-
-	gz := gzip.NewWriter(w)
-	tw := tar.NewWriter(gz)
-
-	if err := writeTarBytes(tw, "manifest.json", manifestBytes, now); err != nil {
-		log.Printf("[SNAPSHOT] write manifest: %v", err)
-		_ = tw.Close()
-		_ = gz.Close()
-		return
-	}
-	for _, e := range entries {
-		if err := writeTarFile(tw, e.archivePath, e.srcFile, now); err != nil {
-			log.Printf("[SNAPSHOT] write %s: %v", e.archivePath, err)
-			_ = tw.Close()
-			_ = gz.Close()
-			return
-		}
-	}
-	if err := tw.Close(); err != nil {
-		log.Printf("[SNAPSHOT] close tar: %v", err)
-		_ = gz.Close()
-		return
-	}
-	if err := gz.Close(); err != nil {
-		log.Printf("[SNAPSHOT] close gzip: %v", err)
-	}
-}
-
 // vacuumIntoFromHandle dumps the open *sql.DB into dst. SQLite's
 // VACUUM INTO acquires only a SHARED read lock on the source so other
 // readers and writers continue uninterrupted; the resulting file is
@@ -460,6 +294,14 @@ func (s *Server) restorePlatformSnapshot(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "manifest json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if manifest.FormatVersion == 2 {
+		if err := s.stageRecoveryV2(staged, manifestBytes, r.Header.Get("X-Backup-Passphrase")); err != nil {
+			http.Error(w, "stage recovery: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, restoreReport{FormatVersion: 2, ServerDB: "staged", RestartRequired: true})
+		return
+	}
 	if manifest.FormatVersion != 1 {
 		http.Error(w, fmt.Sprintf("unsupported format_version %d (this server understands 1)", manifest.FormatVersion), http.StatusBadRequest)
 		return
@@ -608,14 +450,17 @@ func stageServerDBRestore(dbPath, srcFile string) error {
 	if dbPath == "" {
 		return errors.New("server has no dbPath set — restore endpoint unavailable")
 	}
+	if err := validateRecoveryDB(srcFile); err != nil {
+		return err
+	}
 	pending := dbPath + restorePendingSuffix
 	marker := dbPath + restoreMarkerSuffix
-	if err := copyFile(srcFile, pending); err != nil {
+	if err := atomicReplaceWithBackup(pending, srcFile); err != nil {
 		return err
 	}
 	// Marker is what applyPendingRestore looks for. Empty file is fine —
 	// a future format can put metadata in it.
-	if err := os.WriteFile(marker, []byte("apteva-restore-pending\n"), 0o644); err != nil {
+	if err := os.WriteFile(marker, []byte("apteva-restore-pending\n"), 0o600); err != nil {
 		_ = os.Remove(pending)
 		return err
 	}
@@ -695,19 +540,35 @@ func (s *Server) lookupAppNameForInstall(installID int64) (string, error) {
 // Both operations are POSIX-atomic on the same filesystem. If a backup
 // can't be made, no swap happens.
 func atomicReplaceWithBackup(dst, src string) error {
+	// Fully materialize the replacement on the destination filesystem before
+	// touching the live path. A hard-linked backup preserves the old inode.
+	f, err := os.CreateTemp(filepath.Dir(dst), ".restore-swap-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	f.Close()
+	defer os.Remove(tmp)
+	if err := copyFile(src, tmp); err != nil {
+		return err
+	}
 	if _, err := os.Stat(dst); err == nil {
 		backup := dst + restoreBackupPrefix + time.Now().UTC().Format("20060102-150405.000000000")
-		if err := os.Rename(dst, backup); err != nil {
-			return fmt.Errorf("backup %s: %w", dst, err)
+		if err := os.Link(dst, backup); err != nil {
+			return fmt.Errorf("backup destination: %w", err)
 		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-	// Try a rename first (cheap, atomic when on the same fs); fall back
-	// to copy so cross-fs stage dirs (e.g. /tmp on tmpfs vs the apps
-	// volume) still work.
-	if err := os.Rename(src, dst); err == nil {
-		return nil
+	if err := os.Rename(tmp, dst); err != nil {
+		return err
 	}
-	return copyFile(src, dst)
+	dir, err := os.Open(filepath.Dir(dst))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func copyFile(src, dst string) error {
@@ -716,7 +577,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

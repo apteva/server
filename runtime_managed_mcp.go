@@ -311,6 +311,7 @@ func (s *Server) callRuntimeManagedMCPIntegration(w http.ResponseWriter, runtime
 		strings.NewReader(string(raw)),
 	)
 	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("X-Apteva-MCP-Capability", internalMCPCapability(s.instanceSecret, req.URL.Path))
 	rec := httptest.NewRecorder()
 	s.handleMCPEndpoint(rec, req)
 	if rec.Code < 200 || rec.Code >= 300 {

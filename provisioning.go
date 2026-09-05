@@ -206,8 +206,15 @@ func (s *Server) claimManagedProvisioning(body sdk.ManagedProvisioningApplyReque
 					return nil, false, fmt.Errorf("%w: bundle revision %d is older than applied revision %d", errManagedProvisioningConflict, revision, latest)
 				}
 			}
-			_, err = s.store.db.Exec(`UPDATE managed_provisioning_requests SET status='applying',last_error='',updated_at=CURRENT_TIMESTAMP WHERE request_id=?`, body.RequestID)
-			return nil, err == nil, err
+			result, err := s.store.db.Exec(`UPDATE managed_provisioning_requests SET status='applying',last_error='',updated_at=CURRENT_TIMESTAMP WHERE request_id=? AND status=?`, body.RequestID, status)
+			if err != nil {
+				return nil, false, err
+			}
+			n, _ := result.RowsAffected()
+			if n != 1 {
+				return nil, false, fmt.Errorf("%w: request already claimed", errManagedProvisioningConflict)
+			}
+			return nil, true, nil
 		}
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
