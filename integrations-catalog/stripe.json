@@ -95,11 +95,18 @@
           "metadata": {
             "type": "object",
             "description": "Custom key-value metadata for the customer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable idempotency key sent as a request header."
           }
         },
         "required": [
           "email"
         ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
       }
     },
     {
@@ -712,8 +719,15 @@
           "metadata": {
             "type": "object",
             "description": "Custom metadata for the refund"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable idempotency key sent as a request header."
           }
         }
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
       }
     },
     {
@@ -970,7 +984,7 @@
           },
           "subscription_data": {
             "type": "object",
-            "description": "Only when mode=subscription — config for the resulting subscription (trial_period_days, metadata, etc.)."
+            "description": "Only when mode=subscription \u2014 config for the resulting subscription (trial_period_days, metadata, etc.)."
           },
           "expires_at": {
             "type": "integer",
@@ -1005,7 +1019,7 @@
     },
     {
       "name": "create_payment_link",
-      "description": "Create a Stripe Payment Link — a reusable shareable URL that takes a customer to a hosted payment page. Unlike Checkout Sessions, Payment Links don't expire and can be shared multiple times. Useful for invoice 'pay this' links.",
+      "description": "Create a Stripe Payment Link \u2014 a reusable shareable URL that takes a customer to a hosted payment page. Unlike Checkout Sessions, Payment Links don't expire and can be shared multiple times. Useful for invoice 'pay this' links.",
       "method": "POST",
       "path": "/payment_links",
       "input_schema": {
@@ -1017,7 +1031,7 @@
           },
           "after_completion": {
             "type": "object",
-            "description": "What to do after payment completes (e.g. {type: 'redirect', redirect: {url: '…'}}). Defaults to Stripe's success page."
+            "description": "What to do after payment completes (e.g. {type: 'redirect', redirect: {url: '\u2026'}}). Defaults to Stripe's success page."
           },
           "metadata": {
             "type": "object",
@@ -1074,8 +1088,8 @@
     {
       "name": "cancel_payment_intent",
       "description": "Cancel a payment intent",
-      "method": "GET",
-      "path": "/cancel-payment-intent",
+      "method": "POST",
+      "path": "/payment_intents/{payment_intent_id}/cancel",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1190,6 +1204,40 @@
         },
         "required": [
           "setup_intent_id"
+        ]
+      }
+    },
+    {
+      "name": "get_refund",
+      "description": "Get refund.",
+      "method": "GET",
+      "path": "/refunds/{refund_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "refund_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refund_id"
+        ]
+      }
+    },
+    {
+      "name": "expire_checkout_session",
+      "description": "Expire checkout session.",
+      "method": "POST",
+      "path": "/checkout/sessions/{checkout_session_id}/expire",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checkout_session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkout_session_id"
         ]
       }
     }
