@@ -309,6 +309,7 @@ import (
   "os"
   "os/signal"
   "syscall"
+  "time"
 )
 func event(kind string) {
   path := os.Getenv("TEST_SIDECAR_EVENTS")
@@ -324,8 +325,11 @@ func main() {
     if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(23) }
     go func() { for { c, err := fixed.Accept(); if err != nil { return }; c.Close() } }()
   }
+  started := time.Now()
+  delay,_ := time.ParseDuration(os.Getenv("TEST_STARTUP_DELAY"))
   mux := http.NewServeMux()
   mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+    if time.Since(started) < delay { w.WriteHeader(503); fmt.Fprint(w, "{\"status\":\"initializing\",\"phase\":\"tables\",\"completed\":1,\"total\":55}"); return }
     if os.Getenv("TEST_SIDECAR_FAIL_HEALTH") == "1" { http.Error(w, "not ready", 503); return }
     w.WriteHeader(200)
   })

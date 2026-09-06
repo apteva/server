@@ -44,19 +44,24 @@ type fixedPortReservation struct {
 // verified rollback needs more than the pid and primary HTTP port previously
 // stored in localProc.
 type activationSpec struct {
-	installID  int64
-	appName    string
-	binPath    string
-	httpPort   int
-	env        map[string]string
-	healthPath string
-	probeHost  string
-	fixedPorts []fixedRuntimePort
+	startupTimeout  time.Duration
+	databaseUpgrade string
+	installID       int64
+	appName         string
+	binPath         string
+	httpPort        int
+	env             map[string]string
+	healthPath      string
+	probeHost       string
+	fixedPorts      []fixedRuntimePort
 }
 
 func newActivationSpec(installID int64, m *sdk.Manifest, binPath string, httpPort int, env map[string]string) (activationSpec, error) {
 	if m == nil {
 		return activationSpec{}, errors.New("activation manifest required")
+	}
+	if m.Runtime.StartupTimeoutSeconds < 0 || m.Runtime.StartupTimeoutSeconds > 3600 {
+		return activationSpec{}, errors.New("invalid startup timeout")
 	}
 	ports, err := fixedRuntimePorts(m)
 	if err != nil {
@@ -71,14 +76,16 @@ func newActivationSpec(installID int64, m *sdk.Manifest, binPath string, httpPor
 		probeHost = "127.0.0.1"
 	}
 	return activationSpec{
-		installID:  installID,
-		appName:    m.Name,
-		binPath:    binPath,
-		httpPort:   httpPort,
-		env:        cloneStringMap(env),
-		healthPath: healthPath,
-		probeHost:  probeHost,
-		fixedPorts: ports,
+		startupTimeout:  time.Duration(m.Runtime.StartupTimeoutSeconds) * time.Second,
+		databaseUpgrade: m.Runtime.DatabaseUpgrade,
+		installID:       installID,
+		appName:         m.Name,
+		binPath:         binPath,
+		httpPort:        httpPort,
+		env:             cloneStringMap(env),
+		healthPath:      healthPath,
+		probeHost:       probeHost,
+		fixedPorts:      ports,
 	}, nil
 }
 
@@ -318,9 +325,9 @@ type activationError struct {
 
 func (e *activationError) Error() string {
 	if e.rollbackFailureErr != nil {
-		return fmt.Sprintf("%v; previous version rollback failed: %v", e.cause, e.rollbackFailureErr)
+		return fmt.Sprintf("%v; previous version restart failed: %v; committed database changes were not restored", e.cause, e.rollbackFailureErr)
 	}
-	return e.cause.Error()
+	return e.cause.Error() + "; binary fallback does not restore committed database changes"
 }
 
 func (e *activationError) Unwrap() error { return e.cause }
@@ -340,6 +347,12 @@ func requiresExclusiveActivation(old *localProc, next activationSpec) bool {
 // restarts and verifies OLD before the caller is allowed to report rollback.
 func (sup *LocalSupervisor) activate(next activationSpec, deadline time.Duration) error {
 	old := sup.currentProc(next.installID)
+	if next.databaseUpgrade == "requires_restore" {
+		return &activationError{cause: errors.New("automatic activation blocked: app requires an offline database upgrade and tested restore procedure"), rollbackVerified: old != nil && sup.verifyCurrentProc(next.installID, 5*time.Second)}
+	}
+	if next.startupTimeout > 0 {
+		deadline = next.startupTimeout
+	}
 	lease, err := sup.reserveActivationPorts(next)
 	if err != nil {
 		verified := old != nil && sup.waitReady(old.spec, 5*time.Second) == nil
@@ -419,8 +432,8 @@ func (sup *LocalSupervisor) waitReady(spec activationSpec, deadline time.Duratio
 		return err
 	}
 	remaining := deadline - time.Since(started)
-	if remaining <= 0 {
-		remaining = time.Second
+	if remaining <= 0 && len(spec.fixedPorts) > 0 {
+		return fmt.Errorf("startup deadline expired before fixed-port readiness")
 	}
 	return waitFixedTCPPorts(spec.probeHost, spec.fixedPorts, remaining)
 }
@@ -452,7 +465,7 @@ func waitFixedTCPPorts(host string, ports []fixedRuntimePort, deadline time.Dura
 				_ = conn.Close()
 				break
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(min(100*time.Millisecond, max(0, time.Until(end))))
 		}
 	}
 	return nil

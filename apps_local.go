@@ -563,19 +563,57 @@ func childEnvWithOverrides(base []string, overrides map[string]string) []string 
 
 func (sup *LocalSupervisor) waitHealthy(installID int64, port int, healthPath string, deadline time.Duration) error {
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, healthPath)
-	end := time.Now().Add(deadline)
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
 	client := &http.Client{Timeout: 2 * time.Second}
-	for time.Now().Before(end) {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == 200 {
-				return nil
+	lastProgress := "not listening"
+	candidate := sup.currentProc(installID)
+	if candidate != nil && candidate.port != port {
+		candidate = nil
+	}
+	for ctx.Err() == nil {
+		if candidate != nil {
+			select {
+			case <-candidate.done:
+				return fmt.Errorf("app exited before readiness (last state: %s)", lastProgress)
+			default:
 			}
 		}
-		time.Sleep(250 * time.Millisecond)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			var progress struct {
+				Status    string `json:"status"`
+				Phase     string `json:"phase"`
+				Completed int64  `json:"completed"`
+				Total     int64  `json:"total"`
+			}
+			if resp.StatusCode == http.StatusOK {
+				resp.Body.Close()
+				return nil
+			}
+			_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&progress)
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusServiceUnavailable && progress.Status == "failed" {
+				return fmt.Errorf("app initialization failed before readiness")
+			}
+			if resp.StatusCode == http.StatusServiceUnavailable && progress.Status == "initializing" {
+				message := fmt.Sprintf("initializing phase=%q completed=%d total=%d", progress.Phase, progress.Completed, progress.Total)
+				if message != lastProgress {
+					log.Printf("[APPS-LOCAL] install=%d %s", installID, message)
+					lastProgress = message
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
-	return fmt.Errorf("health check %s never returned 200 within %s", url, deadline)
+	return fmt.Errorf("health check %s never returned 200 within %s (last state: %s)", url, deadline, lastProgress)
 }
 
 func freePort() (int, error) {
