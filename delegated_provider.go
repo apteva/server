@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,6 +101,9 @@ func isDelegatedProviderCredentialsMap(creds map[string]string) bool {
 }
 
 func (s *Server) executeDelegatedProviderTool(installID, connID int64, conn *Connection, grant *delegatedProviderCredentials, toolName string, input map[string]any) (*ExecuteResult, error) {
+	return s.executeDelegatedProviderToolContext(context.Background(), installID, connID, conn, grant, toolName, input)
+}
+func (s *Server) executeDelegatedProviderToolContext(ctx context.Context, installID, connID int64, conn *Connection, grant *delegatedProviderCredentials, toolName string, input map[string]any) (*ExecuteResult, error) {
 	if grant == nil {
 		return nil, errors.New("delegated provider grant required")
 	}
@@ -122,7 +126,7 @@ func (s *Server) executeDelegatedProviderTool(installID, connID int64, conn *Con
 
 	payload, _ := json.Marshal(map[string]any{"tool": toolName, "input": input})
 	url := delegatedProviderExecuteURL(grant)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}

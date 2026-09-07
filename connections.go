@@ -1301,6 +1301,19 @@ func executeIntegrationToolWithRefresh(
 	onRefresh onCredsRefresh,
 	coordinators ...credentialRefresh,
 ) (*ExecuteResult, error) {
+	return executeIntegrationToolWithRefreshContext(context.Background(), app, tool, credentials, input, environmentID, onRefresh, coordinators...)
+}
+
+func executeIntegrationToolWithRefreshContext(
+	requestCtx context.Context,
+	app *AppTemplate,
+	tool *AppToolDef,
+	credentials map[string]string,
+	input map[string]any,
+	environmentID string,
+	onRefresh onCredsRefresh,
+	coordinators ...credentialRefresh,
+) (*ExecuteResult, error) {
 	credentials = applyCredentialFieldDefaults(app, credentials)
 	coordinate := func(fn func(map[string]string) error) error {
 		if len(coordinators) > 0 {
@@ -1312,7 +1325,7 @@ func executeIntegrationToolWithRefresh(
 		changed := false
 		err := coordinate(func(c map[string]string) error {
 			var e error
-			changed, e = ensureCredentialExchangeToken(app, c, force)
+			changed, e = ensureCredentialExchangeToken(app, c, force, requestCtx)
 			return e
 		})
 		return changed, err
@@ -1330,7 +1343,7 @@ func executeIntegrationToolWithRefresh(
 		}
 	}
 	if app != nil && app.Slug == integrationOpenAICodexSlug && connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
-		if err := coordinate(refreshIntegrationOpenAICodexCredentials); err == nil && onRefresh != nil {
+		if err := coordinate(func(c map[string]string) error { return refreshIntegrationOpenAICodexCredentialsContext(requestCtx, c) }); err == nil && onRefresh != nil {
 			if perr := onRefresh(credentials); perr != nil {
 				fmt.Fprintf(os.Stderr, "[codex-refresh] persist failed for %s: %v\n", app.Slug, perr)
 			}
@@ -1349,7 +1362,7 @@ func executeIntegrationToolWithRefresh(
 	if app != nil && app.Auth.OAuth2 != nil &&
 		oauthTokenNeedsRefresh(credentials, oauthTokenExpirySkew) &&
 		oauthCanRefresh(app.Auth.OAuth2, credentials) {
-		if err := coordinate(func(c map[string]string) error { return refreshOAuthAccessToken(app, c) }); err != nil {
+		if err := coordinate(func(c map[string]string) error { return refreshOAuthAccessToken(app, c, requestCtx) }); err != nil {
 			// Non-fatal: the token may still have life left inside the
 			// skew, and the on-401 path below is the backstop.
 			fmt.Fprintf(os.Stderr, "[oauth-refresh] %s proactive refresh: %v\n", app.Slug, err)
@@ -1359,12 +1372,12 @@ func executeIntegrationToolWithRefresh(
 			}
 		}
 	}
-	result, err := executeIntegrationTool(app, tool, credentials, input, environmentID)
+	result, err := executeIntegrationTool(app, tool, credentials, input, environmentID, requestCtx)
 	if err != nil {
 		return result, err
 	}
 	if app != nil && app.Slug == integrationOpenAICodexSlug && (result.Status == 401 || result.Status == 403) {
-		if err := coordinate(refreshIntegrationOpenAICodexCredentials); err != nil {
+		if err := coordinate(func(c map[string]string) error { return refreshIntegrationOpenAICodexCredentialsContext(requestCtx, c) }); err != nil {
 			fmt.Fprintf(os.Stderr, "[codex-refresh] %s: %v\n", app.Slug, err)
 			return result, nil
 		}
@@ -1373,7 +1386,7 @@ func executeIntegrationToolWithRefresh(
 				fmt.Fprintf(os.Stderr, "[codex-refresh] persist failed for %s: %v\n", app.Slug, err)
 			}
 		}
-		return executeIntegrationTool(app, tool, credentials, input, environmentID)
+		return executeIntegrationTool(app, tool, credentials, input, environmentID, requestCtx)
 	}
 	if result.Status != 401 {
 		return result, nil
@@ -1389,7 +1402,7 @@ func executeIntegrationToolWithRefresh(
 				fmt.Fprintf(os.Stderr, "[token-exchange] persist failed for %s: %v\n", app.Slug, err)
 			}
 		}
-		return executeIntegrationTool(app, tool, credentials, input, environmentID)
+		return executeIntegrationTool(app, tool, credentials, input, environmentID, requestCtx)
 	}
 	// 401 — try to refresh and retry once.
 	if app.Auth.OAuth2 == nil {
@@ -1401,7 +1414,7 @@ func executeIntegrationToolWithRefresh(
 	if !oauthCanRefresh(app.Auth.OAuth2, credentials) {
 		return result, nil
 	}
-	if err := coordinate(func(c map[string]string) error { return refreshOAuthAccessToken(app, c) }); err != nil {
+	if err := coordinate(func(c map[string]string) error { return refreshOAuthAccessToken(app, c, requestCtx) }); err != nil {
 		// Refresh failed — surface the original 401 so the caller knows
 		// the connection needs manual re-auth. Log so the operator can
 		// see why refresh isn't working (likely revoked refresh token,
@@ -1421,10 +1434,15 @@ func executeIntegrationToolWithRefresh(
 	}
 	// Retry the original call with the refreshed token. executeIntegrationTool
 	// reads from the same credentials map so the new token is picked up.
-	return executeIntegrationTool(app, tool, credentials, input, environmentID)
+	return executeIntegrationTool(app, tool, credentials, input, environmentID, requestCtx)
 }
 
-func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]string, force bool) (bool, error) {
+func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]string, force bool, parents ...context.Context) (bool, error) {
+	requestCtx := integrationRequestContext(parents)
+	if err := requestCtx.Err(); err != nil {
+		return false, err
+	}
+
 	cfg := app.Auth.TokenExchange
 	if cfg == nil || cfg.URL == "" {
 		return false, nil
@@ -1473,7 +1491,7 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 	if err != nil {
 		return false, credentialExchangeError(app, credentials, nil, err.Error())
 	}
-	req, err := http.NewRequest(method, exchangeURL, body)
+	req, err := http.NewRequestWithContext(requestCtx, method, exchangeURL, body)
 	if err != nil {
 		return false, credentialExchangeError(app, credentials, nil, "credential token exchange request is invalid: "+err.Error())
 	}
@@ -1489,7 +1507,10 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 		return false, credentialExchangeError(app, credentials, nil, "credential token exchange request failed: "+err.Error())
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	if readErr != nil {
+		return false, readErr
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var response map[string]any
 		_ = json.Unmarshal(raw, &response)
@@ -1638,7 +1659,12 @@ func oauthClientFromCredentials(app *AppTemplate, credentials map[string]string)
 	return clientID, clientSecret
 }
 
-func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) error {
+func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string, parents ...context.Context) error {
+	requestCtx := integrationRequestContext(parents)
+	if err := requestCtx.Err(); err != nil {
+		return err
+	}
+
 	cfg := app.Auth.OAuth2
 	if cfg == nil {
 		return fmt.Errorf("no oauth2 config for %s", app.Slug)
@@ -1650,7 +1676,7 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 	// refresh_token lookup below rather than after it.
 	if cfg.Refresh != nil {
 		clientID, clientSecret := oauthClientFromCredentials(app, credentials)
-		out, err := runOAuthTokenCall(cfg.Refresh, cfg, credentials, clientID, clientSecret)
+		out, err := runOAuthTokenCall(cfg.Refresh, cfg, credentials, clientID, clientSecret, requestCtx)
 		if err != nil {
 			return err
 		}
@@ -1697,7 +1723,7 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 	}
 
 	tokenURL := resolveTemplate(cfg.TokenURL, applyCredentialFieldDefaults(app, credentials))
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(requestCtx, "POST", tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -1713,7 +1739,10 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 		return err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	if readErr != nil {
+		return readErr
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("token endpoint http %d: %s", resp.StatusCode, string(body))
 	}
@@ -1890,7 +1919,12 @@ func integrationRateLimitCode(value any) string {
 	}
 }
 
-func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
+func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, parents ...context.Context) (*ExecuteResult, error) {
+	requestCtx := integrationRequestContext(parents)
+	if err := requestCtx.Err(); err != nil {
+		return nil, err
+	}
+
 	maxRetries := 0
 	if tool != nil && tool.RateLimit != nil {
 		maxRetries = tool.RateLimit.MaxRetries
@@ -1903,7 +1937,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}
 
 	for attempt := 0; ; attempt++ {
-		result, err := executeIntegrationToolOnce(app, tool, credentials, input, environmentID)
+		result, err := executeIntegrationToolOnce(app, tool, credentials, input, environmentID, requestCtx)
 		if err != nil || result == nil || !matchesIntegrationRateLimitRetry(tool, result) {
 			return result, err
 		}
@@ -1917,7 +1951,12 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}
 }
 
-func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
+func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, parents ...context.Context) (*ExecuteResult, error) {
+	requestCtx := integrationRequestContext(parents)
+	if err := requestCtx.Err(); err != nil {
+		return nil, err
+	}
+
 	credentials = applyCredentialFieldDefaults(app, credentials)
 	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
 	// API. Resolve it fail-safe, in order:
@@ -1946,7 +1985,7 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	}
 
 	if app != nil && app.Slug == integrationOpenAICodexSlug {
-		return executeOpenAICodexIntegrationTool(app, tool, credentials, input)
+		return executeOpenAICodexIntegrationTool(app, tool, credentials, input, requestCtx)
 	}
 
 	// Coerce input values to match the tool's schema types.
@@ -2337,7 +2376,7 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		bodyReader = bytes.NewReader(buf)
 	}
 
-	req, err := http.NewRequest(tool.Method, url, bodyReader)
+	req, err := http.NewRequestWithContext(requestCtx, tool.Method, url, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -2424,7 +2463,10 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			Headers: hdrs,
 		}, nil
 	}
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if readErr != nil {
+		return nil, fmt.Errorf("read integration response: %w", readErr)
+	}
 	if int64(len(respBody)) > maxBytes {
 		return &ExecuteResult{
 			Success: false,
