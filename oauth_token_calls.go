@@ -16,6 +16,7 @@ package main
 // why none of this is keyed on slug.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -70,7 +71,7 @@ func unwrapTokenResponse(raw map[string]any, path string) (map[string]any, error
 // TokenResponsePath unwrapping the primary exchange uses.
 func runOAuthTokenCall(
 	call *OAuthTokenCall, cfg *OAuthConfig,
-	credentials map[string]string, clientID, clientSecret string,
+	credentials map[string]string, clientID, clientSecret string, parents ...context.Context,
 ) (map[string]string, error) {
 	if call == nil || strings.TrimSpace(call.URL) == "" {
 		return nil, fmt.Errorf("token call has no url")
@@ -113,9 +114,9 @@ func runOAuthTokenCall(
 		} else {
 			endpoint += "?" + params.Encode()
 		}
-		req, err = http.NewRequest(method, endpoint, nil)
+		req, err = http.NewRequestWithContext(integrationRequestContext(parents), method, endpoint, nil)
 	} else {
-		req, err = http.NewRequest(method, call.URL, strings.NewReader(params.Encode()))
+		req, err = http.NewRequestWithContext(integrationRequestContext(parents), method, call.URL, strings.NewReader(params.Encode()))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		}
@@ -131,7 +132,10 @@ func runOAuthTokenCall(
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	if readErr != nil {
+		return nil, readErr
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("token call %s: http %d: %s", call.URL, resp.StatusCode, string(body))
 	}

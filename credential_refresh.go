@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,8 +17,21 @@ type credentialRefresh func(map[string]string, func(map[string]string) error) er
 // lock coordinates the server and its stdio gateway processes. Credential CAS
 // also protects against an operator reconnecting the account during refresh.
 func (s *Server) refreshConnectionCredentials(id int64, credentials map[string]string, refresh func(map[string]string) error) error {
+	return s.refreshConnectionCredentialsContext(context.Background(), id, credentials, refresh)
+}
+func (s *Server) refreshConnectionCredentialsContext(ctx context.Context, id int64, credentials map[string]string, refresh func(map[string]string) error) error {
 	mu := &s.store.credentialLocks[uint64(id)%64]
-	mu.Lock()
+	for !mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		mu.Unlock()
+		return err
+	}
 	defer mu.Unlock()
 	if s.store.path != "" {
 		dir := filepath.Join(filepath.Dir(s.store.path), ".credential-locks")
@@ -38,12 +52,16 @@ func (s *Server) refreshConnectionCredentials(id int64, credentials map[string]s
 			if err != syscall.EWOULDBLOCK || time.Now().After(deadline) {
 				return fmt.Errorf("credential refresh busy: %w", err)
 			}
-			time.Sleep(20 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(20 * time.Millisecond):
+			}
 		}
 		defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	}
 	var original string
-	if err := s.store.db.QueryRow("SELECT encrypted_credentials FROM connections WHERE id=?", id).Scan(&original); err != nil {
+	if err := s.store.db.QueryRowContext(ctx, "SELECT encrypted_credentials FROM connections WHERE id=?", id).Scan(&original); err != nil {
 		return err
 	}
 	plain, err := Decrypt(s.secret, original)
@@ -78,7 +96,7 @@ func (s *Server) refreshConnectionCredentials(id int64, credentials map[string]s
 	if err != nil {
 		return err
 	}
-	result, err := s.store.db.Exec("UPDATE connections SET encrypted_credentials=? WHERE id=? AND encrypted_credentials=?", encrypted, id, original)
+	result, err := s.store.db.ExecContext(ctx, "UPDATE connections SET encrypted_credentials=? WHERE id=? AND encrypted_credentials=?", encrypted, id, original)
 	if err != nil {
 		return err
 	}
@@ -95,5 +113,11 @@ func (s *Server) refreshConnectionCredentials(id int64, credentials map[string]s
 func (s *Server) executeConnectionToolWithRefresh(id int64, app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, _ onCredsRefresh) (*ExecuteResult, error) {
 	return executeIntegrationToolWithRefresh(app, tool, credentials, input, environmentID, nil, func(c map[string]string, fn func(map[string]string) error) error {
 		return s.refreshConnectionCredentials(id, c, fn)
+	})
+}
+
+func (s *Server) executeConnectionToolWithRefreshContext(ctx context.Context, id int64, app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, persist onCredsRefresh) (*ExecuteResult, error) {
+	return executeIntegrationToolWithRefreshContext(ctx, app, tool, credentials, input, environmentID, persist, func(c map[string]string, fn func(map[string]string) error) error {
+		return s.refreshConnectionCredentialsContext(ctx, id, c, fn)
 	})
 }
