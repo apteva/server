@@ -276,7 +276,7 @@ func (s *Server) maybeAutoCreateMCPForConnection(userID int64, conn *Connection,
 	_, _ = s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools))
 }
 
-func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any) (*ExecuteResult, error) {
+func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, parents ...context.Context) (*ExecuteResult, error) {
 	accessToken := strings.TrimSpace(credentials["access_token"])
 	if accessToken == "" {
 		return nil, fmt.Errorf("OpenAI Codex connection is missing access_token")
@@ -291,7 +291,7 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	}
 	if model := strings.TrimSpace(fmt.Sprint(resolvedInput["model"])); model == "" || model == "<nil>" || model == "kimi-k2.6" {
 		model = "gpt-5.5"
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(integrationRequestContext(parents), 15*time.Second)
 		if models, err := fetchCodexModelCatalog(ctx, accessToken, credentials["account_id"], false); err == nil {
 			model = codexDefaultModel(models, "medium")
 		}
@@ -324,7 +324,7 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	if _, ok := payload["stream"]; !ok {
 		payload["stream"] = true
 	}
-	status, data, headers, err := callOpenAICodexResponses(context.Background(), accessToken, credentials["account_id"], payload, timeout)
+	status, data, headers, err := callOpenAICodexResponses(integrationRequestContext(parents), accessToken, credentials["account_id"], payload, timeout)
 	if err != nil {
 		return &ExecuteResult{Success: false, Status: status, Data: map[string]any{"error": err.Error()}, Headers: headers}, nil
 	}
@@ -710,11 +710,14 @@ func collectOpenAICodexImageOutput(obj map[string]any, output *[]any, seen map[s
 }
 
 func refreshIntegrationOpenAICodexCredentials(credentials map[string]string) error {
+	return refreshIntegrationOpenAICodexCredentialsContext(context.Background(), credentials)
+}
+func refreshIntegrationOpenAICodexCredentialsContext(parent context.Context, credentials map[string]string) error {
 	refreshToken := strings.TrimSpace(credentials["refresh_token"])
 	if refreshToken == "" {
 		return fmt.Errorf("OpenAI Codex connection is missing refresh_token")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
 	tokens, err := postConnectionDeviceFormForTokens(ctx, integrationOpenAICodexTokenURL, map[string]string{
 		"grant_type":    "refresh_token",

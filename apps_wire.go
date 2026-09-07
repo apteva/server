@@ -48,7 +48,10 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 		}
 	}
 	quarantined := cloneQuarantineEnabled()
-	if !quarantined {
+	// Explicit loopback-only integration testing: initialize chat without
+	// resuming unrelated agents, sidecars, jobs or subscriptions.
+	localChatTest := quarantined && os.Getenv("APTEVA_QUARANTINE_CHAT_TEST") == "1" && os.Getenv("APTEVA_BIND") == "127.0.0.1"
+	if !quarantined || localChatTest {
 		if err := reg.Start(); err != nil {
 			return nil, fmt.Errorf("start apps: %w", err)
 		}
@@ -60,7 +63,7 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// Single-place disable: CHANNELCHAT_STREAMING=0 leaves the hook
 	// nil and the entire feature is off. Reverting this block reverts
 	// the streaming feature without touching any other code.
-	if !quarantined && os.Getenv("CHANNELCHAT_STREAMING") != "0" {
+	if (!quarantined || localChatTest) && os.Getenv("CHANNELCHAT_STREAMING") != "0" {
 		if app, ok := cc.(interface {
 			Streamer() *channelchat.Streamer
 		}); ok {
@@ -87,7 +90,7 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// touch any AgentManager accessor that takes the mutex
 	// (GetPort, GetCoreAPIKey, etc.); we pass the Agent
 	// directly so everything we need is already in hand.
-	if !quarantined {
+	if !quarantined || localChatTest {
 		s.agents.PostChannelsInit = func(inst *Agent, ic *AgentChannels) {
 			s.attachAppChannelsDuringStart(reg, inst, ic)
 		}

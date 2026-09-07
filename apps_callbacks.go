@@ -978,7 +978,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "delegated provider credentials invalid: "+err.Error(), http.StatusBadGateway)
 		return
 	} else if ok {
-		result, err := s.executeDelegatedProviderTool(installID, connID, conn, grant, tool.Name, executionInput)
+		result, err := s.executeDelegatedProviderToolContext(r.Context(), installID, connID, conn, grant, tool.Name, executionInput)
 		if err != nil {
 			log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
 			writeJSON(w, map[string]any{"success": false, "data": err.Error()})
@@ -1023,7 +1023,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = s.executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	}
 	if err != nil {
 		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))

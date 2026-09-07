@@ -830,6 +830,7 @@ func TestAuthPreferencesInterfaceLevelPersistsIntoMe(t *testing.T) {
 	if got := s.store.GetUserInterfaceLevel(user.ID); got != "business" {
 		t.Fatalf("new user interface level=%q, want business", got)
 	}
+	seedAppWithTools(t, s, defaultConversationsApp, "", []string{"send", "list"})
 
 	body := []byte(`{"interface_level":"personal"}`)
 	req := httptest.NewRequest(http.MethodPut, "/auth/preferences", bytes.NewReader(body))

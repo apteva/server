@@ -850,6 +850,13 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if body.InterfaceLevel != nil {
+		if !validInterfaceLevel(*body.InterfaceLevel) {
+			http.Error(w, "interface_level must be personal, business, or developer", http.StatusBadRequest)
+			return
+		}
+		if !s.prepareInterfaceApps(w, userID, *body.InterfaceLevel) {
+			return
+		}
 		if err := s.store.SetUserInterfaceLevel(userID, *body.InterfaceLevel); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -886,6 +893,10 @@ func (s *Server) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request
 	userID := getUserID(r)
 	if userID == 0 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// New accounts default to Business even before an explicit level choice.
+	if !s.prepareInterfaceApps(w, userID, s.store.GetUserInterfaceLevel(userID)) {
 		return
 	}
 	if err := s.store.MarkUserOnboarded(userID); err != nil {

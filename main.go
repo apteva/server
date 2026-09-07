@@ -218,6 +218,10 @@ type Server struct {
 	// Narrow lifecycle seam for Helper activation tests. Production leaves it
 	// nil and starts the real managed Core through ensureMetaAgentRunning.
 	platformHelperStarter func(int64) (*Agent, error)
+
+	// Personal and Business share one Conversations dependency. Serialize
+	// preparation so concurrent interface selections cannot duplicate it.
+	interfaceAppsMu sync.Mutex
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -693,6 +697,7 @@ func main() {
 	// should use the generic /presets envelope.
 	apiMux.HandleFunc("/project-presets", s.authMiddleware(s.handleProjectPresets))
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
+	apiMux.HandleFunc("/auth/onboarding/status", s.authMiddleware(s.handleOnboardingStatus))
 	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
 	apiMux.HandleFunc("/mobile/push/subscriptions", s.authMiddleware(s.handleMobilePushSubscriptions))
 	apiMux.HandleFunc("/mobile/push/subscriptions/", s.authMiddleware(s.handleMobilePushSubscription))
@@ -1627,6 +1632,13 @@ func main() {
 			log.Printf("[CLONE-QUARANTINE] runtime preparation failed: %v", err)
 		} else {
 			log.Printf("[CLONE-QUARANTINE] runtimes prepared; agents, apps, subscriptions, and refresh workers remain stopped")
+		}
+		if os.Getenv("APTEVA_QUARANTINE_CHAT_TEST") == "1" && os.Getenv("APTEVA_BIND") == "127.0.0.1" {
+			for _, rawID := range strings.Split(os.Getenv("APTEVA_CHAT_TEST_INSTALL_IDS"), ",") {
+				id, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
+				if err != nil || id <= 0 { continue }
+				if err := s.restartInstallSidecar(id); err != nil { log.Printf("local chat test install %d: %v", id, err) }
+			}
 		}
 	} else {
 		// Seed exact install IDs, credentials, and persisted local sidecar

@@ -1,0 +1,768 @@
+{
+  "slug": "admob",
+  "name": "Google AdMob",
+  "description": "Read-only Google AdMob publisher analytics: accounts, apps, ad units, network earnings and ad performance, and mediation reports. Uses Google OAuth with admob.readonly. Reports preserve header, rows and footer for currency, time zone, warnings and completeness checks.",
+  "logo": "https://www.google.com/s2/favicons?domain=admob.google.com&sz=128",
+  "categories": [
+    "analytics",
+    "advertising",
+    "monetization",
+    "mobile",
+    "google",
+    "admob"
+  ],
+  "base_url": "https://admob.googleapis.com/v1",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "token",
+        "required": false,
+        "source": "oauth",
+        "hidden": true,
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "required": false,
+        "source": "oauth",
+        "hidden": true,
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in",
+        "required": false,
+        "source": "oauth",
+        "hidden": true
+      },
+      {
+        "name": "expires_at",
+        "label": "expires_at",
+        "required": false,
+        "source": "oauth",
+        "hidden": true
+      },
+      {
+        "name": "token_type",
+        "label": "token_type",
+        "required": false,
+        "source": "oauth",
+        "hidden": true
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/admob.readonly"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent select_account",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "health_check": {
+    "tool": "list_accounts",
+    "input": {
+      "pageSize": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_accounts",
+      "description": "List the publisher account most recently signed in to in the AdMob UI. Preserve account and nextPageToken; use publisherId for account_id in subsequent tools.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Continuation token from nextPageToken. Repeat the same account and other parameters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "query_params": [
+        "pageSize",
+        "pageToken"
+      ]
+    },
+    {
+      "name": "get_account",
+      "description": "Get publisher account details, including default reporting currency and reporting time zone.",
+      "method": "GET",
+      "path": "/accounts/{account_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "pattern": "^pub-[0-9]+$",
+            "description": "Publisher ID, for example pub-9876543210987654. Use publisherId from list_accounts, without the accounts/ prefix."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "list_apps",
+      "description": "List apps belonging to an AdMob publisher account. Follow nextPageToken until absent; AdMob defaults to up to 10,000 items and accepts pageSize up to 20,000.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "pattern": "^pub-[0-9]+$",
+            "description": "Publisher ID, for example pub-9876543210987654. Use publisherId from list_accounts, without the accounts/ prefix."
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20000
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Continuation token from nextPageToken. Repeat the same account and other parameters."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "account_id"
+        ]
+      },
+      "query_params": [
+        "pageSize",
+        "pageToken"
+      ]
+    },
+    {
+      "name": "list_ad_units",
+      "description": "List ad units belonging to an AdMob publisher account. Follow nextPageToken until absent; AdMob defaults to up to 10,000 items and accepts pageSize up to 20,000.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/adUnits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "pattern": "^pub-[0-9]+$",
+            "description": "Publisher ID, for example pub-9876543210987654. Use publisherId from list_accounts, without the accounts/ prefix."
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20000
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Continuation token from nextPageToken. Repeat the same account and other parameters."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "account_id"
+        ]
+      },
+      "query_params": [
+        "pageSize",
+        "pageToken"
+      ]
+    },
+    {
+      "name": "generate_network_report",
+      "description": "Generate an AdMob network report for an inclusive date range with selected dimensions, metrics and filters. Returns a JSON array of header, row and footer messages. Earnings and eCPM/RPM micros are currency units times 1,000,000. Inspect footer warnings and matchingRowCount before treating the result as complete. Reports have a row cap rather than page tokens.",
+      "method": "POST",
+      "path": "/accounts/{account_id}/networkReport:generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "pattern": "^pub-[0-9]+$",
+            "description": "Publisher ID, for example pub-9876543210987654. Use publisherId from list_accounts, without the accounts/ prefix."
+          },
+          "reportSpec": {
+            "type": "object",
+            "properties": {
+              "dateRange": {
+                "type": "object",
+                "properties": {
+                  "startDate": {
+                    "type": "object",
+                    "properties": {
+                      "year": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9999
+                      },
+                      "month": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "day": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "year",
+                      "month",
+                      "day"
+                    ]
+                  },
+                  "endDate": {
+                    "type": "object",
+                    "properties": {
+                      "year": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9999
+                      },
+                      "month": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "day": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "year",
+                      "month",
+                      "day"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "startDate",
+                  "endDate"
+                ],
+                "description": "Inclusive calendar dates; startDate must not be after endDate."
+              },
+              "dimensions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "DATE",
+                    "MONTH",
+                    "WEEK",
+                    "AD_UNIT",
+                    "APP",
+                    "AD_TYPE",
+                    "COUNTRY",
+                    "FORMAT",
+                    "PLATFORM",
+                    "MOBILE_OS_VERSION",
+                    "GMA_SDK_VERSION",
+                    "APP_VERSION_NAME",
+                    "SERVING_RESTRICTION"
+                  ]
+                },
+                "description": "Choose at most one of DATE, MONTH and WEEK. AD_UNIT also includes APP. Omit dimensions for account totals."
+              },
+              "metrics": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "AD_REQUESTS",
+                    "CLICKS",
+                    "ESTIMATED_EARNINGS",
+                    "IMPRESSIONS",
+                    "IMPRESSION_CTR",
+                    "IMPRESSION_RPM",
+                    "MATCHED_REQUESTS",
+                    "MATCH_RATE",
+                    "SHOW_RATE"
+                  ]
+                },
+                "minItems": 1,
+                "description": "Monetary microsValue fields must be divided by 1,000,000 for currency units. Keep integerValue and microsValue strings intact until conversion. AD_TYPE cannot be combined with AD_REQUESTS, MATCH_RATE or IMPRESSION_RPM."
+              },
+              "dimensionFilters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dimension": {
+                      "type": "string",
+                      "enum": [
+                        "DATE",
+                        "MONTH",
+                        "WEEK",
+                        "AD_UNIT",
+                        "APP",
+                        "AD_TYPE",
+                        "COUNTRY",
+                        "FORMAT",
+                        "PLATFORM",
+                        "MOBILE_OS_VERSION",
+                        "GMA_SDK_VERSION",
+                        "APP_VERSION_NAME",
+                        "SERVING_RESTRICTION"
+                      ]
+                    },
+                    "matchesAny": {
+                      "type": "object",
+                      "properties": {
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "values"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "dimension",
+                    "matchesAny"
+                  ]
+                }
+              },
+              "sortConditions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dimension": {
+                      "type": "string",
+                      "enum": [
+                        "DATE",
+                        "MONTH",
+                        "WEEK",
+                        "AD_UNIT",
+                        "APP",
+                        "AD_TYPE",
+                        "COUNTRY",
+                        "FORMAT",
+                        "PLATFORM",
+                        "MOBILE_OS_VERSION",
+                        "GMA_SDK_VERSION",
+                        "APP_VERSION_NAME",
+                        "SERVING_RESTRICTION"
+                      ]
+                    },
+                    "metric": {
+                      "type": "string",
+                      "enum": [
+                        "AD_REQUESTS",
+                        "CLICKS",
+                        "ESTIMATED_EARNINGS",
+                        "IMPRESSIONS",
+                        "IMPRESSION_CTR",
+                        "IMPRESSION_RPM",
+                        "MATCHED_REQUESTS",
+                        "MATCH_RATE",
+                        "SHOW_RATE"
+                      ]
+                    },
+                    "order": {
+                      "type": "string",
+                      "enum": [
+                        "ASCENDING",
+                        "DESCENDING"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "order"
+                  ],
+                  "oneOf": [
+                    {
+                      "required": [
+                        "dimension"
+                      ],
+                      "not": {
+                        "required": [
+                          "metric"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "metric"
+                      ],
+                      "not": {
+                        "required": [
+                          "dimension"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "localizationSettings": {
+                "type": "object",
+                "properties": {
+                  "currencyCode": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$",
+                    "description": "ISO 4217 currency, e.g. USD. Omit to use the account currency."
+                  },
+                  "languageCode": {
+                    "type": "string",
+                    "description": "BCP 47 language tag; defaults to en-US."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "maxReportRows": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000,
+                "description": "Row cap, not pagination. Check footer.matchingRowCount and warnings; split the date range or filters if the report is truncated."
+              },
+              "timeZone": {
+                "type": "string",
+                "enum": [
+                  "America/Los_Angeles"
+                ],
+                "description": "Omit to use the account time zone. The API currently accepts only America/Los_Angeles as an explicit override."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "dateRange",
+              "metrics"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "account_id",
+          "reportSpec"
+        ]
+      },
+      "timeout_ms": 300000
+    },
+    {
+      "name": "generate_mediation_report",
+      "description": "Generate an AdMob mediation report for an inclusive date range with selected dimensions, metrics and filters. Returns a JSON array of header, row and footer messages. Earnings and eCPM/RPM micros are currency units times 1,000,000. Inspect footer warnings and matchingRowCount before treating the result as complete. Reports have a row cap rather than page tokens.",
+      "method": "POST",
+      "path": "/accounts/{account_id}/mediationReport:generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "pattern": "^pub-[0-9]+$",
+            "description": "Publisher ID, for example pub-9876543210987654. Use publisherId from list_accounts, without the accounts/ prefix."
+          },
+          "reportSpec": {
+            "type": "object",
+            "properties": {
+              "dateRange": {
+                "type": "object",
+                "properties": {
+                  "startDate": {
+                    "type": "object",
+                    "properties": {
+                      "year": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9999
+                      },
+                      "month": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "day": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "year",
+                      "month",
+                      "day"
+                    ]
+                  },
+                  "endDate": {
+                    "type": "object",
+                    "properties": {
+                      "year": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9999
+                      },
+                      "month": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "day": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "year",
+                      "month",
+                      "day"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "startDate",
+                  "endDate"
+                ],
+                "description": "Inclusive calendar dates; startDate must not be after endDate."
+              },
+              "dimensions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "DATE",
+                    "MONTH",
+                    "WEEK",
+                    "AD_SOURCE",
+                    "AD_SOURCE_INSTANCE",
+                    "AD_UNIT",
+                    "APP",
+                    "MEDIATION_GROUP",
+                    "COUNTRY",
+                    "FORMAT",
+                    "PLATFORM",
+                    "MOBILE_OS_VERSION",
+                    "GMA_SDK_VERSION",
+                    "APP_VERSION_NAME",
+                    "SERVING_RESTRICTION"
+                  ]
+                },
+                "description": "Choose at most one of DATE, MONTH and WEEK. AD_UNIT also includes APP. Omit dimensions for account totals."
+              },
+              "metrics": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "AD_REQUESTS",
+                    "CLICKS",
+                    "ESTIMATED_EARNINGS",
+                    "IMPRESSIONS",
+                    "IMPRESSION_CTR",
+                    "MATCHED_REQUESTS",
+                    "MATCH_RATE",
+                    "OBSERVED_ECPM"
+                  ]
+                },
+                "minItems": 1,
+                "description": "Monetary microsValue fields must be divided by 1,000,000 for currency units. Keep integerValue and microsValue strings intact until conversion."
+              },
+              "dimensionFilters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dimension": {
+                      "type": "string",
+                      "enum": [
+                        "DATE",
+                        "MONTH",
+                        "WEEK",
+                        "AD_SOURCE",
+                        "AD_SOURCE_INSTANCE",
+                        "AD_UNIT",
+                        "APP",
+                        "MEDIATION_GROUP",
+                        "COUNTRY",
+                        "FORMAT",
+                        "PLATFORM",
+                        "MOBILE_OS_VERSION",
+                        "GMA_SDK_VERSION",
+                        "APP_VERSION_NAME",
+                        "SERVING_RESTRICTION"
+                      ]
+                    },
+                    "matchesAny": {
+                      "type": "object",
+                      "properties": {
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "values"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "dimension",
+                    "matchesAny"
+                  ]
+                }
+              },
+              "sortConditions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dimension": {
+                      "type": "string",
+                      "enum": [
+                        "DATE",
+                        "MONTH",
+                        "WEEK",
+                        "AD_SOURCE",
+                        "AD_SOURCE_INSTANCE",
+                        "AD_UNIT",
+                        "APP",
+                        "MEDIATION_GROUP",
+                        "COUNTRY",
+                        "FORMAT",
+                        "PLATFORM",
+                        "MOBILE_OS_VERSION",
+                        "GMA_SDK_VERSION",
+                        "APP_VERSION_NAME",
+                        "SERVING_RESTRICTION"
+                      ]
+                    },
+                    "metric": {
+                      "type": "string",
+                      "enum": [
+                        "AD_REQUESTS",
+                        "CLICKS",
+                        "ESTIMATED_EARNINGS",
+                        "IMPRESSIONS",
+                        "IMPRESSION_CTR",
+                        "MATCHED_REQUESTS",
+                        "MATCH_RATE",
+                        "OBSERVED_ECPM"
+                      ]
+                    },
+                    "order": {
+                      "type": "string",
+                      "enum": [
+                        "ASCENDING",
+                        "DESCENDING"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "order"
+                  ],
+                  "oneOf": [
+                    {
+                      "required": [
+                        "dimension"
+                      ],
+                      "not": {
+                        "required": [
+                          "metric"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "metric"
+                      ],
+                      "not": {
+                        "required": [
+                          "dimension"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "localizationSettings": {
+                "type": "object",
+                "properties": {
+                  "currencyCode": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$",
+                    "description": "ISO 4217 currency, e.g. USD. Omit to use the account currency."
+                  },
+                  "languageCode": {
+                    "type": "string",
+                    "description": "BCP 47 language tag; defaults to en-US."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "maxReportRows": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000,
+                "description": "Row cap, not pagination. Check footer.matchingRowCount and warnings; split the date range or filters if the report is truncated."
+              },
+              "timeZone": {
+                "type": "string",
+                "enum": [
+                  "America/Los_Angeles"
+                ],
+                "description": "Omit to use the account time zone. The API currently accepts only America/Los_Angeles as an explicit override."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "dateRange",
+              "metrics"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "account_id",
+          "reportSpec"
+        ]
+      },
+      "timeout_ms": 300000
+    }
+  ]
+}
