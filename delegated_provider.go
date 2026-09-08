@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/apteva/server/internal/admission"
 )
 
 const delegatedProviderMarker = "_apteva_delegated_provider"
@@ -103,7 +105,7 @@ func isDelegatedProviderCredentialsMap(creds map[string]string) bool {
 func (s *Server) executeDelegatedProviderTool(installID, connID int64, conn *Connection, grant *delegatedProviderCredentials, toolName string, input map[string]any) (*ExecuteResult, error) {
 	return s.executeDelegatedProviderToolContext(context.Background(), installID, connID, conn, grant, toolName, input)
 }
-func (s *Server) executeDelegatedProviderToolContext(ctx context.Context, installID, connID int64, conn *Connection, grant *delegatedProviderCredentials, toolName string, input map[string]any) (*ExecuteResult, error) {
+func (s *Server) executeDelegatedProviderToolContext(ctx context.Context, installID, connID int64, conn *Connection, grant *delegatedProviderCredentials, toolName string, input map[string]any) (out *ExecuteResult, outErr error) {
 	if grant == nil {
 		return nil, errors.New("delegated provider grant required")
 	}
@@ -124,6 +126,15 @@ func (s *Server) executeDelegatedProviderToolContext(ctx context.Context, instal
 		return nil, err
 	}
 
+	permit, admitErr := s.admitIntegration(ctx, connID, toolName)
+	if admitErr != nil {
+		return nil, admitErr
+	}
+	started := time.Now()
+	overloaded := false
+	defer func() {
+		permit.Finish(admission.Result{Duration: time.Since(started), CPUSeconds: 0, Canceled: ctx.Err() != nil, Failed: outErr != nil || out == nil || !out.Success, Overloaded: overloaded || out != nil && (out.Status == 429 || out.Status == 503)})
+	}()
 	payload, _ := json.Marshal(map[string]any{"tool": toolName, "input": input})
 	url := delegatedProviderExecuteURL(grant)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
@@ -157,7 +168,11 @@ func (s *Server) executeDelegatedProviderToolContext(ctx context.Context, instal
 		return nil, err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	overloaded = resp.StatusCode == 429 || resp.StatusCode == 503
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	if readErr != nil {
+		return nil, readErr
+	}
 	if resp.StatusCode >= 300 {
 		err := fmt.Errorf("delegated provider controller returned %d: %s", resp.StatusCode, truncate(string(raw), 500))
 		s.recordDelegatedProviderUsage(delegatedUsageEvent{

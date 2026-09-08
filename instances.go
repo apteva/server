@@ -488,10 +488,6 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	serverBin := im.gatewayCommand()
 
 	// Build config.json — restore saved config from DB, then ensure directive/mode/gateway are current
-	mode := inst.Mode
-	if mode == "" {
-		mode = "autonomous"
-	}
 
 	gateway := managementGatewayConfig(inst, serverBin, serverPort)
 
@@ -538,13 +534,14 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 
-	// Set directive/mode from disk. Fall back to DB only for brand new instances (no config.json yet).
-	if _, hasDirective := config["directive"]; !hasDirective || config["directive"] == "" {
+	// Core owns directive evolution; the server owns the behavior section.
+	if _, hasDirective := config["directive"]; !hasDirective {
 		config["directive"] = inst.Directive
 	}
-	if _, hasMode := config["mode"]; !hasMode || config["mode"] == "" {
-		config["mode"] = mode
-	}
+	directive, _ := config["directive"].(string)
+	config["directive"] = withAgentBehavior(directive, inst.Mode)
+	delete(config, "mode")
+	applyBehaviorToSavedWorkers(config, inst.Mode)
 
 	// Read default_provider from instance config. The disk metadata branch is
 	// retained for old installations; current servers persist it in the agent
@@ -1103,11 +1100,20 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	}
 	im.mu.Unlock()
 
-	dir := im.instanceDir(inst.ID)
 	serverBin := im.gatewayCommand()
-	config := map[string]any{}
-	if diskConfig, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
-		_ = json.Unmarshal(diskConfig, &config)
+	// A surviving core owns its evolving directive and saved state. Read live
+	// configuration and refresh only MCP URLs; never replay stale disk config.
+	getReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/config", inst.Port), nil)
+	getReq.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	getResp, err := (&http.Client{Timeout: 3 * time.Second}).Do(getReq)
+	if err != nil {
+		return fmt.Errorf("read adopted core config: %w", err)
+	}
+	var config map[string]any
+	decodeErr := json.NewDecoder(io.LimitReader(getResp.Body, 16<<20)).Decode(&config)
+	getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK || decodeErr != nil || config == nil {
+		return fmt.Errorf("read adopted core config: HTTP %d, decode: %v", getResp.StatusCode, decodeErr)
 	}
 
 	ic := &AgentChannels{registry: NewChannelRegistry()}
@@ -1187,11 +1193,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 			return err
 		}
 	}
-	configData, _ := json.MarshalIndent(config, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), configData, 0600); err != nil {
-		ic.Stop()
-		return fmt.Errorf("write refreshed config: %w", err)
-	}
+	configData, _ := json.Marshal(map[string]any{"mcp_servers": config["mcp_servers"]})
 
 	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("http://127.0.0.1:%d/config", inst.Port), bytes.NewReader(configData))
 	req.Header.Set("Content-Type", "application/json")
@@ -1673,14 +1675,12 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if body.Directive == "" {
 		body.Directive = "Idle. Waiting for configuration via directive."
 	}
-	// Core supports autonomous, cautious, and learn. Anything else
-	// (including the legacy "supervised" string that never existed on
-	// the core side) falls back to autonomous.
-	switch body.Mode {
-	case "autonomous", "cautious", "learn":
-		// keep
-	default:
+	if body.Mode == "" {
 		body.Mode = "autonomous"
+	}
+	if !validAgentMode(body.Mode) {
+		http.Error(w, "mode must be autonomous, cautious, or learn", http.StatusBadRequest)
+		return
 	}
 	if s.store.GetPlatformRole(userID) != PlatformAdmin && body.Mode == "autonomous" {
 		if policy, err := s.loadAccessPolicy(); err != nil || !policy.Capabilities.AutonomousScheduling {
@@ -2088,7 +2088,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 
 		// 2. Stop the running core process (kills child + per-instance
 		// channels MCP + Slack/email/telegram listeners).
-		s.agents.Stop(inst.ID)
+		s.stopAgentWithConfigLock(inst.ID)
 
 		// 3. Notify apps so each one drops its instance-scoped rows
 		// (channelchat: chats + messages). Done AFTER Stop so the apps
@@ -2146,7 +2146,7 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 
 	// Disk config.json is the source of truth — no need to save to DB.
 	// Core already writes threads/MCP/directive to disk at runtime.
-	s.agents.Stop(inst.ID)
+	s.stopAgentWithConfigLock(inst.ID)
 	inst.Status = "stopped"
 	inst.Pid = 0
 	inst.Port = 0
@@ -2472,11 +2472,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer resp.Body.Close()
-		for k, v := range resp.Header {
-			w.Header()[k] = v
-		}
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		s.writeBehaviorResponse(w, resp, inst)
 		return
 	}
 
@@ -2490,6 +2486,16 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// simultaneous attachment changes cannot silently disconnect tools.
 	unlockConfig := s.lockAgentConfig(instanceID)
 	defer unlockConfig()
+	inst, err = s.store.GetAgentByID(instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+	port = s.agents.GetPort(instanceID)
+	if port == 0 && inst.Status == "running" {
+		http.Error(w, "agent runtime is transitioning; retry configuration update", http.StatusServiceUnavailable)
+		return
+	}
 
 	// PUT — read body, update DB fields, then proxy FULL body to core
 	bodyBytes, _ := io.ReadAll(r.Body)
@@ -2510,6 +2516,19 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(bodyBytes, &rawBody); err != nil || rawBody == nil {
 		http.Error(w, "invalid JSON object", http.StatusBadRequest)
 		return
+	}
+	if value, exists := rawBody["mode"]; exists {
+		mode, ok := value.(string)
+		if !ok || !validAgentMode(mode) {
+			http.Error(w, "mode must be autonomous, cautious, or learn", http.StatusBadRequest)
+			return
+		}
+	}
+	if value, exists := rawBody["directive"]; exists {
+		if _, ok := value.(string); !ok {
+			http.Error(w, "directive must be a string", http.StatusBadRequest)
+			return
+		}
 	}
 	if _, ok := rawBody["computer"]; ok {
 		http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
@@ -2605,21 +2624,48 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			rawBody["mode"] = "cautious"
 		}
 	}
-	if encoded, err := json.Marshal(rawBody); err == nil {
-		bodyBytes = encoded
-	} else {
-		http.Error(w, "encode provider configuration", http.StatusInternalServerError)
+	_, directiveSent := rawBody["directive"]
+	_, modeSent := rawBody["mode"]
+	behaviorChanged := directiveSent || modeSent
+	if behaviorChanged {
+		base := body.Directive
+		if !directiveSent {
+			state, stateErr := s.store.agentBehaviorState(inst.ID)
+			if stateErr != nil {
+				http.Error(w, "read behavior state", 500)
+				return
+			}
+			base = inst.Directive
+			if state.Revision <= state.MainRevision {
+				cfg, readErr := s.behaviorConfig(r.Context(), inst, port)
+				if readErr != nil {
+					http.Error(w, readErr.Error(), http.StatusBadGateway)
+					return
+				}
+				if latest, ok := cfg["directive"].(string); ok {
+					base = latest
+				}
+			}
+		}
+		if modeSent {
+			inst.Mode = body.Mode
+		}
+		inst.Directive = withAgentBehavior(base, inst.Mode)
+		body.Directive = inst.Directive
+		rawBody["directive"] = inst.Directive
+	}
+	delete(rawBody, "mode")
+	if threads, exists := rawBody["threads"]; exists {
+		applyBehaviorToSavedWorkers(map[string]any{"threads": threads}, inst.Mode)
+	}
+	bodyBytes, err = json.Marshal(rawBody)
+	if err != nil {
+		http.Error(w, "encode configuration", 500)
 		return
 	}
 
-	if body.Directive != "" {
-		inst.Directive = body.Directive
-	}
-	if body.Mode == "autonomous" || body.Mode == "cautious" || body.Mode == "learn" {
-		inst.Mode = body.Mode
-	}
 	if body.Config != "" {
-		inst.Config = body.Config
+		inst.Config = withoutCoreMode(body.Config)
 	}
 	// Save the validated effective provider rather than relying on whichever
 	// order SQLite or the dashboard happened to return.
@@ -2683,6 +2729,13 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if behaviorChanged {
+		if _, err := s.store.db.Exec(`UPDATE agent_behavior_state SET revision=revision+1,version=? WHERE agent_id=? AND version<>?`, behaviorVersion, inst.ID, behaviorVersion); err != nil {
+			http.Error(w, "persist behavior revision", 500)
+			return
+		}
+	}
+
 	// Forward the FULL body to core (includes mcp_servers, providers, etc.)
 	if port > 0 {
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
@@ -2694,7 +2747,26 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer resp.Body.Close()
+		if behaviorChanged && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
+			_, _ = s.store.db.Exec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, fmt.Sprintf("main behavior pending: core HTTP %d", resp.StatusCode), inst.ID)
+		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if behaviorChanged {
+				state, stateErr := s.store.agentBehaviorState(inst.ID)
+				if stateErr == nil {
+					_, stateErr = s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
+				}
+				if stateErr == nil {
+					stateErr = s.applyBehaviorToLiveWorkers(r.Context(), inst)
+				}
+				if stateErr == nil {
+					_, stateErr = s.store.db.Exec(`UPDATE agent_behavior_state SET applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
+				}
+				if stateErr != nil {
+					_, _ = s.store.db.Exec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, stateErr.Error(), inst.ID)
+					resp.StatusCode = http.StatusAccepted
+				}
+			}
 			if err := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"]); err != nil {
 				log.Printf("[CONFIG] sync app bindings failed agent=%d: %v", inst.ID, err)
 				http.Error(w, "core config updated but app attachment metadata could not be synchronized", http.StatusInternalServerError)
@@ -2704,27 +2776,21 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				s.refreshChannelChatConversationDirectives(inst.ID)
 			}
 		}
-		for k, v := range resp.Header {
-			w.Header()[k] = v
-		}
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		s.writeBehaviorResponse(w, resp, inst)
 		return
 	}
 
 	// Stopped: persist to config.json on disk so the next core boot
 	// picks up the edit. Fields the client sent are overlaid on the
 	// existing file; unset fields are preserved. Supported keys match
-	// core.Config (directive, mode, mcp_servers, providers,
+	// core.Config (directive, mcp_servers, providers,
 	// threads, unconscious) and the `reset` sub-object.
 	err = s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
 		delete(cfg, "computer")
 		if body.Directive != "" {
 			cfg["directive"] = body.Directive
 		}
-		if body.Mode == "autonomous" || body.Mode == "cautious" || body.Mode == "learn" {
-			cfg["mode"] = body.Mode
-		}
+		delete(cfg, "mode")
 		// rawBody was decoded above; re-use it for the surface-level
 		// fields the client may set. If a key is absent in the request
 		// we keep whatever disk already held. main_pace is accepted only
@@ -2743,12 +2809,21 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				delete(cfg, "threads")
 			}
 		}
+		if behaviorChanged {
+			applyBehaviorToSavedWorkers(cfg, inst.Mode)
+		}
 		return nil
 	})
 	if err != nil {
 		log.Printf("[CONFIG] PUT stopped-write failed agent=%d: %v", inst.ID, err)
 		http.Error(w, fmt.Sprintf("persist config: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if behaviorChanged {
+		if _, err := s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=revision,applied_revision=revision,last_error='' WHERE agent_id=?`, inst.ID); err != nil {
+			http.Error(w, "config saved but behavior synchronization metadata failed", 500)
+			return
+		}
 	}
 	if err := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"]); err != nil {
 		log.Printf("[CONFIG] sync stopped app bindings failed agent=%d: %v", inst.ID, err)
@@ -2759,7 +2834,11 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		s.refreshChannelChatConversationDirectives(inst.ID)
 	}
 	log.Printf("[CONFIG] PUT stopped agent=%d — persisted to config.json (applies on next start)", inst.ID)
-	writeJSON(w, inst)
+	data, _ := json.Marshal(inst)
+	var out map[string]any
+	_ = json.Unmarshal(data, &out)
+	s.behaviorMetadata(inst, out)
+	writeJSON(w, out)
 }
 
 func normalizeAppMCPProjectURLs(rawBody map[string]any, projectID string) bool {
@@ -2864,6 +2943,27 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	port := s.agents.GetPort(inst.ID)
 	corePath := "/" + parts[1]
+	if (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete) && strings.HasPrefix(corePath, "/threads/") {
+		unlock := s.lockAgentConfig(inst.ID)
+		defer unlock()
+		if latest, err := s.store.GetAgentByID(inst.ID); err == nil {
+			inst = latest
+		}
+		if r.Method != http.MethodDelete && !strings.Contains(strings.TrimPrefix(corePath, "/threads/"), "/") {
+			data, err := io.ReadAll(r.Body)
+			var payload map[string]any
+			if err != nil || json.Unmarshal(data, &payload) != nil || payload == nil {
+				http.Error(w, "invalid worker request", 400)
+				return
+			}
+			if directive, ok := payload["directive"].(string); ok && directive != "" {
+				payload["directive"] = withAgentBehavior(directive, inst.Mode)
+			}
+			data, _ = json.Marshal(payload)
+			r.Body = io.NopCloser(bytes.NewReader(data))
+			r.ContentLength = int64(len(data))
+		}
+	}
 
 	// Agent stopped — serve static data from saved config for read-only endpoints,
 	// and honour a small set of mutations directly against config.json so the dashboard
@@ -2980,7 +3080,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet {
 			switch corePath {
 			case "/status":
-				body, rewritten = s.enrichAgentStatusBody(inst.ID, body, time.Now())
+				body, rewritten = s.enrichAgentStatusBody(inst.ID, body, time.Now(), inst)
 			case "/threads":
 				body, rewritten = s.enrichAgentThreadsBody(inst.ID, body, time.Now())
 			}
@@ -3121,7 +3221,8 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			"threads":            0,
 			"memories":           0,
 			"uptime_seconds":     0,
-			"mode":               inst.Mode,
+			"mode":               agentMode(inst.Mode),
+			"behavior_sync":      s.behaviorStatus(inst.ID),
 			"execution_control":  executionControl,
 			"sleep_state":        "stopped",
 			"sleep_remaining_ms": 0,
@@ -3132,10 +3233,11 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		if directive == "" {
 			directive = inst.Directive
 		}
-		mode, _ := config["mode"].(string)
-		if mode == "" {
-			mode = inst.Mode
+		if state, err := s.store.agentBehaviorState(inst.ID); err == nil && state.Revision > state.MainRevision {
+			directive = inst.Directive
 		}
+
+		mode := agentMode(inst.Mode)
 		// Provider credentials and catalogs can change while an agent is
 		// stopped. Rebuild the same effective provider surface Start will
 		// inject so the dashboard never guesses from a differently ordered
@@ -3164,6 +3266,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		if out["mcp_servers"] == nil {
 			out["mcp_servers"] = []any{}
 		}
+		s.behaviorMetadata(inst, out)
 		writeJSON(w, out)
 	}
 }
@@ -3283,7 +3386,11 @@ func (s *Server) writeStoppedConfigAtomic(instanceID int64, mutator func(cfg map
 	path := filepath.Join(dir, "config.json")
 	var cfg map[string]any
 	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &cfg)
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("decode saved config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	if cfg == nil {
 		cfg = map[string]any{}
@@ -3516,7 +3623,7 @@ func (s *Server) handleBackgroundMemory(w http.ResponseWriter, r *http.Request) 
 
 	restarted := false
 	if running && changed {
-		s.agents.Stop(inst.ID)
+		s.stopAgentWithConfigLock(inst.ID)
 		inst.Status = "stopped"
 		inst.Pid = 0
 		inst.Port = 0

@@ -439,7 +439,7 @@ func TestGatewayAgentUpdateAndStopToolsUseAgentsAPI(t *testing.T) {
 	if updated.Name != "Renamed CRM Helper" {
 		t.Fatalf("expected renamed agent, got %q", updated.Name)
 	}
-	if updated.Directive != "Updated directive from MCP." {
+	if updated.Directive != withAgentBehavior("Updated directive from MCP.", "learn") {
 		t.Fatalf("expected directive update, got %q", updated.Directive)
 	}
 	if updated.Mode != "learn" {

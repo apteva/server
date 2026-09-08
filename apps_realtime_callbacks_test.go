@@ -57,8 +57,10 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inst := framework.InstanceInfo{ID: 42, Port: port, CoreAPIKey: "core-key"}
-	resolver := &serverResolver{}
+	s := newTestServer(t)
+	agent := behaviorAgent(t, s, "cautious")
+	inst := framework.InstanceInfo{ID: agent.ID, Port: port, CoreAPIKey: "core-key"}
+	resolver := &serverResolver{srv: s}
 
 	spawned, err := resolver.SpawnRealtimeThread(inst, sdk.RealtimeSpawnRequest{
 		AgentID: 42, ThreadID: "voice", Directive: "answer calls", Voice: "marin",
@@ -74,15 +76,15 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	if spawned.AudioToken != "first" {
 		t.Fatalf("spawn token = %q", spawned.AudioToken)
 	}
-	if !spawned.CapabilitiesVerified || strings.Join(spawned.EffectiveTools, ",") != "pace,send" ||
-		strings.Join(spawned.EffectiveMCP, ",") != "bookings" {
+	if spawned.CapabilitiesVerified || spawned.Capabilities == nil || !spawned.Capabilities.GrantsVerified || strings.Join(spawned.Capabilities.GrantedTools, ",") != "pace,send" ||
+		strings.Join(spawned.Capabilities.GrantedMCP, ",") != "bookings" {
 		t.Fatalf("spawn capabilities = %#v", spawned)
 	}
 	if spawnBody["ephemeral"] != true || spawnBody["initial_message"] != "Greet the caller." || spawnBody["bridge_disconnect_ttl_seconds"] != float64(30) {
 		t.Fatalf("spawn lifecycle body = %#v", spawnBody)
 	}
 	directive, _ := spawnBody["directive"].(string)
-	if !strings.Contains(directive, "[TRUSTED CALL CONTEXT]") ||
+	if !strings.Contains(directive, "instructions (cautious)") || !strings.Contains(directive, "[TRUSTED CALL CONTEXT]") ||
 		!strings.Contains(directive, `"call_id":"call-1"`) ||
 		!strings.HasPrefix(directive, "answer calls") {
 		t.Fatalf("typed call context was not translated safely:\n%s", directive)
@@ -101,7 +103,7 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	if err := resolver.KillThread(inst, "voice"); err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 4 {
+	if len(requests) != 5 {
 		t.Fatalf("requests = %#v", requests)
 	}
 }
@@ -133,8 +135,10 @@ func TestRealtimeResolverKeepsSuccessfulSpawnWhenCapabilityVerificationFails(t *
 		t.Fatal(err)
 	}
 
-	result, err := (&serverResolver{}).SpawnRealtimeThread(
-		framework.InstanceInfo{ID: 42, Port: port},
+	s := newTestServer(t)
+	agent := behaviorAgent(t, s, "learn")
+	result, err := (&serverResolver{srv: s}).SpawnRealtimeThread(
+		framework.InstanceInfo{ID: agent.ID, Port: port},
 		sdk.RealtimeSpawnRequest{
 			AgentID: 42, ThreadID: "voice-unverified", Directive: "Answer callers.",
 			CapabilityMode: sdk.RealtimeCapabilitiesNone,
@@ -241,9 +245,9 @@ func TestCallbackRealtimeSpawnInheritsAgentMCPs(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.CapabilitiesVerified ||
-		strings.Join(result.EffectiveMCP, ",") != "flexylead-bookings,crm" ||
-		strings.Join(result.EffectiveTools, ",") != "pace,send,crm_search" {
+	if result.CapabilitiesVerified || result.Capabilities == nil || !result.Capabilities.GrantsVerified ||
+		strings.Join(result.Capabilities.GrantedMCP, ",") != "flexylead-bookings,crm" ||
+		strings.Join(result.Capabilities.GrantedTools, ",") != "pace,send,crm_search" {
 		t.Fatalf("effective capabilities=%#v", result)
 	}
 }
@@ -327,8 +331,8 @@ func TestCallbackRealtimeSpawnNoneDoesNotInheritAgentMCPs(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.CapabilitiesVerified || len(result.EffectiveMCP) != 0 ||
-		strings.Join(result.EffectiveTools, ",") != "pace,send" {
+	if result.CapabilitiesVerified || result.Capabilities == nil || !result.Capabilities.GrantsVerified || len(result.Capabilities.GrantedMCP) != 0 ||
+		strings.Join(result.Capabilities.GrantedTools, ",") != "pace,send" {
 		t.Fatalf("effective capabilities=%#v", result)
 	}
 }

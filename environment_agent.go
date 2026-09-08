@@ -183,6 +183,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if spec.DirectiveOverride != "" {
 		directive = spec.DirectiveOverride
 	}
+	directive = withAgentBehavior(directive, src.Mode)
 	sourcePolicy := parseEnvironmentSourceAgentPolicy(src.Config)
 
 	// Transient environment-agent row cloned from the source.
@@ -199,7 +200,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("reload environment agent: %w", err)
 	}
 	teardown := func() {
-		s.agents.Stop(wAgent.ID)
+		s.stopAgentWithConfigLock(wAgent.ID)
 		s.store.DeleteAgent(userID, wAgent.ID)
 	}
 
@@ -268,7 +269,6 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	}
 	cfg := map[string]any{
 		"directive":             directive,
-		"mode":                  wAgent.Mode,
 		"mcp_servers":           mcpServers,
 		"include_apteva_server": false,
 		"include_channels":      false,
@@ -283,7 +283,10 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	cfgJSON, _ := json.Marshal(cfg)
 	wAgent.Directive = directive
 	wAgent.Config = string(cfgJSON)
-	_ = s.store.UpdateAgent(wAgent)
+	if err := s.store.UpdateAgent(wAgent); err != nil {
+		teardown()
+		return nil, fmt.Errorf("persist environment agent config: %w", err)
+	}
 
 	providerEnv, err := s.environmentAgentProviderEnv(userID, src.ProjectID, environment.ProxyURL())
 	if err != nil {

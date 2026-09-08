@@ -961,7 +961,7 @@ func validateWritableAgentTemplate(t AgentTemplate) error {
 	if strings.TrimSpace(t.Directive) == "" || len(t.Directive) > 32000 {
 		return errors.New("directive is required and must be at most 32000 characters")
 	}
-	if t.Mode != "autonomous" && t.Mode != "cautious" && t.Mode != "learn" {
+	if !validAgentMode(t.Mode) {
 		return errors.New("mode must be autonomous, cautious, or learn")
 	}
 	if len(t.Highlights) > 6 {

@@ -3532,6 +3532,11 @@ func (s *Server) handleConnectionTools(w http.ResponseWriter, r *http.Request) {
 
 // POST /connections/:id/execute
 func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
+	releaseBody, ok := s.holdAdmissionBody(w, r)
+	if !ok {
+		return
+	}
+	defer releaseBody()
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -3595,6 +3600,10 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	// connections (no `_type` key) this is a no-op passthrough.
 	ctx, err := s.resolveConnectionContext(userID, app, credentials, body.Input)
 	if err != nil {
+		if isAdmissionFailure(err) {
+			writeAdmissionError(w, err)
+			return
+		}
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "dashboard", tool.Name, body.Input, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -3627,9 +3636,13 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = s.executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	}
 	if err != nil {
+		if isAdmissionFailure(err) {
+			writeAdmissionError(w, err)
+			return
+		}
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "dashboard", tool.Name, body.Input, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

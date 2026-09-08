@@ -859,6 +859,13 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 	if err != nil {
 		return nil, err
 	}
+	unlockBehavior := r.srv.lockAgentConfig(inst.ID)
+	defer unlockBehavior()
+	agent, err := r.srv.store.GetAgentByID(inst.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read agent behavior: %w", err)
+	}
+	directive = withAgentBehavior(directive, agent.Mode)
 	body, _ := json.Marshal(map[string]any{
 		"directive":                     directive,
 		"voice":                         req.Voice,
@@ -903,19 +910,12 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 		ThreadID:   coreResp.ID,
 		AudioToken: coreResp.AudioToken,
 	}
-	effectiveTools, effectiveMCP, capabilityErr := r.ThreadCapabilities(inst, req.ThreadID)
-	if capabilityErr != nil {
-		// The thread already exists and may hold a single-use audio token, so a
-		// verification failure must not turn a successful spawn into a retry
-		// that loses the token. Nil effective lists and the verification flag
-		// tell callers the live surface was unavailable.
-		log.Printf("[REALTIME-SPAWN] agent=%d thread=%q capability verification failed: %v requested_tools=%v requested_mcp=%v",
-			inst.ID, req.ThreadID, capabilityErr, req.Tools, req.MCP)
-		return result, nil
+	capabilities := r.ThreadRealtimeCapabilities(inst, req.ThreadID)
+	applyRealtimeCapabilityResult(result, capabilities)
+	if !result.CapabilitiesVerified {
+		log.Printf("[REALTIME-SPAWN] agent=%d thread=%q spawned status=%s capability_status=%s grants_verified=%t; retaining audio token",
+			inst.ID, req.ThreadID, result.Status, capabilities.Status, capabilities.GrantsVerified)
 	}
-	result.EffectiveTools = effectiveTools
-	result.EffectiveMCP = effectiveMCP
-	result.CapabilitiesVerified = true
 	return result, nil
 }
 
@@ -1083,16 +1083,15 @@ type threadIDRow struct {
 	Ephemeral bool     `json:"ephemeral,omitempty"`
 }
 
-// ThreadTools returns Core's live effective allowlist for one thread. It is
-// intentionally read from /threads rather than reconstructed from MCP server
-// names: Core has already expanded those servers into concrete tool names.
+// ThreadTools returns stored tool grants for internal thread profile checks.
+// It does not verify registry, MCP connection, or realtime presentation state.
 func (r *serverResolver) ThreadTools(inst framework.InstanceInfo, threadID string) ([]string, error) {
 	tools, _, err := r.ThreadCapabilities(inst, threadID)
 	return tools, err
 }
 
-// ThreadCapabilities returns the effective app-tool allowlist and MCP names
-// from Core's live thread record after all filtering and MCP expansion.
+// ThreadCapabilities returns stored tool/MCP grants from Core's thread record.
+// Use ThreadRealtimeCapabilities to verify actual realtime tool presentation.
 func (r *serverResolver) ThreadCapabilities(inst framework.InstanceInfo, threadID string) ([]string, []string, error) {
 	if inst.Port == 0 {
 		return nil, nil, fmt.Errorf("instance %d not running", inst.ID)

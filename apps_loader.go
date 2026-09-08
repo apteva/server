@@ -534,6 +534,15 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app sidecar not reachable: "+appName, http.StatusServiceUnavailable)
 		return
 	}
+	// Ordinary HTTP bodies stream through the proxy. Reserve encoded memory
+	// only for MCP requests which the gateway actually decodes/buffers.
+	if tail == "/mcp" && r.Method == http.MethodPost {
+		releaseBody, ok := s.holdAdmissionBody(w, r)
+		if !ok {
+			return
+		}
+		defer releaseBody()
+	}
 	if effectiveProjectID != "" && tail == "/mcp" && r.Method == http.MethodPost {
 		if err := injectProjectIntoMCPRequest(r, effectiveProjectID); err != nil {
 			http.Error(w, "invalid MCP request: "+err.Error(), http.StatusBadRequest)
@@ -553,6 +562,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	if !requestIsProtocolUpgrade(r) && !strings.HasPrefix(tail, "/ui/") && tail != "/health" && !strings.HasPrefix(tail, "/runtime/") && tail != "/capacity" && !strings.HasPrefix(tail, "/capacity/") {
+		proxy.Transport = &automaticTransport{server: s, target: fmt.Sprintf("app:%d", entry.InstallID), operation: admissionOperation(r, tail), caller: fmt.Sprintf("user:%d:%s", getUserID(r), effectiveProjectID)}
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) { writeAdmissionError(w, err) }
+	}
 	publicRoute := appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r))
 	// Rewrite path so the sidecar sees its own routes (without the
 	// /apps/<name> prefix). The token swap happens in Director.

@@ -293,13 +293,18 @@ func (sup *LocalSupervisor) Stop(installID int64) error {
 func (sup *LocalSupervisor) RetireOld(installID int64, grace time.Duration) {
 	sup.pendingMu.Lock()
 	p := sup.pending[installID]
-	delete(sup.pending, installID)
 	sup.pendingMu.Unlock()
 	if p != nil {
 		log.Printf("[APPS-LOCAL] retiring old sidecar install=%d pid=%d (blue-green handoff complete)",
 			installID, p.cmd.Process.Pid)
 	}
+	drainOldFunctions(p)
 	terminateProc(p, grace)
+	sup.pendingMu.Lock()
+	if sup.pending[installID] == p {
+		delete(sup.pending, installID)
+	}
+	sup.pendingMu.Unlock()
 }
 
 // rollbackToOld is the failure-path counterpart to a successful

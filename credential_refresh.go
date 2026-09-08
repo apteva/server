@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/apteva/server/internal/admission"
 )
 
 type credentialRefresh func(map[string]string, func(map[string]string) error) error
@@ -111,13 +113,22 @@ func (s *Server) refreshConnectionCredentialsContext(ctx context.Context, id int
 }
 
 func (s *Server) executeConnectionToolWithRefresh(id int64, app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, _ onCredsRefresh) (*ExecuteResult, error) {
-	return executeIntegrationToolWithRefresh(app, tool, credentials, input, environmentID, nil, func(c map[string]string, fn func(map[string]string) error) error {
-		return s.refreshConnectionCredentials(id, c, fn)
-	})
+	return s.executeConnectionToolWithRefreshContext(context.Background(), id, app, tool, credentials, input, environmentID, nil)
 }
 
 func (s *Server) executeConnectionToolWithRefreshContext(ctx context.Context, id int64, app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, persist onCredsRefresh) (*ExecuteResult, error) {
-	return executeIntegrationToolWithRefreshContext(ctx, app, tool, credentials, input, environmentID, persist, func(c map[string]string, fn func(map[string]string) error) error {
-		return s.refreshConnectionCredentialsContext(ctx, id, c, fn)
+	bounded, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	permit, err := s.admitIntegration(bounded, id, tool.Name)
+	if err != nil {
+		return nil, err
+	}
+	started := time.Now()
+	outcome := admission.Result{CPUSeconds: 0, Failed: true}
+	defer func() { permit.Finish(outcome) }()
+	result, err := executeIntegrationToolWithRefreshContext(bounded, app, tool, credentials, input, environmentID, persist, func(c map[string]string, fn func(map[string]string) error) error {
+		return s.refreshConnectionCredentialsContext(bounded, id, c, fn)
 	})
+	outcome = admission.Result{Duration: time.Since(started), CPUSeconds: 0, Failed: err != nil || result == nil || !result.Success, Canceled: bounded.Err() != nil, Overloaded: result != nil && (result.Status == 429 || result.Status == 503)}
+	return result, err
 }

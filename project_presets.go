@@ -173,7 +173,7 @@ func validateProjectPreset(preset ProjectPreset) error {
 		if !validPresetIdentifier(agent.Key) || seenAgents[agent.Key] || agent.Name == "" || agent.Directive == "" || len(agent.Name) > 160 || len(agent.Directive) > 32000 {
 			return fmt.Errorf("preset %q has invalid agent %q", preset.ID, agent.Key)
 		}
-		if agent.Mode != "autonomous" && agent.Mode != "cautious" && agent.Mode != "learn" {
+		if !validAgentMode(agent.Mode) {
 			return fmt.Errorf("preset %q agent %q has invalid mode %q", preset.ID, agent.Key, agent.Mode)
 		}
 		seenAgents[agent.Key] = true

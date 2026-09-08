@@ -324,12 +324,16 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	agent, err := s.store.CreateAgent(1, "runtime voice", "Answer calls", "learn", `{}`, "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	runtime, _ := s.environments.Get("rt-voice")
-	if err := runtime.AttachAgent(&EnvironmentAgent{AgentID: 993, Alias: "main", Port: port, APIKey: "core-key", CreatedAt: time.Now()}); err != nil {
+	if err := runtime.AttachAgent(&EnvironmentAgent{AgentID: agent.ID, Alias: "main", Port: port, APIKey: "core-key", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	s.agents.mu.Lock()
-	s.agents.processes[993] = &runningAgent{port: port, coreAPIKey: "core-key", reattached: true}
+	s.agents.processes[agent.ID] = &runningAgent{port: port, coreAPIKey: "core-key", reattached: true}
 	s.agents.mu.Unlock()
 	if err := s.store.SetSetting("public_url", "https://stale-public.example"); err != nil {
 		t.Fatal(err)
@@ -352,14 +356,28 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 	if err := json.Unmarshal(spawned.Body.Bytes(), &spawnResult); err != nil {
 		t.Fatal(err)
 	}
-	if !spawnResult.CapabilitiesVerified ||
-		strings.Join(spawnResult.EffectiveMCP, ",") != "flexylead-bookings" ||
-		strings.Join(spawnResult.EffectiveTools, ",") != "pace,send,bookings_check" {
+	if spawnResult.CapabilitiesVerified || spawnResult.Capabilities == nil || !spawnResult.Capabilities.GrantsVerified ||
+		strings.Join(spawnResult.Capabilities.GrantedMCP, ",") != "flexylead-bookings" ||
+		strings.Join(spawnResult.Capabilities.GrantedTools, ",") != "pace,send,bookings_check" {
 		t.Fatalf("runtime effective capabilities=%#v", spawnResult)
 	}
 	spawnURL, err := url.Parse(spawnResult.AudioBridgeURL)
 	if err != nil || spawnURL.Scheme != "ws" || spawnURL.Host != "runtime-gateway.internal:5280" {
 		t.Fatalf("spawn bridge URL=%q err=%v", spawnResult.AudioBridgeURL, err)
+	}
+
+	readiness := runtimeAPIRequest(t, s, installID, http.MethodGet, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice/capabilities", nil)
+	if readiness.Code != http.StatusOK {
+		t.Fatalf("readiness status=%d body=%s", readiness.Code, readiness.Body.String())
+	}
+	var readinessState sdk.RealtimeCapabilities
+	if err := json.Unmarshal(readiness.Body.Bytes(), &readinessState); err != nil || readinessState.Status != "unknown" || !readinessState.GrantsVerified {
+		t.Fatalf("legacy readiness=%+v err=%v", readinessState, err)
+	}
+	otherInstall := seedRuntimeAPIInstall(t, s, "foreign-readiness", sdk.PermRuntimesCall)
+	deniedReadiness := runtimeAPIRequest(t, s, otherInstall, http.MethodGet, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice/capabilities", nil)
+	if deniedReadiness.Code != http.StatusNotFound {
+		t.Fatalf("foreign readiness status=%d", deniedReadiness.Code)
 	}
 
 	renewed := runtimeAPIRequestAtHost(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice/audio-token", nil, "runtime-gateway.internal:5280")
@@ -425,13 +443,13 @@ func TestRuntimeAPI_DirectiveUpdateUsesETagAndAudits(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := "/apps/callback/runtimes/catalog/agents/" + itoa(agent.ID) + "/directive"
-	req := sdk.AgentDirectiveUpdateRequest{Directive: "new directive", ExpectedETag: directiveETag("old directive"), Reason: "accepted suggestion"}
+	req := sdk.AgentDirectiveUpdateRequest{Directive: "new directive", ExpectedETag: directiveETag(agent.Directive), Reason: "accepted suggestion"}
 	updated := runtimeAPIRequest(t, s, installID, http.MethodPut, path, req)
 	if updated.Code != http.StatusOK {
 		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
 	}
 	got, _ := s.store.GetAgentByID(agent.ID)
-	if got.Directive != "new directive" || !strings.Contains(got.Config, "new directive") {
+	if got.Directive != withAgentBehavior("new directive", "autonomous") || !strings.Contains(got.Config, "new directive") {
 		t.Fatalf("directive/config not updated: %+v", got)
 	}
 	var auditCount int

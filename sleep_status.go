@@ -57,10 +57,17 @@ func (c *latestLLMDoneCache) snapshot(instanceID int64) map[string]TelemetryEven
 	return out
 }
 
-func (s *Server) enrichAgentStatusBody(instanceID int64, body []byte, now time.Time) ([]byte, bool) {
+func (s *Server) enrichAgentStatusBody(instanceID int64, body []byte, now time.Time, agents ...*Agent) ([]byte, bool) {
 	var status map[string]any
 	if err := json.Unmarshal(body, &status); err != nil {
 		return body, false
+	}
+	if len(agents) > 0 && agents[0] != nil {
+		s.behaviorMetadata(agents[0], status)
+	} else if s.store != nil {
+		if inst, err := s.store.GetAgentByID(instanceID); err == nil {
+			s.behaviorMetadata(inst, status)
+		}
 	}
 	state := s.computeAgentSleepStatus(instanceID, status, now)
 	applySleepStatus(status, state)

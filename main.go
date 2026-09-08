@@ -81,6 +81,7 @@ func loadOrMintInstanceSecret(store *Store) string {
 }
 
 type Server struct {
+	automatic            automaticRuntime
 	store                *Store
 	dbPath               string // path to apteva-server.db on disk (needed for staged restore)
 	agents               *AgentManager
@@ -1636,8 +1637,12 @@ func main() {
 		if os.Getenv("APTEVA_QUARANTINE_CHAT_TEST") == "1" && os.Getenv("APTEVA_BIND") == "127.0.0.1" {
 			for _, rawID := range strings.Split(os.Getenv("APTEVA_CHAT_TEST_INSTALL_IDS"), ",") {
 				id, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
-				if err != nil || id <= 0 { continue }
-				if err := s.restartInstallSidecar(id); err != nil { log.Printf("local chat test install %d: %v", id, err) }
+				if err != nil || id <= 0 {
+					continue
+				}
+				if err := s.restartInstallSidecar(id); err != nil {
+					log.Printf("local chat test install %d: %v", id, err)
+				}
 			}
 		}
 	} else {
@@ -1682,6 +1687,13 @@ func main() {
 	}
 	runtimeCtx, stopRuntimeMonitor := context.WithCancel(context.Background())
 	defer stopRuntimeMonitor()
+	behaviorDone := make(chan struct{})
+	go func() {
+		defer close(behaviorDone)
+		if !quarantined {
+			s.runAgentBehaviorReconciler(runtimeCtx)
+		}
+	}()
 	runtimeDone := make(chan struct{})
 	go func() { defer close(runtimeDone); s.RunRuntimeMonitor(runtimeCtx) }()
 	s.ready.Store(true)
@@ -1701,6 +1713,7 @@ func main() {
 		drain.begin()
 		drain.wait(5 * time.Second)
 		<-runtimeDone
+		<-behaviorDone
 		if s.pollingDispatcher != nil {
 			s.pollingDispatcher.Stop()
 		}

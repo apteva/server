@@ -33,6 +33,10 @@ func TestUpdateConfigPreservesRunningMCPServersOnDirectivePatch(t *testing.T) {
 	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
+		if r.Method == http.MethodGet && r.URL.Path == "/threads" {
+			writeJSON(w, []any{})
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(current)

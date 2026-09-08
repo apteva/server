@@ -10,6 +10,7 @@ import (
 // surface; keeping it here prevents tests from drifting into a smaller route
 // set than real apteva-server.
 func (s *Server) registerAppRuntimeRoutes(apiMux *http.ServeMux) {
+	apiMux.HandleFunc("/admission", s.authMiddleware(s.handleAutomaticAdmission))
 	// App event bus — generic SDK-level pub/sub for app→dashboard live UI.
 	// Sidecars POST emits via APTEVA_APP_TOKEN; browsers SSE-subscribe via
 	// cookie/API-key auth. Mounted under /api/app-events/ to sidestep the

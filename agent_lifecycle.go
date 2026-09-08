@@ -256,7 +256,7 @@ func (s *Server) updateAgentCore(ctx context.Context, agentID int64) error {
 	// Once replacement starts it is atomic from the rollout's perspective:
 	// cancellation prevents the next agent, but never strands this one between
 	// Stop and Start.
-	s.agents.Stop(inst.ID)
+	s.stopAgentWithConfigLock(inst.ID)
 	info, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...)
 	if err != nil {
 		return fmt.Errorf("start updated core: %w", err)
@@ -367,8 +367,19 @@ func (s *Server) ensureAgentDefaultProvider(inst *Agent, pool []ProviderInfo) (s
 
 func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, pool []ProviderInfo, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
 	unlockConfig := s.lockAgentConfig(inst.ID)
+	defer unlockConfig()
+	if s.agents.GetPort(inst.ID) != 0 {
+		return coreRuntimeInfo{}, fmt.Errorf("%w: instance %d", errAgentAlreadyRunning, inst.ID)
+	}
+	latest, readErr := s.store.GetAgentByID(inst.ID)
+	if readErr != nil {
+		return coreRuntimeInfo{}, readErr
+	}
+	*inst = *latest
 	err := s.refreshAgentAppMCPConfigs(inst)
-	unlockConfig()
+	if err == nil {
+		err = s.reconcileAgentBehavior(context.Background(), inst, 0)
+	}
 	if err != nil {
 		return coreRuntimeInfo{}, fmt.Errorf("refresh agent MCP attachments: %w", err)
 	}
@@ -403,6 +414,13 @@ func (s *Server) reattachManagedAgent(inst *Agent, channelConfigs ...ChannelConf
 		s.abandonUnsyncedAgentRuntime(inst)
 		return coreRuntimeInfo{}, err
 	}
+	unlockBehavior := s.lockAgentConfig(inst.ID)
+	if latest, readErr := s.store.GetAgentByID(inst.ID); readErr == nil {
+		if syncErr := s.reconcileAgentBehavior(context.Background(), latest, s.agents.GetPort(inst.ID)); syncErr != nil {
+			log.Printf("[BEHAVIOR] reattached agent=%d pending: %v", inst.ID, syncErr)
+		}
+	}
+	unlockBehavior()
 	return info, nil
 }
 
@@ -558,4 +576,13 @@ func (s *Server) handleAgentCoreUpdate(w http.ResponseWriter, r *http.Request, a
 	}
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, status)
+}
+
+// Stop may flush config.json before exiting. Serialize that flush with desired
+// behavior edits so a stopped write cannot be overwritten by the old core.
+// Startup failure cleanup already holds lockAgentConfig and calls Stop directly.
+func (s *Server) stopAgentWithConfigLock(id int64) {
+	unlock := s.lockAgentConfig(id)
+	defer unlock()
+	s.agents.Stop(id)
 }

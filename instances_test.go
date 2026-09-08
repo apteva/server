@@ -165,7 +165,7 @@ func TestUpdateConfig(t *testing.T) {
 	}
 
 	inst, _ := s.store.GetAgent(1, 1)
-	if inst.Directive != "new directive" {
+	if inst.Directive != withAgentBehavior("new directive", inst.Mode) {
 		t.Errorf("expected new directive, got %s", inst.Directive)
 	}
 }
@@ -544,6 +544,10 @@ func TestAgentManagerReattachRefreshesChannelsConfig(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/config":
+			if r.Method == http.MethodGet {
+				writeJSON(w, map[string]any{"directive": "live evolved directive", "mode": "learn", "mcp_servers": []map[string]any{{"name": "custom", "url": "http://example.test", "transport": "http"}, {"name": "channels", "url": "http://127.0.0.1:1", "transport": "http"}}})
+				return
+			}
 			if r.Method != http.MethodPut {
 				http.Error(w, "PUT only", http.StatusMethodNotAllowed)
 				return
@@ -600,6 +604,9 @@ func TestAgentManagerReattachRefreshesChannelsConfig(t *testing.T) {
 	}
 	if sawAuth != "Bearer core_test" {
 		t.Fatalf("Authorization=%q, want persisted bearer key", sawAuth)
+	}
+	if len(sawConfig) != 1 {
+		t.Fatalf("reattach must only update MCP URLs, got %#v", sawConfig)
 	}
 	servers, _ := sawConfig["mcp_servers"].([]any)
 	if len(servers) != 3 {

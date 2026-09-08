@@ -419,7 +419,7 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	if wasRunning {
 		if needsRestart {
 			log.Printf("[PLATFORM-HELPER] restarting helper agent=%d to apply required runtime config", helper.ID)
-			s.agents.Stop(helper.ID)
+			s.stopAgentWithConfigLock(helper.ID)
 		} else {
 			if runtimeChanged {
 				if err := s.applyPlatformHelperMCPConfig(helper); err != nil {
@@ -919,7 +919,7 @@ func (s *Server) handlePlatformHelperDeactivate(w http.ResponseWriter, r *http.R
 		http.Error(w, "load platform helper", http.StatusInternalServerError)
 		return
 	}
-	s.agents.Stop(helper.ID)
+	s.stopAgentWithConfigLock(helper.ID)
 	setPlatformHelperActivated(helper, false)
 	helper.Status, helper.Pid, helper.Port, helper.CoreAPIKey = "stopped", 0, 0, ""
 	if err := s.store.UpdateAgent(helper); err != nil {

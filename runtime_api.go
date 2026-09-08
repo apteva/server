@@ -792,6 +792,8 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 		Port: agent.Port, CoreAPIKey: agent.APIKey,
 	}
 	switch {
+	case len(parts) == 2 && parts[1] == "capabilities" && r.Method == http.MethodGet:
+		writeJSON(w, s.resolver().threadRealtimeCapabilities(r.Context(), inst, threadID))
 	case len(parts) == 1 && r.Method == http.MethodDelete:
 		if err := s.resolver().KillThread(inst, threadID); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -839,6 +841,10 @@ func (s *Server) handleSpawnRuntimeAgent(w http.ResponseWriter, r *http.Request,
 		mode := strings.TrimSpace(req.Draft.Mode)
 		if mode == "" {
 			mode = "autonomous"
+		}
+		if !validAgentMode(mode) {
+			http.Error(w, "mode must be autonomous, cautious, or learn", http.StatusBadRequest)
+			return
 		}
 		source = &Agent{Name: req.Draft.Name, Directive: req.Draft.Directive, Mode: mode, Config: req.Draft.Config, ProjectID: runtime.ProjectID, UserID: userID}
 	} else {
@@ -1375,9 +1381,18 @@ func directiveETag(directive string) string {
 }
 
 func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int64, req sdk.AgentDirectiveUpdateRequest) (*Agent, error) {
+	unlock := s.lockAgentConfig(agent.ID)
+	defer unlock()
+	latest, err := s.store.GetAgentByID(agent.ID)
+	if err != nil {
+		return nil, err
+	}
+	agent = latest
+
 	if directiveETag(agent.Directive) != req.ExpectedETag {
 		return nil, fmt.Errorf("agent directive changed; refresh and retry")
 	}
+	req.Directive = withAgentBehavior(req.Directive, agent.Mode)
 	var cfg map[string]any
 	if json.Unmarshal([]byte(agent.Config), &cfg) != nil {
 		cfg = map[string]any{}
@@ -1406,7 +1421,14 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return s.store.GetAgentByID(agent.ID)
+	updated, err := s.store.GetAgentByID(agent.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.reconcileAgentBehavior(context.Background(), updated, s.agents.GetPort(updated.ID)); err != nil {
+		return nil, fmt.Errorf("directive saved; application pending: %w", err)
+	}
+	return updated, nil
 }
 
 func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, installID int64, requested string, need ProjectRole) (int64, string, bool) {

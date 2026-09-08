@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
@@ -75,6 +76,13 @@ func newActivationSpec(installID int64, m *sdk.Manifest, binPath string, httpPor
 	if probeHost == "" || probeHost == "0.0.0.0" || probeHost == "::" || probeHost == "[::]" {
 		probeHost = "127.0.0.1"
 	}
+	runtimeEnv := cloneStringMap(env)
+	if m.Name == "functions" {
+		if runtimeEnv == nil {
+			runtimeEnv = make(map[string]string)
+		}
+		runtimeEnv["APTEVA_APP_DRAIN_TOKEN"] = rand.Text()
+	}
 	return activationSpec{
 		startupTimeout:  time.Duration(m.Runtime.StartupTimeoutSeconds) * time.Second,
 		databaseUpgrade: m.Runtime.DatabaseUpgrade,
@@ -82,7 +90,7 @@ func newActivationSpec(installID int64, m *sdk.Manifest, binPath string, httpPor
 		appName:         m.Name,
 		binPath:         binPath,
 		httpPort:        httpPort,
-		env:             cloneStringMap(env),
+		env:             runtimeEnv,
 		healthPath:      healthPath,
 		probeHost:       probeHost,
 		fixedPorts:      ports,

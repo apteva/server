@@ -106,6 +106,7 @@ type Agent struct {
 }
 
 type Store struct {
+	automatic       automaticRuntime
 	db              *sql.DB
 	path            string
 	credentialLocks [64]sync.Mutex
@@ -1834,6 +1835,7 @@ func migrateEmptySubscriptionWebhookPaths(db *sql.DB) {
 }
 
 func (s *Store) Close() error {
+	s.automatic.get().Close()
 	return s.db.Close()
 }
 
@@ -2703,6 +2705,11 @@ func (s *Store) CreateAgent(userID int64, name, directive, mode, config, project
 	if mode == "" {
 		mode = "autonomous"
 	}
+	if !validAgentMode(mode) {
+		return nil, fmt.Errorf("invalid agent mode %q", mode)
+	}
+	directive = withAgentBehavior(directive, mode)
+	config = withoutCoreMode(config)
 	result, err := s.db.Exec(
 		"INSERT INTO agents (user_id, name, directive, mode, config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
 		userID, name, directive, mode, config, projectID,
@@ -2726,6 +2733,11 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 	if mode == "" {
 		mode = "autonomous"
 	}
+	if !validAgentMode(mode) {
+		return nil, false, fmt.Errorf("invalid agent mode %q", mode)
+	}
+	directive = withAgentBehavior(directive, mode)
+	config = withoutCoreMode(config)
 	scopeUserID := userID
 	if projectID != "" {
 		scopeUserID = 0
@@ -2864,6 +2876,7 @@ func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 // Idempotent: subsequent calls for the same user return the existing
 // row. The directive is the canonical user-facing platform-helper prompt.
 func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agent, error) {
+	directive = withAgentBehavior(directive, "autonomous")
 	// Look up existing helper for this user.
 	ag, err := s.GetPlatformHelper(userID)
 	if err == nil {
@@ -3011,6 +3024,11 @@ func (s *Store) ListTelemetryAgentIDs(userID int64, projectID string) (map[int64
 func (a *Agent) rememberOriginal() { copy := *a; copy.original = nil; a.original = &copy }
 
 func (s *Store) UpdateAgent(inst *Agent) error {
+	if inst.original == nil || inst.Mode != inst.original.Mode || inst.Directive != inst.original.Directive {
+		inst.Mode = agentMode(inst.Mode)
+		inst.Directive = withAgentBehavior(inst.Directive, inst.Mode)
+	}
+	inst.Config = withoutCoreMode(inst.Config)
 	if strings.EqualFold(inst.Status, "stopped") && (inst.original == nil || inst.original.Status != inst.Status) {
 		inst.Port = 0
 		inst.Pid = 0

@@ -50,6 +50,11 @@ import (
 // ─── Router ────────────────────────────────────────────────────────
 
 func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
+	releaseBody, ok := s.holdAdmissionBody(w, r)
+	if !ok {
+		return
+	}
+	defer releaseBody()
 	rest := strings.TrimPrefix(r.URL.Path, "/apps/callback/")
 	if rest == "" {
 		http.Error(w, "callback path required", http.StatusBadRequest)
@@ -994,6 +999,10 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 
 	ctx, err := s.resolveConnectionContext(userID, app, credentials, executionInput)
 	if err != nil {
+		if isAdmissionFailure(err) {
+			writeAdmissionError(w, err)
+			return
+		}
 		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, executionInput, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -1026,6 +1035,10 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	}
 	if err != nil {
+		if isAdmissionFailure(err) {
+			writeAdmissionError(w, err)
+			return
+		}
 		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
 		if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, executionInput, "error", err.Error()); ok {
 			s.recordDelegatedProviderUsage(ev)
@@ -1267,8 +1280,13 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	// through an agent-facing MCP connection.
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(installID, 10))
 	req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Transport: &automaticTransport{server: s, target: fmt.Sprintf("app:%d", targetInstallID), operation: admissionCallbackIdentity(body.Tool, body.Input), caller: fmt.Sprintf("app:%d", installID), source: fmt.Sprintf("app:%d", installID), background: callerAppName == "jobs"}}
+	resp, err := client.Do(req)
 	if err != nil {
+		if isAdmissionFailure(err) {
+			writeAdmissionError(w, err)
+			return
+		}
 		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s tool=%s error=%s", installID, effectiveProjectID, targetAppName, body.Tool, truncate(err.Error(), 500))
 		http.Error(w, "target unreachable: "+err.Error(), http.StatusBadGateway)
 		return
@@ -1277,7 +1295,14 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s tool=%s status=%d", installID, effectiveProjectID, targetAppName, body.Tool, resp.StatusCode)
 	}
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if readErr != nil {
+		http.Error(w, "downstream response interrupted", 502)
+		return
+	}
+	if wait := resp.Header.Get("X-Apteva-Admission-Wait-Ms"); wait != "" {
+		w.Header().Set("X-Apteva-Admission-Wait-Ms", wait)
+	}
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
@@ -1597,6 +1622,12 @@ func (s *Server) handleCallbackThreads(w http.ResponseWriter, r *http.Request, p
 			return
 		}
 		s.handleCallbackKillThread(w, r, installID, parts[0])
+	case len(parts) == 2 && parts[0] != "" && parts[1] == "capabilities" && r.Method == http.MethodGet:
+		if !installHasPermission(s, installID, sdk.PermRealtimeSpawn) {
+			http.Error(w, "missing permission: "+string(sdk.PermRealtimeSpawn), http.StatusForbidden)
+			return
+		}
+		s.handleCallbackRealtimeCapabilities(w, r, installID, parts[0])
 	case len(parts) == 2 && parts[0] != "" && parts[1] == "audio-token" && r.Method == http.MethodPost:
 		if !installHasPermission(s, installID, sdk.PermRealtimeSpawn) {
 			http.Error(w, "missing permission: "+string(sdk.PermRealtimeSpawn), http.StatusForbidden)
@@ -1852,7 +1883,7 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 		}
 		res.AudioBridgeURL = bridgeURL
 	}
-	log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q status=%s capabilities_verified=%t tools=%v mcp=%v",
+	log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q status=%s capabilities_verified=%t presented_tools=%v connected_mcp=%v",
 		installID, body.AgentID, body.ThreadID, res.Status, res.CapabilitiesVerified, res.EffectiveTools, res.EffectiveMCP)
 	writeJSON(w, res)
 }

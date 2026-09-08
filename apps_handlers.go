@@ -68,6 +68,8 @@ type AppRow struct {
 	// currently unbound but a compatible target now exists in the
 	// project. Drives the "configure" banner in the install detail.
 	HasPendingOptions bool `json:"has_pending_options,omitempty"`
+	Serving           bool `json:"serving"`
+	UpgradeInProgress bool `json:"upgrade_in_progress,omitempty"`
 	// Imports: app-owned declarative import sources, if the manifest
 	// exposes any. The dashboard renders these as manual import actions.
 	Imports map[string]any `json:"imports,omitempty"`
@@ -614,7 +616,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			COALESCE(NULLIF(i.source, ''), a.source),
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
 			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0),
-			COALESCE(i.default_for_new_agents, 0)
+			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != ''
 		FROM app_installs i JOIN apps a ON a.id = i.app_id`
 	args := []any{}
 	if projectID != "" {
@@ -672,10 +674,11 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			upgradePolicy, version, permsJSON                               string
 			name, source, manifestJSON, availableManifestJSON, bindingsJSON string
 			hasPendingOptions, defaultForNewAgents                          int
+			upgrading                                                       bool
 		)
 		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
 			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON, &availableManifestJSON,
-			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents); err != nil {
+			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents, &upgrading); err != nil {
 			continue
 		}
 		var manifest sdk.Manifest
@@ -704,6 +707,10 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		depInfo, isDeprecated := deprecatedApp(name)
+		serving := status == "running"
+		if upgrading && serving {
+			status = "pending"
+		}
 		out = append(out, AppRow{
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
 			Bindings:          bindings,
@@ -719,7 +726,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 				firstNonEmpty(projectID, projID),
 			),
 			IconStyle: manifest.IconStyle,
-			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
+			Serving:   serving, UpgradeInProgress: upgrading, ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
 			DefaultForNewAgents: defaultForNewAgents != 0,
 			Permissions:         perms, Surfaces: surfaces,
@@ -825,6 +832,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 					Icon:         icon,
 					IconStyle:    "image",
 					Status:       "running",
+					Serving:      true,
 					Source:       "integration",
 					Version:      "1.0.0",
 					ProjectID:    projectID,
@@ -2060,13 +2068,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// reflects the in-flight version even before the build completes.
 	s.updateAppCatalogMetadataByName(live.Name, live)
 
-	pendingManifestJSON, _ := json.Marshal(live)
-	s.store.db.Exec(
-		`UPDATE app_installs
-		 SET status='pending', status_message='Upgrading…', error_message='', pending_manifest_json=?
-		 WHERE id=?`,
-		string(pendingManifestJSON), installID,
-	)
+	if err := s.stageAppUpgrade(installID, live); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	// installFromSource clones + builds + respawns + flips the install
 	// row to running. Runs in a goroutine so the dashboard's POST
