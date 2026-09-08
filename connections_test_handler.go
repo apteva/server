@@ -78,7 +78,20 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := s.runHealthCheck(app, encCreds)
+	// A runtime connection may point at an OpenAI-compatible gateway via
+	// runtime_config.base_url (the key the provider migration writes and
+	// {{config.base_url}} renders). The probe must test THAT endpoint —
+	// probing api.openai.com with a gateway key is a guaranteed 401.
+	baseURL := ""
+	if app.Runtime != nil {
+		if config, cfgErr := s.store.GetConnectionRuntimeConfig(userID, connID); cfgErr == nil {
+			if raw, _ := config["base_url"].(string); strings.TrimSpace(raw) != "" {
+				baseURL = strings.TrimRight(strings.TrimSpace(raw), "/")
+			}
+		}
+	}
+
+	res := s.runHealthCheck(app, encCreds, baseURL)
 	writeJSON(w, res)
 }
 
@@ -87,8 +100,12 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 // pre-flight branch in handleCreateConnection. encCreds is the
 // already-encrypted credentials blob from the DB; the caller does
 // the lookup so this function is testable with a synthetic
-// AppTemplate + plaintext creds.
-func (s *Server) runHealthCheck(app *AppTemplate, encCreds string) ConnectionTestResult {
+// AppTemplate + plaintext creds. baseURLOverride, when non-empty,
+// replaces the app's catalog base URL for this probe — the test
+// endpoint passes runtime_config.base_url so a connection aimed at an
+// OpenAI-compatible gateway is probed where it actually points;
+// callers with no override pass "".
+func (s *Server) runHealthCheck(app *AppTemplate, encCreds string, baseURLOverride string) ConnectionTestResult {
 	hc := app.HealthCheck
 	if hc == nil || (hc.Tool == "" && hc.Path == "") {
 		return ConnectionTestResult{
@@ -175,6 +192,9 @@ func (s *Server) runHealthCheck(app *AppTemplate, encCreds string) ConnectionTes
 	probeApp := *app
 	if hc.BaseURL != "" {
 		probeApp.BaseURL = hc.BaseURL
+	}
+	if baseURLOverride != "" {
+		probeApp.BaseURL = baseURLOverride
 	}
 
 	expect := hc.ExpectStatus

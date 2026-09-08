@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,41 @@ var defaultAllowSuffixes = []string{
 	"api.anthropic.com",
 	"api.openai.com",
 	"chatgpt.com",
+}
+
+// llmGatewayHost extracts the hostname from an operator-supplied
+// OPENAI_BASE_URL value. Returns "" for blank or unparseable input so
+// callers can append the result unconditionally after checking.
+func llmGatewayHost(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+// llmAllowSuffixes returns defaultAllowSuffixes plus the host of an
+// OPENAI_BASE_URL configured on the server process itself (container
+// env). Without this an operator who points OpenAI at a compatible
+// gateway gets their inference blocked by the edge even though the
+// provider is configured correctly — the allowlist would still only
+// name api.openai.com.
+//
+// This covers process-level configuration only. A gateway configured
+// per-connection (runtime_config.base_url) is admitted at agent attach
+// time instead — see EnvironmentEdge.AllowHost and its call in
+// SpawnAgentInEnvironment — because the edge cannot see any user's
+// connection rows at edge start.
+func llmAllowSuffixes() []string {
+	suffixes := append([]string{}, defaultAllowSuffixes...)
+	if host := llmGatewayHost(os.Getenv("OPENAI_BASE_URL")); host != "" {
+		suffixes = append(suffixes, host)
+	}
+	return suffixes
 }
 
 func hostMatchesSuffix(host string, suffixes []string) bool {

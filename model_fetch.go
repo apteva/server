@@ -42,9 +42,30 @@ type modelCacheEntry struct {
 var modelCacheTTL = 1 * time.Hour
 var globalModelCache = &modelCache{entries: make(map[string]modelCacheEntry)}
 
+// defaultOpenAIBaseURL is the versioned API root used whenever an
+// OpenAI provider has no OPENAI_BASE_URL configured.
+const defaultOpenAIBaseURL = "https://api.openai.com/v1"
+
+// openAIBaseURLOr normalises an operator-supplied OPENAI_BASE_URL,
+// falling back to the real API when it's blank. Trailing slashes are
+// trimmed so callers can append "/models" unconditionally.
+func openAIBaseURLOr(base string) string {
+	if b := strings.TrimRight(strings.TrimSpace(base), "/"); b != "" {
+		return b
+	}
+	return defaultOpenAIBaseURL
+}
+
 // FetchModels returns the model list for a provider, using cache if fresh.
-func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
+// baseURL overrides the upstream API root for providers that support it
+// (currently OpenAI, via OPENAI_BASE_URL); pass "" for the default.
+func FetchModels(providerType, apiKey, baseURL string) ([]ModelInfo, error) {
 	cacheKey := providerType + ":" + apiKey[:min(8, len(apiKey))]
+	if baseURL != "" {
+		// Keep per-endpoint catalogs distinct: the same key against two
+		// different gateways serves two different model lists.
+		cacheKey += ":" + baseURL
+	}
 
 	globalModelCache.mu.RLock()
 	if entry, ok := globalModelCache.entries[cacheKey]; ok && time.Since(entry.fetched) < modelCacheTTL {
@@ -60,7 +81,7 @@ func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
 	case "fireworks":
 		models, err = fetchFireworksModels(apiKey)
 	case "openai":
-		models, err = fetchOpenAIModels(apiKey)
+		models, err = fetchOpenAICompatModels(openAIBaseURLOr(baseURL)+"/models", apiKey)
 	case "anthropic":
 		models, err = fetchAnthropicModels(apiKey)
 	case "google":
@@ -402,31 +423,8 @@ func fetchFireworksModels(apiKey string) ([]ModelInfo, error) {
 	return models, nil
 }
 
-// ── OpenAI ──
-
-func fetchOpenAIModels(apiKey string) ([]ModelInfo, error) {
-	data, err := apiGet("https://api.openai.com/v1/models", map[string]string{
-		"Authorization": "Bearer " + apiKey,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var resp struct {
-		Data []struct {
-			ID      string `json:"id"`
-			Created int64  `json:"created"`
-		} `json:"data"`
-	}
-	json.Unmarshal(data, &resp)
-
-	var models []ModelInfo
-	for _, m := range resp.Data {
-		models = append(models, ModelInfo{ID: m.ID, Name: m.ID})
-	}
-	return models, nil
-}
-
 // fetchOpenAICompatModels works for any provider with an OpenAI-compatible /models endpoint.
+// OpenAI itself routes through here too, via openAIBaseURLOr.
 func fetchOpenAICompatModels(url, apiKey string) ([]ModelInfo, error) {
 	data, err := apiGet(url, map[string]string{
 		"Authorization": "Bearer " + apiKey,

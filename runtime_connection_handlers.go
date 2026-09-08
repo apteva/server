@@ -234,7 +234,7 @@ func (s *Server) handleConnectionModels(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "connection has no API key to list models with", http.StatusBadRequest)
 		return
 	}
-	models, err := FetchModels(app.Runtime.ProviderKey, apiKey)
+	models, err := FetchModels(app.Runtime.ProviderKey, apiKey, runtimeBaseURLFor(src))
 	if err != nil {
 		http.Error(w, "failed to fetch models: "+err.Error(), http.StatusBadGateway)
 		return

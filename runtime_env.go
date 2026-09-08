@@ -621,7 +621,7 @@ func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, 
 	if apiKey == "" {
 		return
 	}
-	models, err := FetchModels(app.Runtime.ProviderKey, apiKey)
+	models, err := FetchModels(app.Runtime.ProviderKey, apiKey, runtimeBaseURLFor(src))
 	if err != nil || len(models) == 0 {
 		if err != nil {
 			log.Printf("[RUNTIME-MODELS] connection=%d model list unavailable: %v", conn.ID, err)
@@ -648,6 +648,18 @@ func runtimeModelsMissing(state map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// runtimeBaseURLFor returns the operator-configured API root override
+// for a runtime connection, or "" when the connection uses the
+// provider's default endpoint. It lives in runtime_config (non-secret
+// knobs) under base_url — the same key the provider migration writes
+// when it lifts OPENAI_BASE_URL out of a legacy provider blob, and the
+// same key the openai-api catalog entry renders back into the agent's
+// environment via {{config.base_url}}.
+func runtimeBaseURLFor(src runtimeTemplateSources) string {
+	base, _ := src.config["base_url"].(string)
+	return strings.TrimSpace(base)
 }
 
 // runtimeAPIKeyFor renders the runtime env and returns the first *_KEY

@@ -616,7 +616,8 @@
     "provider_key": "openai",
     "env": {
       "OPENAI_API_KEY": "{{credentials.token}}",
-      "OPENAI_BASE_URL": "{{config.base_url}}"
+      "OPENAI_BASE_URL": "{{config.base_url}}",
+      "OPENAI_API_STYLE": "{{config.api_style}}"
     }
   }
 }
