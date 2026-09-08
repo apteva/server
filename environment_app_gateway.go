@@ -100,6 +100,7 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 		orig(req)
 		req.URL.Path = tail
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Del("X-Apteva-Operator-ID")
 		// Caller-agent identity is server-attributed from the URL segment.
 		req.Header.Del("X-Apteva-Caller-Agent")
 		req.Header.Del("X-Apteva-Project-ID")
@@ -197,6 +198,7 @@ func (s *Server) proxyEnvironmentInstall(w http.ResponseWriter, r *http.Request,
 		req.URL.Path = tail
 		req.URL.RawPath = ""
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Del("X-Apteva-Operator-ID")
 	}
 	proxy.ServeHTTP(w, r)
 }

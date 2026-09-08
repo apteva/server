@@ -148,12 +148,13 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 	s.environments.server = s
 
 	type seen struct {
-		auth, caller, thread, role, toolCall, project, deprecatedProfile, body string
+		auth, caller, thread, role, toolCall, project, deprecatedProfile, body, operator string
 	}
 	var got seen
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = seen{
 			auth:              r.Header.Get("Authorization"),
+			operator:          r.Header.Get("X-Apteva-Operator-ID"),
 			caller:            r.Header.Get("X-Apteva-Caller-Agent"),
 			thread:            r.Header.Get("X-Apteva-Caller-Thread"),
 			role:              r.Header.Get("X-Apteva-Caller-Thread-Role"),
@@ -190,6 +191,7 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 		r := httptest.NewRequest("POST", path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:54321" // the gateway is loopback-only
 		r.Header.Set("X-Apteva-MCP-Profile", "conversation")
+		r.Header.Set("X-Apteva-Operator-ID", "999")
 		if spoofCaller != "" {
 			r.Header.Set("X-Apteva-Caller-Agent", spoofCaller)
 			r.Header.Set("X-Apteva-Caller-Thread", "spoof-thread")
@@ -206,7 +208,7 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 	}`); code != 200 {
 		t.Fatalf("attributed call status %d", code)
 	}
-	if got.caller != "42" || got.project != "env-attr" || got.thread != "chat-room-7" || got.role != "conversation" || got.toolCall != "call-7" || got.deprecatedProfile != "" {
+	if got.caller != "42" || got.project != "env-attr" || got.thread != "chat-room-7" || got.role != "conversation" || got.toolCall != "call-7" || got.deprecatedProfile != "" || got.operator != "" {
 		t.Fatalf("attributed headers = %+v", got)
 	}
 	if strings.Contains(got.body, "_apteva_caller") || strings.Contains(got.body, "_apteva_tool_call_id") {
@@ -220,7 +222,7 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 	if code := do("/environment-app-gateway/env-attr/a2a/mcp", "999", `{}`); code != 200 {
 		t.Fatalf("plain call status %d", code)
 	}
-	if got.caller != "" || got.thread != "" {
+	if got.caller != "" || got.thread != "" || got.operator != "" {
 		t.Fatalf("plain form leaked caller headers: %+v", got)
 	}
 

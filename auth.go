@@ -178,6 +178,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					return
 				}
 				r.Header.Set("X-User-ID", itoa(userID))
+				r.Header.Set("X-Apteva-Operator-ID", itoa(userID))
 				next(w, r)
 				return
 			}
@@ -278,6 +279,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			user, err := s.store.GetUserByAPIKey(keyHash)
 			if err == nil {
 				r.Header.Set("X-User-ID", itoa(user.ID))
+				r.Header.Set("X-Apteva-Operator-ID", itoa(user.ID))
 				next(w, r)
 				return
 			}
@@ -1111,6 +1113,7 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func clearPrincipalHeaders(r *http.Request) {
+	r.Header.Del("X-Apteva-Operator-ID")
 	r.Header.Del("X-User-ID")
 	r.Header.Del("X-Apteva-App-Install-ID")
 	for _, header := range []string{

@@ -1416,6 +1416,7 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 			req.Header.Del("Authorization")
 		}
 		req.Header.Set("X-Apteva-App-Install-ID", strconv.FormatInt(target.InstallID, 10))
+		req.Header.Del("X-Apteva-Operator-ID")
 		req.Header.Set("X-Apteva-Bound-Caller-Install-ID", strconv.FormatInt(callerInstallID, 10))
 		req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
 	}
