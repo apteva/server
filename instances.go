@@ -422,13 +422,16 @@ func (im *AgentManager) PreSeedConfig(instID int64, cfgJSON string) error {
 
 // ProviderInfo holds provider metadata for config.json injection.
 type ProviderInfo struct {
-	Type              string
-	ModelLarge        string
-	ModelMedium       string
-	ModelSmall        string
-	RealtimeVoice     string
-	BuiltinTools      []string
-	ModelCapabilities map[string]ProviderModelCapabilities
+	AvailableModels     map[string]bool
+	ModelPolicy         *RuntimeModelPolicy
+	ModelSelectionError bool
+	Type                string
+	ModelLarge          string
+	ModelMedium         string
+	ModelSmall          string
+	RealtimeVoice       string
+	BuiltinTools        []string
+	ModelCapabilities   map[string]ProviderModelCapabilities
 }
 
 // Start launches a core process for the given instance.
@@ -539,9 +542,10 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		config["directive"] = inst.Directive
 	}
 	directive, _ := config["directive"].(string)
-	config["directive"] = withAgentBehavior(directive, inst.Mode)
+	config["directive"] = withAgentBehavior(directive, inst.Mode, inst.Proactivity)
 	delete(config, "mode")
-	applyBehaviorToSavedWorkers(config, inst.Mode)
+	delete(config, "proactivity")
+	applyBehaviorToSavedWorkers(config, inst.Mode, inst.Proactivity)
 
 	// Read default_provider from instance config. The disk metadata branch is
 	// retained for old installations; current servers persist it in the agent
@@ -557,7 +561,18 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 
 	// Inject providers array into config (core reads "providers" field)
 	if len(providerPool) > 0 {
+		selected := effectiveProviderDefault(providerPool, configuredAgentDefaultProvider(inst.Config))
+		if err := validateProviderModel(providerPool, selected, configuredAgentModelOverride(inst.Config, selected)); err != nil {
+			return err
+		}
 		provArray := buildAgentCoreProviderConfigs(providerPool, inst.Config, defaultProvider)
+		if selected == "" {
+			for _, info := range providerPool {
+				if info.ModelPolicy != nil {
+					return fmt.Errorf("no compatible agent models configured; update model selections in Providers settings")
+				}
+			}
+		}
 		if len(provArray) > 0 {
 			config["providers"] = provArray
 			delete(config, "provider") // remove legacy single-provider field
@@ -891,6 +906,7 @@ func configuredAgentModelOverride(configJSON, providerName string) string {
 // text-provider pool. Missing or stale pins fall back deterministically to the
 // first text provider supplied by GetProviderPool.
 func effectiveProviderDefault(pool []ProviderInfo, configured string) string {
+	pool = eligibleProviderPool(pool)
 	configured = providerKeyFromName(configured)
 	if configured != "" {
 		for _, provider := range pool {
@@ -910,6 +926,7 @@ func effectiveProviderDefault(pool []ProviderInfo, configured string) string {
 }
 
 func buildCoreProviderConfigs(pool []ProviderInfo, configuredDefault string) []map[string]any {
+	pool = eligibleProviderPool(pool)
 	defaultProvider := effectiveProviderDefault(pool, configuredDefault)
 	providers := make([]map[string]any, 0, len(pool))
 	for i, provider := range pool {
@@ -965,9 +982,15 @@ func buildAgentCoreProviderConfigs(pool []ProviderInfo, configJSON string, fallb
 	if configuredDefault == "" && len(fallbackDefault) > 0 {
 		configuredDefault = providerKeyFromName(fallbackDefault[0])
 	}
+	pool = eligibleProviderPool(pool)
 	providers := buildCoreProviderConfigs(pool, configuredDefault)
 	effectiveDefault := effectiveProviderDefault(pool, configuredDefault)
-	applyAgentModelOverride(providers, effectiveDefault, configuredAgentModelOverride(configJSON, effectiveDefault))
+	model := configuredAgentModelOverride(configJSON, effectiveDefault)
+	if err := validateProviderModel(pool, effectiveDefault, model); err != nil {
+		log.Printf("[RUNTIME-MODELS] ignoring incompatible saved agent override: %v", err)
+	} else {
+		applyAgentModelOverride(providers, effectiveDefault, model)
+	}
 	return providers
 }
 
@@ -995,6 +1018,7 @@ func requestedTextProviderDefault(providers []map[string]any) (string, error) {
 // {name, default} selection into the complete provider configuration expected
 // by Core. Explicit per-agent overrides remain supported for API clients.
 func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, requested []map[string]any) ([]map[string]any, string, error) {
+	pool = eligibleProviderPool(pool)
 	requestedDefault, err := requestedTextProviderDefault(requested)
 	if err != nil {
 		return nil, "", err
@@ -1027,6 +1051,9 @@ func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, r
 				provider[field] = value
 			}
 		}
+	}
+	if err := validateProviderModelMaps(pool, providers); err != nil {
+		return nil, "", err
 	}
 	return providers, effectiveDefault, nil
 }
@@ -1590,11 +1617,12 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name      string `json:"name"`
-		Directive string `json:"directive"`
-		Mode      string `json:"mode"`   // "autonomous" | "cautious" | "learn"
-		Config    string `json:"config"` // optional JSON blob for MCP servers etc
-		ProjectID string `json:"project_id"`
+		Name        string `json:"name"`
+		Directive   string `json:"directive"`
+		Proactivity *int   `json:"proactivity"`
+		Mode        string `json:"mode"`   // "autonomous" | "cautious" | "learn"
+		Config      string `json:"config"` // optional JSON blob for MCP servers etc
+		ProjectID   string `json:"project_id"`
 		// IdempotencyKey identifies one logical agent creation. Reusing it in
 		// the same project returns the existing agent instead of creating a
 		// duplicate. Unscoped agents are isolated by caller user id.
@@ -1633,6 +1661,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.Proactivity != nil && !validProactivity(*body.Proactivity) {
+		http.Error(w, "proactivity must be an integer from 0 to 100", http.StatusBadRequest)
 		return
 	}
 	if body.Name == "" {
@@ -1721,8 +1753,11 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	selectedAppInstallIDs = validAppInstallIDs
 
+	// Freeze the creation preference even when the agent is created stopped.
+	body.Config = s.applyNewAgentProviderDefault(userID, body.ProjectID, body.Config)
+
 	inst, created, err := s.store.CreateAgentIdempotent(
-		userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID, body.IdempotencyKey,
+		userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID, body.IdempotencyKey, optionalProactivity(body.Proactivity),
 	)
 	if err != nil {
 		http.Error(w, "failed to create instance", http.StatusInternalServerError)
@@ -1989,6 +2024,7 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	// Update running status
 	for i := range instances {
 		s.enrichAgentRuntime(&instances[i])
+		restrictAgentConfig(r, &instances[i])
 	}
 	if instances == nil {
 		instances = []Agent{}
@@ -2041,6 +2077,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.enrichAgentRuntime(inst)
+		restrictAgentConfig(r, inst)
 		writeJSON(w, inst)
 
 	case http.MethodPut, http.MethodPatch:
@@ -2454,6 +2491,18 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isReadOnlyAPIKey(r) {
+		var config map[string]any
+		_ = json.Unmarshal([]byte(inst.Config), &config)
+		out := readOnlyAgentConfig(config)
+		out["directive"] = inst.Directive
+		out["mode"] = agentMode(inst.Mode)
+		out["proactivity"] = inst.Proactivity
+		out["config_source"] = "saved"
+		writeJSON(w, out)
+		return
+	}
+
 	port := s.agents.GetPort(inst.ID)
 
 	// GET — proxy directly to core (with boot-wait retry)
@@ -2516,6 +2565,13 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(bodyBytes, &rawBody); err != nil || rawBody == nil {
 		http.Error(w, "invalid JSON object", http.StatusBadRequest)
 		return
+	}
+	if value, exists := rawBody["proactivity"]; exists {
+		n, ok := value.(float64)
+		if !ok || n < 0 || n > 100 || n != float64(int(n)) {
+			http.Error(w, "proactivity must be an integer from 0 to 100", http.StatusBadRequest)
+			return
+		}
 	}
 	if value, exists := rawBody["mode"]; exists {
 		mode, ok := value.(string)
@@ -2596,6 +2652,26 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	effectiveDefault := ""
+	if body.Config != "" {
+		configured := configuredAgentDefaultProvider(body.Config)
+		override := configuredAgentModelOverride(body.Config, configured)
+		if override != "" {
+			if err := validateProviderModel(s.GetProviderPool(inst.UserID, inst.ProjectID), configured, override); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	if body.ModelOverride != nil && len(body.Providers) == 0 {
+		configured := configuredAgentDefaultProvider(inst.Config)
+		if body.Config != "" {
+			configured = configuredAgentDefaultProvider(body.Config)
+		}
+		selected := effectiveProviderDefault(s.GetProviderPool(inst.UserID, inst.ProjectID), configured)
+		if s.modelPolicyForProvider(selected) != nil {
+			body.Providers = []map[string]any{{"name": selected, "default": true}}
+		}
+	}
 	if len(body.Providers) > 0 {
 		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
 		configuredDefault := configuredAgentDefaultProvider(inst.Config)
@@ -2610,6 +2686,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		modelOverride := configuredAgentModelOverride(inst.Config, selected)
 		if body.ModelOverride != nil {
 			modelOverride = strings.TrimSpace(*body.ModelOverride)
+		}
+		if err := validateProviderModel(pool, selected, modelOverride); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		applyAgentModelOverride(hydrated, selected, modelOverride)
 		rawBody["providers"] = hydrated
@@ -2626,7 +2706,8 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	_, directiveSent := rawBody["directive"]
 	_, modeSent := rawBody["mode"]
-	behaviorChanged := directiveSent || modeSent
+	_, proactivitySent := rawBody["proactivity"]
+	behaviorChanged := directiveSent || modeSent || proactivitySent
 	if behaviorChanged {
 		base := body.Directive
 		if !directiveSent {
@@ -2650,13 +2731,17 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if modeSent {
 			inst.Mode = body.Mode
 		}
-		inst.Directive = withAgentBehavior(base, inst.Mode)
+		if proactivitySent {
+			inst.Proactivity = int(rawBody["proactivity"].(float64))
+		}
+		inst.Directive = withAgentBehavior(base, inst.Mode, inst.Proactivity)
 		body.Directive = inst.Directive
 		rawBody["directive"] = inst.Directive
 	}
 	delete(rawBody, "mode")
+	delete(rawBody, "proactivity")
 	if threads, exists := rawBody["threads"]; exists {
-		applyBehaviorToSavedWorkers(map[string]any{"threads": threads}, inst.Mode)
+		applyBehaviorToSavedWorkers(map[string]any{"threads": threads}, inst.Mode, inst.Proactivity)
 	}
 	bodyBytes, err = json.Marshal(rawBody)
 	if err != nil {
@@ -2791,6 +2876,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			cfg["directive"] = body.Directive
 		}
 		delete(cfg, "mode")
+		delete(cfg, "proactivity")
 		// rawBody was decoded above; re-use it for the surface-level
 		// fields the client may set. If a key is absent in the request
 		// we keep whatever disk already held. main_pace is accepted only
@@ -2810,7 +2896,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if behaviorChanged {
-			applyBehaviorToSavedWorkers(cfg, inst.Mode)
+			applyBehaviorToSavedWorkers(cfg, inst.Mode, inst.Proactivity)
 		}
 		return nil
 	})
@@ -2957,7 +3043,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if directive, ok := payload["directive"].(string); ok && directive != "" {
-				payload["directive"] = withAgentBehavior(directive, inst.Mode)
+				payload["directive"] = withAgentBehavior(directive, inst.Mode, inst.Proactivity)
 			}
 			data, _ = json.Marshal(payload)
 			r.Body = io.NopCloser(bytes.NewReader(data))

@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 func TestBuiltinAgentTemplatesExposeHighlightsAndAreReadOnly(t *testing.T) {
@@ -58,5 +62,63 @@ func TestUserAgentTemplateHighlightsRoundTrip(t *testing.T) {
 	}
 	if len(created.Highlights) != 2 || created.Highlights[0] != "Summarize reviewed changes" {
 		t.Fatalf("highlights=%v", created.Highlights)
+	}
+}
+
+// A stale registry icon must not override the canonical manifest icon used
+// by the Apps page. Keep both the resolved URL and the theme rendering style.
+func TestTemplateLogosUseMarketplaceManifestIdentity(t *testing.T) {
+	registryCacheMu.Lock()
+	previous := registryCache
+	registryCache = registryCacheEntry{registry: &CuratedRegistry{Apps: []RegistryEntry{
+		{Name: "storage", DisplayName: "Storage", Icon: "https://example.test/stale.png", ManifestURL: "https://example.test/storage/apteva.yaml"},
+		{Name: "fallback", DisplayName: "Fallback", Icon: "https://example.test/fallback.svg", IconStyle: "monochrome"},
+	}}, fetched: time.Now()}
+	registryCacheMu.Unlock()
+	t.Cleanup(func() {
+		registryCacheMu.Lock()
+		registryCache = previous
+		registryCacheMu.Unlock()
+	})
+	url := "https://example.test/storage/apteva.yaml"
+	manifestCacheMu.Lock()
+	old, existed := manifestCache[url]
+	manifestCache[url] = manifestCacheEntry{manifest: &sdk.Manifest{Icon: "/ui/icon.svg", IconStyle: "monochrome"}, fetched: time.Now()}
+	manifestCacheMu.Unlock()
+	t.Cleanup(func() {
+		manifestCacheMu.Lock()
+		if existed {
+			manifestCache[url] = old
+		} else {
+			delete(manifestCache, url)
+		}
+		manifestCacheMu.Unlock()
+	})
+	s := &Server{}
+	template := AgentTemplate{Requirements: []Requirement{
+		{Kind: "app", Slug: "storage", Required: true},
+		{Kind: "app", Slug: "fallback"},
+		{Kind: "app", Slug: "unknown"},
+	}}
+	s.resolveTemplateLogos(&template)
+	if len(template.ResolvedLogos) != 3 {
+		t.Fatalf("logos=%+v", template.ResolvedLogos)
+	}
+	logo := template.ResolvedLogos[0]
+	if logo.IconURL != "https://example.test/storage/ui/icon.svg" || logo.IconStyle != "monochrome" {
+		t.Fatalf("manifest identity lost: %+v", logo)
+	}
+	if fallback := template.ResolvedLogos[1]; fallback.IconURL != "https://example.test/fallback.svg" || fallback.IconStyle != "monochrome" {
+		t.Fatalf("registry fallback lost: %+v", fallback)
+	}
+	if unknown := template.ResolvedLogos[2]; unknown.Label != "unknown" || unknown.IconURL != "" {
+		t.Fatalf("missing app fallback lost: %+v", unknown)
+	}
+	encoded, err := json.Marshal(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"icon_style":"monochrome"`) {
+		t.Fatalf("icon style missing from API JSON: %s", encoded)
 	}
 }

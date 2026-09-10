@@ -103,44 +103,55 @@ func (s *Server) enrichAgentThreadsBody(instanceID int64, body []byte, now time.
 }
 
 func (s *Server) computeAgentSleepStatus(instanceID int64, status map[string]any, now time.Time) sleepStatus {
-	if sleepStringValue(status["rate"]) == "stopped" {
-		return sleepStatus{State: "stopped"}
-	}
-	if sleepBoolValue(status["paused"]) {
-		return sleepStatus{State: "paused"}
-	}
+	// /status describes main. A worker's later llm.done must not supply its
+	// scheduling metadata or make main appear active.
 	latest := s.latestLLMDoneByThread(instanceID, 100)
-	ev, ok := newestTelemetryEvent(latest)
-	if !ok {
-		if total, ok := parseSleepDisplayDuration(sleepStringValue(status["rate"])); ok {
-			return sleepStatus{State: "unknown", Total: total}
-		}
-		return sleepStatus{State: "unknown"}
-	}
-	state := sleepStatusFromTelemetry(ev, now)
-	if currentIter := sleepIntValue(status["iteration"]); currentIter > 0 && state.Iteration > 0 && currentIter > state.Iteration {
-		state.State = "active"
-		state.Remaining = 0
-		state.NextWakeAt = time.Time{}
-	}
-	return state
+	return computeThreadSleepStatus(status, latest["main"], now)
 }
 
-func computeThreadSleepStatus(thread map[string]any, ev TelemetryEvent, now time.Time) sleepStatus {
-	if sleepStringValue(thread["rate"]) == "stopped" {
-		return sleepStatus{State: "stopped"}
+func computeThreadSleepStatus(runtime map[string]any, ev TelemetryEvent, now time.Time) sleepStatus {
+	state := sleepStatus{State: "waiting", ThreadID: sleepStringValue(runtime["id"]), Iteration: sleepIntValue(runtime["iteration"])}
+	if state.ThreadID == "" {
+		state.ThreadID = "main"
 	}
-	if ev.Type != "llm.done" {
-		if total, ok := parseSleepDisplayDuration(sleepStringValue(thread["rate"])); ok {
-			return sleepStatus{State: "unknown", Total: total}
+	if ev.Type == "llm.done" {
+		state.StartedAt = ev.Time
+	}
+
+	// The deadline is authoritative. Rate is retained even after clear_wake,
+	// and a missing thread deadline is omitted by core's JSON encoder.
+	// Never manufacture a deadline from llm.done time + rate.
+	rawWake := sleepStringValue(runtime["next_wake_at"])
+	if rawWake != "" {
+		wake, err := time.Parse(time.RFC3339Nano, rawWake)
+		if err != nil {
+			state.State = "unknown"
+		} else if !wake.IsZero() {
+			state.NextWakeAt = wake
 		}
-		return sleepStatus{State: "unknown"}
 	}
-	state := sleepStatusFromTelemetry(ev, now)
-	if currentIter := sleepIntValue(thread["iteration"]); currentIter > 0 && state.Iteration > 0 && currentIter > state.Iteration {
+	switch {
+	case sleepStringValue(runtime["rate"]) == "stopped":
+		state.State = "stopped"
+	case sleepBoolValue(runtime["paused"]):
+		state.State = "paused"
+	case sleepBoolValue(runtime["llm_active"]):
 		state.State = "active"
-		state.Remaining = 0
-		state.NextWakeAt = time.Time{}
+	case !state.NextWakeAt.IsZero():
+		state.Remaining = state.NextWakeAt.Sub(now)
+		if state.Remaining > 0 {
+			state.State = "sleeping"
+		} else {
+			state.State = "overdue"
+			state.Remaining = 0
+		}
+	}
+	if state.State == "sleeping" || state.State == "overdue" {
+		// Duration only supplies optional progress decoration. Symbolic thread
+		// rates (e.g. "slow") are not a reliable duration for a custom pace.
+		if total, err := time.ParseDuration(sleepStringValue(runtime["rate"])); err == nil && total > 0 && total >= state.Remaining {
+			state.Total = total
+		}
 	}
 	return state
 }
@@ -181,111 +192,30 @@ type sleepStatus struct {
 	Iteration  int
 }
 
-func sleepStatusFromTelemetry(ev TelemetryEvent, now time.Time) sleepStatus {
-	data := map[string]any{}
-	_ = json.Unmarshal(ev.Data, &data)
-	total, ok := parseSleepDisplayDuration(sleepStringValue(data["rate"]))
-	if !ok {
-		total = 0
-	}
-	next := time.Time{}
-	remaining := time.Duration(0)
-	state := "unknown"
-	if !ev.Time.IsZero() && total > 0 {
-		next = ev.Time.Add(total)
-		remaining = time.Until(next)
-		if !now.IsZero() {
-			remaining = next.Sub(now)
-		}
-		if remaining > 0 {
-			state = "sleeping"
-		} else {
-			state = "overdue"
-			remaining = 0
-		}
-	}
-	threadID := ev.ThreadID
-	if threadID == "" {
-		threadID = "main"
-	}
-	return sleepStatus{
-		State:      state,
-		ThreadID:   threadID,
-		StartedAt:  ev.Time,
-		NextWakeAt: next,
-		Total:      total,
-		Remaining:  remaining,
-		Iteration:  sleepIntValue(data["iteration"]),
-	}
-}
-
 func applySleepStatus(dst map[string]any, state sleepStatus) {
 	if state.State == "" {
 		state.State = "unknown"
 	}
+	// Clear old derived decoration on every response. Keep core's deadline
+	// untouched, including an empty value or a timer retained during an early
+	// event wake, pause, or active LLM call.
+	for _, key := range []string{"sleep_thread_id", "sleep_started_at", "sleep_total_ms", "sleep_iteration"} {
+		delete(dst, key)
+	}
 	dst["sleep_state"] = state.State
+	dst["sleep_remaining_ms"] = state.Remaining.Milliseconds()
 	if state.ThreadID != "" {
 		dst["sleep_thread_id"] = state.ThreadID
 	}
 	if !state.StartedAt.IsZero() {
 		dst["sleep_started_at"] = state.StartedAt.UTC().Format(time.RFC3339Nano)
 	}
-	if !state.NextWakeAt.IsZero() && state.State != "active" {
-		dst["next_wake_at"] = state.NextWakeAt.UTC().Format(time.RFC3339Nano)
-	}
 	if state.Total > 0 {
 		dst["sleep_total_ms"] = state.Total.Milliseconds()
-	}
-	if state.Remaining > 0 {
-		dst["sleep_remaining_ms"] = state.Remaining.Milliseconds()
-	} else {
-		dst["sleep_remaining_ms"] = 0
 	}
 	if state.Iteration > 0 {
 		dst["sleep_iteration"] = state.Iteration
 	}
-}
-
-func newestTelemetryEvent(events map[string]TelemetryEvent) (TelemetryEvent, bool) {
-	var newest TelemetryEvent
-	ok := false
-	for _, ev := range events {
-		if !ok || ev.Time.After(newest.Time) {
-			newest = ev
-			ok = true
-		}
-	}
-	return newest, ok
-}
-
-func parseSleepDisplayDuration(raw string) (time.Duration, bool) {
-	s := strings.TrimSpace(strings.ToLower(raw))
-	if s == "" {
-		return 0, false
-	}
-	switch s {
-	case "reactive":
-		return 500 * time.Millisecond, true
-	case "fast":
-		return 2 * time.Second, true
-	case "normal":
-		return 10 * time.Second, true
-	case "slow":
-		return 30 * time.Second, true
-	case "sleep":
-		return 2 * time.Minute, true
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return 0, false
-	}
-	if d < 500*time.Millisecond {
-		d = 500 * time.Millisecond
-	}
-	if d > 24*time.Hour {
-		d = 24 * time.Hour
-	}
-	return d, true
 }
 
 func sleepStringValue(v any) string {

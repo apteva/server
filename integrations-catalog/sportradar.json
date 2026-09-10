@@ -1,0 +1,275 @@
+{
+  "slug": "sportradar",
+  "name": "Sportradar Soccer",
+  "description": "Sportradar Soccer v4 JSON HTTP API: competitions, seasons, schedules, match summaries, team profiles and standings. Requires an API key entitled to Soccer v4; keys for other Sportradar products are not interchangeable. Default trial: 30 days, 1,000 requests per rolling 30 days and 1 request/second. Production access and coverage depend on contract. Docs: https://developer.sportradar.com/soccer/reference/soccer-api-overview",
+  "logo": "https://www.google.com/s2/favicons?domain=sportradar.com&sz=128",
+  "categories": [
+    "sports",
+    "football",
+    "soccer",
+    "stats",
+    "scores",
+    "standings"
+  ],
+  "base_url": "https://api.sportradar.com/soccer/{{credential.access_level}}/v4/{{credential.language}}",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      },
+      {
+        "name": "access_level",
+        "label": "Access level",
+        "description": "Select the access level assigned to your Soccer API key.",
+        "required": false,
+        "type": "select",
+        "options": [
+          "trial",
+          "production"
+        ],
+        "default": "trial"
+      },
+      {
+        "name": "language",
+        "label": "Language code",
+        "description": "Response language. English by default.",
+        "required": false,
+        "type": "select",
+        "options": [
+          "en",
+          "es",
+          "fr",
+          "de",
+          "it",
+          "pt"
+        ],
+        "default": "en"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_competitions",
+      "description": "Provides a list of all available Soccer competitions. Requires Soccer v4 product access.",
+      "method": "GET",
+      "path": "/competitions.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_competition_seasons",
+      "description": "Provides historical season information for a given competition. Valid competition IDs can be found in the Competitions feed. Requires Soccer v4 product access.",
+      "method": "GET",
+      "path": "/competitions/{competition_id}/seasons.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "competition_id": {
+            "type": "string",
+            "default": "sr:competition:17",
+            "description": "Unique Id of a competition, found in the [Competitions](https://developer.sportradar.com/soccer/reference/soccer-competitions) endpoint.**Example:** `sr:competition:17`"
+          }
+        },
+        "required": [
+          "competition_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_daily_schedule",
+      "description": "Provides a list of scheduled matches for a given day. Requires Soccer v4 product access.",
+      "method": "GET",
+      "path": "/schedules/{date}/schedules.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "default": "2025-06-01",
+            "description": "Date in `YYYY-MM-DD` format"
+          },
+          "start": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The number of items to skip before starting to collect the result set.Default: `0`Example: `start=200` to receive a 2nd page of results (if necessary)Note: You may alternatively use `offset`"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The number of items to return.Maximum: `200`Default value: `200`Example: `limit=5`**Note**: Pagination may be required to pull all data within this feed. By default, the feed will return 200 sport events."
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_event_summary",
+      "description": "Provides real-time match-level statistics for a given match. Including player and team stats, scoring info, and channel availability. Please note that data returned is determined by coverage level. Requires Soccer v4 product access.",
+      "method": "GET",
+      "path": "/sport_events/{sport_event_id}/summary.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport_event_id": {
+            "type": "string",
+            "default": "sr:sport_event:61300703",
+            "description": "Unique Id of a sport event**Example:** `sr:sport_event:50850733`"
+          }
+        },
+        "required": [
+          "sport_event_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_standings",
+      "description": "Provides detailed standings info for a given season. Requires Soccer v4 product access.",
+      "method": "GET",
+      "path": "/seasons/{season_id}/standings.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season_id": {
+            "type": "string",
+            "default": "sr:season:130281",
+            "description": "Unique Id of a season, found in the [Seasons](https://developer.sportradar.com/soccer/reference/soccer-seasons) endpoint**Note:** The API provides a maximum of 3 seasons per competition — 2 previous seasons and 1 current season.**Example:** `sr:season:118689`"
+          },
+          "round": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Standings for a specified round number. If the round number is not specified, the last round is displayed by default.Example: `round=2`"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Determines whether standings are based on live scores. If not specified, live standings are returned.Visit our [Coverage Matrix](https://coverage-matrix.sportradar.com) for live standings availability by competition.Example: `live=false` (ignore live standings)"
+          }
+        },
+        "required": [
+          "season_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team_profile",
+      "description": "Provides top-level information for a given team, including the full team roster, manager, home venue, and team colors. Requires Soccer v4 product access.",
+      "method": "GET",
+      "path": "/competitors/{competitor_id}/profile.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "competitor_id": {
+            "type": "string",
+            "default": "sr:competitor:44",
+            "description": "Unique Id of a competitor**Example:** `sr:competitor:44`"
+          }
+        },
+        "required": [
+          "competitor_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_season_schedule",
+      "description": "Provides basic match information for all matches for a given season, including scoring and match coverage. Requires Soccer v4 product access.",
+      "method": "GET",
+      "path": "/seasons/{season_id}/schedules.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season_id": {
+            "type": "string",
+            "default": "sr:season:130281",
+            "description": "Unique Id of a season, found in the [Seasons](https://developer.sportradar.com/soccer/reference/soccer-seasons) endpoint**Note:** The API provides a maximum of 3 seasons per competition — 2 previous seasons and 1 current season.**Example:** `sr:season:118689`"
+          },
+          "start": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The number of items to skip before starting to collect the result set.Default: `0`Example: `start=200` to receive a 2nd page of results (if necessary)Note: You may alternatively use `offset`"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The number of items to return.Maximum: `1000`Default value: `1000`Example: `limit=5`**Note**: Pagination may be required to pull all data within this feed. By default, the feed will return 1,000 sport events."
+          }
+        },
+        "required": [
+          "season_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_competitions"
+  }
+}

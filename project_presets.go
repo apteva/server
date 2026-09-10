@@ -827,9 +827,9 @@ func (s *Server) findPresetAgentByName(projectID, name string) (Agent, bool) {
 	var agent Agent
 	var createdAt string
 	err := s.store.db.QueryRow(`
-		SELECT id,user_id,name,directive,mode,config,port,pid,core_api_key,status,project_id,kind,created_at
+		SELECT id,user_id,name,directive,mode,proactivity,config,port,pid,core_api_key,status,project_id,kind,created_at
 		FROM agents WHERE project_id=? AND name=? AND kind='user' ORDER BY id LIMIT 1`, projectID, name).
-		Scan(&agent.ID, &agent.UserID, &agent.Name, &agent.Directive, &agent.Mode, &agent.Config,
+		Scan(&agent.ID, &agent.UserID, &agent.Name, &agent.Directive, &agent.Mode, &agent.Proactivity, &agent.Config,
 			&agent.Port, &agent.Pid, &agent.CoreAPIKey, &agent.Status, &agent.ProjectID, &agent.Kind, &createdAt)
 	if err != nil {
 		return Agent{}, false

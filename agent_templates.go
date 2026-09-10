@@ -107,12 +107,13 @@ type BindTo struct {
 //	         from a required app's requires.integrations)
 //	via = app slug that pulled in a derived entry, empty otherwise
 type TemplateLogo struct {
-	Kind    string `json:"kind"`
-	Slug    string `json:"slug"`
-	IconURL string `json:"icon_url,omitempty"`
-	Label   string `json:"label"`
-	Source  string `json:"source"`
-	Via     string `json:"via,omitempty"`
+	Kind      string `json:"kind"`
+	Slug      string `json:"slug"`
+	IconURL   string `json:"icon_url,omitempty"`
+	IconStyle string `json:"icon_style,omitempty"`
+	Label     string `json:"label"`
+	Source    string `json:"source"`
+	Via       string `json:"via,omitempty"`
 }
 
 // builtinAgentTemplates is the canonical shipped set. Seeded at
@@ -876,7 +877,20 @@ func (s *Server) resolveTemplateLogos(t *AgentTemplate) {
 				if label == "" {
 					label = e.Name
 				}
-				add(TemplateLogo{Kind: "app", Slug: slug, IconURL: e.Icon, Label: label, Source: source})
+				// Match the Apps marketplace: the manifest owns the current icon
+				// and its rendering style; the registry is only a fallback.
+				icon, iconStyle := e.Icon, e.IconStyle
+				if e.ManifestURL != "" {
+					if manifest, err := s.fetchAndCacheManifest(e.ManifestURL); err == nil && manifest != nil {
+						if resolved := resolveMarketplaceAppIcon(e.ManifestURL, manifest.Icon); resolved != "" {
+							icon = resolved
+						}
+						if manifest.IconStyle != "" {
+							iconStyle = manifest.IconStyle
+						}
+					}
+				}
+				add(TemplateLogo{Kind: "app", Slug: slug, IconURL: icon, IconStyle: iconStyle, Label: label, Source: source})
 				return
 			}
 		}

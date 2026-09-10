@@ -123,6 +123,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackPlatformBackup(w, r, parts[1:])
 	case "delegated-keys":
 		s.handleCallbackDelegatedKeys(w, r, parts[1:])
+	case "dashboard-connect-origins":
+		s.handleCallbackDashboardConnectOrigins(w, r, parts[1:])
 	case "cors-origins":
 		s.handleCallbackCORSOrigins(w, r, parts[1:])
 	case "managed-tenants":
@@ -1250,6 +1252,18 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 			return
 		}
 	}
+	if isPlatformBackupApp(target) {
+		// Scheduled calls may only enqueue an existing policy. General backup
+		// management and restore require a direct authenticated administrator.
+		var owner int64
+		_ = s.store.db.QueryRow(`SELECT COALESCE(installed_by,0) FROM app_installs WHERE id=?`, installID).Scan(&owner)
+		async, _ := body.Input["async"].(bool)
+		policyID, _ := body.Input["policy_id"].(float64)
+		if callerAppName != "jobs" || !s.isAdmin(owner) || body.Tool != "backup_now" || !async || policyID <= 0 {
+			http.Error(w, "backup management requires a direct platform administrator request", http.StatusForbidden)
+			return
+		}
+	}
 	// Replace rather than preserve routing metadata. The value above is
 	// pinned by the caller install or validated against its owning user.
 	delete(body.Input, "_project_id")
@@ -1390,6 +1404,10 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 	target := s.installedApps.Get(targetInstallID)
 	if target == nil || target.SidecarURL == "" {
 		http.Error(w, "target app not reachable: "+targetAppName, http.StatusBadGateway)
+		return
+	}
+	if isPlatformBackupApp(target) {
+		http.Error(w, "backup management requires a direct platform administrator request", http.StatusForbidden)
 		return
 	}
 	callerAppName := strings.TrimSpace(s.callerAppName(callerInstallID))

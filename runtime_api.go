@@ -1392,7 +1392,7 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 	if directiveETag(agent.Directive) != req.ExpectedETag {
 		return nil, fmt.Errorf("agent directive changed; refresh and retry")
 	}
-	req.Directive = withAgentBehavior(req.Directive, agent.Mode)
+	req.Directive = withAgentBehavior(req.Directive, agent.Mode, agent.Proactivity)
 	var cfg map[string]any
 	if json.Unmarshal([]byte(agent.Config), &cfg) != nil {
 		cfg = map[string]any{}

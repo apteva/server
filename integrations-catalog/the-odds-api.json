@@ -1,7 +1,7 @@
 {
   "slug": "the-odds-api",
   "name": "The Odds API",
-  "description": "Live sports betting odds aggregated from 70+ sportsbooks (DraftKings, FanDuel, Pinnacle, Betfair, William Hill, BetMGM, etc.) across the US, UK, EU, and AU. Converts directly to implied probabilities — feed an agent the consensus probability vs the Polymarket price and any meaningful gap is an arbitrage signal. Covers NFL, NBA, MLB, NHL, NCAA, EPL, F1, MMA, tennis, soccer worldwide, and more. Free tier: 500 requests/month with the_odds_format=american. Sign up at https://the-odds-api.com.",
+  "description": "Live sports betting odds aggregated from 70+ sportsbooks (DraftKings, FanDuel, Pinnacle, Betfair, William Hill, BetMGM, etc.) across the US, UK, EU, and AU. Converts directly to implied probabilities — feed an agent the consensus probability vs the Polymarket price and any meaningful gap is an arbitrage signal. Covers NFL, NBA, MLB, NHL, NCAA, EPL, F1, MMA, tennis, soccer worldwide, and more. Free tier: 500 credits/month; usage depends on endpoint, markets and regions. Use oddsFormat=decimal or oddsFormat=american. Sign up at https://the-odds-api.com.",
   "logo": "https://www.google.com/s2/favicons?domain=the-odds-api.com&sz=128",
   "categories": [
     "sports",
@@ -20,7 +20,7 @@
       {
         "name": "api_key",
         "label": "API Key",
-        "description": "From your account dashboard at https://the-odds-api.com — free tier is 500 req/month."
+        "description": "From your account dashboard at https://the-odds-api.com — free tier is 500 credits/month; a request can consume multiple credits."
       }
     ]
   },

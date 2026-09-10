@@ -515,6 +515,14 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project_id does not match selected app install", http.StatusBadRequest)
 		return
 	}
+	// A project role cannot delegate the installation's platform-wide backup
+	// privileges. This covers REST and MCP, including explicit install routing.
+	if isPlatformBackupApp(entry) {
+		if !s.isAdmin(getUserID(r)) {
+			http.Error(w, "platform administrator required for backup access", http.StatusForbidden)
+			return
+		}
+	}
 	authenticatedAppID, _ := strconv.ParseInt(r.Header.Get("X-Apteva-App-Install-ID"), 10, 64)
 	if authenticatedAppID > 0 {
 		if authenticatedAppID != entry.InstallID {
@@ -797,4 +805,17 @@ func callerThreadRole(threadID string) string {
 func validTrustedMCPIdentity(value string) bool {
 	value = strings.TrimSpace(value)
 	return value != "" && len(value) <= 256 && !strings.ContainsAny(value, "\r\n\x00")
+}
+
+func manifestHasPlatformBackupPermission(m sdk.Manifest) bool {
+	for _, permission := range m.Requires.Permissions {
+		if permission == sdk.PermPlatformBackupRead || permission == sdk.PermPlatformBackupRestore {
+			return true
+		}
+	}
+	return false
+}
+
+func isPlatformBackupApp(entry *InstalledApp) bool {
+	return entry.AppName == "backup" || manifestHasPlatformBackupPermission(entry.Manifest)
 }

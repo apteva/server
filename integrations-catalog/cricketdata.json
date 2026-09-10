@@ -1,0 +1,324 @@
+{
+  "slug": "cricketdata",
+  "name": "CricketData / CricAPI",
+  "description": "Cricket series, current matches, results and player profiles via JSON HTTP APIs. Free API key: 100 calls/day, generally a few minutes behind real time. Paid plans increase quota; Fantasy API has separate trial/entitlement conditions and is not included here. Responses retain info for quota and 25-row pagination. Docs: https://cricketdata.org/how-to-use-cricket-data-api.aspx",
+  "logo": "https://www.google.com/s2/favicons?domain=cricketdata.org&sz=128",
+  "categories": [
+    "sports",
+    "cricket",
+    "scores",
+    "fixtures"
+  ],
+  "base_url": "https://api.cricapi.com/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_current_matches",
+      "description": "Get current/recent match summaries and scores; page in 25-row increments.",
+      "method": "GET",
+      "path": "/currentMatches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Row offset, in steps of 25."
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_matches",
+      "description": "Get the match catalog, paginated in 25-row increments.",
+      "method": "GET",
+      "path": "/matches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Row offset."
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_match",
+      "description": "Get one cricket match and available score information.",
+      "method": "GET",
+      "path": "/match_info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Match UUID from a match list."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_series",
+      "description": "List or search cricket series; page in 25-row increments.",
+      "method": "GET",
+      "path": "/series",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Row offset."
+          },
+          "search": {
+            "type": "string",
+            "description": "Series search text, e.g. IPL."
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_series",
+      "description": "Get series metadata and matches. Page match rows using offset.",
+      "method": "GET",
+      "path": "/series_info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Series UUID."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Match row offset."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_players",
+      "description": "List cricket players; page in 25-row increments.",
+      "method": "GET",
+      "path": "/players",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Row offset."
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player",
+      "description": "Get one player profile.",
+      "method": "GET",
+      "path": "/players_info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Player UUID."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_countries",
+      "description": "List country identifiers and available flags.",
+      "method": "GET",
+      "path": "/countries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Row offset."
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "success"
+        ]
+      },
+      "response_omit": [
+        "apikey"
+      ],
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_current_matches",
+    "input": {
+      "offset": 0
+    }
+  }
+}

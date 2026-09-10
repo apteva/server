@@ -629,6 +629,33 @@
     "provider_key": "google",
     "env": {
       "GOOGLE_API_KEY": "{{credentials.api_key}}"
+    },
+    "model_policy": {
+      "purpose": "agent",
+      "required_methods": [
+        "generateContent"
+      ],
+      "allowed_id_patterns": [
+        "^gemini-[0-9]+(\\.[0-9]+)?-(pro|flash|flash-lite)(-(preview|exp)(-[0-9]{2}-[0-9]{2})?|-[0-9]{3})?$",
+        "^gemini-(pro|flash|flash-lite)-latest$"
+      ],
+      "tier_preferences": {
+        "large": [
+          "^gemini-[0-9.]+-pro$",
+          "^gemini-[0-9.]+-pro-",
+          "^gemini-[0-9.]+-flash$"
+        ],
+        "medium": [
+          "^gemini-[0-9.]+-flash$",
+          "^gemini-[0-9.]+-flash-(preview|[0-9])",
+          "^gemini-[0-9.]+-pro$"
+        ],
+        "small": [
+          "^gemini-[0-9.]+-flash-lite$",
+          "^gemini-[0-9.]+-flash-lite-",
+          "^gemini-[0-9.]+-flash$"
+        ]
+      }
     }
   }
 }

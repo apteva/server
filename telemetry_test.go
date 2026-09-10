@@ -409,6 +409,10 @@ func TestTelemetryHTTPIngestAndQuery(t *testing.T) {
 		t.Fatal("no session cookie")
 	}
 
+	if _, err := s.store.CreateAgent(1, "Telemetry owner", "Observe", "cautious", "{}", ""); err != nil {
+		t.Fatal(err)
+	}
+
 	// Ingest a batch of events (POST /telemetry — unauthenticated)
 	events := []TelemetryEvent{
 		makeTelemetryEvent("llm.done", "main", map[string]any{

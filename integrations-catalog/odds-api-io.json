@@ -1,0 +1,317 @@
+{
+  "slug": "odds-api-io",
+  "name": "Odds-API.io",
+  "description": "Documented sports events, live scores, participants and bookmaker odds JSON API. API key required for event/odds tools. New free keys are paused indefinitely as of September 2026; existing keys keep their entitlements, new users should check paid plans. Selected bookmakers and limits depend on subscription. Read-only HTTP tools. Docs: https://docs.odds-api.io/",
+  "logo": "https://www.google.com/s2/favicons?domain=odds-api.io&sz=128",
+  "categories": [
+    "sports",
+    "betting",
+    "odds",
+    "scores"
+  ],
+  "base_url": "https://api.odds-api.io/v3",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "query_params": {
+      "apiKey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sports",
+      "description": "List supported sport slugs.",
+      "method": "GET",
+      "path": "/sports",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_bookmakers",
+      "description": "List available bookmakers; this does not imply they are selected or entitled on the account.",
+      "method": "GET",
+      "path": "/bookmakers",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_selected_bookmakers",
+      "description": "Get bookmakers currently selected for the API key.",
+      "method": "GET",
+      "path": "/bookmakers/selected",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_leagues",
+      "description": "List leagues for a sport.",
+      "method": "GET",
+      "path": "/leagues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "description": "Sport slug (e.g. football, basketball)"
+          },
+          "all": {
+            "type": "boolean",
+            "description": "If true, include leagues without active events"
+          }
+        },
+        "required": [
+          "sport"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "Get sport events with limit/skip pagination and optional time bounds.",
+      "method": "GET",
+      "path": "/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "description": "Sport slug (e.g. football)"
+          },
+          "league": {
+            "type": "string",
+            "description": "League slug (e.g. england-premier-league)"
+          },
+          "participantId": {
+            "type": "integer",
+            "description": "Filter by participant ID (home or away)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Comma-separated event statuses (e.g. pending,live,settled)"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date/time in RFC3339 format (e.g. 2025-10-28T10:00:00Z)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date/time in RFC3339 format (e.g. 2025-10-28T23:59:59Z). If omitted, defaults to 14 days from now."
+          },
+          "bookmaker": {
+            "type": "string",
+            "description": "Filter by bookmaker name - returns only events that have odds available from this bookmaker (e.g. SingBet)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of events to return. Every response is capped at 5000; use limit + skip to paginate larger ranges."
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Number of events to skip (for pagination)"
+          }
+        },
+        "required": [
+          "sport"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "Get event metadata and available scores.",
+      "method": "GET",
+      "path": "/events/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Event ID"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_live_events",
+      "description": "Get live events and available clocks/scores.",
+      "method": "GET",
+      "path": "/events/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "description": "Sport slug to filter by (e.g. football)"
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_odds",
+      "description": "Get odds for one event and comma-separated bookmaker names from discovery.",
+      "method": "GET",
+      "path": "/odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "description": "Event ID"
+          },
+          "bookmakers": {
+            "type": "string",
+            "description": "Comma-separated list of bookmaker names (max 30)"
+          }
+        },
+        "required": [
+          "eventId",
+          "bookmakers"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_batch_odds",
+      "description": "Get odds for up to 10 comma-separated event IDs.",
+      "method": "GET",
+      "path": "/odds/multi",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventIds": {
+            "type": "string",
+            "description": "Comma-separated list of up to 10 Event IDs"
+          },
+          "bookmakers": {
+            "type": "string",
+            "description": "Comma-separated list of bookmaker names (max 30)"
+          }
+        },
+        "required": [
+          "eventIds",
+          "bookmakers"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_participants",
+      "description": "List or search teams/participants for a sport.",
+      "method": "GET",
+      "path": "/participants",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "description": "Sport slug (e.g. football)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search term to filter by name"
+          }
+        },
+        "required": [
+          "sport"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_selected_bookmakers"
+  }
+}

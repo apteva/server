@@ -1,0 +1,405 @@
+{
+  "slug": "balldontlie",
+  "name": "BALLDONTLIE NBA",
+  "description": "NBA teams, players, games, statistics and odds from BALLDONTLIE. API key required. Free NBA tier includes teams/players/games at 5 calls/minute; game stats and injuries require ALL-STAR or GOAT, and odds/advanced features require GOAT. Plans are sport-specific. Read-only JSON API. Docs: https://nba.balldontlie.io/",
+  "logo": "https://www.google.com/s2/favicons?domain=balldontlie.io&sz=128",
+  "categories": [
+    "sports",
+    "basketball",
+    "nba",
+    "stats",
+    "odds"
+  ],
+  "base_url": "https://api.balldontlie.io",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_teams",
+      "description": "List NBA teams. Free tier.",
+      "method": "GET",
+      "path": "/v1/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team",
+      "description": "Get an NBA team. Free tier.",
+      "method": "GET",
+      "path": "/v1/teams/{team_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "team_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_players",
+      "description": "Search/list NBA players. Free tier; retain meta.next_cursor.",
+      "method": "GET",
+      "path": "/v1/players",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination cursor returned in meta.next_cursor."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "search": {
+            "type": "string",
+            "description": "Player name search."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player",
+      "description": "Get an NBA player. Free tier.",
+      "method": "GET",
+      "path": "/v1/players/{player_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "player_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_games",
+      "description": "Get NBA games using date/season/team filters. Free tier; arrays become repeated bracketed query parameters.",
+      "method": "GET",
+      "path": "/v1/games",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination cursor returned in meta.next_cursor."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "dates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date",
+              "description": "Date in YYYY-MM-DD format."
+            }
+          },
+          "seasons": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1900,
+              "description": "Season start year."
+            }
+          },
+          "team_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "season_type": {
+            "type": "string",
+            "enum": [
+              "preseason",
+              "regular",
+              "ist",
+              "playin",
+              "playoffs"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "dates": "dates[]",
+        "seasons": "seasons[]",
+        "team_ids": "team_ids[]"
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_game",
+      "description": "Get one NBA game. Free tier.",
+      "method": "GET",
+      "path": "/v1/games/{game_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "game_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "game_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_game_stats",
+      "description": "Get per-player game statistics. Requires ALL-STAR or GOAT.",
+      "method": "GET",
+      "path": "/v1/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination cursor returned in meta.next_cursor."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "game_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "player_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "dates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date",
+              "description": "Date in YYYY-MM-DD format."
+            }
+          },
+          "seasons": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1900
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "game_ids": "game_ids[]",
+        "player_ids": "player_ids[]",
+        "dates": "dates[]",
+        "seasons": "seasons[]"
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_injuries",
+      "description": "Get player injury reports. Requires ALL-STAR or GOAT.",
+      "method": "GET",
+      "path": "/v1/player_injuries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination cursor returned in meta.next_cursor."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "team_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "player_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "team_ids": "team_ids[]",
+        "player_ids": "player_ids[]"
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_odds",
+      "description": "Get bookmaker odds for NBA games. Requires GOAT. Preserve pagination, vendor and market details.",
+      "method": "GET",
+      "path": "/v2/odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination cursor returned in meta.next_cursor."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "dates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date",
+              "description": "Date in YYYY-MM-DD format."
+            }
+          },
+          "game_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "dates": "dates[]",
+        "game_ids": "game_ids[]"
+      },
+      "rate_limit": {
+        "min_interval_ms": 12000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_teams"
+  }
+}

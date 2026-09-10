@@ -17,7 +17,7 @@ import (
 // authority: selectProjectPreset accepts only an ID present in the embedded
 // catalog and the normal preview/apply validators remain authoritative.
 func (s *Server) planProjectPresetWithProvider(ctx context.Context, userID int64, projectID, purpose string, presets []ProjectPreset) (projectPresetPlanChoice, error) {
-	pool := s.GetProviderPool(userID, projectID)
+	pool := eligibleProviderPool(s.GetProviderPool(userID, projectID))
 	if len(pool) == 0 {
 		return projectPresetPlanChoice{}, errors.New("no LLM provider configured")
 	}

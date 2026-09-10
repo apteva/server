@@ -1016,6 +1016,9 @@ func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
+	if _, ok := s.requireAgentAccess(w, r, instanceID, ProjectViewer); !ok {
+		return
+	}
 
 	eventType := q.Get("type")
 	threadID := q.Get("thread_id")
@@ -1077,6 +1080,9 @@ func (s *Server) handleTelemetryStats(w http.ResponseWriter, r *http.Request) {
 	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
 	if instanceID == 0 {
 		http.Error(w, "agent_id required", http.StatusBadRequest)
+		return
+	}
+	if _, ok := s.requireAgentAccess(w, r, instanceID, ProjectViewer); !ok {
 		return
 	}
 
@@ -1329,6 +1335,9 @@ func (s *Server) handleTelemetryTimeline(w http.ResponseWriter, r *http.Request)
 	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
 	if instanceID == 0 {
 		http.Error(w, "agent_id required", http.StatusBadRequest)
+		return
+	}
+	if _, ok := s.requireAgentAccess(w, r, instanceID, ProjectViewer); !ok {
 		return
 	}
 
