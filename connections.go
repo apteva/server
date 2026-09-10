@@ -2516,6 +2516,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// to errors can erase the provider's error object and make failures look
 	// like empty resources (notably Gmail thread 404 responses).
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		for _, path := range tool.ResponseOmit {
+			data = omitPath(data, path)
+		}
 		return &ExecuteResult{
 			Success: false,
 			Status:  resp.StatusCode,
@@ -2532,6 +2535,10 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			return integrationResponseContractFailure(resp.StatusCode, hdrs, contractDetail), nil
 		}
 		if errorData != nil {
+			// Provider errors may echo credentials in their original envelope.
+			for _, path := range tool.ResponseOmit {
+				omitPath(data, path)
+			}
 			return &ExecuteResult{
 				Success: false,
 				Status:  resp.StatusCode,

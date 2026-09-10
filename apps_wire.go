@@ -865,7 +865,7 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 	if err != nil {
 		return nil, fmt.Errorf("read agent behavior: %w", err)
 	}
-	directive = withAgentBehavior(directive, agent.Mode)
+	directive = withAgentBehavior(directive, agent.Mode, agent.Proactivity)
 	body, _ := json.Marshal(map[string]any{
 		"directive":                     directive,
 		"voice":                         req.Voice,

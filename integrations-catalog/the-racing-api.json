@@ -1,0 +1,811 @@
+{
+  "slug": "the-racing-api",
+  "name": "The Racing API",
+  "description": "Horse racing courses, racecards, results and horse/jockey/trainer discovery through the documented HTTP API. HTTP Basic credentials required. Free plan supports regions, courses, free racecards and free today results; deeper endpoints require Basic, Standard or Pro. Coverage depends on product/region. Docs: https://api.theracingapi.com/documentation",
+  "logo": "https://www.google.com/s2/favicons?domain=theracingapi.com&sz=128",
+  "categories": [
+    "sports",
+    "horse-racing",
+    "racecards",
+    "results",
+    "stats"
+  ],
+  "base_url": "https://api.theracingapi.com",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "API username",
+        "description": "API username issued in The Racing API dashboard.",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "API password",
+        "description": "API password issued in The Racing API dashboard.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_regions",
+      "description": "List supported regions. Free plan.",
+      "method": "GET",
+      "path": "/v1/courses/regions",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_courses",
+      "description": "List courses, optionally filtered by region_codes. Free plan.",
+      "method": "GET",
+      "path": "/v1/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region_codes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regions",
+            "description": "Filter courses by region codes. Get the full list here."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_free_racecards",
+      "description": "Get free-plan racecards; detail is limited by the free plan.",
+      "method": "GET",
+      "path": "/v1/racecards/free",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day",
+            "description": "Query racecards by day: today, tomorrow",
+            "default": "today"
+          },
+          "region_codes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regions",
+            "description": "Query by region codes. Get the full list here.Note: If the course query parameter is specified, this will be ignored."
+          },
+          "course_ids": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courses",
+            "description": "Query by course ids. Get the full list here."
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "default": 500
+          },
+          "skip": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_free_today_results",
+      "description": "Get free-plan results for today.",
+      "method": "GET",
+      "path": "/v1/results/today/free",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query results by region codes. Get the full list here.",
+            "title": "Region"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "default": 50
+          },
+          "skip": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_basic_racecards",
+      "description": "Get Basic-plan racecards. Requires Basic access.",
+      "method": "GET",
+      "path": "/v1/racecards/basic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day",
+            "description": "Query racecards by day: today, tomorrow",
+            "default": "today"
+          },
+          "region_codes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regions",
+            "description": "Query by region codes. Get the full list here.Note: If the course query parameter is specified, this will be ignored."
+          },
+          "course_ids": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courses",
+            "description": "Query by course ids. Get the full list here."
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "default": 500
+          },
+          "skip": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_standard_racecards",
+      "description": "Get Standard-plan racecards. Requires Standard access.",
+      "method": "GET",
+      "path": "/v1/racecards/standard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day",
+            "description": "Query racecards by day: today, tomorrow",
+            "default": "today"
+          },
+          "region_codes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regions",
+            "description": "Query by region codes. Get the full list here.Note: If the course query parameter is specified, this will be ignored."
+          },
+          "course_ids": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courses",
+            "description": "Query by course ids. Get the full list here."
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "default": 500
+          },
+          "skip": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_pro_racecards",
+      "description": "Get Pro-plan racecards. Requires Pro access.",
+      "method": "GET",
+      "path": "/v1/racecards/pro",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date",
+            "description": "Query racecards by date with format YYYY-MM-DD (e.g 2023-04-05)"
+          },
+          "region_codes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regions",
+            "description": "Query by region codes. Get the full list here.Note: If the course query parameter is specified, this will be ignored."
+          },
+          "course_ids": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courses",
+            "description": "Query by course ids. Get the full list here."
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "default": 500
+          },
+          "skip": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_results",
+      "description": "Search historical results. Requires Standard or Pro; use dates and pagination.",
+      "method": "GET",
+      "path": "/v1/results",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query from date with format YYYY-MM-DD, e.g. 2020-01-01Default: 365 days ago. Limited to up to 365 days in the past; pro plan users can purchase the historical results add-on to remove this limitation and query back to 2005-01-01.",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query to date with format YYYY-MM-DD, e.g. 2020-01-01Default: Today's date. Maximum range between start and end date is 365 days.",
+            "title": "End Date"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by region codes. Get the full list here.Note: If the course query parameter is specified, this will be ignored.",
+            "title": "Region"
+          },
+          "course": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by course ids. Get the full list here.",
+            "title": "Course"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by race typeOptions: chase, flat, hurdle, nh_flat",
+            "title": "Type"
+          },
+          "going": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by goingOptions: fast, firm, good, good_to_firm, good_to_soft, good_to_yielding, hard, heavy, holding, muddy, sloppy, slow, soft, soft_to_heavy, standard, standard_to_fast, standard_to_slow, very_soft, yielding, yielding_to_soft",
+            "title": "Going"
+          },
+          "race_class": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by classOptions: class_1, class_2, class_3, class_4, class_5, class_6, class_7",
+            "title": "Race Class"
+          },
+          "min_distance_y": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by minimum race distance (yards)",
+            "title": "Min Distance Y"
+          },
+          "max_distance_y": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by maximum race distance (yards)",
+            "title": "Max Distance Y"
+          },
+          "age_band": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by age bandOptions: 10yo+, 2-3yo, 2yo, 2yo+, 3-4yo, 3-5yo, 3-6yo, 3yo, 3yo+, 4-5yo, 4-6yo, 4-7yo, 4-8yo, 4yo, 4yo+, 5-6yo, 5-7yo, 5-8yo, 5yo, 5yo+, 6-7yo, 6yo, 6yo+, 7yo+, 8yo+, 9yo+",
+            "title": "Age Band"
+          },
+          "sex_restriction": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Query by sex restrictionOptions: c&f, c&g, f, f&m, m, m&g",
+            "title": "Sex Restriction"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "default": 50
+          },
+          "skip": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_race_result",
+      "description": "Get a race result. Requires Standard or Pro.",
+      "method": "GET",
+      "path": "/v1/results/{race_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "race_id": {
+            "type": "string",
+            "title": "Race Id"
+          }
+        },
+        "required": [
+          "race_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "search_horses",
+      "description": "Search horses by name. Requires Standard or Pro.",
+      "method": "GET",
+      "path": "/v1/horses/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "search_jockeys",
+      "description": "Search jockeys by name. Requires Standard or Pro.",
+      "method": "GET",
+      "path": "/v1/jockeys/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "search_trainers",
+      "description": "Search trainers by name. Requires Standard or Pro.",
+      "method": "GET",
+      "path": "/v1/trainers/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_regions"
+  }
+}

@@ -39,6 +39,7 @@ type APIKey struct {
 	KeyPrefix          string    `json:"key_prefix"` // first chars for display
 	KeyHash            string    `json:"-"`
 	Kind               string    `json:"kind"`
+	Access             string    `json:"access"`
 	ProjectID          string    `json:"project_id,omitempty"`
 	Scopes             string    `json:"scopes,omitempty"`
 	AllowedOrigins     string    `json:"allowed_origins,omitempty"`
@@ -89,8 +90,9 @@ type Agent struct {
 	UserID              int64     `json:"user_id"`
 	Name                string    `json:"name"`
 	Directive           string    `json:"directive"`
-	Mode                string    `json:"mode"`   // "autonomous" | "cautious" | "learn"
-	Config              string    `json:"config"` // JSON blob
+	Mode                string    `json:"mode"`        // "autonomous" | "cautious" | "learn"
+	Proactivity         int       `json:"proactivity"` // server-owned initiative, 0–100
+	Config              string    `json:"config"`      // JSON blob
 	Port                int       `json:"port"`
 	Pid                 int       `json:"pid"`
 	CoreAPIKey          string    `json:"-"`
@@ -430,6 +432,7 @@ func (s *Store) migrate() error {
 			key_prefix TEXT NOT NULL,
 			key_hash TEXT UNIQUE NOT NULL,
 			kind TEXT NOT NULL DEFAULT 'private',
+			access TEXT NOT NULL DEFAULT 'read_write',
 			project_id TEXT NOT NULL DEFAULT '',
 			scopes TEXT NOT NULL DEFAULT '[]',
 			allowed_origins TEXT NOT NULL DEFAULT '[]',
@@ -796,6 +799,7 @@ func (s *Store) migrate() error {
 	if !columnExists(s.db, "agents", "core_api_key") {
 		s.db.Exec("ALTER TABLE agents ADD COLUMN core_api_key TEXT NOT NULL DEFAULT ''")
 	}
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN access TEXT NOT NULL DEFAULT 'read_write'")
 	s.db.Exec("ALTER TABLE api_keys ADD COLUMN kind TEXT NOT NULL DEFAULT 'private'")
 	s.db.Exec("ALTER TABLE api_keys ADD COLUMN project_id TEXT NOT NULL DEFAULT ''")
 	s.db.Exec("ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT '[]'")
@@ -2524,6 +2528,7 @@ func HashAPIKey(key string) string {
 }
 
 type APIKeyCreateOptions struct {
+	Access             string
 	Kind               string
 	ProjectID          string
 	Scopes             string
@@ -2549,6 +2554,15 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, opti
 	if len(options) > 0 {
 		opt = options[0]
 	}
+	if opt.Access == "" {
+		opt.Access = APIKeyReadWrite
+	}
+	if opt.Access != APIKeyReadOnly && opt.Access != APIKeyReadWrite {
+		return nil, fmt.Errorf("invalid API key access")
+	}
+	if opt.Kind != "" && opt.Kind != "private" && opt.Access != APIKeyReadWrite {
+		return nil, fmt.Errorf("access applies only to private keys")
+	}
 	if opt.Kind == "" {
 		opt.Kind = "private"
 	}
@@ -2564,10 +2578,10 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, opti
 	result, err := s.db.Exec(
 		`INSERT INTO api_keys
 			(user_id, name, key_hash, key_prefix, kind, project_id, scopes, allowed_origins, rate_limit_per_minute, expires_at,
-			 issuer_app, issuer_install_id, subject_type, subject_id, subject_email, organization_id, organization_slug)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
+			 issuer_app, issuer_install_id, subject_type, subject_id, subject_email, organization_id, organization_slug, access)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
 		userID, name, keyHash, keyPrefix, opt.Kind, opt.ProjectID, opt.Scopes, opt.AllowedOrigins, opt.RateLimitPerMinute, opt.ExpiresAt,
-		opt.IssuerApp, opt.IssuerInstallID, opt.SubjectType, opt.SubjectID, opt.SubjectEmail, opt.OrganizationID, opt.OrganizationSlug,
+		opt.IssuerApp, opt.IssuerInstallID, opt.SubjectType, opt.SubjectID, opt.SubjectEmail, opt.OrganizationID, opt.OrganizationSlug, opt.Access,
 	)
 	if err != nil {
 		return nil, err
@@ -2575,7 +2589,7 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, opti
 	id, _ := result.LastInsertId()
 	return &APIKey{
 		ID: id, UserID: userID, Name: name, KeyPrefix: keyPrefix,
-		Kind: opt.Kind, ProjectID: opt.ProjectID, Scopes: opt.Scopes,
+		Kind: opt.Kind, Access: opt.Access, ProjectID: opt.ProjectID, Scopes: opt.Scopes,
 		AllowedOrigins: opt.AllowedOrigins, RateLimitPerMinute: opt.RateLimitPerMinute,
 		ExpiresAt: opt.ExpiresAt, IssuerApp: opt.IssuerApp, IssuerInstallID: opt.IssuerInstallID,
 		SubjectType: opt.SubjectType, SubjectID: opt.SubjectID, SubjectEmail: opt.SubjectEmail,
@@ -2583,22 +2597,36 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, opti
 	}, nil
 }
 
+// GetUserByAPIKey is for callers that require unrestricted private credentials,
+// such as delegated-key issuance. Restricted authentication must carry access.
 func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
+	user, access, err := s.getPrivateAPIKeyPrincipal(keyHash)
+	if err != nil {
+		return nil, err
+	}
+	if access != APIKeyReadWrite {
+		return nil, fmt.Errorf("read-write private key required")
+	}
+	return user, nil
+}
+
+func (s *Store) getPrivateAPIKeyPrincipal(keyHash string) (*User, string, error) {
+	var access string
 	var u User
 	err := s.db.QueryRow(`
-		SELECT u.id, u.email, u.password_hash, COALESCE(u.role,'user')
+		SELECT u.id, u.email, u.password_hash, COALESCE(u.role,'user'), COALESCE(k.access,'read_write')
 		FROM users u JOIN api_keys k ON u.id = k.user_id
 		WHERE k.key_hash = ?
 		  AND COALESCE(k.kind, 'private') = 'private'
 		  AND k.revoked_at IS NULL
 		  AND (k.expires_at IS NULL OR datetime(k.expires_at) > CURRENT_TIMESTAMP)
-	`, keyHash).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role)
+	`, keyHash).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &access)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	// Update last_used
 	s.db.Exec("UPDATE api_keys SET last_used = CURRENT_TIMESTAMP WHERE key_hash = ?", keyHash)
-	return &u, nil
+	return &u, access, nil
 }
 
 func (s *Store) GetPublicClientAPIKey(keyHash string) (*APIKey, error) {
@@ -2664,7 +2692,7 @@ func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 		`SELECT id, name, key_prefix, COALESCE(kind,'private'), COALESCE(project_id,''),
 		        COALESCE(scopes,'[]'), COALESCE(allowed_origins,'[]'), COALESCE(rate_limit_per_minute, 60),
 		        COALESCE(expires_at,''), COALESCE(revoked_at,''), COALESCE(last_used,''), COALESCE(last_used_ip,''),
-		        created_at
+		        created_at, COALESCE(access,'read_write')
 		   FROM api_keys
 		  WHERE user_id = ?
 		    AND COALESCE(kind,'private') IN ('private','public_client')
@@ -2685,7 +2713,7 @@ func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 			&k.ID, &k.Name, &k.KeyPrefix, &k.Kind, &k.ProjectID,
 			&k.Scopes, &k.AllowedOrigins, &k.RateLimitPerMinute,
 			&k.ExpiresAt, &k.RevokedAt, &k.LastUsed, &k.LastUsedIP,
-			&createdAt,
+			&createdAt, &k.Access,
 		)
 		k.UserID = userID
 		k.CreatedAt, _ = parseTime(createdAt)
@@ -2701,33 +2729,37 @@ func (s *Store) DeleteAPIKey(userID, keyID int64) error {
 
 // --- Instances ---
 
-func (s *Store) CreateAgent(userID int64, name, directive, mode, config, projectID string) (*Agent, error) {
+func (s *Store) CreateAgent(userID int64, name, directive, mode, config, projectID string, proactivity ...int) (*Agent, error) {
 	if mode == "" {
 		mode = "autonomous"
 	}
 	if !validAgentMode(mode) {
 		return nil, fmt.Errorf("invalid agent mode %q", mode)
 	}
-	directive = withAgentBehavior(directive, mode)
+	level := proactivityValue(proactivity)
+	if !validProactivity(level) {
+		return nil, fmt.Errorf("proactivity must be an integer from 0 to 100")
+	}
+	directive = withAgentBehavior(directive, mode, level)
 	config = withoutCoreMode(config)
 	result, err := s.db.Exec(
-		"INSERT INTO agents (user_id, name, directive, mode, config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
-		userID, name, directive, mode, config, projectID,
+		"INSERT INTO agents (user_id, name, directive, mode, proactivity, config, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		userID, name, directive, mode, level, config, projectID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
+	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Proactivity: level, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
 }
 
 // CreateAgentIdempotent creates one agent for a stable logical creation key.
 // Project agents share the key across every project member; legacy unscoped
 // agents use the caller's user id so unrelated users cannot collide.
-func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, config, projectID, idempotencyKey string) (*Agent, bool, error) {
+func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, config, projectID, idempotencyKey string, proactivity ...int) (*Agent, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" {
-		agent, err := s.CreateAgent(userID, name, directive, mode, config, projectID)
+		agent, err := s.CreateAgent(userID, name, directive, mode, config, projectID, proactivity...)
 		return agent, true, err
 	}
 	if mode == "" {
@@ -2736,7 +2768,11 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 	if !validAgentMode(mode) {
 		return nil, false, fmt.Errorf("invalid agent mode %q", mode)
 	}
-	directive = withAgentBehavior(directive, mode)
+	level := proactivityValue(proactivity)
+	if !validProactivity(level) {
+		return nil, false, fmt.Errorf("proactivity must be an integer from 0 to 100")
+	}
+	directive = withAgentBehavior(directive, mode, level)
 	config = withoutCoreMode(config)
 	scopeUserID := userID
 	if projectID != "" {
@@ -2766,8 +2802,8 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 	}
 
 	result, err := tx.Exec(
-		"INSERT INTO agents (user_id, name, directive, mode, config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
-		userID, name, directive, mode, config, projectID,
+		"INSERT INTO agents (user_id, name, directive, mode, proactivity, config, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		userID, name, directive, mode, level, config, projectID,
 	)
 	if err != nil {
 		return nil, false, err
@@ -2785,7 +2821,7 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 	if err := tx.Commit(); err != nil {
 		return nil, false, err
 	}
-	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, true, nil
+	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Proactivity: level, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, true, nil
 }
 
 // GetAgentName returns the name of an instance by ID (no user check).
@@ -2801,9 +2837,9 @@ func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity, config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ?",
 		instanceID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Proactivity, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -2835,9 +2871,9 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ? AND user_id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity, config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ? AND user_id = ?",
 		instanceID, userID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Proactivity, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -2851,14 +2887,14 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 	var ag Agent
 	err := s.db.QueryRow(
-		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'),
+		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity,
 		        config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''),
 		        COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
 		   FROM agents
 		  WHERE user_id = ? AND kind = 'platform_helper'
 		  ORDER BY id ASC LIMIT 1`,
 		userID,
-	).Scan(&ag.ID, &ag.UserID, &ag.Name, &ag.Directive, &ag.Mode,
+	).Scan(&ag.ID, &ag.UserID, &ag.Name, &ag.Directive, &ag.Mode, &ag.Proactivity,
 		&ag.Config, &ag.Port, &ag.Pid, &ag.CoreAPIKey, &ag.Status, &ag.ProjectID,
 		&ag.CoreVersion, &ag.CoreBuildTime, &ag.CoreStartedAt, &ag.CreatedAt)
 	if err != nil {
@@ -2880,6 +2916,7 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	// Look up existing helper for this user.
 	ag, err := s.GetPlatformHelper(userID)
 	if err == nil {
+		directive = withAgentBehavior(directive, ag.Mode, ag.Proactivity)
 		if ag.Name == "__platform_helper__" || strings.TrimSpace(ag.Name) == "" {
 			s.db.Exec(`UPDATE agents SET name = ? WHERE id = ?`, "Apteva Helper", ag.ID)
 			ag.Name = "Apteva Helper"
@@ -2918,7 +2955,7 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 // for back-compat in code paths that still want the personal view).
 func (s *Store) ListAgentsInProject(projectID string) ([]Agent, error) {
 	rows, err := s.db.Query(
-		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'),
+		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity,
 		        port, pid, status, COALESCE(project_id,''),
 		        COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
 		   FROM agents
@@ -2933,7 +2970,7 @@ func (s *Store) ListAgentsInProject(projectID string) ([]Agent, error) {
 	for rows.Next() {
 		var a Agent
 		var createdAt string
-		rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Directive, &a.Mode,
+		rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Directive, &a.Mode, &a.Proactivity,
 			&a.Port, &a.Pid, &a.Status, &a.ProjectID,
 			&a.CoreVersion, &a.CoreBuildTime, &a.CoreStartedAt, &createdAt)
 		a.CreatedAt, _ = parseTime(createdAt)
@@ -2951,10 +2988,10 @@ func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 	// Callers needing the platform helpers go through GetPlatformHelper.
 	if projectID != "" {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND project_id = ? AND COALESCE(kind,'user') = 'user'", userID, projectID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), proactivity, port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND project_id = ? AND COALESCE(kind,'user') = 'user'", userID, projectID)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND COALESCE(kind,'user') = 'user'", userID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), proactivity, port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND COALESCE(kind,'user') = 'user'", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -2965,7 +3002,7 @@ func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 	for rows.Next() {
 		var inst Agent
 		var createdAt string
-		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
+		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Proactivity, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 		inst.UserID = userID
 		inst.CreatedAt, _ = parseTime(createdAt)
 		inst.rememberOriginal()
@@ -3024,9 +3061,12 @@ func (s *Store) ListTelemetryAgentIDs(userID int64, projectID string) (map[int64
 func (a *Agent) rememberOriginal() { copy := *a; copy.original = nil; a.original = &copy }
 
 func (s *Store) UpdateAgent(inst *Agent) error {
-	if inst.original == nil || inst.Mode != inst.original.Mode || inst.Directive != inst.original.Directive {
+	if !validProactivity(inst.Proactivity) {
+		return fmt.Errorf("proactivity must be an integer from 0 to 100")
+	}
+	if inst.original == nil || inst.Mode != inst.original.Mode || inst.Proactivity != inst.original.Proactivity || inst.Directive != inst.original.Directive {
 		inst.Mode = agentMode(inst.Mode)
-		inst.Directive = withAgentBehavior(inst.Directive, inst.Mode)
+		inst.Directive = withAgentBehavior(inst.Directive, inst.Mode, inst.Proactivity)
 	}
 	inst.Config = withoutCoreMode(inst.Config)
 	if strings.EqualFold(inst.Status, "stopped") && (inst.original == nil || inst.original.Status != inst.Status) {
@@ -3036,9 +3076,9 @@ func (s *Store) UpdateAgent(inst *Agent) error {
 		inst.CoreStartedAt = ""
 	}
 	values := func(a *Agent) []any {
-		return []any{a.Name, a.Directive, a.Mode, a.Config, a.Port, a.Pid, a.CoreAPIKey, a.Status, a.ProjectID}
+		return []any{a.Name, a.Directive, a.Mode, a.Proactivity, a.Config, a.Port, a.Pid, a.CoreAPIKey, a.Status, a.ProjectID}
 	}
-	columns := []string{"name", "directive", "mode", "config", "port", "pid", "core_api_key", "status", "project_id"}
+	columns := []string{"name", "directive", "mode", "proactivity", "config", "port", "pid", "core_api_key", "status", "project_id"}
 	next := values(inst)
 	var prev []any
 	if inst.original != nil {
@@ -3174,7 +3214,7 @@ func (s *Store) MarkPlatformAgentsStoppedForShutdown() (int64, error) {
 // The result is unsorted; callers that need ordering should sort themselves.
 func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 	rows, err := s.db.Query(
-		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
+		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity, config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
 		 FROM agents WHERE status = ?`,
 		status,
 	)
@@ -3187,7 +3227,7 @@ func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 	for rows.Next() {
 		var inst Agent
 		var createdAt string
-		rows.Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
+		rows.Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Proactivity, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 		inst.CreatedAt, _ = parseTime(createdAt)
 		inst.rememberOriginal()
 		instances = append(instances, inst)
@@ -3800,7 +3840,7 @@ func (s *Store) RenameAgent(id int64, name string) error {
 // One query preserves project membership/admin visibility and creator-owned
 // legacy agents without N project queries or duplicate rows.
 func (s *Store) ListVisibleAgents(userID int64) ([]Agent, error) {
-	rows, err := s.db.Query(`SELECT id,user_id,name,directive,COALESCE(mode,'autonomous'),port,pid,status,COALESCE(project_id,''),COALESCE(core_version,''),COALESCE(core_build_time,''),COALESCE(core_started_at,''),created_at FROM agents
+	rows, err := s.db.Query(`SELECT id,user_id,name,directive,COALESCE(mode,'autonomous'), proactivity,port,pid,status,COALESCE(project_id,''),COALESCE(core_version,''),COALESCE(core_build_time,''),COALESCE(core_started_at,''),created_at FROM agents
  WHERE COALESCE(kind,'user')='user' AND (
  (COALESCE(project_id,'')='' AND user_id=?) OR
  (COALESCE(project_id,'')!='' AND (EXISTS(SELECT 1 FROM project_members m WHERE m.project_id=agents.project_id AND m.user_id=?) OR ?)))`, userID, userID, s.GetPlatformRole(userID) == PlatformAdmin)
@@ -3812,7 +3852,7 @@ func (s *Store) ListVisibleAgents(userID int64) ([]Agent, error) {
 	for rows.Next() {
 		var a Agent
 		var created string
-		if err := rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Directive, &a.Mode, &a.Port, &a.Pid, &a.Status, &a.ProjectID, &a.CoreVersion, &a.CoreBuildTime, &a.CoreStartedAt, &created); err != nil {
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Directive, &a.Mode, &a.Proactivity, &a.Port, &a.Pid, &a.Status, &a.ProjectID, &a.CoreVersion, &a.CoreBuildTime, &a.CoreStartedAt, &created); err != nil {
 			return nil, err
 		}
 		a.CreatedAt, _ = parseTime(created)

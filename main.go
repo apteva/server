@@ -926,6 +926,7 @@ func main() {
 	// returns effective values to authenticated users with managed connection
 	// identifiers redacted for non-admins. PUT is platform-admin-only.
 	apiMux.HandleFunc("/settings/server", s.authMiddleware(s.handleServerSettings))
+	apiMux.HandleFunc("/settings/new-agent-provider", s.authMiddleware(s.handleNewAgentProviderSettings))
 	apiMux.HandleFunc("/ingress/routes", s.authMiddleware(s.handleIngressRoutes))
 	apiMux.HandleFunc("/ingress/routes/", s.authMiddleware(s.handleIngressRoute))
 	apiMux.HandleFunc("/ingress/certs", s.authMiddleware(s.handleIngressCerts))

@@ -496,7 +496,7 @@ func isEnvVar(s string) bool {
 // GetProviderInfo extracts provider type + model selections from the first LLM provider.
 // Kept for backward compatibility — use GetProviderPool for multi-provider support.
 func (s *Server) GetProviderInfo(userID int64, projectID ...string) ProviderInfo {
-	pool := s.GetProviderPool(userID, projectID...)
+	pool := eligibleProviderPool(s.GetProviderPool(userID, projectID...))
 	if len(pool) == 0 {
 		return ProviderInfo{}
 	}
@@ -671,10 +671,18 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 	if hasManaged {
 		combined = append([]ProviderInfo{managed}, combined...)
 	}
+	for i := range combined {
+		if combined[i].ModelPolicy == nil {
+			combined[i].ModelPolicy = s.modelPolicyForProvider(combined[i].Type)
+		}
+	}
 	// Realtime adapters reuse their text provider's credential but remain
 	// separate core session types. Inject companions without synthetic DB rows.
 	var realtimeCompanions []ProviderInfo
 	for _, info := range combined {
+		if len(eligibleProviderPool([]ProviderInfo{info})) == 0 {
+			continue
+		}
 		switch info.Type {
 		case "openai":
 			realtimeCompanions = append(realtimeCompanions, ProviderInfo{
