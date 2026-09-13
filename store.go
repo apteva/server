@@ -190,6 +190,10 @@ func NewStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.migrateAppEventTargets(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.migrateSubscriptionOutbox(); err != nil {
 		db.Close()
 		return nil, err
