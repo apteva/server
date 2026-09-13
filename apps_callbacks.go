@@ -63,6 +63,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(rest, "/")
 
 	switch parts[0] {
+	case "event-subscriptions":
+		s.handleCallbackEventSubscriptions(w, r, parts[1:])
 	case "whoami":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)

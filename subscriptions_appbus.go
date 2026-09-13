@@ -80,6 +80,7 @@ func (d *AppEventDispatcher) Start() {
 	if d.stopOutbox == nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		d.stopOutbox = cancel
+		d.server.store.db.Exec("UPDATE app_event_target_outbox SET status='pending' WHERE status='sending'")
 		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='pending' WHERE status='sending'")
 		d.wg.Add(1)
 		go func() { defer d.wg.Done(); d.runOutbox(ctx) }()
