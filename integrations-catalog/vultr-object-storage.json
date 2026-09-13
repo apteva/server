@@ -1,0 +1,249 @@
+{
+  "slug": "vultr-object-storage",
+  "name": "Vultr Object Storage",
+  "description": "S3-compatible Vultr Object Storage: manage buckets and list, upload, download, and delete objects using AWS SigV4. Connect with the S3 hostname, access key, and secret key from your Object Storage subscription. The Vultr API bearer token is not an S3 credential.",
+  "logo": "https://www.google.com/s2/favicons?domain=vultr.com&sz=128",
+  "categories": [
+    "storage",
+    "vultr",
+    "cloud",
+    "infrastructure",
+    "s3-compatible"
+  ],
+  "base_url": "https://{{credential.s3_hostname}}",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "s3_hostname",
+        "label": "S3 Hostname",
+        "description": "Copy s3_hostname from the subscription S3 Credentials, for example ewr1.vultrobjects.com. Enter only the hostname, without https://, a bucket name, or a path.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "access_key_id",
+        "label": "S3 Access Key",
+        "description": "The subscription s3_access_key from Vultr Console > Cloud Storage > Object Storage > Overview > S3 Credentials, or the Vultr integration object_storage_get tool.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "S3 Secret Key",
+        "description": "The matching subscription s3_secret_key.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "region",
+        "label": "Signing Region",
+        "description": "AWS SigV4 signing region. Vultr documents that the region is ignored; keep us-east-1 unless your endpoint requires another value.",
+        "required": false,
+        "type": "text",
+        "default": "us-east-1"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_buckets"
+  },
+  "tools": [
+    {
+      "name": "list_buckets",
+      "description": "List buckets visible to these S3 credentials. Returns an S3 XML response.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_bucket",
+      "description": "Create a bucket on the configured Vultr Object Storage endpoint.",
+      "method": "PUT",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "body_none": true
+    },
+    {
+      "name": "delete_bucket",
+      "description": "Delete an empty bucket. Non-empty buckets must have their objects and versions removed first.",
+      "method": "DELETE",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      }
+    },
+    {
+      "name": "list_objects",
+      "description": "List objects using ListObjectsV2. Returns XML with Contents, IsTruncated, and NextContinuationToken. Pass the continuation token to fetch the next page.",
+      "method": "GET",
+      "path": "/{bucket}?list-type=2",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Only keys starting with this prefix."
+          },
+          "delimiter": {
+            "type": "string",
+            "description": "Use / to group keys into CommonPrefixes."
+          },
+          "continuation-token": {
+            "type": "string",
+            "description": "NextContinuationToken returned by the previous page."
+          },
+          "max-keys": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Maximum objects per page, up to 1000."
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "query_params": [
+        "prefix",
+        "delimiter",
+        "continuation-token",
+        "max-keys"
+      ]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload or replace an object in a single PUT. Pass body as plain text, or a binary envelope/blob reference for files. Binary uploads use the envelope MIME type; plain text uses text/plain. Multipart uploads are not provided.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key, including any folder prefix."
+          },
+          "body": {
+            "description": "Plain text string or a runtime binary envelope {\"_binary\":true,\"base64\":\"...\",\"mimeType\":\"application/octet-stream\"}; blob references are rehydrated by the runtime.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "_binary": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "base64": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "_binary",
+                  "base64"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "body"
+        ]
+      },
+      "body_root_param": "body",
+      "body_binary_param": "body",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8"
+      }
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. The runtime returns text/JSON or a binary envelope according to its content type and applies its configured response-size limits.",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key, including any folder prefix."
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete an object. On versioned buckets this creates a delete marker; it does not purge older versions.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key, including any folder prefix."
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    }
+  ]
+}

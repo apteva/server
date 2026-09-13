@@ -2,7 +2,7 @@
   "slug": "openmeteo-weather",
   "name": "OpenMeteo",
   "description": "Free weather data service using OpenMeteo API - no authentication required",
-  "logo": "https://www.google.com/s2/favicons?domain=openweathermap.org&sz=128",
+  "logo": "https://www.google.com/s2/favicons?domain=open-meteo.com&sz=128",
   "categories": [
     "weather",
     "forecast",
@@ -13,24 +13,17 @@
   "base_url": "https://api.open-meteo.com/v1",
   "auth": {
     "types": [
-      "bearer"
+      "none"
     ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
-    "credential_fields": [
-      {
-        "name": "token",
-        "label": "API Key"
-      }
-    ]
+    "headers": {},
+    "credential_fields": []
   },
   "tools": [
     {
       "name": "get_current_weather",
       "description": "Get current weather data using free OpenMeteo API - no API key required",
       "method": "GET",
-      "path": "/get-current-weather",
+      "path": "/forecast?current=temperature_2m,relative_humidity_2m,wind_speed_10m,pressure_msl",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -51,7 +44,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Weather variables to retrieve",
+            "description": "Additional current weather variables to retrieve. Temperature, relative humidity, wind speed, and sea-level pressure are always included.",
             "default": [
               "temperature_2m",
               "relative_humidity_2m",
@@ -69,6 +62,9 @@
           "latitude",
           "longitude"
         ]
+      },
+      "query_param_aliases": {
+        "variables": "current"
       }
     }
   ]
