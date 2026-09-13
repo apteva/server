@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	sdk "github.com/apteva/app-sdk"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,7 +46,7 @@ func TestOnboardingStatusUsesOwnedWorkspaceAndExistingProvider(t *testing.T) {
 		t.Fatalf("existing provider missing: %+v", after)
 	}
 	raw, _ := json.Marshal(after)
-	if strings.Contains(string(raw), "private-test-key") || len(after) != 4 {
+	if strings.Contains(string(raw), "private-test-key") || len(after) != 5 {
 		t.Fatalf("unexpected credential data: %s", raw)
 	}
 }
@@ -122,5 +123,24 @@ func TestOnboardingStatusFindsStarterForQuotaSafeRetry(t *testing.T) {
 	result := onboardingStatus(t, s, user.ID)
 	if result["starter_agent_id"] != float64(agent.ID) {
 		t.Fatalf("starter missing at quota: %+v", result)
+	}
+}
+
+func TestOnboardingPreparationStatusHidesLogs(t *testing.T) {
+	s := newTestServer(t)
+	m := sdk.Manifest{Name: defaultConversationsApp, Version: "1.0.0"}
+	id := seedRunningInstall(t, s, m.Name, "", m, nil)
+	for _, tc := range []struct{ status, log, want string }{
+		{"pending", "Downloading prebuilt app…", "Downloading Conversations…"},
+		{"pending", "Cloning private-repo-with-credentials…", "Fetching Conversations…"},
+		{"error", "secret internal failure", "Workspace preparation needs a retry"},
+		{"running", "", "Your workspace is ready"},
+	} {
+		if _, err := s.store.db.Exec("UPDATE app_installs SET status=?, status_message=? WHERE id=?", tc.status, tc.log, id); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.interfacePreparationStatus(); got["message"] != tc.want {
+			t.Fatalf("%+v", got)
+		}
 	}
 }

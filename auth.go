@@ -633,6 +633,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Start preparing the shared dependency while the user chooses their
+	// interface and connects AI. The existing ensure path coalesces installs,
+	// respects the operator allowlist, and preserves any existing app data.
+	if s.localApps != nil {
+		go func() {
+			if err := s.ensureInterfaceConversations(user.ID); err != nil {
+				log.Printf("[ONBOARDING] background Conversations preparation: %v", err)
+			}
+		}()
+	}
 	writeJSON(w, map[string]any{"id": user.ID, "email": user.Email, "project_id": project.ID})
 }
 
