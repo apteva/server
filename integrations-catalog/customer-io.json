@@ -1,6 +1,6 @@
 {
   "slug": "customer-io",
-  "name": "Customer.io",
+  "name": "Customer-io",
   "description": "MCP server for Customer.io - customers, events, segments, campaigns, transactional emails",
   "logo": "https://www.google.com/s2/favicons?domain=customer.io&sz=128",
   "categories": ["email", "marketing", "messaging", "automation", "crm"],

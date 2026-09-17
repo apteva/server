@@ -1,6 +1,6 @@
 {
   "slug": "twitterapiio",
-  "name": "Twitter/X (via TwitterAPI.io)",
+  "name": "Twitter/X (via TwitterAPI-io)",
   "description": "MCP server for Twitter/X operations including tweet search, user profiles, posting, engagement, and trend analysis via TwitterAPI.io - a cost-effective alternative to the official Twitter API",
   "logo": "https://www.google.com/s2/favicons?domain=twitter.com&sz=128",
   "categories": [

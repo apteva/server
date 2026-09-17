@@ -1,6 +1,6 @@
 {
   "slug": "sikho",
-  "name": "Sikho.ai",
+  "name": "Sikho-ai",
   "description": "Sikho.ai Creator/Publisher API for programmatically creating marketplace courses, bulk-importing modules and lessons, uploading structured lesson sections, and generating course content with AI. The current public API does not expose course pricing or Stripe Connect setup; configure selling and final marketplace publication in the Sikho creator dashboard after the course content is ready.",
   "logo": "https://www.google.com/s2/favicons?domain=sikho.ai&sz=128",
   "categories": ["marketplace", "courses", "education", "creator-economy", "ai-generation", "digital-products"],

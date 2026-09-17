@@ -1,0 +1,553 @@
+{
+  "slug": "college-football-data",
+  "name": "CollegeFootballData",
+  "description": "College football games, teams, recruiting, rankings, season statistics and betting lines through the documented CFBD REST API. Free bearer key; quotas and endpoint entitlements depend on the current account tier. Live data and higher usage may require a paid tier. Docs: https://api.collegefootballdata.com/",
+  "logo": "https://www.google.com/s2/favicons?domain=collegefootballdata.com&sz=128",
+  "categories": [
+    "sports",
+    "american-football",
+    "college",
+    "stats",
+    "odds"
+  ],
+  "base_url": "https://api.collegefootballdata.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API token",
+        "description": "Personal API token from the provider account.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_games",
+      "description": "Get game schedules/results. Narrow by year, team or game ID.",
+      "method": "GET",
+      "path": "/games",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year. Required unless `id` is specified."
+          },
+          "week": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Week number."
+          },
+          "seasonType": {
+            "enum": [
+              "regular",
+              "postseason",
+              "both",
+              "allstar",
+              "spring_regular",
+              "spring_postseason"
+            ],
+            "type": "string",
+            "description": "Season type."
+          },
+          "classification": {
+            "enum": [
+              "fbs",
+              "fcs",
+              "ii",
+              "ii/iii",
+              "iii"
+            ],
+            "type": "string",
+            "description": "Division classification."
+          },
+          "team": {
+            "type": "string",
+            "description": "Team name on either side of the game."
+          },
+          "home": {
+            "type": "string",
+            "description": "Home team name."
+          },
+          "away": {
+            "type": "string",
+            "description": "Away team name."
+          },
+          "conference": {
+            "type": "string",
+            "description": "Conference of either team."
+          },
+          "id": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Game ID. When specified, returns data for that game."
+          },
+          "competition": {
+            "enum": [
+              "cfp"
+            ],
+            "type": "string",
+            "description": "Playoff competition."
+          },
+          "round": {
+            "enum": [
+              "first_round",
+              "quarterfinal",
+              "semifinal",
+              "championship"
+            ],
+            "type": "string",
+            "description": "Playoff round. Requires `competition`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List teams, optionally by year and conference.",
+      "method": "GET",
+      "path": "/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conference": {
+            "type": "string",
+            "description": "Conference abbreviation."
+          },
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year for historical conference affiliations."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_conferences",
+      "description": "List conference identifiers.",
+      "method": "GET",
+      "path": "/conferences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year used to calculate membership."
+          },
+          "classification": {
+            "enum": [
+              "fbs",
+              "fcs",
+              "ii",
+              "ii/iii",
+              "iii"
+            ],
+            "type": "string",
+            "description": "Conference classification."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_rankings",
+      "description": "Get polls/rankings for a year and optional week.",
+      "method": "GET",
+      "path": "/rankings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year."
+          },
+          "seasonType": {
+            "enum": [
+              "regular",
+              "postseason",
+              "both",
+              "allstar",
+              "spring_regular",
+              "spring_postseason"
+            ],
+            "type": "string",
+            "description": "Season type."
+          },
+          "week": {
+            "format": "double",
+            "type": "number",
+            "description": "Poll week."
+          },
+          "poll": {
+            "enum": [
+              "cfp"
+            ],
+            "type": "string",
+            "description": "Poll name."
+          },
+          "latest": {
+            "type": "boolean",
+            "description": "Returns the latest CFP snapshot when `true`, preferring the\nsnapshot marked as final. Requires `poll=cfp` and cannot be combined with\n`final`."
+          },
+          "final": {
+            "type": "boolean",
+            "description": "Returns the CFP snapshot marked as final when `true`. Requires\n`poll=cfp` and cannot be combined with `latest`."
+          }
+        },
+        "required": [
+          "year"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_recruiting",
+      "description": "Get recruiting records. Specify a year or team to bound the query.",
+      "method": "GET",
+      "path": "/recruiting/players",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Recruiting class year. Required unless `team` is specified."
+          },
+          "team": {
+            "type": "string",
+            "description": "Team name. Required unless `year` is specified."
+          },
+          "position": {
+            "type": "string",
+            "description": "Position category."
+          },
+          "state": {
+            "type": "string",
+            "description": "State or province abbreviation."
+          },
+          "classification": {
+            "enum": [
+              "JUCO",
+              "PrepSchool",
+              "HighSchool"
+            ],
+            "type": "string",
+            "description": "Recruit classification. Defaults to `HighSchool`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team_stats",
+      "description": "Get team season statistics. Specify year and/or team.",
+      "method": "GET",
+      "path": "/stats/season",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year. Required unless `team` is specified."
+          },
+          "team": {
+            "type": "string",
+            "description": "Team name. Required unless `year` is specified."
+          },
+          "conference": {
+            "type": "string",
+            "description": "Conference name or abbreviation."
+          },
+          "startWeek": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Earliest week to include."
+          },
+          "endWeek": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Latest week to include."
+          },
+          "classification": {
+            "enum": [
+              "fbs",
+              "fcs",
+              "ii",
+              "ii/iii",
+              "iii"
+            ],
+            "type": "string",
+            "description": "Division classification. Defaults to `fbs`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_game_team_stats",
+      "description": "Get per-game team box-score statistics.",
+      "method": "GET",
+      "path": "/games/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year. Required unless `id` is specified."
+          },
+          "week": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Week number. One of `week`, `team`, or `conference` is required\nwhen filtering by year."
+          },
+          "team": {
+            "type": "string",
+            "description": "Team name. One of `week`, `team`, or `conference` is required\nwhen filtering by year."
+          },
+          "conference": {
+            "type": "string",
+            "description": "Conference name or abbreviation. One of `week`, `team`,\nor `conference` is required when filtering by year."
+          },
+          "classification": {
+            "enum": [
+              "fbs",
+              "fcs",
+              "ii",
+              "ii/iii",
+              "iii"
+            ],
+            "type": "string",
+            "description": "Division classification."
+          },
+          "seasonType": {
+            "enum": [
+              "regular",
+              "postseason",
+              "both",
+              "allstar",
+              "spring_regular",
+              "spring_postseason"
+            ],
+            "type": "string",
+            "description": "Season type."
+          },
+          "id": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Game ID. When specified, returns statistics for that game."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_betting_lines",
+      "description": "Get available game betting lines. These are historical/contextual data, not guaranteed current executable odds.",
+      "method": "GET",
+      "path": "/lines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Game ID."
+          },
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year. Required unless `gameId` is specified."
+          },
+          "seasonType": {
+            "enum": [
+              "regular",
+              "postseason",
+              "both",
+              "allstar",
+              "spring_regular",
+              "spring_postseason"
+            ],
+            "type": "string",
+            "description": "Season type."
+          },
+          "week": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Week number."
+          },
+          "team": {
+            "type": "string",
+            "description": "Team name on either side of the game."
+          },
+          "home": {
+            "type": "string",
+            "description": "Home team name."
+          },
+          "away": {
+            "type": "string",
+            "description": "Away team name."
+          },
+          "conference": {
+            "type": "string",
+            "description": "Conference of either team."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Betting line provider."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "search_players",
+      "description": "Search college football players by the documented search term.",
+      "method": "GET",
+      "path": "/player/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchTerm": {
+            "type": "string",
+            "description": "Full or partial player name."
+          },
+          "year": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Season year."
+          },
+          "team": {
+            "type": "string",
+            "description": "Team name."
+          },
+          "position": {
+            "type": "string",
+            "description": "Player position abbreviation."
+          }
+        },
+        "required": [
+          "searchTerm"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get current API usage and access information.",
+      "method": "GET",
+      "path": "/info/usage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Trailing days to include. Defaults to 7; maximum 31."
+          },
+          "limit": {
+            "format": "int32",
+            "type": "integer",
+            "description": "Maximum endpoint and request rows to return. Defaults to 10;\nmaximum 50."
+          },
+          "api": {
+            "enum": [
+              "all",
+              "cfb",
+              "cbb"
+            ],
+            "type": "string",
+            "description": "API to include: `all`, `cfb`, or `cbb`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_usage"
+  }
+}

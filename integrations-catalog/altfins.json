@@ -1,0 +1,42 @@
+{
+  "slug": "altfins",
+  "name": "altFINS",
+  "description": "Crypto screening, technical analysis, and trading-signal discovery through the official altFINS hosted MCP API. Uses the provider-maintained tool catalog. Requires an altFINS API key; available data and credits depend on your account.",
+  "logo": "https://www.google.com/s2/favicons?domain=altfins.com&sz=128",
+  "categories": [
+    "finance",
+    "trading",
+    "crypto",
+    "signals",
+    "market-data",
+    "mcp"
+  ],
+  "kind": "remote_mcp",
+  "base_url": "https://mcp.altfins.com",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp.altfins.com/mcp",
+    "auth_header": {
+      "name": "X-API-Key",
+      "value": "{{api_key}}"
+    }
+  },
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Create a key at https://altfins.com/profile?tab=api-key. API access is subject to your account permissions and credits.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": []
+}

@@ -1,7 +1,7 @@
 {
   "slug": "nordigen",
   "name": "Nordigen (GoCardless)",
-  "description": "MCP server for GoCardless Bank Account Data API (formerly Nordigen) - PSD2-compliant open banking for EU/UK. Connect bank accounts, fetch transactions, balances, and account details from 2500+ banks.",
+  "description": "MCP server for GoCardless Bank Account Data API (formerly Nordigen) - PSD2-compliant open banking for EU/UK. Connect bank accounts, fetch transactions, balances, and account details from 2500+ banks. Account-information only: this Bank Account Data API has no payment-initiation endpoints. Money movement requires a separate payment product and connection.",
   "logo": "https://www.google.com/s2/favicons?domain=gocardless.com&sz=128",
   "categories": [
     "banking",
@@ -449,84 +449,6 @@
         },
         "required": [
           "account_id"
-        ]
-      }
-    },
-    {
-      "name": "initiate_payment",
-      "description": "Initiate a SEPA or domestic payment from a bank account (requires payment_initiation support from the institution)",
-      "method": "POST",
-      "path": "/payments/",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "institution_id": {
-            "type": "string",
-            "description": "Institution ID that supports payment initiation"
-          },
-          "redirect": {
-            "type": "string",
-            "description": "URL to redirect user after payment authorization"
-          },
-          "creditor_account": {
-            "type": "string",
-            "description": "Creditor (recipient) IBAN"
-          },
-          "creditor_name": {
-            "type": "string",
-            "description": "Creditor (recipient) name"
-          },
-          "debtor_account": {
-            "type": "string",
-            "description": "Debtor (sender) IBAN"
-          },
-          "instructed_amount": {
-            "type": "object",
-            "description": "Payment amount",
-            "properties": {
-              "currency": {
-                "type": "string",
-                "description": "ISO 4217 currency code (EUR, GBP)"
-              },
-              "amount": {
-                "type": "string",
-                "description": "Amount as string (e.g. '100.00')"
-              }
-            },
-            "required": [
-              "currency",
-              "amount"
-            ]
-          },
-          "remittance_information": {
-            "type": "string",
-            "description": "Payment reference/description"
-          }
-        },
-        "required": [
-          "institution_id",
-          "redirect",
-          "creditor_account",
-          "creditor_name",
-          "instructed_amount"
-        ]
-      }
-    },
-    {
-      "name": "get_payment",
-      "description": "Get the status and details of a payment initiation",
-      "method": "GET",
-      "path": "/payments/{payment_id}/",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "payment_id": {
-            "type": "string",
-            "description": "The UUID of the payment"
-          }
-        },
-        "required": [
-          "payment_id"
         ]
       }
     }

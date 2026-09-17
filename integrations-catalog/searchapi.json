@@ -1,6 +1,6 @@
 {
   "slug": "searchapi",
-  "name": "SearchApi.io",
+  "name": "SearchApi-io",
   "description": "Real-time structured search and ad-library data from Google, Bing, app stores, marketplaces, Meta, LinkedIn, TikTok, and other public web sources. Public API-key signup includes 100 free requests with no credit card.",
   "logo": "https://www.google.com/s2/favicons?domain=searchapi.io&sz=128",
   "categories": ["search", "serp", "seo", "scraping", "advertising", "ad-library", "app-store"],

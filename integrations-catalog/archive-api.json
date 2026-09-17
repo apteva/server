@@ -1,6 +1,6 @@
 {
   "slug": "archive-api",
-  "name": "Archive API (ArchiveAPI.com)",
+  "name": "Archive API (ArchiveAPI-com)",
   "description": "Compress and extract files using ArchiveAPI.com SaaS. Supports ZIP format with password protection.",
   "logo": "https://www.google.com/s2/favicons?domain=archiveapi.com&sz=128",
   "categories": [

@@ -1,0 +1,1303 @@
+{
+  "slug": "yapily",
+  "name": "Yapily",
+  "description": "Open banking account information for UK and European banks. Discover institutions, authorize bank connections, manage consent, and retrieve accounts, balances and transactions. Free sandbox access; live bank coverage and commercial access depend on your Yapily agreement.",
+  "logo": "https://www.google.com/s2/favicons?domain=yapily.com&sz=128",
+  "categories": [
+    "banking",
+    "open-banking",
+    "psd2",
+    "accounts",
+    "transactions",
+    "eu",
+    "spain"
+  ],
+  "base_url": "https://api.yapily.com",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Application ID",
+        "description": "Yapily Application ID from console.yapily.com; used as the HTTP Basic username.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Application Secret",
+        "description": "Yapily Application Secret; used as the HTTP Basic password. Bank consent tokens are supplied separately on account-data calls.",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_institutions",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "list_institutions",
+      "description": "Get Institutions. Select institutions whose countries include ES for Spain and verify enabled account-data features.",
+      "method": "GET",
+      "path": "/institutions",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_institution",
+      "description": "Get Institution.",
+      "method": "GET",
+      "path": "/institutions/{institutionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "institutionId": {
+            "type": "string",
+            "description": "__Mandatory__. The Yapily institution Id for the `Institution`."
+          }
+        },
+        "required": [
+          "institutionId"
+        ]
+      }
+    },
+    {
+      "name": "create_user",
+      "description": "Create User.",
+      "method": "POST",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "applicationUserId": {
+            "type": "string",
+            "description": "__Optional__. The unique identifier of the `Application User` assigned by the Application Owner."
+          },
+          "referenceId": {
+            "type": "string",
+            "description": "__Deprecated__. A non-unique reference Id for the `Application User`."
+          },
+          "vopOptOut": {
+            "type": "boolean",
+            "description": "__Optional__. A flag to indicate whether the user has opted out of VOP.",
+            "default": false
+          }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get User.",
+      "method": "GET",
+      "path": "/users/{userUuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userUuid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "__Mandatory__. The Yapily generated UUID for the user."
+          }
+        },
+        "required": [
+          "userUuid"
+        ]
+      }
+    },
+    {
+      "name": "create_account_authorization",
+      "description": "Create Account Authorisation. Supply userUuid or applicationUserId. The account holder must complete authorisationUrl in a browser. Use oneTimeToken with a registered callback, then exchange it for a consent token.",
+      "method": "POST",
+      "path": "/account-auth-requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          },
+          "userUuid": {
+            "type": "string",
+            "description": "`User` for which the authorisation request was created.",
+            "format": "uuid"
+          },
+          "applicationUserId": {
+            "type": "string",
+            "description": "__Conditional__. User-friendly identifier of the `User` that provides authorisation. If a `User` with the specified `applicationUserId` exists, it will be used otherwise, a new `User` with the specified `applicationUserId` will be created and used. Either the `userUuid` or `applicationUserId` must be provided."
+          },
+          "forwardParameters": {
+            "description": "Extra parameters the TPP may want to get forwarded in the callback request after the PSU redirect.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "institutionId": {
+            "type": "string",
+            "description": "__Mandatory__. The reference to the `Institution` which identifies which institution the authorisation request is sent to."
+          },
+          "callback": {
+            "type": "string",
+            "description": "__Optional__. The server to redirect the user to after the user completes the authorisation at the `Institution`. \n\nSee [Using a callback (Optional)](/open-banking-flow/handling-redirects/callback-url) for more information."
+          },
+          "redirect": {
+            "required": [
+              "url"
+            ],
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "__Mandatory__.Successful redirect after the user complete the authorisation at the `Institution`."
+              }
+            },
+            "description": "__Optional__. The server to redirect the user to after the user complete the authorisation at the `Institution`."
+          },
+          "oneTimeToken": {
+            "type": "boolean",
+            "description": "__Conditional__. Used to receive a `oneTimeToken` rather than a `consentToken` at the `callback` for additional security. This can only be used when the `callback` is set. \n\nSee [Using a callback with an OTT (Optional)](/open-banking-flow/handling-redirects/callback-url) for more information."
+          },
+          "accountRequest": {
+            "type": "object",
+            "properties": {
+              "transactionFrom": {
+                "type": "string",
+                "description": "__Optional__. Specifies the earliest date of the transaction records to be returned.\n\n You must supply this field to retrieve transactions older than 90 days for banks accessed via the the [CBI Globe Gateway](/data/financial-data-resources/data-restrictions#cbi-globe-gateway).",
+                "format": "date-time"
+              },
+              "transactionTo": {
+                "type": "string",
+                "description": "__Optional__. Specifies the latest date of the transaction records to be returned.",
+                "format": "date-time"
+              },
+              "expiresAt": {
+                "type": "string",
+                "description": "__Optional__. Used to set a hard date for when the user's associated `Consent` will expire.\n\n**Note**: If this supported by the bank, specifying this is property is opting out of having a long-lived consent that can be perpetually re-authorised by the user. This will add an `expiresAt` field on the `Consent` object which will render it unusable after this date.\n\n**Note**: This is not supported by every `Institution`. In such case, the request will not fail but the property will be ignored and the created `Consent` will not have an expiry date.",
+                "format": "date-time"
+              },
+              "accountIdentifiers": {
+                "required": [
+                  "accountIdentification"
+                ],
+                "type": "object",
+                "properties": {
+                  "accountId": {
+                    "type": "string",
+                    "description": "__Conditional__. Unique identifier of the account."
+                  },
+                  "accountIdentification": {
+                    "title": "Account Identifications",
+                    "required": [
+                      "type",
+                      "identification"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "title": "Account Identification Type",
+                        "type": "string",
+                        "description": "__Mandatory__. Used to describe the format of the account.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on when to specify each type.",
+                        "enum": [
+                          "SORT_CODE",
+                          "ACCOUNT_NUMBER",
+                          "IBAN",
+                          "BBAN",
+                          "BIC",
+                          "PAN",
+                          "MASKED_PAN",
+                          "MSISDN",
+                          "BSB",
+                          "NCC",
+                          "ABA",
+                          "ABA_WIRE",
+                          "ABA_ACH",
+                          "EMAIL",
+                          "ROLL_NUMBER",
+                          "BLZ",
+                          "IFS",
+                          "CLABE",
+                          "CTN",
+                          "BRANCH_CODE",
+                          "VIRTUAL_ACCOUNT_ID"
+                        ]
+                      },
+                      "identification": {
+                        "title": "Account Identification",
+                        "type": "string",
+                        "description": "__Mandatory__. The value associated with the account identification type.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on the format of the values."
+                      }
+                    }
+                  }
+                },
+                "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions."
+              },
+              "accountIdentifiersForTransaction": {
+                "type": "array",
+                "description": "__Conditional__. Used to create a request for the transactions of the account specified. Once the user authorises the request, only the transactions can be obtained by executing [GET Account Transactions](./#get-account-transactions). \n\nThis can be specified in conjunction with `accountIdentifiersForBalance` to generate a `Consent` that can both access the accounts balance and transactions.",
+                "items": {
+                  "required": [
+                    "accountIdentification"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "accountId": {
+                      "type": "string",
+                      "description": "__Conditional__. Unique identifier of the account."
+                    },
+                    "accountIdentification": {
+                      "title": "Account Identifications",
+                      "required": [
+                        "type",
+                        "identification"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "title": "Account Identification Type",
+                          "type": "string",
+                          "description": "__Mandatory__. Used to describe the format of the account.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on when to specify each type.",
+                          "enum": [
+                            "SORT_CODE",
+                            "ACCOUNT_NUMBER",
+                            "IBAN",
+                            "BBAN",
+                            "BIC",
+                            "PAN",
+                            "MASKED_PAN",
+                            "MSISDN",
+                            "BSB",
+                            "NCC",
+                            "ABA",
+                            "ABA_WIRE",
+                            "ABA_ACH",
+                            "EMAIL",
+                            "ROLL_NUMBER",
+                            "BLZ",
+                            "IFS",
+                            "CLABE",
+                            "CTN",
+                            "BRANCH_CODE",
+                            "VIRTUAL_ACCOUNT_ID"
+                          ]
+                        },
+                        "identification": {
+                          "title": "Account Identification",
+                          "type": "string",
+                          "description": "__Mandatory__. The value associated with the account identification type.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on the format of the values."
+                        }
+                      }
+                    }
+                  },
+                  "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions."
+                }
+              },
+              "accountIdentifiersForBalance": {
+                "type": "array",
+                "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions.",
+                "items": {
+                  "required": [
+                    "accountIdentification"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "accountId": {
+                      "type": "string",
+                      "description": "__Conditional__. Unique identifier of the account."
+                    },
+                    "accountIdentification": {
+                      "title": "Account Identifications",
+                      "required": [
+                        "type",
+                        "identification"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "title": "Account Identification Type",
+                          "type": "string",
+                          "description": "__Mandatory__. Used to describe the format of the account.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on when to specify each type.",
+                          "enum": [
+                            "SORT_CODE",
+                            "ACCOUNT_NUMBER",
+                            "IBAN",
+                            "BBAN",
+                            "BIC",
+                            "PAN",
+                            "MASKED_PAN",
+                            "MSISDN",
+                            "BSB",
+                            "NCC",
+                            "ABA",
+                            "ABA_WIRE",
+                            "ABA_ACH",
+                            "EMAIL",
+                            "ROLL_NUMBER",
+                            "BLZ",
+                            "IFS",
+                            "CLABE",
+                            "CTN",
+                            "BRANCH_CODE",
+                            "VIRTUAL_ACCOUNT_ID"
+                          ]
+                        },
+                        "identification": {
+                          "title": "Account Identification",
+                          "type": "string",
+                          "description": "__Mandatory__. The value associated with the account identification type.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on the format of the values."
+                        }
+                      }
+                    }
+                  },
+                  "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions."
+                }
+              },
+              "featureScope": {
+                "uniqueItems": true,
+                "type": "array",
+                "description": "__Optional__. Used to granularly specify the set of features that the user will give their consent for when requesting access to their account information. Depending on the `Institution`, this may also populate a consent screen which list these scopes before the user authorises.\n\nThis endpoint accepts allow all [Financial Data Features](/guides/financial-data/features/#feature-list) that the `Institution` supports.To find out which scopes an `Institution` supports, check [GET Institution](./#get-institution).",
+                "items": {
+                  "type": "string",
+                  "description": "Used to describe what functions are supported by the associated `Institution`.        \n\nFor more information on each feature, see the following links:        \n\n- [Financial Data Features](/data/financial-data-resources/financial-data-features)\n- [Payments Features](/payments/payment-resources/payment-features)",
+                  "enum": [
+                    "INITIATE_PRE_AUTHORISATION",
+                    "INITIATE_PRE_AUTHORISATION_ACCOUNTS",
+                    "INITIATE_PRE_AUTHORISATION_PAYMENTS",
+                    "INITIATE_ACCOUNT_REQUEST",
+                    "INITIATE_EMBEDDED_ACCOUNT_REQUEST",
+                    "ACCOUNT_REQUEST_DETAILS",
+                    "ACCOUNTS",
+                    "ACCOUNT",
+                    "ACCOUNT_TRANSACTIONS",
+                    "ACCOUNT_STATEMENTS",
+                    "ACCOUNT_STATEMENT",
+                    "ACCOUNT_STATEMENT_FILE",
+                    "ACCOUNT_SCHEDULED_PAYMENTS",
+                    "ACCOUNT_DIRECT_DEBITS",
+                    "ACCOUNT_PERIODIC_PAYMENTS",
+                    "ACCOUNT_TRANSACTIONS_WITH_MERCHANT",
+                    "IDENTITY",
+                    "ACCOUNTS_WITHOUT_BALANCE",
+                    "ACCOUNT_WITHOUT_BALANCE",
+                    "ACCOUNT_BALANCES",
+                    "INITIATE_SINGLE_PAYMENT_SORTCODE",
+                    "EXISTING_PAYMENT_INITIATION_DETAILS",
+                    "CREATE_SINGLE_PAYMENT_SORTCODE",
+                    "EXISTING_PAYMENTS_DETAILS",
+                    "INITIATE_DOMESTIC_SINGLE_PAYMENT",
+                    "INITIATE_EMBEDDED_DOMESTIC_SINGLE_PAYMENT",
+                    "CREATE_DOMESTIC_SINGLE_PAYMENT",
+                    "INITIATE_EMBEDDED_BULK_PAYMENT",
+                    "INITIATE_DOMESTIC_SINGLE_INSTANT_PAYMENT",
+                    "CREATE_DOMESTIC_SINGLE_INSTANT_PAYMENT",
+                    "INITIATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT",
+                    "CREATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT",
+                    "INITIATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_SWEEPING",
+                    "CREATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_SWEEPING",
+                    "INITIATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_COMMERCIAL",
+                    "CREATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_COMMERCIAL",
+                    "INITIATE_DOMESTIC_SCHEDULED_PAYMENT",
+                    "CREATE_DOMESTIC_SCHEDULED_PAYMENT",
+                    "INITIATE_DOMESTIC_PERIODIC_PAYMENT",
+                    "CREATE_DOMESTIC_PERIODIC_PAYMENT",
+                    "PERIODIC_PAYMENT_FREQUENCY_EXTENDED",
+                    "INITIATE_INTERNATIONAL_SCHEDULED_PAYMENT",
+                    "CREATE_INTERNATIONAL_SCHEDULED_PAYMENT",
+                    "INITIATE_INTERNATIONAL_PERIODIC_PAYMENT",
+                    "CREATE_INTERNATIONAL_PERIODIC_PAYMENT",
+                    "INITIATE_INTERNATIONAL_SINGLE_PAYMENT",
+                    "CREATE_INTERNATIONAL_SINGLE_PAYMENT",
+                    "INITIATE_BULK_PAYMENT",
+                    "CREATE_BULK_PAYMENT",
+                    "EXISTING_BULK_PAYMENT_DETAILS",
+                    "TRANSFER",
+                    "OPEN_DATA_PERSONAL_CURRENT_ACCOUNTS",
+                    "OPEN_DATA_ATMS",
+                    "READ_DOMESTIC_SINGLE_REFUND",
+                    "READ_DOMESTIC_SCHEDULED_REFUND",
+                    "READ_DOMESTIC_PERIODIC_PAYMENT_REFUND",
+                    "READ_INTERNATIONAL_SINGLE_REFUND",
+                    "READ_INTERNATIONAL_SCHEDULED_REFUND",
+                    "ACCOUNT_BENEFICIARIES",
+                    "INITIATE_ONETIME_PRE_AUTHORISATION_PAYMENTS",
+                    "INITIATE_ONETIME_PRE_AUTHORISATION_ACCOUNTS",
+                    "INITIATE_ONETIME_PRE_AUTHORISATION",
+                    "VARIABLE_RECURRING_PAYMENT_FUNDS_CONFIRMATION"
+                  ]
+                }
+              }
+            },
+            "description": "__Conditional__. Used to further specify details of the `Consent` to request \n\nConditions:\n\n1. Mandatory to specify the individual scopes to request from the user at the `Institution` for an account authorisation\n2. Mandatory to specify an expiry time on the created `Consent` at which time will render it unusable\n3. Mandatory to specify the date range that the created `Consent` will be able to access transactions for (given the range is support for the `Institution`)"
+          }
+        },
+        "required": [
+          "institutionId"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "userUuid"
+            ]
+          },
+          {
+            "required": [
+              "applicationUserId"
+            ]
+          }
+        ]
+      },
+      "header_params": {
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      }
+    },
+    {
+      "name": "reauthorize_account_consent",
+      "description": "Re-authorise Account Consent.",
+      "method": "PATCH",
+      "path": "/account-auth-requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "consent": {
+            "type": "string",
+            "description": "__Mandatory__. The `consent-token` containing the user's authorisation to make the request."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          }
+        },
+        "required": [
+          "consent"
+        ]
+      },
+      "header_params": {
+        "consent": "consent",
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      },
+      "body_none": true
+    },
+    {
+      "name": "update_account_preauthorization",
+      "description": "Update Account Pre-authorisation.",
+      "method": "PUT",
+      "path": "/account-auth-requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "consent": {
+            "type": "string",
+            "description": "__Mandatory__. The `consent-token` containing the user's authorisation to make the request."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          },
+          "userUuid": {
+            "type": "string",
+            "description": "`User` for which the authorisation request was created.",
+            "format": "uuid"
+          },
+          "applicationUserId": {
+            "type": "string",
+            "description": "__Conditional__. User-friendly identifier of the `User` that provides authorisation. If a `User` with the specified `applicationUserId` exists, it will be used otherwise, a new `User` with the specified `applicationUserId` will be created and used. Either the `userUuid` or `applicationUserId` must be provided."
+          },
+          "forwardParameters": {
+            "description": "Extra parameters the TPP may want to get forwarded in the callback request after the PSU redirect.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "institutionId": {
+            "type": "string",
+            "description": "__Mandatory__. The reference to the `Institution` which identifies which institution the authorisation request is sent to."
+          },
+          "callback": {
+            "type": "string",
+            "description": "__Optional__. The server to redirect the user to after the user completes the authorisation at the `Institution`. \n\nSee [Using a callback (Optional)](/open-banking-flow/handling-redirects/callback-url) for more information."
+          },
+          "redirect": {
+            "required": [
+              "url"
+            ],
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "__Mandatory__.Successful redirect after the user complete the authorisation at the `Institution`."
+              }
+            },
+            "description": "__Optional__. The server to redirect the user to after the user complete the authorisation at the `Institution`."
+          },
+          "oneTimeToken": {
+            "type": "boolean",
+            "description": "__Conditional__. Used to receive a `oneTimeToken` rather than a `consentToken` at the `callback` for additional security. This can only be used when the `callback` is set. \n\nSee [Using a callback with an OTT (Optional)](/open-banking-flow/handling-redirects/callback-url) for more information."
+          },
+          "accountRequest": {
+            "type": "object",
+            "properties": {
+              "transactionFrom": {
+                "type": "string",
+                "description": "__Optional__. Specifies the earliest date of the transaction records to be returned.\n\n You must supply this field to retrieve transactions older than 90 days for banks accessed via the the [CBI Globe Gateway](/data/financial-data-resources/data-restrictions#cbi-globe-gateway).",
+                "format": "date-time"
+              },
+              "transactionTo": {
+                "type": "string",
+                "description": "__Optional__. Specifies the latest date of the transaction records to be returned.",
+                "format": "date-time"
+              },
+              "expiresAt": {
+                "type": "string",
+                "description": "__Optional__. Used to set a hard date for when the user's associated `Consent` will expire.\n\n**Note**: If this supported by the bank, specifying this is property is opting out of having a long-lived consent that can be perpetually re-authorised by the user. This will add an `expiresAt` field on the `Consent` object which will render it unusable after this date.\n\n**Note**: This is not supported by every `Institution`. In such case, the request will not fail but the property will be ignored and the created `Consent` will not have an expiry date.",
+                "format": "date-time"
+              },
+              "accountIdentifiers": {
+                "required": [
+                  "accountIdentification"
+                ],
+                "type": "object",
+                "properties": {
+                  "accountId": {
+                    "type": "string",
+                    "description": "__Conditional__. Unique identifier of the account."
+                  },
+                  "accountIdentification": {
+                    "title": "Account Identifications",
+                    "required": [
+                      "type",
+                      "identification"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "title": "Account Identification Type",
+                        "type": "string",
+                        "description": "__Mandatory__. Used to describe the format of the account.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on when to specify each type.",
+                        "enum": [
+                          "SORT_CODE",
+                          "ACCOUNT_NUMBER",
+                          "IBAN",
+                          "BBAN",
+                          "BIC",
+                          "PAN",
+                          "MASKED_PAN",
+                          "MSISDN",
+                          "BSB",
+                          "NCC",
+                          "ABA",
+                          "ABA_WIRE",
+                          "ABA_ACH",
+                          "EMAIL",
+                          "ROLL_NUMBER",
+                          "BLZ",
+                          "IFS",
+                          "CLABE",
+                          "CTN",
+                          "BRANCH_CODE",
+                          "VIRTUAL_ACCOUNT_ID"
+                        ]
+                      },
+                      "identification": {
+                        "title": "Account Identification",
+                        "type": "string",
+                        "description": "__Mandatory__. The value associated with the account identification type.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on the format of the values."
+                      }
+                    }
+                  }
+                },
+                "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions."
+              },
+              "accountIdentifiersForTransaction": {
+                "type": "array",
+                "description": "__Conditional__. Used to create a request for the transactions of the account specified. Once the user authorises the request, only the transactions can be obtained by executing [GET Account Transactions](./#get-account-transactions). \n\nThis can be specified in conjunction with `accountIdentifiersForBalance` to generate a `Consent` that can both access the accounts balance and transactions.",
+                "items": {
+                  "required": [
+                    "accountIdentification"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "accountId": {
+                      "type": "string",
+                      "description": "__Conditional__. Unique identifier of the account."
+                    },
+                    "accountIdentification": {
+                      "title": "Account Identifications",
+                      "required": [
+                        "type",
+                        "identification"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "title": "Account Identification Type",
+                          "type": "string",
+                          "description": "__Mandatory__. Used to describe the format of the account.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on when to specify each type.",
+                          "enum": [
+                            "SORT_CODE",
+                            "ACCOUNT_NUMBER",
+                            "IBAN",
+                            "BBAN",
+                            "BIC",
+                            "PAN",
+                            "MASKED_PAN",
+                            "MSISDN",
+                            "BSB",
+                            "NCC",
+                            "ABA",
+                            "ABA_WIRE",
+                            "ABA_ACH",
+                            "EMAIL",
+                            "ROLL_NUMBER",
+                            "BLZ",
+                            "IFS",
+                            "CLABE",
+                            "CTN",
+                            "BRANCH_CODE",
+                            "VIRTUAL_ACCOUNT_ID"
+                          ]
+                        },
+                        "identification": {
+                          "title": "Account Identification",
+                          "type": "string",
+                          "description": "__Mandatory__. The value associated with the account identification type.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on the format of the values."
+                        }
+                      }
+                    }
+                  },
+                  "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions."
+                }
+              },
+              "accountIdentifiersForBalance": {
+                "type": "array",
+                "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions.",
+                "items": {
+                  "required": [
+                    "accountIdentification"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "accountId": {
+                      "type": "string",
+                      "description": "__Conditional__. Unique identifier of the account."
+                    },
+                    "accountIdentification": {
+                      "title": "Account Identifications",
+                      "required": [
+                        "type",
+                        "identification"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "title": "Account Identification Type",
+                          "type": "string",
+                          "description": "__Mandatory__. Used to describe the format of the account.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on when to specify each type.",
+                          "enum": [
+                            "SORT_CODE",
+                            "ACCOUNT_NUMBER",
+                            "IBAN",
+                            "BBAN",
+                            "BIC",
+                            "PAN",
+                            "MASKED_PAN",
+                            "MSISDN",
+                            "BSB",
+                            "NCC",
+                            "ABA",
+                            "ABA_WIRE",
+                            "ABA_ACH",
+                            "EMAIL",
+                            "ROLL_NUMBER",
+                            "BLZ",
+                            "IFS",
+                            "CLABE",
+                            "CTN",
+                            "BRANCH_CODE",
+                            "VIRTUAL_ACCOUNT_ID"
+                          ]
+                        },
+                        "identification": {
+                          "title": "Account Identification",
+                          "type": "string",
+                          "description": "__Mandatory__. The value associated with the account identification type.\n\n See [Account Identification Combinations](/payments/payment-resources/intro-to-payment-execution#account-identifications-combinations) for more information on the format of the values."
+                        }
+                      }
+                    }
+                  },
+                  "description": "__Conditional__. Used to create a request for the balance of the account specified. Once the user authorises the request, only the balance can be obtained by executing [GET Account Balances](./#get-account-balances).\n\n This can be specified in conjunction with `accountIdentifiersForTransaction` to generate a `Consent` that can both access the accounts balance and transactions."
+                }
+              },
+              "featureScope": {
+                "uniqueItems": true,
+                "type": "array",
+                "description": "__Optional__. Used to granularly specify the set of features that the user will give their consent for when requesting access to their account information. Depending on the `Institution`, this may also populate a consent screen which list these scopes before the user authorises.\n\nThis endpoint accepts allow all [Financial Data Features](/guides/financial-data/features/#feature-list) that the `Institution` supports.To find out which scopes an `Institution` supports, check [GET Institution](./#get-institution).",
+                "items": {
+                  "type": "string",
+                  "description": "Used to describe what functions are supported by the associated `Institution`.        \n\nFor more information on each feature, see the following links:        \n\n- [Financial Data Features](/data/financial-data-resources/financial-data-features)\n- [Payments Features](/payments/payment-resources/payment-features)",
+                  "enum": [
+                    "INITIATE_PRE_AUTHORISATION",
+                    "INITIATE_PRE_AUTHORISATION_ACCOUNTS",
+                    "INITIATE_PRE_AUTHORISATION_PAYMENTS",
+                    "INITIATE_ACCOUNT_REQUEST",
+                    "INITIATE_EMBEDDED_ACCOUNT_REQUEST",
+                    "ACCOUNT_REQUEST_DETAILS",
+                    "ACCOUNTS",
+                    "ACCOUNT",
+                    "ACCOUNT_TRANSACTIONS",
+                    "ACCOUNT_STATEMENTS",
+                    "ACCOUNT_STATEMENT",
+                    "ACCOUNT_STATEMENT_FILE",
+                    "ACCOUNT_SCHEDULED_PAYMENTS",
+                    "ACCOUNT_DIRECT_DEBITS",
+                    "ACCOUNT_PERIODIC_PAYMENTS",
+                    "ACCOUNT_TRANSACTIONS_WITH_MERCHANT",
+                    "IDENTITY",
+                    "ACCOUNTS_WITHOUT_BALANCE",
+                    "ACCOUNT_WITHOUT_BALANCE",
+                    "ACCOUNT_BALANCES",
+                    "INITIATE_SINGLE_PAYMENT_SORTCODE",
+                    "EXISTING_PAYMENT_INITIATION_DETAILS",
+                    "CREATE_SINGLE_PAYMENT_SORTCODE",
+                    "EXISTING_PAYMENTS_DETAILS",
+                    "INITIATE_DOMESTIC_SINGLE_PAYMENT",
+                    "INITIATE_EMBEDDED_DOMESTIC_SINGLE_PAYMENT",
+                    "CREATE_DOMESTIC_SINGLE_PAYMENT",
+                    "INITIATE_EMBEDDED_BULK_PAYMENT",
+                    "INITIATE_DOMESTIC_SINGLE_INSTANT_PAYMENT",
+                    "CREATE_DOMESTIC_SINGLE_INSTANT_PAYMENT",
+                    "INITIATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT",
+                    "CREATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT",
+                    "INITIATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_SWEEPING",
+                    "CREATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_SWEEPING",
+                    "INITIATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_COMMERCIAL",
+                    "CREATE_DOMESTIC_VARIABLE_RECURRING_PAYMENT_COMMERCIAL",
+                    "INITIATE_DOMESTIC_SCHEDULED_PAYMENT",
+                    "CREATE_DOMESTIC_SCHEDULED_PAYMENT",
+                    "INITIATE_DOMESTIC_PERIODIC_PAYMENT",
+                    "CREATE_DOMESTIC_PERIODIC_PAYMENT",
+                    "PERIODIC_PAYMENT_FREQUENCY_EXTENDED",
+                    "INITIATE_INTERNATIONAL_SCHEDULED_PAYMENT",
+                    "CREATE_INTERNATIONAL_SCHEDULED_PAYMENT",
+                    "INITIATE_INTERNATIONAL_PERIODIC_PAYMENT",
+                    "CREATE_INTERNATIONAL_PERIODIC_PAYMENT",
+                    "INITIATE_INTERNATIONAL_SINGLE_PAYMENT",
+                    "CREATE_INTERNATIONAL_SINGLE_PAYMENT",
+                    "INITIATE_BULK_PAYMENT",
+                    "CREATE_BULK_PAYMENT",
+                    "EXISTING_BULK_PAYMENT_DETAILS",
+                    "TRANSFER",
+                    "OPEN_DATA_PERSONAL_CURRENT_ACCOUNTS",
+                    "OPEN_DATA_ATMS",
+                    "READ_DOMESTIC_SINGLE_REFUND",
+                    "READ_DOMESTIC_SCHEDULED_REFUND",
+                    "READ_DOMESTIC_PERIODIC_PAYMENT_REFUND",
+                    "READ_INTERNATIONAL_SINGLE_REFUND",
+                    "READ_INTERNATIONAL_SCHEDULED_REFUND",
+                    "ACCOUNT_BENEFICIARIES",
+                    "INITIATE_ONETIME_PRE_AUTHORISATION_PAYMENTS",
+                    "INITIATE_ONETIME_PRE_AUTHORISATION_ACCOUNTS",
+                    "INITIATE_ONETIME_PRE_AUTHORISATION",
+                    "VARIABLE_RECURRING_PAYMENT_FUNDS_CONFIRMATION"
+                  ]
+                }
+              }
+            },
+            "description": "__Conditional__. Used to further specify details of the `Consent` to request \n\nConditions:\n\n1. Mandatory to specify the individual scopes to request from the user at the `Institution` for an account authorisation\n2. Mandatory to specify an expiry time on the created `Consent` at which time will render it unusable\n3. Mandatory to specify the date range that the created `Consent` will be able to access transactions for (given the range is support for the `Institution`)"
+          }
+        },
+        "required": [
+          "consent",
+          "institutionId"
+        ]
+      },
+      "header_params": {
+        "consent": "consent",
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      }
+    },
+    {
+      "name": "create_preauthorization",
+      "description": "Create Pre-authorisation.",
+      "method": "POST",
+      "path": "/pre-auth-requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "raw": {
+            "type": "boolean",
+            "description": "__Optional__. Used to obtain the raw request and response to and from the `Institution`."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          },
+          "userUuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "applicationUserId": {
+            "type": "string",
+            "description": "__Conditional__. The user-friendly reference to the `User` that will authorise the authorisation request. If a `User` with the specified `applicationUserId` exists, it will be used otherwise, a new `User` with the specified `applicationUserId` will be created and used. Either the `userUuid` or `applicationUserId` must be provided."
+          },
+          "forwardParameters": {
+            "type": "array",
+            "description": "Extra parameters to be forwarded in the redirect back to the client after the user authorisation flow has been completed.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "institutionId": {
+            "type": "string",
+            "description": "__Mandatory__. The reference to the `Institution` which identifies which institution the authorisation request is sent to."
+          },
+          "callback": {
+            "type": "string",
+            "description": "__Optional__. The server to redirect the user to after the user complete the authorisation at the `Institution`. \n\nSee [Using a callback (Optional)](/open-banking-flow/handling-redirects/callback-url) for more information."
+          },
+          "redirect": {
+            "required": [
+              "url"
+            ],
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "__Mandatory__.Successful redirect after the user complete the authorisation at the `Institution`."
+              }
+            },
+            "description": "__Optional__. The server to redirect the user to after the user complete the authorisation at the `Institution`."
+          },
+          "oneTimeToken": {
+            "type": "boolean",
+            "description": "__Conditional__. Used to receive a `oneTimeToken` rather than a `consentToken` at the `callback` for additional security. This can only be used when the `callback` is set. \n\nSee [Using a callback with an OTT (Optional)](/open-banking-flow/handling-redirects/callback-url) for more information."
+          },
+          "scope": {
+            "type": "string",
+            "description": "__Mandatory__. Defines the scope of the pre-authorisation request."
+          }
+        },
+        "required": [
+          "institutionId",
+          "scope"
+        ]
+      },
+      "header_params": {
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      },
+      "query_params": [
+        "raw"
+      ]
+    },
+    {
+      "name": "exchange_one_time_token",
+      "description": "Exchange One Time Token.",
+      "method": "POST",
+      "path": "/consent-one-time-token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "oneTimeToken": {
+            "type": "string",
+            "description": "__Mandatory__. The one time token to exchange for a consent token."
+          }
+        },
+        "required": [
+          "oneTimeToken"
+        ]
+      }
+    },
+    {
+      "name": "exchange_authorization_code",
+      "description": "Exchange OAuth2 Code.",
+      "method": "POST",
+      "path": "/consent-auth-code",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "authCode": {
+            "type": "string",
+            "description": "__Mandatory__. The authorisation code"
+          },
+          "authState": {
+            "type": "string",
+            "description": "__Mandatory__. The authorisation state"
+          }
+        },
+        "required": [
+          "authCode",
+          "authState"
+        ]
+      }
+    },
+    {
+      "name": "get_consent",
+      "description": "Get Consent.",
+      "method": "GET",
+      "path": "/consents/{consentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "consentId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "__Mandatory__. The consent Id of the `Consent` to update."
+          }
+        },
+        "required": [
+          "consentId"
+        ]
+      }
+    },
+    {
+      "name": "delete_consent",
+      "description": "Delete Consent.",
+      "method": "DELETE",
+      "path": "/consents/{consentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "consentId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "__Mandatory__. The consent Id of the `Consent` to update."
+          },
+          "forceDelete": {
+            "type": "boolean",
+            "default": true,
+            "description": "__Optional__. Whether to force the deletion."
+          }
+        },
+        "required": [
+          "consentId"
+        ]
+      },
+      "query_params": [
+        "forceDelete"
+      ]
+    },
+    {
+      "name": "extend_consent",
+      "description": "Extend Consent. Only call after the user has actually reconfirmed consent; this does not bypass bank reauthorization.",
+      "method": "POST",
+      "path": "/consents/{consentId}/extend",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "consentId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "__Mandatory__. The consent Id of the `Consent` to update."
+          },
+          "lastConfirmedAt": {
+            "type": "string",
+            "description": "__Mandatory__. The time that the user confirmed access to their account information",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "consentId",
+          "lastConfirmedAt"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "Get Accounts.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "consent": {
+            "type": "string",
+            "description": "__Mandatory__. The `consent-token` containing the user's authorisation to make the request."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          }
+        },
+        "required": [
+          "consent"
+        ]
+      },
+      "header_params": {
+        "consent": "consent",
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get Account.",
+      "method": "GET",
+      "path": "/accounts/{accountId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "__Mandatory__. The account Id of the user's bank account."
+          },
+          "consent": {
+            "type": "string",
+            "description": "__Mandatory__. The `consent-token` containing the user's authorisation to make the request."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          }
+        },
+        "required": [
+          "accountId",
+          "consent"
+        ]
+      },
+      "header_params": {
+        "consent": "consent",
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      }
+    },
+    {
+      "name": "get_account_balances",
+      "description": "Get Account Balances.",
+      "method": "GET",
+      "path": "/accounts/{accountId}/balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "__Mandatory__. The account Id of the user's bank account."
+          },
+          "consent": {
+            "type": "string",
+            "description": "__Mandatory__. The `consent-token` containing the user's authorisation to make the request."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          }
+        },
+        "required": [
+          "accountId",
+          "consent"
+        ]
+      },
+      "header_params": {
+        "consent": "consent",
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      }
+    },
+    {
+      "name": "get_account_transactions",
+      "description": "Get Account Transactions. Keep the response envelope and pagination metadata; use limit and offset for subsequent pages.",
+      "method": "GET",
+      "path": "/accounts/{accountId}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "__Mandatory__. The account Id of the user's bank account."
+          },
+          "consent": {
+            "type": "string",
+            "description": "__Mandatory__. The `consent-token` containing the user's authorisation to make the request."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a personal account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_corporate_id": {
+            "type": "string",
+            "description": "__Conditional__. Represents the user's login ID for the `Institution` to a business account. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "__Conditional__. The IP address of the PSU. \n\nSee [PSU identifiers](/open-banking-flow/user-authorisation/psu-identifiers) to see if this header is required."
+          },
+          "sub_application": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The sub-application ID to which event type is being subscribed to"
+          },
+          "from": {
+            "type": "string",
+            "description": "__Optional__. Returned transactions will be on or after this date (yyyy-MM-dd'T'HH:mm:ss.SSSZ). "
+          },
+          "before": {
+            "type": "string",
+            "description": "__Optional__. Returned transactions will be on or before this date (yyyy-MM-dd'T'HH:mm:ss.SSSZ)."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "__Optional__. The maximum number of transaction records to be returned. Must be between 1 and 1000.",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "sort": {
+            "type": "string",
+            "description": "__Optional__. Sort transaction records by date ascending with 'date' or descending with '-date'. The default sort order is descending",
+            "enum": [
+              "date",
+              "-date"
+            ]
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int32",
+            "description": "__Optional__. The number of transaction records to be skipped. Used primarily with paginated results.",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string",
+            "description": "__Optional__. This property is not currently in use."
+          }
+        },
+        "required": [
+          "accountId",
+          "consent"
+        ]
+      },
+      "header_params": {
+        "consent": "consent",
+        "psu_id": "psu-id",
+        "psu_corporate_id": "psu-corporate-id",
+        "psu_ip_address": "psu-ip-address",
+        "sub_application": "sub-application"
+      },
+      "query_params": [
+        "from",
+        "before",
+        "limit",
+        "sort",
+        "offset",
+        "cursor"
+      ]
+    }
+  ]
+}

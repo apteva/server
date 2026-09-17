@@ -1,0 +1,120 @@
+{
+  "slug": "weatherapi",
+  "name": "WeatherAPI",
+  "description": "Global current weather, up to 3-day hourly forecasts, and location search using WeatherAPI.com. Requires an API key; the free plan includes these tools. Forecast requests are limited to 3 days for free-plan compatibility.",
+  "logo": "https://www.google.com/s2/favicons?domain=weatherapi.com&sz=128",
+  "categories": [
+    "weather",
+    "forecast",
+    "geocoding"
+  ],
+  "base_url": "https://api.weatherapi.com/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {},
+    "query_params": {
+      "key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Sign up at https://www.weatherapi.com/signup.aspx and copy your API key from the account dashboard.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "method": "GET",
+    "path": "/current.json?q=51.5074,-0.1278",
+    "expect_status": [
+      200
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_current_weather",
+      "description": "Get current conditions for a location. The response includes both metric and imperial measurements.",
+      "method": "GET",
+      "path": "/current.json",
+      "query_params": [
+        "q",
+        "lang"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Location: city name, latitude,longitude, postal code, or id:<id> from search_locations. Use coordinates or a search result ID to disambiguate cities."
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code for weather descriptions, for example en, fr, or es."
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "get_forecast",
+      "description": "Get daily and hourly forecasts for 1 to 3 days, including current weather and location metadata. Both metric and imperial values are returned.",
+      "method": "GET",
+      "path": "/forecast.json",
+      "query_params": [
+        "q",
+        "days",
+        "lang"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Location: city name, latitude,longitude, postal code, or id:<id> from search_locations. Use coordinates or a search result ID to disambiguate cities."
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3,
+            "description": "Number of forecast days, including today. The free plan supports up to 3 days."
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code for weather descriptions, for example en, fr, or es."
+          }
+        },
+        "required": [
+          "q",
+          "days"
+        ]
+      }
+    },
+    {
+      "name": "search_locations",
+      "description": "Search for locations by name or postal code. Use a returned id as q=id:<id>, or use the returned latitude and longitude in weather tools.",
+      "method": "GET",
+      "path": "/search.json",
+      "query_params": [
+        "q"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "City name or postal code to search, e.g. London or 75001."
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    }
+  ]
+}

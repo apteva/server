@@ -1,6 +1,6 @@
 {
   "slug": "z-ai",
-  "name": "Z.ai",
+  "name": "Z-ai",
   "description": "Z.ai GLM language-model API with OpenAI-compatible chat completions, reasoning controls, multimodal messages, structured output, function calling, and token counting.",
   "logo": "https://www.google.com/s2/favicons?domain=z.ai&sz=128",
   "categories": [

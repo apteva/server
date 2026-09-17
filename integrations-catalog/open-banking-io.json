@@ -1,0 +1,135 @@
+{
+  "slug": "open-banking-io",
+  "name": "Open Banking Access",
+  "description": "Read accounts, balances and transactions from open-banking.io, including Spanish banks. Refresh connected accounts with server-side decryption. Connect banks and renew consent in the provider app first. Account data only; no payment initiation.",
+  "logo": "https://www.google.com/s2/favicons?domain=open-banking.io&sz=128",
+  "categories": [
+    "banking",
+    "open-banking",
+    "accounts",
+    "transactions",
+    "eu",
+    "spain"
+  ],
+  "base_url": "https://open-banking.io",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "credential_fields": [
+      {
+        "name": "api_base_url",
+        "label": "API Base URL (optional override)",
+        "type": "text",
+        "required": false,
+        "description": "Defaults to https://open-banking.io. Change only if your provider credentials bundle specifies a different apiBaseUrl. This is not your Apteva server URL.",
+        "default": "https://open-banking.io"
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "required": true,
+        "description": "apiKey from the exported credentials bundle."
+      },
+      {
+        "name": "private_key",
+        "label": "Encryption Private Key",
+        "type": "multiline_password",
+        "required": true,
+        "description": "encryptionKey.privateKey from credentials.json: base64 PKCS#8 P-256 private key. Kept server-side for local decryption; never sent to the provider."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_accounts",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "list_accounts",
+      "description": "List accounts with decrypted identities and balances. needsReconnect indicates expired consent.",
+      "method": "GET",
+      "path": "/api/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "Read a page of decrypted transactions; amounts remain decimal strings.",
+      "method": "GET",
+      "path": "/api/accounts/{account_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "from": {
+            "type": "string",
+            "description": "Date YYYY-MM-DD"
+          },
+          "to": {
+            "type": "string",
+            "description": "Date YYYY-MM-DD"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "list_connections",
+      "description": "List bank connections, consent expiry and live status.",
+      "method": "GET",
+      "path": "/api/connections",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "sync_account",
+      "description": "Refresh one account using its locally decrypted session identifier. Reconnect expired consent in the provider app. Background sync does not impersonate a present user.",
+      "method": "POST",
+      "path": "/api/accounts/{account_id}/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "sync_all",
+      "description": "Refresh accounts with active sessions. Inspect failures for partial success, bank refusals or reconnect_needed. Does not initiate payments.",
+      "method": "POST",
+      "path": "/api/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  ]
+}

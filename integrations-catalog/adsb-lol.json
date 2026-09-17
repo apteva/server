@@ -1,6 +1,6 @@
 {
   "slug": "adsb-lol",
-  "name": "adsb.lol",
+  "name": "adsb-lol",
   "description": "Free, open ADS-B aircraft tracking API for live positions by aircraft hex, callsign, registration, type, squawk, or geographic radius. Data is ODbL licensed; production users should contact adsb.lol because the public API has no SLA and may require feeder authentication in the future.",
   "logo": "https://www.google.com/s2/favicons?domain=adsb.lol&sz=128",
   "categories": ["aviation", "flight-tracking", "aircraft", "ads-b", "open-data"],

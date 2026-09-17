@@ -1,0 +1,415 @@
+{
+  "slug": "jolpica-f1",
+  "name": "Jolpica F1",
+  "description": "Ergast-compatible Formula 1 schedules, results, drivers, constructors and championship standings. Public API: no key, 4 requests/second burst and 500/hour sustained across all tools. Data is CC BY-NC-SA 4.0; contact admin@jolpi.ca for commercial use. Historical coverage varies by statistic. Docs: https://github.com/jolpica/jolpica-f1",
+  "logo": "https://www.google.com/s2/favicons?domain=jolpi.ca&sz=128",
+  "categories": [
+    "sports",
+    "formula1",
+    "motorsport",
+    "results",
+    "standings",
+    "open-data"
+  ],
+  "base_url": "https://api.jolpi.ca/ergast/f1",
+  "auth": {
+    "types": [
+      "none"
+    ],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "list_seasons",
+      "description": "List available seasons with pagination.",
+      "method": "GET",
+      "path": "/seasons.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_races",
+      "description": "Get a season calendar including session times where available.",
+      "method": "GET",
+      "path": "/{season}/races.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_results",
+      "description": "Get race classification for a season and round.",
+      "method": "GET",
+      "path": "/{season}/{round}/results.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "round": {
+            "type": "string",
+            "description": "Round number, e.g. 1, or last."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season",
+          "round"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_qualifying",
+      "description": "Get qualifying results where covered.",
+      "method": "GET",
+      "path": "/{season}/{round}/qualifying.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "round": {
+            "type": "string",
+            "description": "Round number, e.g. 1, or last."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season",
+          "round"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_sprint_results",
+      "description": "Get sprint classification for a sprint weekend.",
+      "method": "GET",
+      "path": "/{season}/{round}/sprint.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "round": {
+            "type": "string",
+            "description": "Round number, e.g. 1, or last."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season",
+          "round"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_driver_standings",
+      "description": "Get driver championship standings.",
+      "method": "GET",
+      "path": "/{season}/driverStandings.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_constructor_standings",
+      "description": "Get constructor championship standings.",
+      "method": "GET",
+      "path": "/{season}/constructorStandings.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_drivers",
+      "description": "Get drivers participating in a season.",
+      "method": "GET",
+      "path": "/{season}/drivers.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_constructors",
+      "description": "Get constructors participating in a season.",
+      "method": "GET",
+      "path": "/{season}/constructors.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_pit_stops",
+      "description": "Get pit stops, subject to historical coverage.",
+      "method": "GET",
+      "path": "/{season}/{round}/pitstops.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "string",
+            "description": "Season year, e.g. 2025, or current."
+          },
+          "round": {
+            "type": "string",
+            "description": "Round number, e.g. 1, or last."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          }
+        },
+        "required": [
+          "season",
+          "round"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 7200,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_seasons",
+    "input": {
+      "limit": 1
+    }
+  }
+}

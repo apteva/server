@@ -1,0 +1,492 @@
+{
+  "slug": "unusual-whales",
+  "name": "Unusual Whales",
+  "description": "US options-flow alerts, dark-pool trades, market tide, financial news, user alerts, and stock metadata through the official Unusual Whales API. Requires an API-enabled subscription and bearer token. Read-only market intelligence; no order execution.",
+  "logo": "https://www.google.com/s2/favicons?domain=unusualwhales.com&sz=128",
+  "categories": [
+    "finance",
+    "trading",
+    "signals",
+    "stocks",
+    "options",
+    "market-data"
+  ],
+  "base_url": "https://api.unusualwhales.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Create an API token through https://unusualwhales.com/settings after enabling API access. Website subscription access alone may not include API entitlements.",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_flow_alerts",
+      "description": "Flow alerts are rule based aggregations on the full tape of option trades. \n\nWhile there are quite a few different rules and alerts the most used one is the repeated hit family:\nRepeatedHits, RepeatedHitsAscendingFill, RepeatedHitsDescendingFill\n\nEach of those represent an alert when there have been multiple transactions on the same option contract\nwithin a few milliseconds. This can be mean that a single order is being matched across multiple other orders\nand creating multiple transactions. It can also just mean that there are multiple buyers/sellers at the same time. \n\nTrades usually use the repeated hits with other data points to form a picture on whether there is some urgency \nin entering/exiting a position in a contract/ticker.\n\nThe full current options tape including trades that do not form a RepeatedHits alert can be accessed through the\n[Option Trades endpoint](https://api.unusualwhales.com/docs/operations/PublicApi.OptionTradeController.index).\nThe difference between the 3 repeated hits alerts are:\n- DescendingFill: Each transaction that comes after another in chronological order has either the same fill price as or a lower fill price than the previous transaction. The last transaction must be lower than the first transaction.\n- AscendingFill: The opposite of DescendingFill. The fill prices increase instead of decreasing.\n- RepeatedHits (neither ascending nor descending): When it does not fit into one of the first two categories.\n\nTo express ascending and descending in a mathmatical notion. Let p₁, p₂, …, pₙ be the fill prices of n transactions ordered chronologically:\n- DescendingFill: pᵢ ≥ pᵢ₊₁ for all i ∈ [1, n−1], and pₙ < p₁.\n- AscendingFill: pᵢ ≤ pᵢ₊₁ for all i ∈ [1, n−1], and pₙ > p₁.\n\nFor the individual flow alert rules and how the aggregation is based on you can\ncheckout out [https://unusualwhales.com/option-flow-alerts/rules](https://unusualwhales.com/option-flow-alerts/rules).\n\nFor any given flow alert you can take a look at the individual trades that are making up the alert by taking the alert's id\nand use [https://api.unusualwhales.com/docs/operations/PublicApi.OptionTradeController.flow_alert](https://api.unusualwhales.com/docs/operations/PublicApi.OptionTradeController.flow_alert)\nto retrieve the individual transactions.\n\nFor real time streaming of flow alerts, subscribe to the `flow-alerts` websocket channel, see [https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.flow_alerts](https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.flow_alerts).\n\nThe 14-day lookback limit on the custom alerts endpoint (`/api/alerts`) does not apply to this endpoint.",
+      "method": "GET",
+      "path": "/api/option-trades/flow-alerts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker_symbol": {
+            "description": "A comma separated list of tickers. To exclude certain tickers prefix the first ticker with a `-`.",
+            "examples": [
+              "AAPL",
+              "AAPL,INTC",
+              "-TSLA,NVDA"
+            ],
+            "type": "string"
+          },
+          "unusual": {
+            "type": "boolean",
+            "description": "Convenience preset for \"unusual\" flow, matching the [live options flow](https://unusualwhales.com/live-options-flow) default criteria: volume>OI, size>OI, all-opening, OTM, single-leg, DTE≤60, ask-side≥50%, premium≥$10k, size≥5, issue types ADR/Common Stock/ETF. Applied as defaults, so any of those filters you pass explicitly (e.g. `min_ask_perc=0.9`, `max_dte=40`) overrides the preset."
+          },
+          "min_premium": {
+            "description": "The minimum premium on that alert. Min: 0.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_premium": {
+            "description": "The maximum premium on that alert. Min: 0.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "all_opening": {
+            "description": "Boolean flag whether all transactions are opening transactions based on OI, Size & Volume. Since Flow Alerts with rule_name values of RepeatedHits, RepeatedHitsAscendingFill, and RepeatedHitsDescendingFill are composed of many individual transactions, it is extremely unlikely that the all_opening value will be true, so if you are interested in these Flow Alerts you should not set this query param to true.",
+            "type": "boolean"
+          },
+          "is_sweep": {
+            "description": "Boolean flag whether a transaction is a intermarket sweep.",
+            "type": "boolean"
+          },
+          "is_call": {
+            "description": "Boolean flag whether a transaction is a call.",
+            "type": "boolean"
+          },
+          "is_put": {
+            "description": "Boolean flag whether a transaction is a put.",
+            "type": "boolean"
+          },
+          "rule_name[]": {
+            "description": "An array of 1 or more rule name.",
+            "items": {
+              "description": "",
+              "enum": [
+                "FloorTradeSmallCap",
+                "FloorTradeMidCap",
+                "RepeatedHits",
+                "RepeatedHitsAscendingFill",
+                "RepeatedHitsDescendingFill",
+                "FloorTradeLargeCap",
+                "OtmEarningsFloor",
+                "LowHistoricVolumeFloor",
+                "SweepsFollowedByFloor"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "min_dte": {
+            "description": "The minimum days to expiry. Min: 0.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_dte": {
+            "description": "The maximum days to expiry. Min: 0.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "newer_than": {
+            "description": "The unix time in milliseconds or seconds at which no older results will be returned. Can be used with `older_than` to paginate by time. Also accepts an ISO date or RFC 3339 datetime (example: 2024-01-25).",
+            "type": "string"
+          },
+          "older_than": {
+            "description": "The unix time in milliseconds or seconds at which no newer results will be returned. Can be used with `newer_than` to paginate by time. Also accepts an ISO date or RFC 3339 datetime (example: 2024-01-25).",
+            "type": "string"
+          },
+          "limit": {
+            "description": "How many items to return. Default: 100. Max: 200. Min: 1.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "ticker_symbol",
+        "unusual",
+        "min_premium",
+        "max_premium",
+        "all_opening",
+        "is_sweep",
+        "is_call",
+        "is_put",
+        "rule_name[]",
+        "min_dte",
+        "max_dte",
+        "newer_than",
+        "older_than",
+        "limit"
+      ]
+    },
+    {
+      "name": "list_darkpool_trades",
+      "description": "Returns the latest darkpool trades.\n\nFor real time streaming of darkpool trades, subscribe to the `off_lit_trades` websocket channel, see [https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.off_lit_trades](https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.off_lit_trades).",
+      "method": "GET",
+      "path": "/api/darkpool/recent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "description": "How many items to return. Default: 100. Max: 200. Min: 1.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "date": {
+            "description": "A trading date in the format of YYYY-MM-DD.\nThis is optional and by default the last trading date.\n",
+            "type": "string"
+          },
+          "min_premium": {
+            "description": "The minimum premium requested trades should have.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_premium": {
+            "description": "The maximum premium requested trades should have.",
+            "type": "integer"
+          },
+          "min_size": {
+            "description": "The minimum size requested trades should have. Must be a positive integer.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_size": {
+            "description": "The maximum size requested trades should have. Must be a positive integer.",
+            "type": "integer"
+          },
+          "min_volume": {
+            "description": "The minimum consolidated volume requested trades should have. Must be a positive integer.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_volume": {
+            "description": "The maximum consolidated volume requested trades should have. Must be a positive integer.",
+            "type": "integer"
+          },
+          "order": {
+            "description": "Whether to sort descending or ascending. Descending by default.",
+            "enum": [
+              "desc",
+              "asc"
+            ],
+            "type": "string"
+          },
+          "order_by": {
+            "description": "The field to order the darkpool trades by. Defaults to executed_at.",
+            "enum": [
+              "executed_at",
+              "trf_executed_at",
+              "premium",
+              "size",
+              "volume"
+            ],
+            "type": "string"
+          }
+        }
+      },
+      "query_params": [
+        "limit",
+        "date",
+        "min_premium",
+        "max_premium",
+        "min_size",
+        "max_size",
+        "min_volume",
+        "max_volume",
+        "order",
+        "order_by"
+      ]
+    },
+    {
+      "name": "get_ticker_darkpool_trades",
+      "description": "Returns the darkpool trades for the given ticker on a given day.\nDate must be the current or a past date. If no date is given, returns data for the current/last market day.\n\nFor real time streaming of darkpool trades, subscribe to the `off_lit_trades` websocket channel, see [https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.off_lit_trades](https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.off_lit_trades).\n\n`executed_at` is an ISO 8601 timestamp in UTC. `trf_executed_at` is the time the trade was reported to\nthe tape.",
+      "method": "GET",
+      "path": "/api/darkpool/{ticker}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "description": "A single ticker",
+            "type": "string"
+          },
+          "date": {
+            "description": "A trading date in the format of YYYY-MM-DD.\nThis is optional and by default the last trading date.\n",
+            "type": "string"
+          },
+          "newer_than": {
+            "description": "The unix time in milliseconds or seconds at which no older results will be returned. Can be used with `older_than` to paginate by time. Also accepts an ISO date or RFC 3339 datetime (example: 2024-01-25).",
+            "type": "string"
+          },
+          "older_than": {
+            "description": "The unix time in milliseconds or seconds at which no newer results will be returned. Can be used with `newer_than` to paginate by time. Also accepts an ISO date or RFC 3339 datetime (example: 2024-01-25).",
+            "type": "string"
+          },
+          "min_premium": {
+            "description": "The minimum premium requested trades should have.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_premium": {
+            "description": "The maximum premium requested trades should have.",
+            "type": "integer"
+          },
+          "min_size": {
+            "description": "The minimum size requested trades should have. Must be a positive integer.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_size": {
+            "description": "The maximum size requested trades should have. Must be a positive integer.",
+            "type": "integer"
+          },
+          "min_volume": {
+            "description": "The minimum consolidated volume requested trades should have. Must be a positive integer.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_volume": {
+            "description": "The maximum consolidated volume requested trades should have. Must be a positive integer.",
+            "type": "integer"
+          },
+          "limit": {
+            "description": "How many items to return. Default: 500. Max: 500. Min: 1.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "order": {
+            "description": "Whether to sort descending or ascending. Descending by default.",
+            "enum": [
+              "desc",
+              "asc"
+            ],
+            "type": "string"
+          },
+          "order_by": {
+            "description": "The field to order the darkpool trades by. Defaults to executed_at.",
+            "enum": [
+              "executed_at",
+              "trf_executed_at",
+              "premium",
+              "size",
+              "volume"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker"
+        ]
+      },
+      "query_params": [
+        "date",
+        "newer_than",
+        "older_than",
+        "min_premium",
+        "max_premium",
+        "min_size",
+        "max_size",
+        "min_volume",
+        "max_volume",
+        "limit",
+        "order",
+        "order_by"
+      ]
+    },
+    {
+      "name": "get_market_tide",
+      "description": "Market Tide is a proprietary tool that can be viewed from the Market Overview page. The Market Tide chart provides real time data based on a proprietary formula that examines market wide options activity and filters out 'noise'.\n\nDate must be the current or a past date. If no date is given, returns data for the current/last market day.\n\nPer default data are returned in 1 minute intervals. Use `interval_5m=true` to have this return data in 5 minute intervals instead.\n\n\nFor example:\n- $15,000 in calls transacted at the ask has the effect of increasing the daily net call premium by $15,000.\n- $10,000 in calls transacted at the bid has the effect of decreasing the daily net call premium by $10,000.\n\nThe resulting net premium from both of these trades would be $5000 (+ $15,000 - $10,000).\n\nTransactions taking place at the mid are not accounted for.\n\nIn theory:\n\nThe sentiment in the options market becomes increasingly bullish if:\n1. The aggregated CALL PREMIUM is increasing at a faster rate.\n2. The aggregated PUT PREMIUM is decreasing at a faster rate.\n\nThe sentiment in the options market becomes increasingly bearish if:\n1. The aggregated CALL PREMIUM is decreasing at a faster rate.\n2. The aggregated PUT PREMIUM is increasing at a faster rate.\n\nIf you are interested in which tickers are influencing the market tide the most\nyou can check [https://api.unusualwhales.com/docs/operations/PublicApi.MarketController.top_net_impact](https://api.unusualwhales.com/docs/operations/PublicApi.MarketController.top_net_impact).\n\nIf you are looking for a market tide but for specific sectors check out: [https://api.unusualwhales.com/docs/operations/PublicApi.MarketController.sec_indst](https://api.unusualwhales.com/docs/operations/PublicApi.MarketController.sec_indst)\n\nFor a market tide for ETF holdings check out [https://api.unusualwhales.com/docs/operations/PublicApi.MarketController.etf_tide](https://api.unusualwhales.com/docs/operations/PublicApi.MarketController.etf_tide).\n\nFor real time streaming market tide data, subscribe to the `market_tide` websocket channel, see [https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.channels](https://api.unusualwhales.com/docs/operations/PublicApi.SocketController.channels).\n\n----\nThis can be used to build a market overview such as:\n\n![market tide](https://i.imgur.com/tuwTCDc.png)\n\nData goes back to 2022-09-28",
+      "method": "GET",
+      "path": "/api/market/market-tide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "description": "A trading date in the format of YYYY-MM-DD.\nThis is optional and by default the last trading date.\n",
+            "type": "string"
+          },
+          "otm_only": {
+            "description": "Only include out of the money transactions.",
+            "type": "boolean"
+          },
+          "interval_5m": {
+            "description": "Return data in 5 minutes intervals.",
+            "type": "boolean"
+          }
+        }
+      },
+      "query_params": [
+        "date",
+        "otm_only",
+        "interval_5m"
+      ]
+    },
+    {
+      "name": "list_news_headlines",
+      "description": "Returns the latest news headlines for financial markets.\n\nThis endpoint provides access to news headlines that may impact the markets, including company-specific\nnews, sector news, and market-wide events. Headlines can be filtered by source, content, ticker, and significance.\n\nUse the `search_term` parameter to filter by headline content, or the `ticker` parameter to filter\nby related ticker symbols. The data includes the headline text, source, related tickers, sentiment,\nand whether it's considered a major news item.",
+      "method": "GET",
+      "path": "/api/news/headlines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sources": {
+            "description": "A comma-separated list of news sources to filter by (e.g., 'Reuters,Bloomberg').",
+            "type": "string"
+          },
+          "search_term": {
+            "description": "A search term to filter news headlines by content.",
+            "type": "string"
+          },
+          "ticker": {
+            "description": "Filter news headlines to only those mentioning the specified ticker symbol.",
+            "type": "string"
+          },
+          "major_only": {
+            "description": "When set to true, only returns major/significant news.",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "How many items to return. Default: 50. Max: 100. Min: 1.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page": {
+            "description": "Page number (use with limit). Starts on page 0.",
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "sources",
+        "search_term",
+        "ticker",
+        "major_only",
+        "limit",
+        "page"
+      ]
+    },
+    {
+      "name": "list_alerts",
+      "description": "Returns all the alerts that have been triggered for the user.\n\nTime filtering is available using the `newer_than` and `older_than` parameters:\n- The maximum lookback period is 14 days\n- If no time range is specified, defaults to the last 14 days\n- If only one time parameter is provided, the other is automatically calculated to maintain the 14-day limit\n- If both parameters are provided but exceed 14 days, the range is adjusted to 14 days from the `older_than` timestamp\n\nThe alerts are the same alerts as the user created on [https://unusualwhales.com/custom-alerts](https://unusualwhales.com/custom-alerts)",
+      "method": "GET",
+      "path": "/api/alerts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "description": "How many items to return. Default: 50. Max: 500. Min: 1.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "intraday_only": {
+            "description": "Boolean flag whether to return only intraday alerts.",
+            "type": "boolean"
+          },
+          "config_ids[]": {
+            "description": "A list of alert ids to filter by.",
+            "type": "array"
+          },
+          "ticker_symbols": {
+            "description": "A comma separated list of tickers. To exclude certain tickers prefix the first ticker with a `-`.",
+            "examples": [
+              "AAPL",
+              "AAPL,INTC",
+              "-TSLA,NVDA"
+            ],
+            "type": "string"
+          },
+          "noti_types[]": {
+            "description": "A list of notification types.",
+            "items": {
+              "description": "",
+              "enum": [
+                "stock",
+                "news",
+                "earnings",
+                "dividends",
+                "splits",
+                "option_contract",
+                "price_target",
+                "analyst_rating",
+                "option_contract_interval",
+                "insider_trades",
+                "trading_state",
+                "fda",
+                "economic_release",
+                "politician_trades",
+                "market_tide",
+                "sec_filings",
+                "flow_alerts",
+                "chain_oi_change",
+                "gex"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "newer_than": {
+            "description": "Filter alerts created after this timestamp. When used alone, the time range is limited to 14 days forward from this timestamp. The format can either be a timestamp in unix seconds or milliseconds or a string in ISO format.",
+            "format": "datetime",
+            "type": "string"
+          },
+          "older_than": {
+            "description": "Filter alerts created before this timestamp. When used alone, the time range is limited to 14 days backward from this timestamp. The format can either be a timestamp in unix seconds or milliseconds or a string in ISO format",
+            "format": "datetime",
+            "type": "string"
+          }
+        }
+      },
+      "query_params": [
+        "limit",
+        "intraday_only",
+        "config_ids[]",
+        "ticker_symbols",
+        "noti_types[]",
+        "newer_than",
+        "older_than"
+      ]
+    },
+    {
+      "name": "get_stock_info",
+      "description": "Returns a information about the given ticker.",
+      "method": "GET",
+      "path": "/api/stock/{ticker}/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "description": "A single ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker"
+        ]
+      },
+      "query_params": []
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "slug": "nixbuild",
-  "name": "nixbuild.net",
+  "name": "nixbuild-net",
   "description": "Nix builds as a service \u2014 submit Nix derivations, get them built remotely with shared cache across all users. Generous free tier (25 CPU-hours/month). Bearer-token authenticated; the API also supports OIDC for short-lived CI tokens. Useful when your build is Nix-shaped (Nixpacks, NixOS, dev shells) \u2014 not for arbitrary Dockerfile builds.",
   "logo": "https://www.google.com/s2/favicons?domain=nixbuild.net&sz=128",
   "categories": [

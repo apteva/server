@@ -1,0 +1,304 @@
+{
+  "slug": "squiggle",
+  "name": "Squiggle AFL",
+  "description": "Documented public AFL JSON API for fixtures, scores, standings and computer-model predictions. Commercial use is allowed. Configure a contact email, cache responses, avoid concurrent or repetitive polling, and fetch server-side rather than from visitors browsers. Predictions are model outputs, not bookmaker odds. Docs and usage requirements: https://api.squiggle.com.au/",
+  "logo": "https://www.google.com/s2/favicons?domain=squiggle.com.au&sz=128",
+  "categories": [
+    "sports",
+    "afl",
+    "predictions",
+    "scores",
+    "open-data"
+  ],
+  "base_url": "https://api.squiggle.com.au",
+  "auth": {
+    "types": [
+      "none"
+    ],
+    "headers": {
+      "Accept": "application/json",
+      "User-Agent": "Apteva sports integration ({{contact_email}})"
+    },
+    "credential_fields": [
+      {
+        "name": "contact_email",
+        "label": "Contact email",
+        "description": "Squiggle requires an identifiable User-Agent with the operator contact email. This is not an API key.",
+        "required": true,
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_teams",
+      "description": "List AFL teams, optionally for a year.",
+      "method": "GET",
+      "path": "/?q=teams&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 1897,
+            "description": "Season year."
+          },
+          "team": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Team ID."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_games",
+      "description": "List games for a season, optionally limited to a team and round.",
+      "method": "GET",
+      "path": "/?q=games&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 1897,
+            "description": "Season year."
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Round."
+          },
+          "team": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "complete": {
+            "type": "string",
+            "description": "Completion percentage, e.g. 100 or !100."
+          },
+          "live": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "1 for in-progress games."
+          }
+        },
+        "required": [
+          "year"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_game",
+      "description": "Get one game using its Squiggle game ID.",
+      "method": "GET",
+      "path": "/?q=games&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "game": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Game ID."
+          }
+        },
+        "required": [
+          "game"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List the computer models contributing predictions.",
+      "method": "GET",
+      "path": "/?q=sources&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Model ID."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_tips",
+      "description": "Get model tips for a specific season and round; optionally select model/team.",
+      "method": "GET",
+      "path": "/?q=tips&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 1897,
+            "description": "Season year."
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "team": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "year",
+          "round"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_standings",
+      "description": "Get actual AFL standings for a year and optional round.",
+      "method": "GET",
+      "path": "/?q=standings&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 1897,
+            "description": "Season year."
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "year"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_projected_ladder",
+      "description": "Get model-projected ladder positions for a season.",
+      "method": "GET",
+      "path": "/?q=ladder&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 1897,
+            "description": "Season year."
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "year"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_power_rankings",
+      "description": "Get model power rankings for a season.",
+      "method": "GET",
+      "path": "/?q=power&format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 1897,
+            "description": "Season year."
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "year"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 15000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_teams"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "slug": "trendspider",
+  "name": "TrendSpider",
+  "description": "Manage access to privately shared TrendSpider content through its documented sharing API. Grants or revokes access for an existing TrendSpider account. This API does not retrieve trading signals; signal alerts use outbound webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=trendspider.com&sz=128",
+  "categories": [
+    "finance",
+    "trading",
+    "content-access"
+  ],
+  "base_url": "https://charts.trendspider.com",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "item_id",
+        "label": "Shared Item ID",
+        "description": "Share an item to certain people only, then open Sharing Management > API > Copy credentials. The first part is itemId. Each connection represents one shared item.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "secret_key",
+        "label": "Shared Item Secret Key",
+        "description": "Second part of the copied itemId/secretKey credentials. Re-sharing an item regenerates its secret key.",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "grant_access",
+      "description": "Grant access to the configured shared item for an existing TrendSpider account. The change takes effect immediately.",
+      "method": "POST",
+      "path": "/shared_entities/public/1/access/{{credential.item_id}}/{{credential.secret_key}}/grant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "One existing TrendSpider account email address, with no spaces."
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "revoke_access",
+      "description": "Revoke access to the configured shared item for an existing TrendSpider account. The change takes effect immediately.",
+      "method": "POST",
+      "path": "/shared_entities/public/1/access/{{credential.item_id}}/{{credential.secret_key}}/revoke",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "One existing TrendSpider account email address, with no spaces."
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 0
+      }
+    }
+  ]
+}

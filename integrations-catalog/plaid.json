@@ -1,7 +1,7 @@
 {
   "slug": "plaid",
   "name": "Plaid",
-  "description": "MCP server for Plaid financial data - Link, bank accounts, transactions, balances, identity, investments, liabilities, assets, webhooks, transfers, and payment initiation. Uses official Plaid API route paths and sends client_id/secret/access_token in JSON bodies.",
+  "description": "MCP server for Plaid financial data - Link, bank accounts, transactions, balances, identity, investments, liabilities, assets, webhooks, transfers, and payment initiation. Uses official Plaid API route paths and sends client_id/secret/access_token in JSON bodies. Payment Initiation and US ACH Transfer require separate product enablement and user authorization; bank-data access alone does not enable payments.",
   "logo": "https://www.google.com/s2/favicons?domain=plaid.com&sz=128",
   "categories": [
     "finance",
@@ -55,7 +55,7 @@
   "tools": [
     {
       "name": "create_link_token",
-      "description": "Create a Link token to initialize Plaid Link for connecting a user's bank account. Required before launching the Link flow.",
+      "description": "Create a Link token to initialize Plaid Link for connecting a user's bank account. Required before launching the Link flow. For Payment Initiation use products [payment_initiation], payment_initiation.payment_id and the required user/user_id. Launch Link or use hosted_link for account-holder approval. Hosted Link returns a hosted_link_url. Payment Initiation and US ACH Transfer are separate products. For US Transfer user_action_required, provide transfer.authorization_id; complete Link before reevaluating authorization.",
       "method": "POST",
       "path": "/link/token/create",
       "input_schema": {
@@ -104,13 +104,88 @@
           "webhook": {
             "type": "string",
             "description": "Webhook URL for transaction and item updates"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "A `user_id` generated using `/user/create`. Required for integrations that began using Plaid Protect, Multi-Item Link, or Plaid Check Consumer Report after December 10, 2025. Required for new integrations that use Payment Initiation, Variable Recurring Payments, or Virtual Accounts. For more details, see [New User APIs](https://plaid.com/docs/api/users/user-apis). One of either the `user_id` or the `user` field is required."
+          },
+          "payment_initiation": {
+            "type": "object",
+            "description": "Specifies options for initializing Link for use with the Payment Initiation (Europe) product. This field is required if `payment_initiation` is included in the `products` array. Either `payment_id` or `consent_id` must be provided.",
+            "properties": {
+              "payment_id": {
+                "type": "string",
+                "description": "The `payment_id` provided by the `/payment_initiation/payment/create` endpoint."
+              },
+              "consent_id": {
+                "type": "string",
+                "description": "The `consent_id` provided by the `/payment_initiation/consent/create` endpoint."
+              }
+            }
+          },
+          "hosted_link": {
+            "description": "Configuration parameters for Hosted Link. To enable the session for Hosted Link, send this object in the request. It can be empty.",
+            "additionalProperties": true,
+            "type": "object",
+            "properties": {
+              "delivery_method": {
+                "type": "string",
+                "description": "How Plaid should deliver the Plaid Link session to the customer. Only available to customers enabled for Link Delivery (beta). To request Link Delivery access, contact your account manager.\n\n`sms` will deliver via SMS. Must pass `user.phone_number`.\n\n`email` will deliver via email. Must pass `user.email_address`. In the Sandbox environment, this field will be ignored; use the Production environment to test Link Delivery instead.\n",
+                "enum": [
+                  "sms",
+                  "email"
+                ]
+              },
+              "completion_redirect_uri": {
+                "type": "string",
+                "description": "URI that Hosted Link will redirect to upon completion of the Link flow. This will only occur in Hosted Link sessions, not in other implementation methods.\n"
+              },
+              "url_lifetime_seconds": {
+                "type": "integer",
+                "description": "How many seconds the link will be valid for. Must be positive. Cannot be longer than 21 days. The default lifetime is 7 days for links delivered by email, 1 day for links delivered via SMS, and 30 minutes for links not sent via Plaid Link delivery. This parameter will override the value of all three link types.\n"
+              },
+              "is_mobile_app": {
+                "type": "boolean",
+                "default": false,
+                "description": "This indicates whether the client is opening Hosted Link in a mobile app in an `AsWebAuthenticationSession` or Chrome custom tab.\n"
+              }
+            }
+          },
+          "transfer": {
+            "type": "object",
+            "description": "Specifies options for initializing Link for use with the Transfer product.",
+            "properties": {
+              "intent_id": {
+                "type": "string",
+                "description": "The `id` returned by the `/transfer/intent/create` endpoint."
+              },
+              "authorization_id": {
+                "type": "string",
+                "description": "The `id` returned by the `/transfer/authorization/create` endpoint. Used to indicate Link session to complete required user action in order to make a decision for the authorization. If set, `access_token` can be omitted."
+              },
+              "payment_profile_token": {
+                "type": "string",
+                "description": "The `payment_profile_token` returned by the `/payment_profile/create` endpoint."
+              }
+            }
           }
         },
         "required": [
           "client_name",
           "country_codes",
-          "user",
           "products"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "user"
+            ]
+          },
+          {
+            "required": [
+              "user_id"
+            ]
+          }
         ]
       }
     },
@@ -149,12 +224,35 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional list of account_ids to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
+          },
+          "options": {
+            "type": "object",
+            "description": "An optional object to filter `/accounts/get` results.",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "An array of `account_ids` to retrieve for the Account.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [
           "access_token"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids"
+        }
       }
     },
     {
@@ -174,17 +272,46 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional list of account_ids to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
+          },
+          "options": {
+            "type": "object",
+            "description": "Optional parameters to `/accounts/balance/get`.",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "A list of `account_ids` to retrieve for the Item. The default value is `null`.\n\nNote: An error will be returned if a provided `account_id` is not associated with the Item.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "min_last_updated_datetime": {
+                "title": "MinLastUpdatedDatetime",
+                "type": "string",
+                "format": "date-time",
+                "description": "Timestamp in [ISO 8601](https://wikipedia.org/wiki/ISO_8601) format (`YYYY-MM-DDTHH:mm:ssZ`) indicating the oldest acceptable balance when making a request to `/accounts/balance/get`.\n\nThis field is only necessary when the institution is `ins_128026` (Capital One), *and* one or more account types being requested is a non-depository account (such as a credit card) as Capital One does not provide real-time balance for non-depository accounts. In this case, a value must be provided or an `INVALID_REQUEST` error with the code of `INVALID_FIELD` will be returned. For all other institutions, as well as for depository accounts at Capital One (including all checking and savings accounts) this field is ignored and real-time balance information will be fetched.\n\nIf this field is not ignored, and no acceptable balance is available, an `INVALID_RESULT` error with the code `LAST_UPDATED_DATETIME_OUT_OF_RANGE` will be returned."
+              }
+            }
           }
         },
         "required": [
           "access_token"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids"
+        }
       }
     },
     {
       "name": "sync_transactions",
-      "description": "Get incremental transaction updates using cursor-based sync. Returns added, modified, and removed transactions since last sync.",
+      "description": "Get incremental transaction updates using cursor-based sync. Returns added, modified, and removed transactions since last sync. Count and cursor are top-level. Filter a single account with options.account_id; maintain a separate cursor per filter.",
       "method": "POST",
       "path": "/transactions/sync",
       "input_schema": {
@@ -202,12 +329,46 @@
             "type": "integer",
             "description": "Number of transactions to return (max 500)"
           },
-          "account_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional account IDs to filter"
+          "options": {
+            "type": "object",
+            "description": "An optional object to be used with the request. If specified, `options` must not be `null`.",
+            "properties": {
+              "include_original_description": {
+                "type": "boolean",
+                "default": false,
+                "description": "Include the raw unparsed transaction description from the financial institution."
+              },
+              "include_personal_finance_category": {
+                "type": "boolean",
+                "default": false,
+                "description": "Personal finance categories are now returned by default."
+              },
+              "include_logo_and_counterparty_beta": {
+                "type": "boolean",
+                "default": false,
+                "description": "Counterparties and extra merchant fields are now returned by default."
+              },
+              "personal_finance_category_version": {
+                "title": "PersonalFinanceCategoryVersion",
+                "type": "string",
+                "description": "Indicates which version of the personal finance category taxonomy is being used. [View PFCv2 and PFCv1 taxonomies](https://plaid.com/documents/pfc-taxonomy-all.csv).\n\nIf you enabled Transactions or Enrich before December 3, 2025 you will receive the `v1` taxonomy by default and may request `v2` by explicitly setting this field to `v2` in the request.\n\nIf you enabled Transactions or Enrich on or after December 3, 2025, you may only receive the `v2` taxonomy.\n",
+                "enum": [
+                  "v1",
+                  "v2"
+                ]
+              },
+              "days_requested": {
+                "description": "This field only applies to calls for Items where the Transactions product has not already been initialized (i.e., by specifying `transactions` in the `products`, `required_if_supported_products`, or `optional_products` array when calling `/link/token/create` or by making a previous call to `/transactions/sync` or `/transactions/get`). In those cases, the field controls the maximum number of days of transaction history that Plaid will request from the financial institution. The more transaction history is requested, the longer the historical update poll will take. If no value is specified, 90 days of history will be requested by default. In Production, if a value less than 30 is provided, a minimum of 30 days of transaction history will be requested.\n\nIf you are initializing your Items with transactions during the `/link/token/create` call (e.g. by including `transactions` in the `/link/token/create` `products` array), you must use the [`transactions.days_requested`](https://plaid.com/docs/api/link/#link-token-create-request-transactions-days-requested) field in the `/link/token/create` request instead of in the `/transactions/sync` request.\n\nIf the Item has already been initialized with the Transactions product, this field will have no effect. The maximum amount of transaction history to request on an Item cannot be updated if Transactions has already been added to the Item. To request older transaction history on an Item where Transactions has already been added, you must delete the Item via `/item/remove` and send the user through Link to create a new Item.\n\nCustomers using [Recurring Transactions](https://plaid.com/docs/api/products/transactions/#transactionsrecurringget) should request at least 180 days of history for optimal results.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 730,
+                "default": 90
+              },
+              "account_id": {
+                "type": "string",
+                "description": "If provided, the returned updates and cursor will only reflect the specified account's transactions. Omitting `account_id` returns updates for all accounts under the Item. Note that specifying an `account_id` effectively creates a separate incremental update stream -- and therefore a separate cursor -- for that account. If multiple accounts are queried this way, you will maintain multiple cursors, one per `account_id`.\n\nIf you decide to begin filtering by `account_id` after using no `account_id`, start fresh with a null cursor and maintain separate `(account_id, cursor)` pairs going forward. Do not reuse any previously saved cursors, as this can cause pagination errors or incomplete data.\n\nNote: An error will be returned if a provided `account_id` is not associated with the Item."
+              }
+            }
           }
         },
         "required": [
@@ -240,15 +401,77 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional account IDs to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
           },
           "count": {
             "type": "integer",
-            "description": "Number of transactions to return (max 500)"
+            "description": "Convenience alias for options.count; overrides that options field when supplied."
           },
           "offset": {
             "type": "integer",
-            "description": "Offset for pagination"
+            "description": "Convenience alias for options.offset; overrides that options field when supplied."
+          },
+          "options": {
+            "type": "object",
+            "description": "An optional object to be used with the request. If specified, `options` must not be `null`.",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "A list of `account_ids` to retrieve for the Item\n\nNote: An error will be returned if a provided `account_id` is not associated with the Item.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "default": 100,
+                "description": "The number of transactions to fetch.",
+                "minimum": 1,
+                "maximum": 500
+              },
+              "offset": {
+                "type": "integer",
+                "default": 0,
+                "description": "The number of transactions to skip. The default value is 0.",
+                "minimum": 0
+              },
+              "include_original_description": {
+                "type": "boolean",
+                "default": false,
+                "description": "Include the raw unparsed transaction description from the financial institution."
+              },
+              "include_personal_finance_category_beta": {
+                "type": "boolean",
+                "default": false,
+                "description": "Personal finance categories are now returned by default."
+              },
+              "include_personal_finance_category": {
+                "type": "boolean",
+                "default": false,
+                "description": "Personal finance categories are now returned by default."
+              },
+              "include_logo_and_counterparty_beta": {
+                "type": "boolean",
+                "default": false,
+                "description": "Counterparties and extra merchant fields are now returned by default."
+              },
+              "personal_finance_category_version": {
+                "title": "PersonalFinanceCategoryVersion",
+                "type": "string",
+                "description": "Indicates which version of the personal finance category taxonomy is being used. [View PFCv2 and PFCv1 taxonomies](https://plaid.com/documents/pfc-taxonomy-all.csv).\n\nIf you enabled Transactions or Enrich before December 3, 2025 you will receive the `v1` taxonomy by default and may request `v2` by explicitly setting this field to `v2` in the request.\n\nIf you enabled Transactions or Enrich on or after December 3, 2025, you may only receive the `v2` taxonomy.\n",
+                "enum": [
+                  "v1",
+                  "v2"
+                ]
+              },
+              "days_requested": {
+                "description": "This field only applies to calls for Items where the Transactions product has not already been initialized (i.e. by specifying `transactions` in the `products`, `optional_products`, or `required_if_supported_products` array when calling `/link/token/create` or by making a previous call to `/transactions/sync` or `/transactions/get`). In those cases, the field controls the maximum number of days of transaction history that Plaid will request from the financial institution. The more transaction history is requested, the longer the historical update poll will take. If no value is specified, 90 days of history will be requested by default. In Production, if a value under 30 is provided, a minimum of 30 days of history will be requested.\n\nIf you are initializing your Items with transactions during the `/link/token/create` call (e.g. by including `transactions` in the `/link/token/create` `products` array), you must use the [`transactions.days_requested`](https://plaid.com/docs/api/link/#link-token-create-request-transactions-days-requested) field in the `/link/token/create` request instead of in the `/transactions/get` request.\n\nIf the Item has already been initialized with the Transactions product, this field will have no effect. The maximum amount of transaction history to request on an Item cannot be updated if Transactions has already been added to the Item. To request older transaction history on an Item where Transactions has already been added, you must delete the Item via `/item/remove` and send the user through Link to create a new Item.\n\nCustomers using [Recurring Transactions](https://plaid.com/docs/api/products/transactions/#transactionsrecurringget) should request at least 180 days of history for optimal results.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 730,
+                "default": 90
+              }
+            }
           }
         },
         "required": [
@@ -256,6 +479,20 @@
           "start_date",
           "end_date"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "start_date",
+          "end_date",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids",
+          "count": "options.count",
+          "offset": "options.offset"
+        }
       }
     },
     {
@@ -276,6 +513,26 @@
               "type": "string"
             },
             "description": "Optional account IDs to filter"
+          },
+          "options": {
+            "type": "object",
+            "description": "An optional object to be used with the request. If specified, `options` must not be `null`.",
+            "properties": {
+              "include_personal_finance_category": {
+                "type": "boolean",
+                "default": false,
+                "description": "Personal finance categories are now returned by default."
+              },
+              "personal_finance_category_version": {
+                "title": "PersonalFinanceCategoryVersion",
+                "type": "string",
+                "description": "Indicates which version of the personal finance category taxonomy is being used. [View PFCv2 and PFCv1 taxonomies](https://plaid.com/documents/pfc-taxonomy-all.csv).\n\nIf you enabled Transactions or Enrich before December 3, 2025 you will receive the `v1` taxonomy by default and may request `v2` by explicitly setting this field to `v2` in the request.\n\nIf you enabled Transactions or Enrich on or after December 3, 2025, you may only receive the `v2` taxonomy.\n",
+                "enum": [
+                  "v1",
+                  "v2"
+                ]
+              }
+            }
           }
         },
         "required": [
@@ -300,12 +557,35 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional account IDs to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
+          },
+          "options": {
+            "type": "object",
+            "description": "An optional object to filter `/identity/get` results.",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "A list of `account_ids` to retrieve for the Item.\nNote: An error will be returned if a provided `account_id` is not associated with the Item.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [
           "access_token"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids"
+        }
       }
     },
     {
@@ -325,12 +605,35 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional account IDs to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
+          },
+          "options": {
+            "type": "object",
+            "description": "An optional object to filter `/auth/get` results.",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "A list of `account_ids` to retrieve for the Item.\nNote: An error will be returned if a provided `account_id` is not associated with the Item.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [
           "access_token"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids"
+        }
       }
     },
     {
@@ -350,12 +653,35 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional account IDs to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
+          },
+          "options": {
+            "type": "object",
+            "description": "An optional object to filter `/investments/holdings/get` results. If provided, must not be `null`.",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "An array of `account_id`s to retrieve for the Item. An error will be returned if a provided `account_id` is not associated with the Item.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [
           "access_token"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids"
+        }
       }
     },
     {
@@ -383,15 +709,46 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional account IDs to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
           },
           "count": {
             "type": "integer",
-            "description": "Number of transactions to return (max 500)"
+            "description": "Convenience alias for options.count; overrides that options field when supplied."
           },
           "offset": {
             "type": "integer",
-            "description": "Offset for pagination"
+            "description": "Convenience alias for options.offset; overrides that options field when supplied."
+          },
+          "options": {
+            "description": "An optional object to filter `/investments/transactions/get` results. If provided, must be non-`null`.",
+            "type": "object",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "An array of `account_ids` to retrieve for the Item.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "default": 100,
+                "minimum": 1,
+                "maximum": 500,
+                "description": "The number of transactions to fetch.\n"
+              },
+              "offset": {
+                "type": "integer",
+                "description": "The number of transactions to skip when fetching transaction history",
+                "default": 0,
+                "minimum": 0
+              },
+              "async_update": {
+                "type": "boolean",
+                "description": "If the Item was not initialized with the investments product via the `products`, `required_if_supported_products`, or `optional_products` array when calling `/link/token/create`, and `async_update` is set to true, the initial Investments extraction will happen asynchronously. Plaid will subsequently fire a `HISTORICAL_UPDATE` webhook when the extraction completes. When `false`, Plaid will wait to return a response until extraction completion and no `HISTORICAL_UPDATE` webhook will fire. Note that while the extraction is happening asynchronously, calls to `/investments/transactions/get` and `/investments/refresh` will return `PRODUCT_NOT_READY` errors until the extraction completes.",
+                "default": false
+              }
+            }
           }
         },
         "required": [
@@ -399,6 +756,20 @@
           "start_date",
           "end_date"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "start_date",
+          "end_date",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids",
+          "count": "options.count",
+          "offset": "options.offset"
+        }
       }
     },
     {
@@ -418,12 +789,35 @@
             "items": {
               "type": "string"
             },
-            "description": "Optional account IDs to filter"
+            "description": "Convenience alias for options.account_ids; overrides that options field when supplied."
+          },
+          "options": {
+            "type": "object",
+            "description": "An optional object to filter `/liabilities/get` results. If provided, `options` cannot be null.",
+            "properties": {
+              "account_ids": {
+                "type": "array",
+                "description": "A list of accounts to retrieve for the Item.\n\nAn error will be returned if a provided `account_id` is not associated with the Item",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [
           "access_token"
         ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "access_token",
+          "options"
+        ],
+        "include_fields": {
+          "account_ids": "options.account_ids"
+        }
       }
     },
     {
@@ -487,7 +881,7 @@
     },
     {
       "name": "search_institutions",
-      "description": "Search for financial institutions by name or ID, with optional country and product filters",
+      "description": "Search for financial institutions by name or ID, with optional country and product filters This search endpoint does not accept count/offset pagination.",
       "method": "POST",
       "path": "/institutions/search",
       "input_schema": {
@@ -511,13 +905,43 @@
             },
             "description": "Filter by country codes"
           },
-          "count": {
-            "type": "integer",
-            "description": "Number of results (max 500)"
-          },
-          "offset": {
-            "type": "integer",
-            "description": "Offset for pagination"
+          "options": {
+            "type": "object",
+            "description": "An optional object to filter `/institutions/search` results.",
+            "properties": {
+              "oauth": {
+                "type": "boolean",
+                "description": "Limit results to institutions with or without OAuth login flows. Note that institutions will have `oauth` set to `true` if some Items associated with that institution are required to use OAuth flows; institutions in a state of migration to OAuth will have the `oauth` attribute set to `true`."
+              },
+              "include_optional_metadata": {
+                "type": "boolean",
+                "description": "When true, return the institution's homepage URL, logo and primary brand color."
+              },
+              "include_auth_metadata": {
+                "type": "boolean",
+                "default": false,
+                "description": "When `true`, returns metadata related to the Auth product indicating which auth methods are supported."
+              },
+              "include_payment_initiation_metadata": {
+                "type": "boolean",
+                "default": false,
+                "description": "When `true`, returns metadata related to the Payment Initiation product indicating which payment configurations are supported."
+              },
+              "payment_initiation": {
+                "type": "object",
+                "description": "Additional options that will be used to filter institutions by various Payment Initiation configurations.",
+                "properties": {
+                  "payment_id": {
+                    "type": "string",
+                    "description": "A unique ID identifying the payment"
+                  },
+                  "consent_id": {
+                    "type": "string",
+                    "description": "A unique ID identifying the payment consent"
+                  }
+                }
+              }
+            }
           }
         },
         "required": [
@@ -619,7 +1043,7 @@
     },
     {
       "name": "create_payment",
-      "description": "Initiate a payment to a recipient. Creates a payment_id to use with Link for user authorization.",
+      "description": "Initiate a payment to a recipient. Creates a payment_id to use with Link for user authorization. Payment Initiation requires separate product access. New integrations must supply user_id for a user with a name and email or phone. After creation, authorize the payment through Plaid Link and track get_payment; creation alone does not mean funds settled.",
       "method": "POST",
       "path": "/payment_initiation/payment/create",
       "input_schema": {
@@ -650,6 +1074,10 @@
               "currency",
               "value"
             ]
+          },
+          "user_id": {
+            "type": "string",
+            "description": "The `user_id` of the end user the payment is initiated for, as returned by [`/user/create`](https://plaid.com/docs/api/users/#usercreate). The user must have a `name` and either an email address or a phone number. Required for new integrations."
           }
         },
         "required": [
@@ -698,7 +1126,7 @@
     },
     {
       "name": "create_transfer_authorization",
-      "description": "Create an authorization for an ACH transfer. Must be authorized before creating the transfer.",
+      "description": "Create an authorization for an ACH transfer. Must be authorized before creating the transfer. US Transfer product access is required. Persist a stable idempotency_key before the request and reuse it when retrying the same operation. Track provider status; authorization or creation is not settlement.",
       "method": "POST",
       "path": "/transfer/authorization/create",
       "input_schema": {
@@ -749,6 +1177,12 @@
             "required": [
               "legal_name"
             ]
+          },
+          "idempotency_key": {
+            "title": "TransferAuthorizationIdempotencyKey",
+            "type": "string",
+            "maxLength": 50,
+            "description": "A random key provided by the client, per unique authorization, which expires after 48 hours. Maximum of 50 characters.\n\nThe API supports idempotency for safely retrying requests without accidentally performing the same operation twice. For example, if a request to create an authorization fails due to a network connection error, you can retry the request with the same idempotency key to guarantee that only a single authorization is created.\n\nIdempotency does not apply to authorizations whose decisions are `user_action_required`. Therefore you may re-attempt the authorization after completing the required user action without changing `idempotency_key`.\n\nThis idempotency key expires after 48 hours, after which the same key can be reused. Failure to provide this key may result in duplicate charges."
           }
         },
         "required": [
@@ -763,7 +1197,7 @@
     },
     {
       "name": "create_transfer",
-      "description": "Create an ACH transfer after authorization. Moves money between bank accounts.",
+      "description": "Create an ACH transfer after authorization. Moves money between bank accounts. US Transfer product access is required. Persist a stable idempotency_key before the request and reuse it when retrying the same operation. Track provider status; authorization or creation is not settlement.",
       "method": "POST",
       "path": "/transfer/create",
       "input_schema": {
@@ -784,6 +1218,12 @@
           "description": {
             "type": "string",
             "description": "Transfer description (max 10 chars for ACH)"
+          },
+          "idempotency_key": {
+            "title": "TransferCreateIdempotencyKey",
+            "type": "string",
+            "maxLength": 50,
+            "description": "Deprecated. `authorization_id` is now used as idempotency instead.\n\nA random key provided by the client, per unique transfer. Maximum of 50 characters.\n\nThe API supports idempotency for safely retrying requests without accidentally performing the same operation twice. For example, if a request to create a transfer fails due to a network connection error, you can retry the request with the same idempotency key to guarantee that only a single transfer is created."
           }
         },
         "required": [
@@ -935,6 +1375,430 @@
           "asset_report_token"
         ]
       }
+    },
+    {
+      "name": "create_user",
+      "description": "Create a Plaid user for the new User API. Use its user_id for payment creation and Link. Supply identity with name and email or phone for Payment Initiation. client_user_id must be a stable internal ID, not an email address.",
+      "method": "POST",
+      "path": "/user/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client_user_id": {
+            "description": "A unique ID representing the end user. Maximum of 128 characters. Typically this will be a user ID number from your application. Personally identifiable information, such as an email address or phone number, should not be used in the `client_user_id`.",
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1
+          },
+          "identity": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The identity fields associated with a user. For a user to be eligible for a Plaid Check Consumer Report, all fields are required except `id_number`. Providing a partial SSN is strongly recommended, and improves the accuracy of matching user records during compliance processes such as file disclosure, dispute, or security freeze requests. If creating a report that will be shared with GSEs such as Fannie or Freddie, a full Social Security Number must be provided via the `id_number` field.",
+            "properties": {
+              "name": {
+                "type": "object",
+                "description": "User name information.",
+                "properties": {
+                  "given_name": {
+                    "type": "string",
+                    "description": "User's given name."
+                  },
+                  "family_name": {
+                    "type": "string",
+                    "description": "User's family name."
+                  }
+                },
+                "required": [
+                  "given_name",
+                  "family_name"
+                ]
+              },
+              "date_of_birth": {
+                "description": "The user's date of birth, to be provided in the format \"yyyy-mm-dd\".",
+                "type": "string",
+                "format": "date"
+              },
+              "emails": {
+                "description": "The user's emails.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "User email information.",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "description": "User's email."
+                    },
+                    "primary": {
+                      "type": "boolean",
+                      "description": "Indicates whether this is the primary email for the User."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "primary"
+                  ]
+                }
+              },
+              "phone_numbers": {
+                "description": "The user's phone numbers, in E.164 format: +{countrycode}{number}. For example: \"+14157452130\". Phone numbers provided in other formats will be parsed on a best-effort basis. Phone number input is validated against valid number ranges; number strings that do not match a real-world phone numbering scheme may cause the request to fail, even in the Sandbox test environment.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "User phone number information.",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "description": "User's phone number."
+                    },
+                    "primary": {
+                      "type": "boolean",
+                      "description": "Indicates whether this is the primary phone number for the User."
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "primary"
+                  ]
+                }
+              },
+              "addresses": {
+                "type": "array",
+                "description": "The user's addresses.",
+                "items": {
+                  "type": "object",
+                  "description": "User address information.",
+                  "properties": {
+                    "street_1": {
+                      "type": "string",
+                      "description": "First line of street address."
+                    },
+                    "street_2": {
+                      "type": "string",
+                      "description": "Second line of street address."
+                    },
+                    "city": {
+                      "type": "string",
+                      "description": "City name."
+                    },
+                    "region": {
+                      "type": "string",
+                      "description": "State, province or region."
+                    },
+                    "country": {
+                      "type": "string",
+                      "description": "Country code."
+                    },
+                    "postal_code": {
+                      "type": "string",
+                      "description": "Postal or ZIP code."
+                    },
+                    "primary": {
+                      "type": "boolean",
+                      "description": "Indicates whether this is the primary address for the User."
+                    }
+                  },
+                  "required": [
+                    "country",
+                    "primary"
+                  ]
+                }
+              },
+              "id_numbers": {
+                "type": "array",
+                "description": "The user's ID numbers.",
+                "items": {
+                  "description": "ID number submitted by the user, currently used only for the Identity Verification product. If the user has not submitted this data yet, this field will be `null`. Otherwise, both fields are guaranteed to be filled.",
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "title": "IDNumberValue",
+                      "description": "Value of the identity document typed in by the user. Alpha-numeric, with all formatting characters stripped. For specific format requirements by ID type, see [Input Validation Rules](https://plaid.com/docs/identity-verification/hybrid-input-validation/#id-numbers)."
+                    },
+                    "type": {
+                      "description": "A globally unique and human readable ID type, specific to the country and document category. For more context on this field, see [Input Validation Rules](https://plaid.com/docs/identity-verification/hybrid-input-validation/#id-numbers).",
+                      "type": "string",
+                      "enum": [
+                        "ar_dni",
+                        "au_drivers_license",
+                        "au_passport",
+                        "br_cpf",
+                        "ca_sin",
+                        "cl_run",
+                        "cn_resident_card",
+                        "co_nit",
+                        "dk_cpr",
+                        "eg_national_id",
+                        "es_dni",
+                        "es_nie",
+                        "hk_hkid",
+                        "in_pan",
+                        "in_epic",
+                        "it_cf",
+                        "jo_civil_id",
+                        "jp_my_number",
+                        "ke_huduma_namba",
+                        "kw_civil_id",
+                        "mx_curp",
+                        "mx_rfc",
+                        "my_nric",
+                        "ng_nin",
+                        "nz_drivers_license",
+                        "om_civil_id",
+                        "ph_psn",
+                        "pl_pesel",
+                        "ro_cnp",
+                        "sa_national_id",
+                        "se_pin",
+                        "sg_nric",
+                        "tr_tc_kimlik",
+                        "us_ssn",
+                        "us_ssn_last_4",
+                        "za_smart_id"
+                      ],
+                      "title": "IDNumberType"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "type"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "with_upgraded_user": {
+            "description": "If your integration with the User API predates December 10, 2025, set this field to `true` to opt into the [New User APIs](https://plaid.com/docs/api/users/user-apis/). When enabled, you can use the `identity` field instead of `consumer_report_user_identity`.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "client_user_id"
+        ]
+      }
+    },
+    {
+      "name": "sync_transfer_events",
+      "method": "POST",
+      "path": "/transfer/event/sync",
+      "description": "`/transfer/event/sync` allows you to request up to the next 500 transfer events that happened after a specific `event_id`. Use the `/transfer/event/sync` endpoint to guarantee you have seen all transfer events.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "after_id": {
+            "type": "integer",
+            "description": "The latest (largest) `event_id` fetched via the sync endpoint, or 0 initially.",
+            "minimum": 0
+          },
+          "count": {
+            "type": "integer",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 500,
+            "description": "The maximum number of transfer events to return."
+          }
+        },
+        "required": [
+          "after_id"
+        ]
+      }
+    },
+    {
+      "name": "list_transfer_events",
+      "method": "POST",
+      "path": "/transfer/event/list",
+      "description": "Use the `/transfer/event/list` endpoint to get a list of transfer events based on specified filter criteria.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The start `created` datetime of transfers to list. This should be in RFC 3339 format (i.e. `2019-12-06T22:35:49Z`)"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The end `created` datetime of transfers to list. This should be in RFC 3339 format (i.e. `2019-12-06T22:35:49Z`)"
+          },
+          "transfer_id": {
+            "type": "string",
+            "title": "TransferID",
+            "description": "Plaid's unique identifier for a transfer."
+          },
+          "account_id": {
+            "type": "string",
+            "description": "The account ID to get events for all transactions to/from an account."
+          },
+          "transfer_type": {
+            "type": "string",
+            "title": "TransferType",
+            "description": "The type of transfer. This will be either `debit` or `credit`.  A `debit` indicates a transfer of money into your origination account; a `credit` indicates a transfer of money out of your origination account.",
+            "enum": [
+              "debit",
+              "credit",
+              null
+            ]
+          },
+          "event_types": {
+            "type": "array",
+            "description": "Filter events by event type.",
+            "items": {
+              "type": "string",
+              "title": "TransferEventType",
+              "description": "The type of event that this transfer represents. Event types with prefix `sweep` represent events for Plaid Ledger sweeps.\n\n`pending`: A new transfer was created; it is in the pending state.\n\n`cancelled`: The transfer was cancelled by the client.\n\n`failed`: The transfer failed, no funds were moved.\n\n`posted`: The transfer has been successfully submitted to the payment network.\n\n`settled`: The transfer has been successfully completed by the payment network.\n\n`funds_available`: Funds from the transfer have been released from hold and applied to the ledger's available balance. (Only applicable to ACH debits.)\n\n`guaranteed`: The transfer has been fully guaranteed by Plaid.\n\n`returned`: A posted transfer was returned.\n\n`guarantee_reimbursed`: Plaid reimbursed the client for the loss on a returned guaranteed transfer. The `event_amount` is the reimbursed amount.\n\n`client_return_recovered`: The client reported recovering the loss on a returned transfer via `/transfer/return/recover`, and Plaid debited the recovered amount from the client's ledger. The `event_amount` is the recovered amount.\n\n`plaid_return_recovered`: Plaid recovered the loss on a returned transfer by successfully reinitiating it. The `event_amount` is the recovered amount. Client should stop their return recovery effort.\n\n`swept`: The transfer was swept to / from the sweep account.\n\n`swept_settled`: Credits are available to be withdrawn or debits have been deducted from the customer's business checking account.\n\n`return_swept`: Due to the transfer being returned, funds were pulled from or pushed back to the sweep account.\n\n`sweep.pending`: A new ledger sweep was created; it is in the pending state.\n\n`sweep.posted`: The ledger sweep has been successfully submitted to the payment network.\n\n`sweep.settled`: The transaction has settled in the funding account. This means that funds withdrawn from Plaid Ledger balance have reached the funding account, or funds to be deposited into the Plaid Ledger Balance have been pulled, and the hold period has begun.\n\n`sweep.returned`: A posted ledger sweep was returned.\n\n`sweep.failed`: The ledger sweep failed, no funds were moved.\n\n`sweep.funds_available`: Funds from the ledger sweep have been released from hold and applied to the ledger's available balance. This is only applicable to debits.\n\n`refund.pending`: A new refund was created; it is in the pending state.\n\n`refund.cancelled`: The refund was cancelled.\n\n`refund.failed`: The refund failed, no funds were moved.\n\n`refund.posted`: The refund has been successfully submitted to the payment network.\n\n`refund.settled`: The refund transaction has settled in the Plaid linked account.\n\n`refund.returned`: A posted refund was returned.\n\n`refund.swept`: The refund was swept from the sweep account.\n\n`refund.return_swept`: Due to the refund being returned, funds were pushed back to the sweep account.",
+              "enum": [
+                "pending",
+                "cancelled",
+                "failed",
+                "posted",
+                "settled",
+                "funds_available",
+                "guaranteed",
+                "returned",
+                "guarantee_reimbursed",
+                "client_return_recovered",
+                "plaid_return_recovered",
+                "swept",
+                "swept_settled",
+                "return_swept",
+                "sweep.pending",
+                "sweep.posted",
+                "sweep.settled",
+                "sweep.returned",
+                "sweep.failed",
+                "sweep.funds_available",
+                "refund.pending",
+                "refund.cancelled",
+                "refund.failed",
+                "refund.posted",
+                "refund.settled",
+                "refund.returned",
+                "refund.swept",
+                "refund.return_swept"
+              ]
+            }
+          },
+          "sweep_id": {
+            "type": "string",
+            "description": "Plaid's unique identifier for a sweep."
+          },
+          "count": {
+            "type": "integer",
+            "description": "The maximum number of transfer events to return. If the number of events matching the above parameters is greater than `count`, the most recent events will be returned.",
+            "default": 25,
+            "maximum": 25,
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "The offset into the list of transfer events. When `count`=25 and `offset`=0, the first 25 events will be returned. When `count`=25 and `offset`=25, the next 25 events will be returned."
+          },
+          "origination_account_id": {
+            "type": "string",
+            "description": "The origination account ID to get events for transfers from a specific origination account."
+          },
+          "funding_account_id": {
+            "type": "string",
+            "description": "Filter transfer events to only those with the specified `funding_account_id`."
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_transfer",
+      "method": "POST",
+      "path": "/transfer/cancel",
+      "description": "Use the `/transfer/cancel` endpoint to cancel a transfer.  A transfer is eligible for cancellation if the `cancellable` property returned by `/transfer/get` is `true`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transfer_id": {
+            "type": "string",
+            "title": "TransferID",
+            "description": "Plaid's unique identifier for a transfer."
+          },
+          "reason_code": {
+            "type": "string",
+            "title": "ReasonCode",
+            "enum": [
+              "AC03",
+              "AM09",
+              "CUST",
+              "DUPL",
+              "FRAD",
+              "TECH",
+              "UPAY",
+              "AC14",
+              "AM06",
+              "BE05",
+              "FOCR",
+              "MS02",
+              "MS03",
+              "RR04",
+              "RUTA"
+            ],
+            "description": "Specifies the reason for cancelling transfer. This is required for RfP transfers, and will be ignored for other networks.\n\n`\"AC03\"` - Invalid Creditor Account Number\n\n`\"AM09\"` - Incorrect Amount\n\n`\"CUST\"` - Requested By Customer - Cancellation requested\n\n`\"DUPL\"` - Duplicate Payment\n\n`\"FRAD\"` - Fraudulent Payment - Unauthorized or fraudulently induced\n\n`\"TECH\"` - Technical Problem - Cancellation due to system issues\n\n`\"UPAY\"` - Undue Payment - Payment was made through another channel\n\n`\"AC14\"` - Invalid or Missing Creditor Account Type\n\n`\"AM06\"` - Amount Too Low\n\n`\"BE05\"` - Unrecognized Initiating Party\n\n`\"FOCR\"` - Following Refund Request\n\n`\"MS02\"` - No Specified Reason - Customer\n\n`\"MS03\"` - No Specified Reason - Agent\n\n`\"RR04\"` - Regulatory Reason\n\n`\"RUTA\"` - Return Upon Unable To Apply"
+          }
+        },
+        "required": [
+          "transfer_id"
+        ]
+      }
+    },
+    {
+      "name": "get_payment_recipient",
+      "method": "POST",
+      "path": "/payment_initiation/recipient/get",
+      "description": "Get details about a payment recipient you have previously created.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipient_id": {
+            "type": "string",
+            "description": "The ID of the recipient"
+          }
+        },
+        "required": [
+          "recipient_id"
+        ]
+      }
+    },
+    {
+      "name": "list_payment_recipients",
+      "method": "POST",
+      "path": "/payment_initiation/recipient/list",
+      "description": "The `/payment_initiation/recipient/list` endpoint lists the payment recipients that you have previously created.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 100,
+            "description": "The maximum number of recipients to return. If `count` is not specified, a maximum of 100 recipients will be returned, beginning with the recipient at the cursor (if specified)."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "A value representing the latest recipient to be included in the response. Set this from `next_cursor` received from the previous `/payment_initiation/recipient/list` request. If provided, the response will only contain that recipient and recipients created before it. If omitted, the response will contain recipients starting from the most recent, and in descending order by the `created_at` time.",
+            "maxLength": 256
+          }
+        }
+      }
     }
-  ]
+  ],
+  "webhooks": {
+    "signature_header": "Plaid-Verification",
+    "events": [
+      {
+        "name": "TRANSFER_EVENTS_UPDATE",
+        "description": "Verified notification to call sync_transfer_events. Persist the largest event_id after processing; track returns, failures and settlement changes."
+      }
+    ]
+  }
 }

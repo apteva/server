@@ -13,7 +13,7 @@
     "alpaca",
     "finance"
   ],
-  "base_url": "https://{{host}}/v2",
+  "base_url": "https://{{credential.host}}/v2",
   "auth": {
     "types": [
       "api_key"
@@ -351,7 +351,7 @@
     },
     {
       "name": "get_order",
-      "description": "Get a single order by ID or client_order_id.",
+      "description": "Get a single order by its Alpaca order ID.",
       "method": "GET",
       "path": "/orders/{order_id}",
       "input_schema": {
@@ -368,6 +368,27 @@
         },
         "required": [
           "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_order_by_client_order_id",
+      "description": "Get a single order by the client_order_id supplied at submission. Use to recover an ambiguous submission without placing it again.",
+      "method": "GET",
+      "path": "/orders:by_client_order_id",
+      "query_params": [
+        "client_order_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client_order_id": {
+            "type": "string",
+            "description": "The original client order ID."
+          }
+        },
+        "required": [
+          "client_order_id"
         ]
       }
     },

@@ -1,6 +1,6 @@
 {
   "slug": "smartly",
-  "name": "Smartly.io",
+  "name": "Smartly-io",
   "description": "MCP server for Smartly.io - AI-powered advertising platform for cross-channel campaign reporting, performance analytics, and server-to-server data integration. Supports Meta, Google, TikTok, Snapchat, Pinterest, and programmatic DSPs.",
   "logo": "https://www.google.com/s2/favicons?domain=smartly.io&sz=128",
   "categories": [

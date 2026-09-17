@@ -1,0 +1,350 @@
+{
+  "slug": "pandascore",
+  "name": "PandaScore",
+  "description": "Documented esports REST API for matches, videogames, leagues, tournaments, teams and players. Free schedules/results/context plan: 1,000 calls/hour with a personal token. Published stats plans are for non-betting use; betting or low-latency prediction products require separate provider terms. Read-only JSON tools; no streams. Docs: https://developers.pandascore.co/",
+  "logo": "https://www.google.com/s2/favicons?domain=pandascore.co&sz=128",
+  "categories": [
+    "sports",
+    "esports",
+    "fixtures",
+    "teams",
+    "results"
+  ],
+  "base_url": "https://api.pandascore.co",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API token",
+        "description": "Personal API token from the provider account.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_videogames",
+      "description": "Discover supported videogames and IDs.",
+      "method": "GET",
+      "path": "/videogames",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_upcoming_matches",
+      "description": "List scheduled matches; optionally restrict a begin_at time range.",
+      "method": "GET",
+      "path": "/matches/upcoming",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          },
+          "begin_at": {
+            "type": "string",
+            "description": "Comma-separated ISO 8601 lower,upper bounds."
+          }
+        },
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "begin_at": "range[begin_at]"
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_running_matches",
+      "description": "List currently running matches. Detailed live stats depend on the product tier.",
+      "method": "GET",
+      "path": "/matches/running",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_past_matches",
+      "description": "List completed matches with results covered by the account.",
+      "method": "GET",
+      "path": "/matches/past",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          },
+          "begin_at": {
+            "type": "string",
+            "description": "Comma-separated ISO 8601 lower,upper bounds."
+          }
+        },
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "begin_at": "range[begin_at]"
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_match",
+      "description": "Get one match by ID.",
+      "method": "GET",
+      "path": "/matches/{match_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "match_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "match_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_leagues",
+      "description": "List esports leagues.",
+      "method": "GET",
+      "path": "/leagues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_tournaments",
+      "description": "List tournaments.",
+      "method": "GET",
+      "path": "/tournaments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List teams; use pagination to bound results.",
+      "method": "GET",
+      "path": "/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_players",
+      "description": "List players; use pagination to bound results.",
+      "method": "GET",
+      "path": "/players",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated fields; prefix - for descending, e.g. -begin_at."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 3600,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_videogames",
+    "input": {
+      "per_page": 1
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "slug": "fal-ai",
-  "name": "fal.ai",
+  "name": "fal-ai",
   "description": "fal.ai generative media and inference API. Supports synchronous model calls, async queue calls, model discovery, pricing estimates, usage, billing events, request payload deletion, serverless files, logs, metrics, and compute instances.",
   "logo": "https://fal.ai/favicon.png",
   "categories": [

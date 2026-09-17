@@ -1,0 +1,2129 @@
+{
+  "slug": "truelayer-payments",
+  "name": "TrueLayer Payments",
+  "description": "Payments v3 with separate Payments credentials/access, automatic payments-scope token exchange, ES512 Tl-Signature signing and idempotency. Create payments, complete authorization steps and retrieve status. No refunds, payouts or merchant-account operations.",
+  "logo": "https://www.google.com/s2/favicons?domain=truelayer.com&sz=128",
+  "categories": [
+    "banking",
+    "payments",
+    "open-banking",
+    "eu",
+    "uk"
+  ],
+  "base_url": "https://api.{{credential.environment}}.com",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "client_id",
+        "label": "Payments Client ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "client_secret",
+        "label": "Payments Client Secret",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "signing_key_id",
+        "label": "Signing Key ID (KID)",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "private_key",
+        "label": "Payments P-521 Signing Private Key",
+        "type": "multiline_password",
+        "required": true,
+        "description": "EC P-521 PEM matching the public key registered in Payments settings."
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "select",
+        "options": [
+          "truelayer-sandbox",
+          "truelayer"
+        ],
+        "default": "truelayer-sandbox",
+        "required": false
+      }
+    ],
+    "token_exchange": {
+      "url": "https://auth.truelayer-sandbox.com/connect/token",
+      "url_selector": {
+        "credential_field": "environment",
+        "values": {
+          "truelayer-sandbox": "https://auth.truelayer-sandbox.com/connect/token",
+          "truelayer": "https://auth.truelayer.com/connect/token"
+        }
+      },
+      "content_type": "application/json",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{client_id}}",
+        "client_secret": "{{client_secret}}",
+        "scope": "payments"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in"
+    }
+  },
+  "tools": [
+    {
+      "name": "create_payment",
+      "method": "POST",
+      "path": "/v3/payments",
+      "description": "Create payment. Preserves full response, including payment status, resource token and authorization actions where returned.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Stable UUID per operation. Persist and reuse on retry of the identical request.",
+            "format": "uuid"
+          },
+          "x_forwarded_for": {
+            "type": "string"
+          },
+          "x_device_user_agent": {
+            "type": "string"
+          },
+          "amount_in_minor": {
+            "type": "integer",
+            "description": "A 'cent' value representing the amount. eg 100 = 1GBP or 100 = 1EUR",
+            "minimum": 1
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "GBP",
+              "EUR"
+            ]
+          },
+          "payment_method": {
+            "title": "Payment Method",
+            "type": "object",
+            "oneOf": [
+              {
+                "title": "Bank Transfer",
+                "type": "object",
+                "required": [
+                  "type",
+                  "provider_selection",
+                  "beneficiary"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "description": "The type of payment method.",
+                    "enum": [
+                      "bank_transfer"
+                    ]
+                  },
+                  "provider_selection": {
+                    "title": "Provider Selection",
+                    "type": "object",
+                    "description": "Provider Selection",
+                    "oneOf": [
+                      {
+                        "title": "User selected",
+                        "type": "object",
+                        "description": "Indicates that the provider is to be selected from a collection",
+                        "required": [
+                          "type"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "description": "The type of provider.",
+                            "enum": [
+                              "user_selected"
+                            ]
+                          },
+                          "filter": {
+                            "title": "Provider Filter",
+                            "type": "object",
+                            "description": "Configuration options to constrain which providers should be available\nduring the `provider_selection` action.\n",
+                            "properties": {
+                              "countries": {
+                                "type": "array",
+                                "description": "Only providers from the specified countries will be returned.",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "AT",
+                                    "BE",
+                                    "DE",
+                                    "DK",
+                                    "ES",
+                                    "FI",
+                                    "FR",
+                                    "GB",
+                                    "IE",
+                                    "IT",
+                                    "LT",
+                                    "NL",
+                                    "NO",
+                                    "PL",
+                                    "PT",
+                                    "RO"
+                                  ]
+                                },
+                                "uniqueItems": true,
+                                "minItems": 1
+                              },
+                              "release_channel": {
+                                "type": "string",
+                                "description": "The lowest stability release stage of a provider that should be returned.\n\nNote that many EUR providers are in `public_beta` or `private_beta`.\n",
+                                "default": "general_availability",
+                                "enum": [
+                                  "general_availability",
+                                  "public_beta",
+                                  "private_beta"
+                                ]
+                              },
+                              "customer_segments": {
+                                "type": "array",
+                                "description": "The customer segments that providers cater to that should be returned. By default, returns retail only.",
+                                "default": [
+                                  "retail"
+                                ],
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "retail",
+                                    "business",
+                                    "corporate"
+                                  ]
+                                },
+                                "uniqueItems": true,
+                                "minItems": 1
+                              },
+                              "provider_ids": {
+                                "type": "array",
+                                "description": "IDs of providers to include in those returned.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "uniqueItems": true,
+                                "minItems": 1
+                              },
+                              "excludes": {
+                                "type": "object",
+                                "description": "Options to exclude providers included by the filters",
+                                "properties": {
+                                  "provider_ids": {
+                                    "type": "array",
+                                    "description": "IDs of providers to explicitly exclude from those returned.",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "uniqueItems": true,
+                                    "minItems": 1
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "scheme_selection": {
+                            "title": "Scheme Selection",
+                            "type": "object",
+                            "description": "Scheme Selection",
+                            "oneOf": [
+                              {
+                                "title": "Instant only",
+                                "type": "object",
+                                "description": "Only allow providers that support instant payments.",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of scheme selection.\nOnly allow providers that support instant payments.\n",
+                                    "enum": [
+                                      "instant_only"
+                                    ]
+                                  },
+                                  "allow_remitter_fee": {
+                                    "type": "boolean",
+                                    "description": "Whether to allow providers that might charge the remitter a transaction fee. If `false`, only providers supporting schemes that are free will be available to select in the provider selection action.\nUnless explicitly set, will default to `false`.\n",
+                                    "default": false
+                                  }
+                                }
+                              },
+                              {
+                                "title": "Instant preferred",
+                                "type": "object",
+                                "description": "Prefer providers that allow instant payments, but allow defaulting back to non-instant payments if unavailable.\n",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of scheme selection.\nPrefer providers that allow instant payments, but allow defaulting back to non-instant payments if unavailable.\n",
+                                    "enum": [
+                                      "instant_preferred"
+                                    ]
+                                  },
+                                  "allow_remitter_fee": {
+                                    "type": "boolean",
+                                    "description": "Whether to allow providers that might charge the remitter a transaction fee. If `false`, only providers supporting schemes that are free will be available to select in the provider selection action.\nUnless explicitly set, will default to `false`.\n",
+                                    "default": false
+                                  }
+                                }
+                              },
+                              {
+                                "title": "User selected",
+                                "type": "object",
+                                "description": "Indicates that the scheme is to be selected from a collection.\nNote: This scheme selection method is only supported by some versions of TrueLayer's mobile SDKs. Only use this option when you're sure that the end user has a version of your app on their device that supports scheme selection, or they won't be able to complete the payment. If you integrate with TrueLayer APIs directly, you must show the user a UI for scheme selection.\n",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of scheme selection.",
+                                    "enum": [
+                                      "user_selected"
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "remitter": {
+                            "title": "Remitter account details",
+                            "type": "object",
+                            "description": "Remitter",
+                            "required": [
+                              "account_holder_name"
+                            ],
+                            "properties": {
+                              "account_holder_name": {
+                                "description": "The name of the external account holder. This field will be required if the selected provider requires it, otherwise it will be optional.\npattern: `^[^\\(\\)]{1,80}$`\n",
+                                "type": "string",
+                                "maxLength": 80,
+                                "pattern": "^[^\\(\\)]{1,80}$"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "title": "Preselected",
+                        "type": "object",
+                        "description": "Preselected provider. Indicates that the provider for this payment is preselected.",
+                        "required": [
+                          "type",
+                          "provider_id",
+                          "scheme_selection"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "description": "The type of provider.",
+                            "enum": [
+                              "preselected"
+                            ]
+                          },
+                          "provider_id": {
+                            "type": "string",
+                            "description": "The provider Id the PSU will use for this payment."
+                          },
+                          "branch_selection": {
+                            "title": "Branch Selection",
+                            "type": "object",
+                            "description": "Branch Selection",
+                            "oneOf": [
+                              {
+                                "title": "Preselected",
+                                "type": "object",
+                                "description": "Indicates that the branch for this payment is preselected.",
+                                "required": [
+                                  "type",
+                                  "branch_id"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of branch selection.",
+                                    "enum": [
+                                      "preselected"
+                                    ]
+                                  },
+                                  "branch_id": {
+                                    "type": "string",
+                                    "description": "The id of the branch.\n"
+                                  }
+                                }
+                              },
+                              {
+                                "title": "User selected",
+                                "type": "object",
+                                "description": "Indicates that the branch is to be selected from a collection.\n",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of branch selection.",
+                                    "enum": [
+                                      "user_selected"
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "scheme_selection": {
+                            "title": "Scheme Selection",
+                            "type": "object",
+                            "description": "Scheme Selection",
+                            "oneOf": [
+                              {
+                                "title": "Instant only",
+                                "type": "object",
+                                "description": "Only allow providers that support instant payments.",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of scheme selection.\nOnly allow providers that support instant payments.\n",
+                                    "enum": [
+                                      "instant_only"
+                                    ]
+                                  },
+                                  "allow_remitter_fee": {
+                                    "type": "boolean",
+                                    "description": "Whether to allow providers that might charge the remitter a transaction fee. If `false`, only providers supporting schemes that are free will be available to select in the provider selection action.\nUnless explicitly set, will default to `false`.\n",
+                                    "default": false
+                                  }
+                                }
+                              },
+                              {
+                                "title": "Instant preferred",
+                                "type": "object",
+                                "description": "Prefer providers that allow instant payments, but allow defaulting back to non-instant payments if unavailable.\n",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of scheme selection.\nPrefer providers that allow instant payments, but allow defaulting back to non-instant payments if unavailable.\n",
+                                    "enum": [
+                                      "instant_preferred"
+                                    ]
+                                  },
+                                  "allow_remitter_fee": {
+                                    "type": "boolean",
+                                    "description": "Whether to allow providers that might charge the remitter a transaction fee. If `false`, only providers supporting schemes that are free will be available to select in the provider selection action.\nUnless explicitly set, will default to `false`.\n",
+                                    "default": false
+                                  }
+                                }
+                              },
+                              {
+                                "title": "Preselected",
+                                "type": "object",
+                                "description": "Indicates that the scheme for this payment is preselected.",
+                                "required": [
+                                  "type",
+                                  "scheme_id"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of scheme selection.",
+                                    "enum": [
+                                      "preselected"
+                                    ]
+                                  },
+                                  "scheme_id": {
+                                    "type": "string",
+                                    "description": "The id of the scheme to make the payment over.\n"
+                                  }
+                                }
+                              },
+                              {
+                                "title": "User selected",
+                                "type": "object",
+                                "description": "Indicates that the scheme is to be selected from a collection.\nNote: This scheme selection method is only supported by some versions of TrueLayer's mobile SDKs. Only use this option when you're sure that the end user has a version of your app on their device that supports scheme selection, or they won't be able to complete the payment. If you integrate with TrueLayer APIs directly, you must show the user a UI for scheme selection.\n",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "description": "The type of scheme selection.",
+                                    "enum": [
+                                      "user_selected"
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "remitter": {
+                            "title": "Remitter account details",
+                            "type": "object",
+                            "description": "Remitter",
+                            "properties": {
+                              "account_holder_name": {
+                                "description": "The name of the external account holder. This field will be required if the preselected provider requires it, otherwise it will be optional.\npattern: `^[^\\(\\)]{1,80}$`\n",
+                                "type": "string",
+                                "maxLength": 80,
+                                "pattern": "^[^\\(\\)]{1,80}$"
+                              },
+                              "account_identifier": {
+                                "title": "Account Identifier",
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "title": "Sort Code + Account Number",
+                                    "description": "The scheme identifier for a bank account participating in UK payment schemes.",
+                                    "required": [
+                                      "type",
+                                      "sort_code",
+                                      "account_number"
+                                    ],
+                                    "properties": {
+                                      "type": {
+                                        "description": "The type of scheme identifier.",
+                                        "type": "string",
+                                        "enum": [
+                                          "sort_code_account_number"
+                                        ]
+                                      },
+                                      "sort_code": {
+                                        "description": "6 digit sort code (no spaces or dashes). pattern: `^[0-9]{6}$`",
+                                        "type": "string",
+                                        "minLength": 6,
+                                        "maxLength": 6,
+                                        "pattern": "^[0-9]{6}$"
+                                      },
+                                      "account_number": {
+                                        "description": "8 digit account number. pattern: `^[0-9]{8}$`",
+                                        "type": "string",
+                                        "minLength": 8,
+                                        "maxLength": 8,
+                                        "pattern": "^[0-9]{8}$"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "title": "IBAN",
+                                    "description": "The international bank account number.",
+                                    "required": [
+                                      "type",
+                                      "iban"
+                                    ],
+                                    "properties": {
+                                      "type": {
+                                        "description": "The type of scheme identifier.",
+                                        "type": "string",
+                                        "enum": [
+                                          "iban"
+                                        ]
+                                      },
+                                      "iban": {
+                                        "description": "Valid International Bank Account Number (no spaces). Consists of a 2 letter country code, followed by 2 check digits, and then by up to 30 alphanumeric characters (also known as the BBAN). pattern: `^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$`",
+                                        "type": "string",
+                                        "minLength": 15,
+                                        "maxLength": 34,
+                                        "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "title": "BBAN",
+                                    "description": "Basic bank account number.\n",
+                                    "required": [
+                                      "type",
+                                      "bban"
+                                    ],
+                                    "properties": {
+                                      "type": {
+                                        "description": "The type of scheme identifier.",
+                                        "type": "string",
+                                        "enum": [
+                                          "bban"
+                                        ]
+                                      },
+                                      "bban": {
+                                        "description": "Valid Basic Bank Account Number (no spaces). Consists of up to 30 alphanumeric characters, with a fixed length per country. Forms the latter part of the IBAN as described above.",
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "title": "NRB",
+                                    "description": "The scheme identifier for a bank account participating in Poland's payment schemes.\n",
+                                    "required": [
+                                      "type",
+                                      "nrb"
+                                    ],
+                                    "properties": {
+                                      "type": {
+                                        "description": "The type of scheme identifier.",
+                                        "type": "string",
+                                        "enum": [
+                                          "nrb"
+                                        ]
+                                      },
+                                      "nrb": {
+                                        "description": "Valid Polish NRB (no spaces). Consists of 2 check digits, followed by an 8 digit bank branch number, and then by a 16 digit bank account number. Equivalent to a Polish IBAN with the country code removed.",
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                ],
+                                "description": "A unique account identifier for an external account."
+                              }
+                            }
+                          },
+                          "data_access_token": {
+                            "type": "string",
+                            "maxLength": 10000,
+                            "pattern": "^[A-Za-z0-9-_=]+\\.[A-Za-z0-9-_=]+\\.?[A-Za-z0-9-_.+/=]*$",
+                            "description": "If the provider only allows a single active consent across both AIS (data) and PIS (payments) services, in order to prevent invalidating an existing AIS consent, you can pass the data access token in this field, and we will preserve the data consent when requesting authorisation for the payment. \npattern: `^[A-Za-z0-9-_=]+\\.[A-Za-z0-9-_=]+\\.?[A-Za-z0-9-_.+/=]*$`\n"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "beneficiary": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "title": "Merchant Account",
+                        "description": "The identifier for a TrueLayer merchant account.",
+                        "required": [
+                          "type",
+                          "merchant_account_id"
+                        ],
+                        "properties": {
+                          "type": {
+                            "description": "The type of destination.",
+                            "type": "string",
+                            "enum": [
+                              "merchant_account"
+                            ]
+                          },
+                          "merchant_account_id": {
+                            "type": "string",
+                            "description": "Unique ID for the Merchant Account",
+                            "format": "uuid"
+                          },
+                          "account_holder_name": {
+                            "description": "The name of the beneficiary, which displays in the remitter's bank statement.\nIf unspecified, the API uses the account owner name associated with the selected merchant account.\npattern: `^[^\\(\\)]+$`\n",
+                            "type": "string",
+                            "maxLength": 40,
+                            "pattern": "^[^\\(\\)]+$"
+                          },
+                          "reference": {
+                            "description": "A reference for the payment. Not visible to the remitter.\npattern: `^[a-zA-Z0-9-:()\\.,'\\+ \\?\\/]+$`\n",
+                            "type": "string",
+                            "maxLength": 100,
+                            "pattern": "^[a-zA-Z0-9-:()\\.,'\\+ \\?\\/]+$"
+                          },
+                          "verification": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "title": "automated",
+                                "description": "In an automated verification, Truelayer will perform additional checks on the remitter. You can only perform additional checks for one of name or date of birth, not both.",
+                                "required": [
+                                  "type"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "description": "The type of verification.",
+                                    "type": "string",
+                                    "enum": [
+                                      "automated"
+                                    ]
+                                  },
+                                  "remitter_name": {
+                                    "description": "Enable verification for the remitter name.",
+                                    "type": "boolean"
+                                  },
+                                  "remitter_date_of_birth": {
+                                    "description": "Enable verification for the remitter date of birth.",
+                                    "type": "boolean"
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "statement_reference": {
+                            "description": "Payment reference that should be set on the end user's statement. Not all banks support setting such a reference, this value will be used wherever possible.\npattern: `^[a-zA-Z0-9-:()\\.,'\\+ \\?\\/]+$`\n",
+                            "type": "string",
+                            "maxLength": 18,
+                            "pattern": "^[a-zA-Z0-9-:()\\.,'\\+ \\?\\/]+$"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "title": "External Account",
+                        "description": "The routing information for an external bank account.",
+                        "required": [
+                          "type",
+                          "account_holder_name",
+                          "account_identifier",
+                          "reference"
+                        ],
+                        "properties": {
+                          "type": {
+                            "description": "The type of destination.",
+                            "type": "string",
+                            "enum": [
+                              "external_account"
+                            ]
+                          },
+                          "account_holder_name": {
+                            "description": "The name of the external account holder. Note that some providers have an 18-character upper limit for this.\npattern: `^[^\\(\\)]+$`\n",
+                            "type": "string",
+                            "maxLength": 40,
+                            "pattern": "^[^\\(\\)]+$"
+                          },
+                          "account_identifier": {
+                            "title": "Account Identifier",
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "title": "Sort Code + Account Number",
+                                "description": "The scheme identifier for a bank account participating in UK payment schemes.",
+                                "required": [
+                                  "type",
+                                  "sort_code",
+                                  "account_number"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "description": "The type of scheme identifier.",
+                                    "type": "string",
+                                    "enum": [
+                                      "sort_code_account_number"
+                                    ]
+                                  },
+                                  "sort_code": {
+                                    "description": "6 digit sort code (no spaces or dashes). pattern: `^[0-9]{6}$`",
+                                    "type": "string",
+                                    "minLength": 6,
+                                    "maxLength": 6,
+                                    "pattern": "^[0-9]{6}$"
+                                  },
+                                  "account_number": {
+                                    "description": "8 digit account number. pattern: `^[0-9]{8}$`",
+                                    "type": "string",
+                                    "minLength": 8,
+                                    "maxLength": 8,
+                                    "pattern": "^[0-9]{8}$"
+                                  }
+                                }
+                              },
+                              {
+                                "type": "object",
+                                "title": "IBAN",
+                                "description": "The international bank account number.",
+                                "required": [
+                                  "type",
+                                  "iban"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "description": "The type of scheme identifier.",
+                                    "type": "string",
+                                    "enum": [
+                                      "iban"
+                                    ]
+                                  },
+                                  "iban": {
+                                    "description": "Valid International Bank Account Number (no spaces). Consists of a 2 letter country code, followed by 2 check digits, and then by up to 30 alphanumeric characters (also known as the BBAN). pattern: `^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$`",
+                                    "type": "string",
+                                    "minLength": 15,
+                                    "maxLength": 34,
+                                    "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$"
+                                  }
+                                }
+                              },
+                              {
+                                "type": "object",
+                                "title": "BBAN",
+                                "description": "Basic bank account number.\n",
+                                "required": [
+                                  "type",
+                                  "bban"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "description": "The type of scheme identifier.",
+                                    "type": "string",
+                                    "enum": [
+                                      "bban"
+                                    ]
+                                  },
+                                  "bban": {
+                                    "description": "Valid Basic Bank Account Number (no spaces). Consists of up to 30 alphanumeric characters, with a fixed length per country. Forms the latter part of the IBAN as described above.",
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              {
+                                "type": "object",
+                                "title": "NRB",
+                                "description": "The scheme identifier for a bank account participating in Poland's payment schemes.\n",
+                                "required": [
+                                  "type",
+                                  "nrb"
+                                ],
+                                "properties": {
+                                  "type": {
+                                    "description": "The type of scheme identifier.",
+                                    "type": "string",
+                                    "enum": [
+                                      "nrb"
+                                    ]
+                                  },
+                                  "nrb": {
+                                    "description": "Valid Polish NRB (no spaces). Consists of 2 check digits, followed by an 8 digit bank branch number, and then by a 16 digit bank account number. Equivalent to a Polish IBAN with the country code removed.",
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            ],
+                            "description": "A unique account identifier for an external account."
+                          },
+                          "reference": {
+                            "description": "A reference for the payment.\npattern: `^[a-zA-Z0-9-:()\\.,'\\+ \\?\\/]+$`\n",
+                            "type": "string",
+                            "maxLength": 18,
+                            "pattern": "^[a-zA-Z0-9-:()\\.,'\\+ \\?\\/]+$"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "retry": {
+                    "type": "object",
+                    "description": "Include this parameter to support retries (only available for GBP payments)"
+                  }
+                }
+              },
+              {
+                "title": "Mandate",
+                "type": "object",
+                "required": [
+                  "type",
+                  "mandate_id"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "description": "The type of payment method.",
+                    "enum": [
+                      "mandate"
+                    ]
+                  },
+                  "user_interaction": {
+                    "type": "string",
+                    "description": "It indicates whether the user is present at the moment this payment is created or not. \nThis field can have a value only if the mandate is commercial.\nIt's required when the commercial mandate was created with the `use_case` field set.\n",
+                    "enum": [
+                      "present",
+                      "not_present"
+                    ]
+                  },
+                  "mandate_id": {
+                    "type": "string",
+                    "description": "The identifier of the mandate.\n"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "description": "Useful for reconciliation needs, it can only be set for mandates with a `beneficiary` type of `external_account`. Recommended max 18 alphanumeric characters.\n"
+                  },
+                  "retry": {
+                    "title": "Retry",
+                    "type": "object",
+                    "description": "> \ud83d\udea7 This is an opt-in feature.\n> \n> Please Contact us to enable this feature.\n\nOptional field to enable Retry for this payment.\n\nRetry is performed as frequently as possible based on the nature of the error in order to maximise conversion.\nRead more about [retry here](https://docs.truelayer.com/truelayer/docs/create-a-payment-on-a-mandate#optional-enable-retries-for-failed-payments).\n",
+                    "oneOf": [
+                      {
+                        "title": "Standard",
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "description": "Standard retry feature increases payment conversion by automatically retrying payments that failed due to a provider error.\n\nThis feature must be enabled for clients, otherwise the request will fail with a 403 Forbidden status code.\n",
+                            "enum": [
+                              "standard"
+                            ]
+                          },
+                          "for": {
+                            "type": "string",
+                            "description": "How long to retry this payment for (between `30m` - `6h`).\n\nThis should be the number followed by a unit (e.g `m`, `h` or `d` for minute, hour or day respectively).\n",
+                            "default": "30m"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ]
+                      },
+                      {
+                        "title": "Smart",
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "description": "Smart retry feature increases payment conversion by automatically retrying failed payments based on various criteria.\n\nThis feature must be enabled for clients, otherwise the request fails with the 403 Forbidden status code.\n",
+                            "enum": [
+                              "smart"
+                            ]
+                          },
+                          "for": {
+                            "type": "string",
+                            "description": "How long to retry this payment for (between `30m` - `90d`).\n\nThis should be the number followed by a unit (e.g `m`, `h` or `d` for minute, hour or day respectively).\n",
+                            "default": "24h"
+                          },
+                          "ensure_minimum_balance_in_minor": {
+                            "type": "number",
+                            "minimum": 1,
+                            "description": "The payment is attempted only if the remaining balance in the account is at least this amount.\n\nThis should be 'cent' value. eg. 100 = 1GBP.\n\nPayment will only be attempted if the available balance (including any overdrafts) is at least `ensure_minimum_balance_in_minor` + `amount_in_minor`.\n"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "user": {
+            "title": "User",
+            "type": "object",
+            "description": "Details of the end user who is making the payment. If you are using your own PISP licence, these fields are not required.\n\nPayments over a mandate don't need user information as this was collected at mandate creation.\n",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique ID for the User"
+              },
+              "name": {
+                "type": "string",
+                "description": "This is the full first and last name of your end user (not initials).\nIf you are using your own PISP licence this field is optional, otherwise it is required.\npattern: `^[^\\(\\)]+$`\n",
+                "pattern": "^[^\\(\\)]+$"
+              },
+              "email": {
+                "type": "string",
+                "format": "email",
+                "description": "The email address of your end user according to [RFC 2822](https://www.rfc-editor.org/rfc/rfc2822).\nIf you are using your own PISP licence this field is optional, otherwise one of `email`/`phone` is required.\n"
+              },
+              "phone": {
+                "type": "string",
+                "format": "phone",
+                "description": "The phone number of your end user in formats recommended by [ITU](https://www.itu.int/oth/T0202.aspx?parent=T0202). The country calling code must be included and prefixed with a `+`.\nIf you are using your own PISP licence this field is optional, otherwise one of `email`/`phone` is required.\n"
+              },
+              "date_of_birth": {
+                "type": "string",
+                "format": "date",
+                "description": "The date of birth of your end user, in YYYY-MM-DD format."
+              },
+              "address": {
+                "title": "Address",
+                "type": "object",
+                "properties": {
+                  "address_line1": {
+                    "type": "string",
+                    "description": "The full street address including house number and street name.\npattern: `^.{1,50}$``\n",
+                    "maxLength": 50,
+                    "pattern": "^.{1,50}$"
+                  },
+                  "address_line2": {
+                    "type": "string",
+                    "description": "Further details like building name, suite, apartment number, etc.\npattern: `^.{1,50}$`\n",
+                    "maxLength": 50,
+                    "pattern": "^.{1,50}$"
+                  },
+                  "city": {
+                    "type": "string",
+                    "description": "Name of the city / locality.\npattern: `^.{1,50}$`\n",
+                    "maxLength": 50,
+                    "pattern": "^.{1,50}$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "description": "Name of the county / state.\npattern: `^.{1,50}$`\n",
+                    "maxLength": 50,
+                    "pattern": "^.{1,50}$"
+                  },
+                  "zip": {
+                    "type": "string",
+                    "description": "Zip code or postal code.\npattern: `^.{1,20}$`\n",
+                    "maxLength": 20,
+                    "pattern": "^.{1,20}$"
+                  },
+                  "country_code": {
+                    "type": "string",
+                    "description": "The country code according to [ISO-3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                    "minLength": 2,
+                    "maxLength": 2
+                  }
+                },
+                "required": [
+                  "address_line1",
+                  "city",
+                  "zip",
+                  "country_code"
+                ]
+              },
+              "political_exposure": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "none"
+                ],
+                "description": "The user's political exposure (PEP), if known this field should be set to `current` otherwise to `none`.\n\nIf not known this field can be ignored or a `null` value can be sent.\n"
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Optional field for adding custom key-value data to a resource. This object can contain a maximum of 10 key-value pairs, each with a key with a maximum length of 40 characters and a non-null value with a maximum length of 500 characters.",
+            "maxProperties": 10,
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "related_products": {
+            "type": "object",
+            "description": "Optional field for adding related products, at least one product should be set.\nNot available when creating recurring payments.\n",
+            "properties": {
+              "signup_plus": {
+                "type": "object",
+                "description": "Signup+ product.\n"
+              }
+            }
+          },
+          "authorization_flow": {
+            "type": "object",
+            "description": "This object contains a declaration of the client UI's capabilities. The API will adjust the flow depending on this declaration and filter out unsupported providers.\n",
+            "properties": {
+              "provider_selection": {
+                "type": "object",
+                "description": "Can your UI render a provider selection screen?\n\nIn payments where you set provider_selection as user_selected, your UI must be able to render a screen where the user can select their payments provider. This parameter is required for payments with user_selected provider selection. For preselected provider selection, it's optional.\n\nUse the provider_selection.filter parameter at payment creation to determine the list of providers you can choose to display in your UI.\n",
+                "properties": {
+                  "icon": {
+                    "title": "Icon",
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "description": "Configuration for the type of icon. Available options are:\n- `default`: Default icon with no background (SVG).\n- `extended`: Extended as a square with an appropriate background colour (SVG).\n- `extended_small`: Extended icon with 192x192 px size (JPEG).\n- `extended_medium`: Extended icon with 432x432 px size (JPEG).\n- `extended_large`: Extended icon jpeg with 864x864 px size (JPEG).\n",
+                        "enum": [
+                          "default",
+                          "extended",
+                          "extended_small",
+                          "extended_medium",
+                          "extended_large"
+                        ]
+                      }
+                    }
+                  },
+                  "branches": {
+                    "title": "Branches",
+                    "type": "object"
+                  }
+                }
+              },
+              "scheme_selection": {
+                "type": "object",
+                "description": "Can your UI render a scheme selection screen?\n\nFor payments where you set `scheme_selection` as `user_selected`, your UI must be able to render a screen where the user can select their payments scheme.\n\nThis field is required for payments with `user_selected` scheme selection. For other scheme selection types, it's optional.\n"
+              },
+              "branch_selection": {
+                "type": "object",
+                "description": "Can your UI render a branch selection screen?\n\nFor payments where you set `branch_selection` as `user_selected`, your UI must be able to render a screen where the user can select their payments branch.\n\nThis field is required for payments with `user_selected` branch selection. For other branch selection types, it's optional.\n"
+              },
+              "redirect": {
+                "type": "object",
+                "description": "Can your UI redirect the user to a third-party page?\n\nFor most providers, the user authorises the payment after they're redirected to their chosen provider's page. There, they can sign in with their credentials and approve the payment. This parameter states whether your UI can handle such a redirect.\n",
+                "required": [
+                  "return_uri"
+                ],
+                "properties": {
+                  "return_uri": {
+                    "type": "string",
+                    "description": "During the flow, the end user authorises the payment on a third-party site, such as a bank. The return_uri you set is where the user is redirected to after they complete authorisation on the third-party site.\n\nYou must register the `return_uri` in your [settings in Console](/docs/app-settings#allowed-redirect-uris).\n",
+                    "format": "url"
+                  },
+                  "direct_return_uri": {
+                    "type": "string",
+                    "description": "Only applicable if you're regulated and have a direct return URI registered with UK providers.\n\nIf you're regulated, you can specify a `direct_return_uri` to attempt the authorization flow via a direct redirect from the provider authorization page to your page without going via TrueLayer.\n\nWe recommend that your `return_uri` is a URI that can handle a non-direct return scenario. This ensures that if the `direct_return_uri` isn't registered with the user's chosen provider, the payment can still be authorized through a Truelayer domain.\n",
+                    "format": "url"
+                  }
+                }
+              },
+              "form": {
+                "type": "object",
+                "description": "Can your UI render form inputs for the user to interact with?\n\nSome providers require additional inputs, such as the remitter name and account details, to be provided before or during payment authorization. To facilitate this, the API may return a `form` action as part of the authorization flow, which means your UI must be able to collect the required inputs.\n\nThis parameter states whether your UI supports the `form` action. If you omit this parameter, the API returns only providers that don't require additional inputs. \n\nIf the provider has been preselected and requires additional inputs, this field is required.\n",
+                "properties": {
+                  "input_types": {
+                    "type": "array",
+                    "description": "The types of input that your UI can render a form to collect.",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "text_with_image",
+                        "select"
+                      ],
+                      "description": "Possible input types for the `form` action:\n * `text` - The end user must enter some text\n * `text_with_image` - The end user must enter some text with an accompanying image (e.g. QR code)\n * `select` - The end user must select an option\n"
+                    },
+                    "uniqueItems": true,
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "input_types"
+                ]
+              },
+              "consent": {
+                "type": "object",
+                "description": "Can your UI capture the user's consent?\n\nThis parameter states whether your UI can explicitly capture and report the end user's consent for initiating the payment.\n\nIf you omit this, the API may restrict the available providers if explicit consent is required.\n",
+                "properties": {
+                  "action_type": {
+                    "type": "string",
+                    "description": "How you will capture consent as part of the authorisation flow:\n- `explicit` (default): The authorisation flow returns an explicit `consent` action for you to respond to at an appropriate moment in the flow.\n- `adjacent`: You provide the consent information alongside other actions in the flow. This enables the UI to combine capturing consent alongside with other actions, if you indicate consent is gathered when you respond to those actions. Note this is currently only supported on `form` actions.\n",
+                    "enum": [
+                      "explicit",
+                      "adjacent"
+                    ]
+                  },
+                  "requirements": {
+                    "type": "object",
+                    "title": "Consent Requirements",
+                    "description": "The details of the consents supported to be captured from the user.",
+                    "properties": {
+                      "pis": {
+                        "type": "object",
+                        "title": "PIS Consent"
+                      },
+                      "ais": {
+                        "type": "object",
+                        "title": "AIS Consent",
+                        "properties": {
+                          "scopes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "title": "AIS Scope",
+                              "enum": [
+                                "accounts",
+                                "balance"
+                              ]
+                            },
+                            "minItems": 1,
+                            "uniqueItems": true
+                          }
+                        },
+                        "required": [
+                          "scopes"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "pis"
+                    ]
+                  }
+                }
+              },
+              "user_account_selection": {
+                "type": "object",
+                "description": "Can your UI render a user account selection screen?\n\nIf the user has previously consented to saving their bank account details with TrueLayer, they can choose from their saved accounts to speed up following payments.\n\nThis field states whether your UI can render a selection screen for these saved accounts. If you omit this, the user isn't presented with this option.\n"
+              }
+            }
+          },
+          "hosted_page": {
+            "title": "Hosted Page Parameters",
+            "description": "Provide these parameters to have an auto constructed [hosted page](https://docs.truelayer.com/docs/hosted-payment-page) URI returned on the response.\n\nThis cannot be provided if starting the `authorization_flow` explicitly.\n",
+            "type": "object",
+            "required": [
+              "return_uri"
+            ],
+            "properties": {
+              "return_uri": {
+                "type": "string",
+                "description": "The URI where the user will be redirected to after the authorization flow has completed on the hosted page.\nYou must register the `return_uri` in your [settings in Console](/docs/app-settings#allowed-redirect-uris).\n",
+                "format": "url"
+              },
+              "country_code": {
+                "type": "string",
+                "description": "The country code of the user. This is used to determine which banks to show on the hosted page initially.\nThe country code must be in ISO 3166-1 alpha-2 format.\n",
+                "minLength": 2,
+                "maxLength": 2,
+                "pattern": "^[A-Z]{2}$"
+              },
+              "language_code": {
+                "type": "string",
+                "description": "The language code of the user. This is used to determine which language to show on the hosted page, overriding the browser's locale.\nThe language code must be in ISO 639-1 format.\n",
+                "minLength": 2,
+                "maxLength": 2,
+                "pattern": "^[a-z]{2}$"
+              },
+              "max_wait_for_result": {
+                "type": "integer",
+                "description": "The maximum time to wait for a result from the hosted page after the user has completed the authorization flow, in seconds.\n",
+                "minimum": 0,
+                "maximum": 60
+              }
+            }
+          },
+          "risk_assessment": {
+            "type": "object",
+            "description": "An optional field for configuring risk assessment and the `payment_creditable` webhook. [Learn how to enable this field](/docs/payment-risk-and-credit-notifications#multiple-payment_creditable-behaviours-with-the-segment-parameter).\n",
+            "properties": {
+              "segment": {
+                "type": "string",
+                "description": "The risk segment of this payment. Please contact us before sending this field.\npattern: `^[^\\(\\)]+$`\n",
+                "pattern": "^[^\\(\\)]+$"
+              }
+            }
+          },
+          "sub_merchants": {
+            "title": "Sub Merchants",
+            "type": "object",
+            "description": "The details related to any applicable sub-merchants, for example an underlying division of the overall business.",
+            "required": [
+              "ultimate_counterparty"
+            ],
+            "properties": {
+              "ultimate_counterparty": {
+                "oneOf": [
+                  {
+                    "title": "Business Division",
+                    "type": "object",
+                    "description": "The business details of the ultimate counterparty.",
+                    "required": [
+                      "type",
+                      "id",
+                      "name"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "description": "The ultimate counterparty is a division of the main business.",
+                        "enum": [
+                          "business_division"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "description": "The identifier of the business division.\n"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "The name of the business division.\n"
+                      }
+                    }
+                  },
+                  {
+                    "title": "Business Client",
+                    "type": "object",
+                    "description": "The business details of the ultimate counterparty.",
+                    "required": [
+                      "type",
+                      "id",
+                      "trading_name"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "description": "The ultimate counterparty is a registered business.",
+                        "enum": [
+                          "business_client"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "description": "The identifier of the business client.\n"
+                      },
+                      "trading_name": {
+                        "type": "string",
+                        "description": "The trading name of the business.\npattern: `^.{1,70}$`\n",
+                        "maxLength": 70,
+                        "pattern": "^.{1,70}$"
+                      },
+                      "commercial_name": {
+                        "type": "string",
+                        "description": "The commercial name of the business.\npattern: `^.{1,100}$`\n",
+                        "maxLength": 100,
+                        "pattern": "^.{1,100}$"
+                      },
+                      "url": {
+                        "type": "string",
+                        "description": "The website of the business. This must be a valid URL.",
+                        "maxLength": 100
+                      },
+                      "mcc": {
+                        "type": "string",
+                        "description": "The merchant category code of the business.\npattern: `^[0-9]{4}$`\n",
+                        "maxLength": 4,
+                        "pattern": "^[0-9]{4}$"
+                      },
+                      "registration_number": {
+                        "type": "string",
+                        "description": "The registration number of the business.\n\nThis is required if `address` is not provided.\npattern: `^.{1,35}$`\n",
+                        "maxLength": 35,
+                        "pattern": "^.{1,35}$"
+                      },
+                      "address": {
+                        "title": "Address",
+                        "type": "object",
+                        "properties": {
+                          "address_line1": {
+                            "type": "string",
+                            "description": "The full street address including house number and street name.\npattern: `^.{1,50}$``\n",
+                            "maxLength": 50,
+                            "pattern": "^.{1,50}$"
+                          },
+                          "address_line2": {
+                            "type": "string",
+                            "description": "Further details like building name, suite, apartment number, etc.\npattern: `^.{1,50}$`\n",
+                            "maxLength": 50,
+                            "pattern": "^.{1,50}$"
+                          },
+                          "city": {
+                            "type": "string",
+                            "description": "Name of the city / locality.\npattern: `^.{1,50}$`\n",
+                            "maxLength": 50,
+                            "pattern": "^.{1,50}$"
+                          },
+                          "state": {
+                            "type": "string",
+                            "description": "Name of the county / state.\npattern: `^.{1,50}$`\n",
+                            "maxLength": 50,
+                            "pattern": "^.{1,50}$"
+                          },
+                          "zip": {
+                            "type": "string",
+                            "description": "Zip code or postal code.\npattern: `^.{1,20}$`\n",
+                            "maxLength": 20,
+                            "pattern": "^.{1,20}$"
+                          },
+                          "country_code": {
+                            "type": "string",
+                            "description": "The country code according to [ISO-3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                            "minLength": 2,
+                            "maxLength": 2
+                          }
+                        },
+                        "required": [
+                          "address_line1",
+                          "city",
+                          "zip",
+                          "country_code"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "user_consent": {
+            "title": "User Consent",
+            "type": "object",
+            "description": "Information of how the user's consent is captured for the payment.",
+            "oneOf": [
+              {
+                "title": "Precaptured",
+                "type": "object",
+                "description": "The consent has been captured prior to the payment being created.",
+                "required": [
+                  "type",
+                  "captured_at"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "description": "The consent has been captured prior to the payment being created.",
+                    "enum": [
+                      "precaptured"
+                    ]
+                  },
+                  "captured_at": {
+                    "type": "string",
+                    "description": "The date and time the consent was captured.",
+                    "format": "datetime"
+                  }
+                }
+              },
+              {
+                "title": "Authorization Flow Captured",
+                "type": "object",
+                "description": "The consent will be captured as part of the payment authorization flow.",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "description": "The consent will be captured as part of the payment authorization flow.",
+                    "enum": [
+                      "authorization_flow_captured"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "amount_in_minor",
+          "currency",
+          "payment_method",
+          "user"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "truelayer_payments"
+          }
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key",
+        "x_forwarded_for": "X-Forwarded-For",
+        "x_device_user_agent": "X-Device-User-Agent"
+      }
+    },
+    {
+      "name": "get_payment",
+      "method": "GET",
+      "path": "/v3/payments/{id}",
+      "description": "Get payment. Preserves full response, including payment status, resource token and authorization actions where returned.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique ID for the Payment"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "start_authorization_flow",
+      "method": "POST",
+      "path": "/v3/payments/{id}/authorization-flow",
+      "description": "Start authorization flow. User must complete the returned next action or bank redirect; do not treat authorization as settlement.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Stable UUID per operation. Persist and reuse on retry of the identical request.",
+            "format": "uuid"
+          },
+          "x_forwarded_for": {
+            "type": "string"
+          },
+          "x_device_user_agent": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique ID for the Payment"
+          },
+          "provider_selection": {
+            "type": "object",
+            "description": "Can your UI render a provider selection screen?\n\nIn payments where you set provider_selection as user_selected, your UI must be able to render a screen where the user can select their payments provider. This parameter is required for payments with user_selected provider selection. For preselected provider selection, it's optional.\n\nUse the provider_selection.filter parameter at payment creation to determine the list of providers you can choose to display in your UI.\n",
+            "properties": {
+              "icon": {
+                "title": "Icon",
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "description": "Configuration for the type of icon. Available options are:\n- `default`: Default icon with no background (SVG).\n- `extended`: Extended as a square with an appropriate background colour (SVG).\n- `extended_small`: Extended icon with 192x192 px size (JPEG).\n- `extended_medium`: Extended icon with 432x432 px size (JPEG).\n- `extended_large`: Extended icon jpeg with 864x864 px size (JPEG).\n",
+                    "enum": [
+                      "default",
+                      "extended",
+                      "extended_small",
+                      "extended_medium",
+                      "extended_large"
+                    ]
+                  }
+                }
+              },
+              "branches": {
+                "title": "Branches",
+                "type": "object"
+              }
+            }
+          },
+          "scheme_selection": {
+            "type": "object",
+            "description": "Can your UI render a scheme selection screen?\n\nFor payments where you set `scheme_selection` as `user_selected`, your UI must be able to render a screen where the user can select their payments scheme.\n\nThis field is required for payments with `user_selected` scheme selection. For other scheme selection types, it's optional.\n"
+          },
+          "branch_selection": {
+            "type": "object",
+            "description": "Can your UI render a branch selection screen?\n\nFor payments where you set `branch_selection` as `user_selected`, your UI must be able to render a screen where the user can select their payments branch.\n\nThis field is required for payments with `user_selected` branch selection. For other branch selection types, it's optional.\n"
+          },
+          "redirect": {
+            "type": "object",
+            "description": "Can your UI redirect the user to a third-party page?\n\nFor most providers, the user authorises the payment after they're redirected to their chosen provider's page. There, they can sign in with their credentials and approve the payment. This parameter states whether your UI can handle such a redirect.\n",
+            "required": [
+              "return_uri"
+            ],
+            "properties": {
+              "return_uri": {
+                "type": "string",
+                "description": "During the flow, the end user authorises the payment on a third-party site, such as a bank. The return_uri you set is where the user is redirected to after they complete authorisation on the third-party site.\n\nYou must register the `return_uri` in your [settings in Console](/docs/app-settings#allowed-redirect-uris).\n",
+                "format": "url"
+              },
+              "direct_return_uri": {
+                "type": "string",
+                "description": "Only applicable if you're regulated and have a direct return URI registered with UK providers.\n\nIf you're regulated, you can specify a `direct_return_uri` to attempt the authorization flow via a direct redirect from the provider authorization page to your page without going via TrueLayer.\n\nWe recommend that your `return_uri` is a URI that can handle a non-direct return scenario. This ensures that if the `direct_return_uri` isn't registered with the user's chosen provider, the payment can still be authorized through a Truelayer domain.\n",
+                "format": "url"
+              }
+            }
+          },
+          "form": {
+            "type": "object",
+            "description": "Can your UI render form inputs for the user to interact with?\n\nSome providers require additional inputs, such as the remitter name and account details, to be provided before or during payment authorization. To facilitate this, the API may return a `form` action as part of the authorization flow, which means your UI must be able to collect the required inputs.\n\nThis parameter states whether your UI supports the `form` action. If you omit this parameter, the API returns only providers that don't require additional inputs. \n\nIf the provider has been preselected and requires additional inputs, this field is required.\n",
+            "properties": {
+              "input_types": {
+                "type": "array",
+                "description": "The types of input that your UI can render a form to collect.",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "text_with_image",
+                    "select"
+                  ],
+                  "description": "Possible input types for the `form` action:\n * `text` - The end user must enter some text\n * `text_with_image` - The end user must enter some text with an accompanying image (e.g. QR code)\n * `select` - The end user must select an option\n"
+                },
+                "uniqueItems": true,
+                "minItems": 1
+              }
+            },
+            "required": [
+              "input_types"
+            ]
+          },
+          "consent": {
+            "type": "object",
+            "description": "Can your UI capture the user's consent?\n\nThis parameter states whether your UI can explicitly capture and report the end user's consent for initiating the payment.\n\nIf you omit this, the API may restrict the available providers if explicit consent is required.\n",
+            "properties": {
+              "action_type": {
+                "type": "string",
+                "description": "How you will capture consent as part of the authorisation flow:\n- `explicit` (default): The authorisation flow returns an explicit `consent` action for you to respond to at an appropriate moment in the flow.\n- `adjacent`: You provide the consent information alongside other actions in the flow. This enables the UI to combine capturing consent alongside with other actions, if you indicate consent is gathered when you respond to those actions. Note this is currently only supported on `form` actions.\n",
+                "enum": [
+                  "explicit",
+                  "adjacent"
+                ]
+              },
+              "requirements": {
+                "type": "object",
+                "title": "Consent Requirements",
+                "description": "The details of the consents supported to be captured from the user.",
+                "properties": {
+                  "pis": {
+                    "type": "object",
+                    "title": "PIS Consent"
+                  },
+                  "ais": {
+                    "type": "object",
+                    "title": "AIS Consent",
+                    "properties": {
+                      "scopes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "title": "AIS Scope",
+                          "enum": [
+                            "accounts",
+                            "balance"
+                          ]
+                        },
+                        "minItems": 1,
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "scopes"
+                    ]
+                  }
+                },
+                "required": [
+                  "pis"
+                ]
+              }
+            }
+          },
+          "user_account_selection": {
+            "type": "object",
+            "description": "Can your UI render a user account selection screen?\n\nIf the user has previously consented to saving their bank account details with TrueLayer, they can choose from their saved accounts to speed up following payments.\n\nThis field states whether your UI can render a selection screen for these saved accounts. If you omit this, the user isn't presented with this option.\n"
+          }
+        },
+        "required": [
+          "id",
+          "idempotency_key"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "truelayer_payments"
+          }
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key",
+        "x_forwarded_for": "X-Forwarded-For",
+        "x_device_user_agent": "X-Device-User-Agent"
+      }
+    },
+    {
+      "name": "submit_provider_selection",
+      "method": "POST",
+      "path": "/v3/payments/{id}/authorization-flow/actions/provider-selection",
+      "description": "Submit provider selection. User must complete the returned next action or bank redirect; do not treat authorization as settlement.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Stable UUID per operation. Persist and reuse on retry of the identical request.",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique ID for the Payment"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "branch_id": {
+            "type": "string",
+            "description": "Unique ID for the branch"
+          }
+        },
+        "required": [
+          "id",
+          "provider_id",
+          "idempotency_key"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "truelayer_payments"
+          }
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "submit_consent",
+      "method": "POST",
+      "path": "/v3/payments/{id}/authorization-flow/actions/consent",
+      "description": "Submit consent. User must complete the returned next action or bank redirect; do not treat authorization as settlement.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Stable UUID per operation. Persist and reuse on retry of the identical request.",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique ID for the Payment"
+          },
+          "captured": {
+            "type": "object",
+            "title": "Consent Captured",
+            "description": "The details of the consents captured from the user.\nIf omitted it is assumed a standard PIS consent was captured.\n",
+            "properties": {
+              "pis": {
+                "type": "object",
+                "title": "PIS Consent"
+              },
+              "ais": {
+                "type": "object",
+                "title": "AIS Consent",
+                "properties": {
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "title": "AIS Scope",
+                      "enum": [
+                        "accounts",
+                        "balance"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "scopes"
+                ]
+              }
+            },
+            "required": [
+              "pis"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "idempotency_key"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "truelayer_payments"
+          }
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "submit_form",
+      "method": "POST",
+      "path": "/v3/payments/{id}/authorization-flow/actions/form",
+      "description": "Submit form. User must complete the returned next action or bank redirect; do not treat authorization as settlement.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Stable UUID per operation. Persist and reuse on retry of the identical request.",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique ID for the Payment"
+          },
+          "inputs": {
+            "description": "A dictionary of input values, where the key matches one returned previously in the form action and the value represents the associated value provided by the end user.",
+            "additionalProperties": {
+              "type": "string",
+              "description": "The value of the input identified by the key, as entered by the end user."
+            }
+          },
+          "adjacent": {
+            "type": "object",
+            "title": "Adjacent Actions",
+            "description": "Optionally submit adjacent actions",
+            "properties": {
+              "consent": {
+                "type": "object",
+                "title": "Consent Captured",
+                "description": "Indicate consent was captured alongside this action",
+                "properties": {
+                  "captured": {
+                    "type": "object",
+                    "title": "Adjacent Consent Captured",
+                    "description": "The details of the consents captured from the user.\n",
+                    "properties": {
+                      "pis": {
+                        "type": "object",
+                        "title": "PIS Consent"
+                      },
+                      "ais": {
+                        "type": "object",
+                        "title": "AIS Consent",
+                        "properties": {
+                          "scopes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "title": "AIS Scope",
+                              "enum": [
+                                "accounts",
+                                "balance"
+                              ]
+                            },
+                            "minItems": 1,
+                            "uniqueItems": true
+                          }
+                        },
+                        "required": [
+                          "scopes"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "pis"
+                    ]
+                  }
+                },
+                "required": [
+                  "captured"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "inputs",
+          "idempotency_key"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "truelayer_payments"
+          }
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "search_payment_providers",
+      "method": "POST",
+      "path": "/v3/payments-providers/search",
+      "description": "Search Payments providers. Preserves full response, including payment status, resource token and authorization actions where returned.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "countries": {
+            "type": "array",
+            "description": "Only providers from the specified countries will be returned.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AT",
+                "BE",
+                "DE",
+                "DK",
+                "ES",
+                "FI",
+                "FR",
+                "GB",
+                "IE",
+                "IT",
+                "LT",
+                "NL",
+                "NO",
+                "PL",
+                "PT",
+                "RO"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "currencies": {
+            "description": "Only schemes that support at least one of the specified currencies will be returned.",
+            "type": "array",
+            "uniqueItems": true,
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "GBP",
+                "EUR",
+                "PLN"
+              ]
+            }
+          },
+          "release_channel": {
+            "type": "string",
+            "description": "Only capabilities that are at least on the specified release channel will be returned.\n\nNote that many European providers are in `public_beta` or `private_beta`.\n",
+            "default": "general_availability",
+            "enum": [
+              "general_availability",
+              "public_beta",
+              "private_beta"
+            ]
+          },
+          "customer_segments": {
+            "type": "array",
+            "description": "Only providers that cater to at least one of the specified customer segments will be returned.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "retail",
+                "business",
+                "corporate"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "capabilities": {
+            "type": "object",
+            "description": "Options for capabilities of the providers.",
+            "properties": {
+              "payments": {
+                "description": "Only providers with `payments` capabilities will be returned.",
+                "type": "object",
+                "properties": {
+                  "bank_transfer": {
+                    "description": "Only providers with `bank transfer` capability will be returned.",
+                    "type": "object"
+                  }
+                }
+              },
+              "mandates": {
+                "description": "Only providers with `mandates` capabilities will be returned.",
+                "type": "object",
+                "properties": {
+                  "vrp_sweeping": {
+                    "description": "Only returns providers with the `sweeping` capability.",
+                    "type": "object"
+                  },
+                  "vrp_commercial": {
+                    "description": "Only returns providers with the `commercial` capability.",
+                    "type": "object",
+                    "properties": {
+                      "use_cases": {
+                        "description": "Only returns providers that support all the specified use cases.",
+                        "type": "array",
+                        "uniqueItems": true,
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "charity",
+                            "financial_services",
+                            "government",
+                            "utilities"
+                          ],
+                          "description": "The use case for which the cVRP mandate is used for.\n"
+                        }
+                      }
+                    }
+                  },
+                  "direct_debit": {
+                    "description": "Only returns providers with the `direct_debit` capability",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "authorization_flow": {
+            "title": "Direct Integration",
+            "type": "object",
+            "required": [
+              "configuration"
+            ],
+            "properties": {
+              "configuration": {
+                "type": "object",
+                "description": "Options for the authorization flow configuration of the customized UI.\nThis should be the same object you use in the start authorization flow request body.\n",
+                "properties": {
+                  "provider_selection": {
+                    "type": "object",
+                    "description": "Can your UI render a provider selection screen?\n\nIn payments where you set provider_selection as user_selected, your UI must be able to render a screen where the user can select their payments provider. This parameter is required for payments with user_selected provider selection. For preselected provider selection, it's optional.\n\nUse the provider_selection.filter parameter at payment creation to determine the list of providers you can choose to display in your UI.\n",
+                    "properties": {
+                      "branches": {
+                        "title": "Branches",
+                        "type": "object"
+                      },
+                      "icon": {
+                        "title": "Icon",
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "description": "Configuration for the type of icon. Available options are:\n- `default`: Default icon with no background (SVG).\n- `extended`: Extended as a square with an appropriate background colour (SVG).\n- `extended_small`: Extended icon with 192x192 px size (JPEG).\n- `extended_medium`: Extended icon with 432x432 px size (JPEG).\n- `extended_large`: Extended icon jpeg with 864x864 px size (JPEG).\n",
+                            "enum": [
+                              "default",
+                              "extended",
+                              "extended_small",
+                              "extended_medium",
+                              "extended_large"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "redirect": {
+                    "type": "object",
+                    "description": "Can the UI redirect the end user to a third-party page?\n\nFor most providers, payment authorization is achieved by redirecting the user to their chosen provider's page, where they can sign in with their credentials and approve the payment.\nThis field declares whether the UI is able to perform such a redirect.\n"
+                  },
+                  "form": {
+                    "required": [
+                      "input_types"
+                    ],
+                    "type": "object",
+                    "description": "Can the UI render form inputs for the end user to interact with?\n\nSome providers require additional inputs, such as the remitter name and account details, to be provided before or during payment authorization.\nTo facilitate this, the API may return a `form` action as part of the authorization flow, prompting the UI to collect the required inputs.\n\nThis field declares whether the UI supports the `form` action.\nIf it is omitted, only providers that do not require additional inputs will be returned. \nIf the provider has been preselected and requires additional inputs, this field is considered mandatory.\n",
+                    "properties": {
+                      "input_types": {
+                        "type": "array",
+                        "description": "The types of input that the UI is able to render",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "text_with_image",
+                            "select"
+                          ],
+                          "description": "Possible input types for the `form` action:\n * `text` - The end user must enter some text\n * `text_with_image` - The end user must enter some text with an accompanying image (e.g. QR code)\n * `select` - The end user must select an option\n"
+                        },
+                        "uniqueItems": true,
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  "consent": {
+                    "type": "object",
+                    "description": "Can the UI capture the user's consent?\n\nThis field declares whether the UI supports explicitly capturing and reporting the end user's consent for initiating the payment.\nIf it is omitted, the providers available may be restricted if explicit consent is required.\n",
+                    "properties": {
+                      "requirements": {
+                        "type": "object",
+                        "title": "Consent Requirements",
+                        "description": "The details of the consents supported to be captured from the user.",
+                        "properties": {
+                          "pis": {
+                            "type": "object",
+                            "title": "PIS Consent"
+                          },
+                          "ais": {
+                            "type": "object",
+                            "title": "AIS Consent",
+                            "properties": {
+                              "scopes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "title": "AIS Scope",
+                                  "enum": [
+                                    "accounts",
+                                    "balance"
+                                  ]
+                                },
+                                "minItems": 1,
+                                "uniqueItems": true
+                              }
+                            },
+                            "required": [
+                              "scopes"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "pis"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Stable UUID per operation. Persist and reuse on retry of the identical request.",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "authorization_flow",
+          "idempotency_key"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "truelayer_payments"
+          }
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "get_payment_provider",
+      "method": "GET",
+      "path": "/v3/payments-providers/{id}",
+      "description": "Get payments provider. Preserves full response, including payment status, resource token and authorization actions where returned.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique ID for the Provider"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "icon_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "client_id",
+        "icon_type"
+      ]
+    }
+  ],
+  "webhooks": {
+    "signature_header": "Tl-Signature",
+    "events": [
+      {
+        "name": "payment_authorized",
+        "description": "Verified payment status event. Deduplicate event_id and retrieve authoritative payment status."
+      },
+      {
+        "name": "payment_executed",
+        "description": "Verified payment status event. Deduplicate event_id and retrieve authoritative payment status."
+      },
+      {
+        "name": "payment_settled",
+        "description": "Verified payment status event. Deduplicate event_id and retrieve authoritative payment status."
+      },
+      {
+        "name": "payment_failed",
+        "description": "Verified payment status event. Deduplicate event_id and retrieve authoritative payment status."
+      }
+    ]
+  }
+}

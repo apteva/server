@@ -1,0 +1,754 @@
+{
+  "slug": "enable-banking",
+  "name": "Enable Banking",
+  "description": "Open banking account data for European banks, including Spain. Connect accounts, manage sessions, and fetch balances and transactions. Requests are signed automatically with the application RSA private key. Restricted own-account access is available for individual non-commercial use; commercial access requires provider approval. Also supports Payment Initiation with PIS-enabled applications, deferred authorization/submission and payment status tracking.",
+  "logo": "https://www.google.com/s2/favicons?domain=enablebanking.com&sz=128",
+  "categories": [
+    "banking",
+    "open-banking",
+    "psd2",
+    "accounts",
+    "transactions",
+    "eu",
+    "spain"
+  ],
+  "base_url": "https://api.enablebanking.com",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "signers": [
+      {
+        "name": "enable_banking_jwt"
+      }
+    ],
+    "credential_fields": [
+      {
+        "name": "application_id",
+        "label": "Application ID",
+        "required": true,
+        "type": "text",
+        "description": "Application UUID from the Enable Banking control panel. Its registration determines sandbox or production."
+      },
+      {
+        "name": "private_key",
+        "label": "Application RSA Private Key",
+        "required": true,
+        "type": "multiline_password",
+        "description": "Complete RSA private-key PEM matching the certificate registered for this application. JWTs are generated automatically."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_application",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "get_application",
+      "description": "Get application environment and activation status; also checks signing credentials.",
+      "method": "GET",
+      "path": "/application",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_banks",
+      "description": "List supported banks and consent limits. Use country ES for Spain and service AIS for account information.",
+      "method": "GET",
+      "path": "/aspsps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "ISO country code, e.g. ES."
+          },
+          "psu_type": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "business"
+            ]
+          },
+          "service": {
+            "type": "string",
+            "enum": [
+              "AIS",
+              "PIS"
+            ]
+          }
+        }
+      },
+      "query_params": [
+        "country",
+        "psu_type",
+        "service"
+      ]
+    },
+    {
+      "name": "start_authorization",
+      "description": "Create a bank authorization URL. The account holder must complete the returned URL in a browser; verify callback state before exchanging its code.",
+      "method": "POST",
+      "path": "/auth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "object",
+            "properties": {
+              "valid_until": {
+                "type": "string",
+                "description": "RFC3339 expiry, bounded by the bank maximum_consent_validity.",
+                "format": "date-time"
+              },
+              "balances": {
+                "type": "boolean"
+              },
+              "transactions": {
+                "type": "boolean"
+              },
+              "accounts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "iban": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "required": [
+              "valid_until"
+            ]
+          },
+          "aspsp": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Exact bank name from list_banks."
+              },
+              "country": {
+                "type": "string",
+                "description": "ISO country code, e.g. ES."
+              }
+            },
+            "required": [
+              "name",
+              "country"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "description": "Unpredictable correlation value; verify it on callback."
+          },
+          "redirect_url": {
+            "type": "string",
+            "description": "Registered callback URL.",
+            "format": "uri"
+          },
+          "psu_type": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "business"
+            ]
+          },
+          "auth_method": {
+            "type": "string",
+            "description": "Optional method from bank metadata."
+          },
+          "language": {
+            "type": "string",
+            "description": "Two-letter language code, e.g. es."
+          },
+          "psu_id": {
+            "type": "string",
+            "description": "Optional pseudonymous user identifier."
+          }
+        },
+        "required": [
+          "access",
+          "aspsp",
+          "state",
+          "redirect_url",
+          "psu_type"
+        ]
+      }
+    },
+    {
+      "name": "authorize_session",
+      "description": "Exchange the bank callback code after verifying state. Save session_id, account uids and identification_hash values from this response.",
+      "method": "POST",
+      "path": "/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Authorization code from the verified redirect."
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "get_session",
+      "description": "Read the authorization session, accessible accounts and validity.",
+      "method": "GET",
+      "path": "/sessions/{session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_session",
+      "description": "Revoke a session and stop access to its accounts.",
+      "method": "DELETE",
+      "path": "/sessions/{session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_details",
+      "description": "Get bank account details.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Account uid returned by authorize_session, scoped to the session."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Ip-Address"
+          },
+          "psu_user_agent": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-User-Agent"
+          },
+          "psu_referer": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Referer"
+          },
+          "psu_accept": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept"
+          },
+          "psu_accept_charset": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Charset"
+          },
+          "psu_accept_encoding": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Encoding"
+          },
+          "psu_accept_language": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Language"
+          },
+          "psu_geo_location": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Geo-Location"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      },
+      "header_params": {
+        "psu_ip_address": "Psu-Ip-Address",
+        "psu_user_agent": "Psu-User-Agent",
+        "psu_referer": "Psu-Referer",
+        "psu_accept": "Psu-Accept",
+        "psu_accept_charset": "Psu-Accept-Charset",
+        "psu_accept_encoding": "Psu-Accept-Encoding",
+        "psu_accept_language": "Psu-Accept-Language",
+        "psu_geo_location": "Psu-Geo-Location"
+      }
+    },
+    {
+      "name": "get_account_balances",
+      "description": "Get current bank account balances.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Account uid returned by authorize_session, scoped to the session."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Ip-Address"
+          },
+          "psu_user_agent": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-User-Agent"
+          },
+          "psu_referer": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Referer"
+          },
+          "psu_accept": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept"
+          },
+          "psu_accept_charset": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Charset"
+          },
+          "psu_accept_encoding": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Encoding"
+          },
+          "psu_accept_language": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Language"
+          },
+          "psu_geo_location": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Geo-Location"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      },
+      "header_params": {
+        "psu_ip_address": "Psu-Ip-Address",
+        "psu_user_agent": "Psu-User-Agent",
+        "psu_referer": "Psu-Referer",
+        "psu_accept": "Psu-Accept",
+        "psu_accept_charset": "Psu-Accept-Charset",
+        "psu_accept_encoding": "Psu-Accept-Encoding",
+        "psu_accept_language": "Psu-Accept-Language",
+        "psu_geo_location": "Psu-Geo-Location"
+      }
+    },
+    {
+      "name": "get_account_transactions",
+      "description": "Get transactions. Follow continuation_key until null, even when a page is empty. Retain the full response for pagination.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Account uid returned by authorize_session, scoped to the session."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Ip-Address"
+          },
+          "psu_user_agent": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-User-Agent"
+          },
+          "psu_referer": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Referer"
+          },
+          "psu_accept": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept"
+          },
+          "psu_accept_charset": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Charset"
+          },
+          "psu_accept_encoding": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Encoding"
+          },
+          "psu_accept_language": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Language"
+          },
+          "psu_geo_location": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Geo-Location"
+          },
+          "date_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date"
+          },
+          "continuation_key": {
+            "type": "string"
+          },
+          "transaction_status": {
+            "type": "string",
+            "enum": [
+              "BOOK",
+              "PDNG"
+            ]
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "default",
+              "longest"
+            ]
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      },
+      "header_params": {
+        "psu_ip_address": "Psu-Ip-Address",
+        "psu_user_agent": "Psu-User-Agent",
+        "psu_referer": "Psu-Referer",
+        "psu_accept": "Psu-Accept",
+        "psu_accept_charset": "Psu-Accept-Charset",
+        "psu_accept_encoding": "Psu-Accept-Encoding",
+        "psu_accept_language": "Psu-Accept-Language",
+        "psu_geo_location": "Psu-Geo-Location"
+      },
+      "query_params": [
+        "date_from",
+        "date_to",
+        "continuation_key",
+        "transaction_status",
+        "strategy"
+      ]
+    },
+    {
+      "name": "get_transaction_details",
+      "description": "Get extra details using transaction_id; use entry_reference for transaction deduplication instead.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/transactions/{transaction_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Account uid returned by authorize_session, scoped to the session."
+          },
+          "psu_ip_address": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Ip-Address"
+          },
+          "psu_user_agent": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-User-Agent"
+          },
+          "psu_referer": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Referer"
+          },
+          "psu_accept": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept"
+          },
+          "psu_accept_charset": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Charset"
+          },
+          "psu_accept_encoding": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Encoding"
+          },
+          "psu_accept_language": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Accept-Language"
+          },
+          "psu_geo_location": {
+            "type": "string",
+            "description": "Forward only during an actual user-initiated request; omit for scheduled background sync. Psu-Geo-Location"
+          },
+          "transaction_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "transaction_id"
+        ]
+      },
+      "header_params": {
+        "psu_ip_address": "Psu-Ip-Address",
+        "psu_user_agent": "Psu-User-Agent",
+        "psu_referer": "Psu-Referer",
+        "psu_accept": "Psu-Accept",
+        "psu_accept_charset": "Psu-Accept-Charset",
+        "psu_accept_encoding": "Psu-Accept-Encoding",
+        "psu_accept_language": "Psu-Accept-Language",
+        "psu_geo_location": "Psu-Geo-Location"
+      }
+    },
+    {
+      "name": "create_payment",
+      "method": "POST",
+      "path": "/payments",
+      "description": "Create a PIS payment and return the full authorization URL/status response. Requires PIS application access. Use defer_submission=true only when bank metadata advertises deferred_submission_supported. Verify callback state, retrieve authorized status, then explicitly submit. Persist the payment ID; do not blindly retry ambiguous creation.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_type": {
+            "type": "string",
+            "description": "Exact payment type returned by list_banks(service=PIS)."
+          },
+          "payment_request": {
+            "type": "object",
+            "properties": {
+              "credit_transfer_transaction": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "beneficiary": {
+                      "type": "object",
+                      "properties": {
+                        "creditor": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "description": ""
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "creditor_account": {
+                          "type": "object",
+                          "properties": {
+                            "identification": {
+                              "type": "string",
+                              "description": "Account identifier, e.g. IBAN."
+                            },
+                            "scheme_name": {
+                              "type": "string",
+                              "description": "Scheme supported by bank, e.g. IBAN."
+                            }
+                          },
+                          "required": [
+                            "identification",
+                            "scheme_name"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "creditor",
+                        "creditor_account"
+                      ]
+                    },
+                    "instructed_amount": {
+                      "type": "object",
+                      "properties": {
+                        "amount": {
+                          "type": "string",
+                          "description": "Decimal amount."
+                        },
+                        "currency": {
+                          "type": "string",
+                          "description": "ISO currency, e.g. EUR."
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "currency"
+                      ]
+                    },
+                    "remittance_information": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "description": ""
+                      },
+                      "description": "Reference or free-text payment details."
+                    },
+                    "payment_id": {
+                      "type": "object",
+                      "properties": {
+                        "end_to_end_id": {
+                          "type": "string",
+                          "description": "Stable end-to-end reference; not a guarantee of idempotency."
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "beneficiary",
+                    "instructed_amount"
+                  ]
+                },
+                "minItems": 1
+              },
+              "debtor_account": {
+                "type": "object",
+                "properties": {
+                  "identification": {
+                    "type": "string",
+                    "description": "Account identifier, e.g. IBAN."
+                  },
+                  "scheme_name": {
+                    "type": "string",
+                    "description": "Scheme supported by bank, e.g. IBAN."
+                  }
+                },
+                "required": [
+                  "identification",
+                  "scheme_name"
+                ]
+              }
+            },
+            "required": [
+              "credit_transfer_transaction"
+            ]
+          },
+          "aspsp": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": ""
+              },
+              "country": {
+                "type": "string",
+                "description": ""
+              }
+            },
+            "required": [
+              "name",
+              "country"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "description": "Unpredictable callback state; validate before continuing."
+          },
+          "redirect_url": {
+            "type": "string",
+            "description": "Registered callback URL."
+          },
+          "psu_type": {
+            "type": "string",
+            "description": "",
+            "enum": [
+              "personal",
+              "business"
+            ]
+          },
+          "defer_submission": {
+            "type": "boolean",
+            "description": "Set true to authorize first and submit explicitly; bank must support it."
+          },
+          "auth_method": {
+            "type": "string",
+            "description": ""
+          },
+          "language": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "payment_type",
+          "payment_request",
+          "aspsp",
+          "state",
+          "redirect_url",
+          "psu_type"
+        ]
+      }
+    },
+    {
+      "name": "get_payment",
+      "method": "GET",
+      "path": "/payments/{payment_id}",
+      "description": "Get full payment state. Authorization, execution and beneficiary settlement are distinct; interpret the bank payment statuses.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "payment_id"
+        ]
+      }
+    },
+    {
+      "name": "submit_payment",
+      "method": "POST",
+      "path": "/payments/{payment_id}/submit",
+      "description": "Submit an already-authorized deferred payment. Check current payment status first. Only supported when deferred_submission_supported was advertised.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "payment_id"
+        ]
+      }
+    },
+    {
+      "name": "get_payment_transaction",
+      "method": "GET",
+      "path": "/payments/{payment_id}/transactions/{transaction_id}",
+      "description": "Get the full status of one transaction within a payment.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": ""
+          },
+          "transaction_id": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "payment_id",
+          "transaction_id"
+        ]
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "slug": "seamless-ai",
-  "name": "Seamless.AI",
+  "name": "Seamless-AI",
   "description": "Real-time B2B contact search engine. Unlike Apollo/ZoomInfo (static DBs), Seamless looks up contacts on-demand by description — fresher data for niche/SMB targets that larger DBs miss.",
   "logo": "https://www.google.com/s2/favicons?domain=seamless.ai&sz=128",
   "categories": ["sales", "leads", "enrichment", "prospecting", "b2b"],

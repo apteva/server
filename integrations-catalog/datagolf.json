@@ -1,0 +1,335 @@
+{
+  "slug": "datagolf",
+  "name": "Data Golf",
+  "description": "Documented JSON HTTP API for golf fields, schedules, rankings, model predictions and sportsbook odds. Scratch Plus API key required. Monthly Plus includes current API access; historical archives require annual Plus. Published limit: 45 requests/minute across all endpoints. Despite the host name, these are JSON request/response APIs, not file downloads or streaming tools. Docs: https://datagolf.com/api-access",
+  "logo": "https://www.google.com/s2/favicons?domain=datagolf.com&sz=128",
+  "categories": [
+    "sports",
+    "golf",
+    "predictions",
+    "odds",
+    "stats"
+  ],
+  "base_url": "https://feeds.datagolf.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "query_params": {
+      "key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_players",
+      "description": "Get player IDs, names and countries.",
+      "method": "GET",
+      "path": "/get-player-list?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_schedule",
+      "description": "Get a tour season calendar.",
+      "method": "GET",
+      "path": "/get-schedule?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tour": {
+            "type": "string",
+            "enum": [
+              "all",
+              "pga",
+              "euro",
+              "kft",
+              "alt",
+              "liv"
+            ]
+          },
+          "season": {
+            "type": "integer",
+            "minimum": 1900,
+            "description": "Season year."
+          },
+          "upcoming_only": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_field",
+      "description": "Get current tournament field, withdrawals and tee times.",
+      "method": "GET",
+      "path": "/field-updates?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tour": {
+            "type": "string",
+            "enum": [
+              "pga",
+              "euro",
+              "kft",
+              "opp",
+              "alt"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_rankings",
+      "description": "Get Data Golf rankings and skill estimates.",
+      "method": "GET",
+      "path": "/preds/get-dg-rankings?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_predictions",
+      "description": "Get model pre-tournament probabilities/odds, not bookmaker prices.",
+      "method": "GET",
+      "path": "/preds/pre-tournament?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tour": {
+            "type": "string",
+            "enum": [
+              "pga",
+              "euro",
+              "kft",
+              "opp",
+              "alt"
+            ]
+          },
+          "add_position": {
+            "type": "string",
+            "description": "Additional finishing positions, comma-separated."
+          },
+          "dead_heat": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          },
+          "odds_format": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "american",
+              "decimal",
+              "fraction"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_outright_odds",
+      "description": "Get sportsbook prices for a tournament finishing market.",
+      "method": "GET",
+      "path": "/betting-tools/outrights?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tour": {
+            "type": "string",
+            "enum": [
+              "pga",
+              "euro",
+              "kft",
+              "opp",
+              "alt"
+            ]
+          },
+          "market": {
+            "type": "string",
+            "enum": [
+              "win",
+              "top_5",
+              "top_10",
+              "top_20",
+              "mc",
+              "make_cut",
+              "frl"
+            ]
+          },
+          "odds_format": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "american",
+              "decimal",
+              "fraction"
+            ]
+          }
+        },
+        "required": [
+          "market"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_matchup_odds",
+      "description": "Get tournament/round matchup or three-ball sportsbook odds.",
+      "method": "GET",
+      "path": "/betting-tools/matchups?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tour": {
+            "type": "string",
+            "enum": [
+              "pga",
+              "euro",
+              "kft",
+              "opp",
+              "alt"
+            ]
+          },
+          "market": {
+            "type": "string",
+            "enum": [
+              "tournament_matchups",
+              "round_matchups",
+              "3_balls"
+            ]
+          },
+          "odds_format": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "american",
+              "decimal",
+              "fraction"
+            ]
+          }
+        },
+        "required": [
+          "market"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_prediction_archive",
+      "description": "Get historical pre-tournament model predictions. Requires annual Scratch Plus archive access.",
+      "method": "GET",
+      "path": "/preds/pre-tournament-archive?file_format=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Provider event ID."
+          },
+          "year": {
+            "type": "integer",
+            "minimum": 1900,
+            "description": "Event year."
+          },
+          "odds_format": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "american",
+              "decimal",
+              "fraction"
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "year"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1400,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_players"
+  }
+}

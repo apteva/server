@@ -1,6 +1,6 @@
 {
   "slug": "eia",
-  "name": "EIA — U.S. Energy Information Administration",
+  "name": "EIA — US Energy Information Administration",
   "description": "Official US energy data — crude oil spot + futures prices, refined product prices (gasoline, diesel, jet fuel, heating oil), natural gas, electricity retail + generation, coal, renewables, and country-level energy stats. Drives commodity markets, energy ETF/stock prices, transport-sector inflation expectations, and (less obviously) crypto mining cost discussions. Free, official, no rate limit cap. Sign up at https://www.eia.gov/opendata/register.php. v2 API is category-routed — paths like /petroleum/pri/spt/data fetch petroleum spot prices.",
   "logo": "https://www.google.com/s2/favicons?domain=eia.gov&sz=128",
   "categories": [

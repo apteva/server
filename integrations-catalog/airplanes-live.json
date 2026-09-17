@@ -1,6 +1,6 @@
 {
   "slug": "airplanes-live",
-  "name": "Airplanes.live",
+  "name": "Airplanes-live",
   "description": "Live ADS-B aircraft positions by hex, callsign, registration, type, squawk, military/privacy category, or geographic radius. The public REST API is non-commercial, limited to 500 requests/day and one request/second, and has no SLA.",
   "logo": "https://www.google.com/s2/favicons?domain=airplanes.live&sz=128",
   "categories": ["aviation", "flight-tracking", "aircraft", "ads-b", "open-data"],

@@ -1,0 +1,355 @@
+{
+  "slug": "saltedge-payments",
+  "name": "Salt Edge Payment Initiation",
+  "description": "Separate Salt Edge v6 Payment Initiation product: provider/template discovery, signed payment creation, bank consent URL and payment status. Requires PIS-enabled credentials. No cancellation is advertised.",
+  "logo": "https://www.google.com/s2/favicons?domain=saltedge.com&sz=128",
+  "categories": [
+    "banking",
+    "payments",
+    "open-banking",
+    "eu"
+  ],
+  "base_url": "https://www.saltedge.com/api/v6",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "App-id": "{{app_id}}",
+      "Secret": "{{secret}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "app_id",
+        "label": "PIS App ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "secret",
+        "label": "PIS Secret",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "private_key",
+        "label": "Client RSA Signing Private Key",
+        "type": "multiline_password",
+        "required": true
+      },
+      {
+        "name": "callback_url",
+        "label": "Registered Payment Callback URL",
+        "type": "text",
+        "required": false,
+        "description": "Exact public subscription URL registered in Salt Edge; used to verify callback signatures. Configure before receiving callbacks."
+      }
+    ],
+    "signers": [
+      {
+        "name": "saltedge_pis"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_payment_banks",
+      "method": "GET",
+      "path": "/providers?include_pis_fields=true",
+      "description": "Discover providers with PIS fields and payment templates; inspect availability for your product/credentials.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country_code": {
+            "type": "string",
+            "description": "ES for Spain."
+          },
+          "include_sandboxes": {
+            "type": "boolean"
+          },
+          "from_id": {
+            "type": "string",
+            "description": ""
+          }
+        }
+      },
+      "query_params": [
+        "country_code",
+        "include_sandboxes",
+        "from_id"
+      ]
+    },
+    {
+      "name": "get_payment_bank",
+      "method": "GET",
+      "path": "/providers/{provider_code}?include_pis_fields=true",
+      "description": "Get provider-specific supported PIS templates and required attributes.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "provider_code": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "provider_code"
+        ]
+      },
+      "query_params": []
+    },
+    {
+      "name": "list_payment_templates",
+      "method": "GET",
+      "path": "/payment_templates",
+      "description": "Discover supported payment types and required fields.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_payment_template",
+      "method": "GET",
+      "path": "/payment_templates/{template_identifier}",
+      "description": "Get payment fields. Provider-specific requirements may add required fields.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_identifier": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "template_identifier"
+        ]
+      }
+    },
+    {
+      "name": "create_payment",
+      "method": "POST",
+      "path": "/payments/create",
+      "description": "Create a PIS payment and return payment_url for bank consent. Requires enabled PIS access. Persist payment_id. Creation is not settlement; reconcile an ambiguous response before retrying. Supply customer_id (mandatory for Partners) or customer_identifier.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_attributes": {
+            "type": "object",
+            "properties": {
+              "creditor_name": {
+                "type": "string",
+                "description": "Use the chosen payment template and provider requirements."
+              },
+              "creditor_iban": {
+                "type": "string",
+                "description": "Use the chosen payment template and provider requirements."
+              },
+              "debtor_iban": {
+                "type": "string",
+                "description": "Use the chosen payment template and provider requirements."
+              },
+              "amount": {
+                "type": "string",
+                "description": "Use the chosen payment template and provider requirements."
+              },
+              "currency_code": {
+                "type": "string",
+                "description": "Use the chosen payment template and provider requirements."
+              },
+              "reference": {
+                "type": "string",
+                "description": "Use the chosen payment template and provider requirements."
+              },
+              "end_to_end_id": {
+                "type": "string",
+                "description": "Use the chosen payment template and provider requirements."
+              },
+              "description": {
+                "type": "string",
+                "description": "Required unstructured payment description, respecting bank/template limits."
+              },
+              "customer_ip_address": {
+                "type": "string",
+                "description": "Actual initiating user IP address required by the payment template."
+              }
+            },
+            "required": [
+              "end_to_end_id",
+              "description",
+              "customer_ip_address"
+            ]
+          },
+          "template_identifier": {
+            "type": "string",
+            "description": "Verified template identifier, e.g. SEPA."
+          },
+          "customer_id": {
+            "type": "string",
+            "description": ""
+          },
+          "customer_identifier": {
+            "type": "string",
+            "description": ""
+          },
+          "provider": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": ""
+              },
+              "include_sandboxes": {
+                "type": "boolean"
+              }
+            }
+          },
+          "attempt": {
+            "type": "object",
+            "properties": {
+              "return_to": {
+                "type": "string",
+                "description": "User redirect URL."
+              },
+              "custom_fields": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "description": "Correlation value; verify on callback."
+                  }
+                }
+              },
+              "locale": {
+                "type": "string",
+                "description": ""
+              }
+            }
+          },
+          "widget": {
+            "type": "object",
+            "properties": {
+              "skip_provider_selection": {
+                "type": "boolean"
+              }
+            }
+          },
+          "return_payment_id": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "payment_attributes",
+          "template_identifier"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "customer_id"
+            ]
+          },
+          {
+            "required": [
+              "customer_identifier"
+            ]
+          }
+        ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "target": "data",
+        "fields": [
+          "payment_attributes",
+          "template_identifier",
+          "customer_id",
+          "customer_identifier",
+          "provider",
+          "attempt",
+          "widget",
+          "return_payment_id"
+        ]
+      }
+    },
+    {
+      "name": "create_customer",
+      "method": "POST",
+      "path": "/customers",
+      "description": "Create a customer used for PIS payments.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Stable internal customer identifier."
+          }
+        },
+        "required": [
+          "identifier"
+        ]
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "target": "data",
+        "fields": [
+          "identifier"
+        ]
+      }
+    },
+    {
+      "name": "get_payment",
+      "method": "GET",
+      "path": "/payments/{payment_id}",
+      "description": "Retrieve complete payment and attempt status; a Widget return is not proof of settlement.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "payment_id"
+        ]
+      }
+    },
+    {
+      "name": "list_payments",
+      "method": "GET",
+      "path": "/payments",
+      "description": "List customer payments and pagination metadata; follow meta.next_id with from_id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": ""
+          },
+          "from_id": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      },
+      "query_params": [
+        "customer_id",
+        "from_id"
+      ]
+    }
+  ],
+  "webhooks": {
+    "signature_header": "Signature",
+    "events": [
+      {
+        "name": "payment_status",
+        "description": "Verified Salt Edge PIS callback. Inspect payment/attempt ID and retrieve current payment status before acting."
+      }
+    ]
+  }
+}

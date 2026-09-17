@@ -1,0 +1,357 @@
+{
+  "slug": "sportmonks-football",
+  "name": "Sportmonks Football",
+  "description": "Sportmonks Football v3 JSON API for leagues, fixtures, teams, players and standings. API token required. Free coverage includes Danish Superliga and Scottish Premiership; other leagues, includes and advanced features depend on subscription. Do not assume free access to every advertised feature. Docs: https://docs.sportmonks.com/v3/",
+  "logo": "https://www.google.com/s2/favicons?domain=sportmonks.com&sz=128",
+  "categories": [
+    "sports",
+    "football",
+    "soccer",
+    "stats",
+    "standings"
+  ],
+  "base_url": "https://api.sportmonks.com/v3/football",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "query_params": {
+      "api_token": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_leagues",
+      "description": "List leagues accessible to this subscription.",
+      "method": "GET",
+      "path": "/leagues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Page size."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_fixtures",
+      "description": "Get fixtures on a date, retaining pagination and rate-limit metadata.",
+      "method": "GET",
+      "path": "/fixtures/date/{date}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Page size."
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_fixture",
+      "description": "Get one fixture; include scores and participants when needed.",
+      "method": "GET",
+      "path": "/fixtures/{fixture_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fixture_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          }
+        },
+        "required": [
+          "fixture_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_head_to_head",
+      "description": "Get fixtures between two teams.",
+      "method": "GET",
+      "path": "/fixtures/head-to-head/{team_id1}/{team_id2}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id1": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "team_id2": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Page size."
+          }
+        },
+        "required": [
+          "team_id1",
+          "team_id2"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_standings",
+      "description": "Get standings for a provider season ID.",
+      "method": "GET",
+      "path": "/standings/seasons/{season_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Page size."
+          }
+        },
+        "required": [
+          "season_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List teams with pagination.",
+      "method": "GET",
+      "path": "/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Page size."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team",
+      "description": "Get a team and optional relationships.",
+      "method": "GET",
+      "path": "/teams/{team_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          }
+        },
+        "required": [
+          "team_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player",
+      "description": "Get a player profile and entitled relationships.",
+      "method": "GET",
+      "path": "/players/{player_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "player_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "include": {
+            "type": "string",
+            "description": "Semicolon-separated relationships, e.g. scores;participants. Available includes depend on endpoint and plan."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated base fields."
+          }
+        },
+        "required": [
+          "player_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_leagues",
+    "input": {
+      "per_page": 1
+    }
+  }
+}

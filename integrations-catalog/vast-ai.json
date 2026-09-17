@@ -1,6 +1,6 @@
 {
   "slug": "vast-ai",
-  "name": "Vast.ai",
+  "name": "Vast-ai",
   "description": "Vast.ai GPU cloud marketplace API for searching live GPU offers, creating and managing instances, SSH access, templates, volumes, billing, GPU market metrics, serverless endpoints, deployments, and notification webhooks.",
   "logo": "https://www.google.com/s2/favicons?domain=vast.ai&sz=128",
   "categories": ["gpu", "compute", "ai", "cloud", "marketplace", "serverless", "vast-ai"],

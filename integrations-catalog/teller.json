@@ -35,7 +35,7 @@
       {
         "name": "password",
         "label": "Password",
-        "description": "Teller uses Basic auth with the access token as the username and ignores the password. Enter the literal value 'x' — the runtime needs a non-empty password to build the Basic header.",
+        "description": "Teller uses Basic auth with the access token as the username and ignores the password. Enter the literal value 'x' \u2014 the runtime needs a non-empty password to build the Basic header.",
         "required": true,
         "type": "password"
       },
@@ -68,7 +68,7 @@
     },
     {
       "name": "get_account",
-      "description": "Get a single linked bank account by account id.",
+      "description": "Get a single linked bank account by account id. Inspect links.payments: absent means this account cannot originate payments. Where present, OPTIONS on that URL reports supported payment schemes; Teller payments are beta Zelle, not general-purpose bank transfers.",
       "method": "GET",
       "path": "/accounts/{account_id}",
       "input_schema": {
@@ -215,7 +215,7 @@
       "method": "POST",
       "path": "/accounts/{account_id}/payees",
       "headers": {
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/json"
       },
       "input_schema": {
         "type": "object",
@@ -226,7 +226,9 @@
           },
           "scheme": {
             "type": "string",
-            "enum": ["zelle"],
+            "enum": [
+              "zelle"
+            ],
             "description": "Payment scheme. Teller currently documents zelle."
           },
           "address": {
@@ -239,20 +241,29 @@
           },
           "type": {
             "type": "string",
-            "enum": ["person", "business"],
+            "enum": [
+              "person",
+              "business"
+            ],
             "description": "Payee type."
           }
         },
-        "required": ["account_id", "scheme", "address", "name", "type"]
+        "required": [
+          "account_id",
+          "scheme",
+          "address",
+          "name",
+          "type"
+        ]
       }
     },
     {
       "name": "create_payment",
-      "description": "Initiate a Teller beta payment from an account to a saved payee. The payments API is beta and availability depends on institution support.",
+      "description": "Initiate a beta Zelle payment where supported. First check account.links.payments and supported schemes. Uses JSON payee data and an Idempotency-Key. If the response contains connect_token, payment needs MFA: initialize Teller Connect with connectToken and let the account holder complete it. Do not report success or submit a new payment while the challenge is pending. Check get_payment/list_payments after completion.",
       "method": "POST",
       "path": "/accounts/{account_id}/payments",
       "headers": {
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/json"
       },
       "input_schema": {
         "type": "object",
@@ -261,10 +272,6 @@
             "type": "string",
             "description": "The paying account ID."
           },
-          "payee_id": {
-            "type": "string",
-            "description": "Payee ID returned by create_payee."
-          },
           "amount": {
             "type": "string",
             "description": "Payment amount as a decimal string, for example 10.48."
@@ -272,9 +279,55 @@
           "memo": {
             "type": "string",
             "description": "Optional payment memo."
+          },
+          "payee": {
+            "type": "object",
+            "description": "Existing payee: scheme and address. New payee: also provide name and type.",
+            "properties": {
+              "scheme": {
+                "type": "string",
+                "enum": [
+                  "zelle"
+                ],
+                "description": "Payment scheme. Teller currently documents zelle."
+              },
+              "address": {
+                "type": "string",
+                "description": "Payee email address or phone number."
+              },
+              "name": {
+                "type": "string",
+                "description": "Payee name."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "person",
+                  "business"
+                ],
+                "description": "Payee type."
+              }
+            },
+            "required": [
+              "scheme",
+              "address"
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable unique key per payment intent. Persist before sending; reuse for retries of the same payload. Teller retains idempotency behavior for 72 hours."
           }
         },
-        "required": ["account_id", "payee_id", "amount"]
+        "required": [
+          "account_id",
+          "payee",
+          "amount",
+          "idempotency_key"
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
       }
     },
     {
@@ -290,7 +343,9 @@
             "description": "The account ID."
           }
         },
-        "required": ["account_id"]
+        "required": [
+          "account_id"
+        ]
       }
     },
     {
@@ -310,7 +365,28 @@
             "description": "The Teller payment ID."
           }
         },
-        "required": ["account_id", "payment_id"]
+        "required": [
+          "account_id",
+          "payment_id"
+        ]
+      }
+    },
+    {
+      "name": "get_payment_capabilities",
+      "method": "OPTIONS",
+      "path": "/accounts/{account_id}/payments",
+      "description": "Discover supported payment schemes for an eligible account. Check account.links.payments first. Teller currently documents beta Zelle, not general ACH, SEPA or wire support.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "account_id"
+        ]
       }
     }
   ]
