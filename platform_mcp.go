@@ -22,6 +22,7 @@ import (
 type platformGatewayExecuteFunc func(context.Context, int64, string, []byte) ([]byte, error)
 
 var projectConversationGatewayTools = map[string]bool{
+	"setup_presets_list": true, "setup_preview": true, "setup_apply": true,
 	"agents_list": true, "agents_get": true, "agents_create": true,
 	"agents_update": true, "agents_start": true, "agents_stop": true,
 	"agents_send_event": true, "agents_delete": true, "agent_list_activity": true,
@@ -68,6 +69,9 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "read MCP request", http.StatusBadRequest)
 		return
 	}
+	if s.handleHelperAppTool(w, r, agent, threadID, projectID, body) {
+		return
+	}
 	if projectID != "" {
 		body, err = s.scopeProjectGatewayRequest(body, projectID)
 		if err != nil {
@@ -80,7 +84,17 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 	if execute == nil {
 		execute = s.executePlatformGatewaySubprocess
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	timeout := 2 * time.Minute
+	var call struct {
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(body, &call) == nil && call.Params.Name == "setup_apply" {
+		// Applying a preset may install several source-built dependencies.
+		timeout = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	response, err := execute(ctx, agent.UserID, projectID, body)
 	if err != nil {
@@ -88,6 +102,19 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	var rpc struct {
+		Method string `json:"method"`
+	}
+	if json.Unmarshal(body, &rpc) == nil && rpc.Method == "tools/list" {
+		var reply map[string]any
+		if json.Unmarshal(response, &reply) == nil {
+			if result, ok := reply["result"].(map[string]any); ok {
+				list, _ := result["tools"].([]any)
+				result["tools"] = append(list, helperAppToolDefinitions()...)
+				response, _ = json.Marshal(reply)
+			}
+		}
+	}
 	_, _ = w.Write(response)
 }
 

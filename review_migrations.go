@@ -28,5 +28,36 @@ func (s *Store) migrateReviewFixes() error {
 			return fmt.Errorf("server review migration: %w", err)
 		}
 	}
+	var proactivityMigrated int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM server_schema_migrations WHERE version=4`).Scan(&proactivityMigrated); err != nil {
+		return err
+	}
+	if proactivityMigrated == 0 {
+		for _, q := range []string{
+			`ALTER TABLE agents ADD COLUMN proactivity INTEGER NOT NULL DEFAULT 25 CHECK(typeof(proactivity)='integer' AND proactivity BETWEEN 0 AND 100)`,
+			`DROP TRIGGER IF EXISTS agent_behavior_update`,
+			`CREATE TRIGGER agent_behavior_update AFTER UPDATE OF directive,mode,proactivity ON agents WHEN NEW.directive IS NOT OLD.directive OR NEW.mode IS NOT OLD.mode OR NEW.proactivity IS NOT OLD.proactivity BEGIN INSERT INTO agent_behavior_state(agent_id,revision,version) VALUES(NEW.id,1,2) ON CONFLICT(agent_id) DO UPDATE SET revision=revision+1,version=2,last_error=''; END`,
+			`INSERT INTO server_schema_migrations(version) VALUES(4)`,
+		} {
+			if _, err := tx.Exec(q); err != nil {
+				return fmt.Errorf("agent proactivity migration: %w", err)
+			}
+		}
+	}
+	var sharperPolicyMigrated int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM server_schema_migrations WHERE version=5`).Scan(&sharperPolicyMigrated); err != nil {
+		return err
+	}
+	if sharperPolicyMigrated == 0 {
+		for _, q := range []string{
+			`DROP TRIGGER IF EXISTS agent_behavior_update`,
+			`CREATE TRIGGER agent_behavior_update AFTER UPDATE OF directive,mode,proactivity ON agents WHEN NEW.directive IS NOT OLD.directive OR NEW.mode IS NOT OLD.mode OR NEW.proactivity IS NOT OLD.proactivity BEGIN INSERT INTO agent_behavior_state(agent_id,revision,version) VALUES(NEW.id,1,3) ON CONFLICT(agent_id) DO UPDATE SET revision=revision+1,version=3,last_error=''; END`,
+			`INSERT INTO server_schema_migrations(version) VALUES(5)`,
+		} {
+			if _, err := tx.Exec(q); err != nil {
+				return fmt.Errorf("agent initiative policy migration: %w", err)
+			}
+		}
+	}
 	return tx.Commit()
 }

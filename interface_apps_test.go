@@ -69,39 +69,33 @@ func chooseInterface(t *testing.T, s *Server, userID int64, level string) *httpt
 	return w
 }
 
-func TestInterfaceAppsInstallForPersonalAndBusinessMembers(t *testing.T) {
+func prepareAIOnboarding(t *testing.T, s *Server, userID int64) *httptest.ResponseRecorder {
+	t.Helper()
+	r := helperLifecycleRequest(http.MethodPost, "/auth/onboarding/prepare", userID, `{"mode":"ai"}`)
+	w := httptest.NewRecorder()
+	s.handlePrepareOnboarding(w, r)
+	return w
+}
+
+func TestInterfacePreferencesNeverInstallApps(t *testing.T) {
 	s := newTestServer(t)
 	setupInterfaceRegistry(t, s)
 	user, err := s.store.CreateUser("member@interface.test", "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, level := range []string{"personal", "business", "personal"} {
+	for _, level := range []string{"personal", "business", "developer"} {
 		w := chooseInterface(t, s, user.ID, level)
 		if w.Code != http.StatusOK {
-			t.Fatalf("%s: status=%d body=%s", level, w.Code, w.Body.String())
+			t.Fatalf("%s: %d %s", level, w.Code, w.Body.String())
 		}
-		if got := s.store.GetUserInterfaceLevel(user.ID); got != level {
-			t.Fatalf("level=%s want %s", got, level)
+		if s.store.GetUserInterfaceLevel(user.ID) != level {
+			t.Fatal("preference not saved")
 		}
 	}
 	var count int
-	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs`).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("install count=%d err=%v", count, err)
-	}
-	var scope, status string
-	var owner int64
-	if err := s.store.db.QueryRow(`SELECT project_id,status,installed_by FROM app_installs`).Scan(&scope, &status, &owner); err != nil {
-		t.Fatal(err)
-	}
-	if scope != "" || status != "running" || owner != 1 {
-		t.Fatalf("scope=%s status=%s owner=%d", scope, status, owner)
-	}
-	if s.store.GetPlatformRole(user.ID) == PlatformAdmin {
-		t.Fatal("member was promoted")
-	}
-	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM agents WHERE kind='platform_helper'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("unexpected Helper count=%d err=%v", count, err)
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("unexpected installs=%d err=%v", count, err)
 	}
 }
 
@@ -110,7 +104,7 @@ func TestInterfaceAppsReuseRunningInstallWithoutRegistry(t *testing.T) {
 	ensureTestAdmin(t, s)
 	id := seedAppWithTools(t, s, defaultConversationsApp, "", []string{"send"})
 	t.Setenv("APTEVA_APP_REGISTRY_URL", "http://127.0.0.1:1/unavailable")
-	w := chooseInterface(t, s, 1, "personal")
+	w := prepareAIOnboarding(t, s, 1)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -130,7 +124,7 @@ func TestInterfaceAppsFailurePreservesChoiceAndCanRetry(t *testing.T) {
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
-	w := chooseInterface(t, s, 1, "personal")
+	w := prepareAIOnboarding(t, s, 1)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -147,7 +141,7 @@ func TestInterfaceAppsFailurePreservesChoiceAndCanRetry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("ready"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	w = chooseInterface(t, s, 1, "personal")
+	w = prepareAIOnboarding(t, s, 1)
 	if w.Code != http.StatusOK {
 		t.Fatalf("retry status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -162,7 +156,7 @@ func TestInterfaceAppsDoNotReusePrivateProjectInstall(t *testing.T) {
 	s := newTestServer(t)
 	setupInterfaceRegistry(t, s)
 	privateID := seedAppWithTools(t, s, defaultConversationsApp, "private-project", []string{"send"})
-	w := chooseInterface(t, s, 1, "business")
+	w := prepareAIOnboarding(t, s, 1)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -224,7 +218,7 @@ func TestInterfaceAppsDeveloperAndUnrelatedPreferencesDoNotInstall(t *testing.T)
 	}
 }
 
-func TestInterfaceAppsOnboardingCompletionPreparesDefaultBusiness(t *testing.T) {
+func TestInterfaceAppsOnboardingCompletionDoesNotInstallDefaultBusiness(t *testing.T) {
 	s := newTestServer(t)
 	setupInterfaceRegistry(t, s)
 	user, err := s.store.CreateUser("new@interface.test", "hash")
@@ -243,12 +237,12 @@ func TestInterfaceAppsOnboardingCompletionPreparesDefaultBusiness(t *testing.T) 
 		t.Fatalf("onboarding not complete err=%v", err)
 	}
 	var n int
-	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs WHERE status='running'`).Scan(&n); err != nil || n != 1 {
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs WHERE status='running'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("count=%d err=%v", n, err)
 	}
 }
 
-func TestInterfaceAppsFailedCompletionStaysInOnboarding(t *testing.T) {
+func TestInterfaceAppsCompletionDoesNotRequireAppRuntime(t *testing.T) {
 	s := newTestServer(t)
 	user, err := s.store.CreateUser("waiting@interface.test", "hash")
 	if err != nil {
@@ -258,12 +252,12 @@ func TestInterfaceAppsFailedCompletionStaysInOnboarding(t *testing.T) {
 	r.Header.Set("X-User-ID", itoa(user.ID))
 	w := httptest.NewRecorder()
 	s.handleCompleteOnboarding(w, r)
-	if w.Code != http.StatusServiceUnavailable {
+	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	user, err = s.store.GetUserByID(user.ID)
-	if err != nil || user.OnboardedAt != nil {
-		t.Fatalf("failed preparation completed onboarding: user=%+v err=%v", user, err)
+	if err != nil || user.OnboardedAt == nil {
+		t.Fatalf("manual completion failed: user=%+v err=%v", user, err)
 	}
 }
 
@@ -286,7 +280,7 @@ func TestInterfaceAppsRespectOperatorAllowlist(t *testing.T) {
 	if err := s.store.SetUserInterfaceLevel(user.ID, "developer"); err != nil {
 		t.Fatal(err)
 	}
-	w := chooseInterface(t, s, user.ID, "personal")
+	w := prepareAIOnboarding(t, s, user.ID)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}

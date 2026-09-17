@@ -63,6 +63,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(rest, "/")
 
 	switch parts[0] {
+	case "event-subscriptions":
+		s.handleCallbackEventSubscriptions(w, r, parts[1:])
 	case "whoami":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -123,6 +125,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackPlatformBackup(w, r, parts[1:])
 	case "delegated-keys":
 		s.handleCallbackDelegatedKeys(w, r, parts[1:])
+	case "dashboard-connect-origins":
+		s.handleCallbackDashboardConnectOrigins(w, r, parts[1:])
 	case "cors-origins":
 		s.handleCallbackCORSOrigins(w, r, parts[1:])
 	case "managed-tenants":
@@ -1250,6 +1254,18 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 			return
 		}
 	}
+	if isPlatformBackupApp(target) {
+		// Scheduled calls may only enqueue an existing policy. General backup
+		// management and restore require a direct authenticated administrator.
+		var owner int64
+		_ = s.store.db.QueryRow(`SELECT COALESCE(installed_by,0) FROM app_installs WHERE id=?`, installID).Scan(&owner)
+		async, _ := body.Input["async"].(bool)
+		policyID, _ := body.Input["policy_id"].(float64)
+		if callerAppName != "jobs" || !s.isAdmin(owner) || body.Tool != "backup_now" || !async || policyID <= 0 {
+			http.Error(w, "backup management requires a direct platform administrator request", http.StatusForbidden)
+			return
+		}
+	}
 	// Replace rather than preserve routing metadata. The value above is
 	// pinned by the caller install or validated against its owning user.
 	delete(body.Input, "_project_id")
@@ -1390,6 +1406,10 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 	target := s.installedApps.Get(targetInstallID)
 	if target == nil || target.SidecarURL == "" {
 		http.Error(w, "target app not reachable: "+targetAppName, http.StatusBadGateway)
+		return
+	}
+	if isPlatformBackupApp(target) {
+		http.Error(w, "backup management requires a direct platform administrator request", http.StatusForbidden)
 		return
 	}
 	callerAppName := strings.TrimSpace(s.callerAppName(callerInstallID))
@@ -1772,6 +1792,15 @@ func (s *Server) bindCallbackThreadProject(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "thread project does not match target agent project", http.StatusForbidden)
 		return false, false
 	}
+	// A shared app's service identity must not place a user's global Helper in
+	// a project that the Helper's owner cannot access.
+	if agent.Kind == "platform_helper" && s.store.GetPlatformRole(agent.UserID) != PlatformAdmin {
+		role, err := s.store.GetProjectRole(projectID, agent.UserID)
+		if err != nil || role.Rank() < ProjectViewer.Rank() {
+			http.Error(w, "helper owner cannot access this project", http.StatusForbidden)
+			return false, false
+		}
+	}
 	created, err := s.store.BindAgentThreadScope(agent.ID, threadID, projectID, installID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -2044,7 +2073,9 @@ func (s *Server) callbackRealtimeAudioBaseURL(r *http.Request, installID, agentI
 // platform.instances.read permission. Project-scoped installs are
 // pinned to their own project regardless of ?project_id; global
 // installs may filter by project or omit it to list every user agent.
-// Store.ListAgents already excludes platform-owned helper agents.
+// Ordinary listing excludes platform-owned helpers. A global app explicitly
+// attached to the caller's active Helper may discover that same Helper, so
+// conversation apps can select it without changing the dashboard agent roster.
 func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request) {
 	installID, err := requireInstallID(r)
 	if err != nil {
@@ -2112,6 +2143,13 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 		}
 		rows.Close()
 	}
+	if installProject == "" {
+		role, roleErr := s.store.GetProjectRole(projectID, getUserID(r))
+		projectAccessible := projectID == "" || s.store.GetPlatformRole(getUserID(r)) == PlatformAdmin || (roleErr == nil && role.Rank() >= ProjectViewer.Rank())
+		if helper, err := s.store.GetPlatformHelper(getUserID(r)); err == nil && projectAccessible && helper.ProjectID == "" && bound[helper.ID] && platformHelperActivated(helper) {
+			agents = append(agents, *helper)
+		}
+	}
 	out := make([]sdk.PlatformInstance, 0, len(agents))
 	for _, agent := range agents {
 		out = append(out, sdk.PlatformInstance{
@@ -2125,6 +2163,21 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int64) (*Agent, error) {
 	agent, err := s.store.GetAgent(getUserID(r), agentID)
+	if err != nil || agent == nil {
+		// Durable app workers have no browser session. An authenticated install
+		// may deliver to an explicitly attached agent even when another member
+		// owns it. This never applies to a browser user's request or a forged
+		// identity header, and revoking the binding revokes access immediately.
+		principal, authenticated := r.Context().Value(appCallbackPrincipalKey{}).(appCallbackPrincipal)
+		if authenticated && principal.installID == installID && !principal.userSession {
+			var ownerID int64
+			if lookupErr := s.store.db.QueryRow(`SELECT a.user_id FROM agents a
+				JOIN app_agent_bindings b ON b.agent_id=a.id
+				WHERE a.id=? AND b.install_id=? AND b.enabled=1`, agentID, installID).Scan(&ownerID); lookupErr == nil {
+				agent, err = s.store.GetAgent(ownerID, agentID)
+			}
+		}
+	}
 	if err != nil || agent == nil {
 		return nil, errors.New("agent not found or not owned by this user")
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -26,26 +27,51 @@ func appSubscriptionMatches(sub *Subscription, ev AppEvent) bool {
 // Commit all matching deliveries before acknowledging or publishing an emit.
 // Subscriber channel overflow/restart cannot discard the durable work.
 func (s *Server) queueAppSubscriptions(ev AppEvent) error {
+	_, err := s.queueAppSubscriptionsWithID(ev, "")
+	return err
+}
+func (s *Server) queueAppSubscriptionsWithID(ev AppEvent, publisherID string) (bool, error) {
 	subs, err := s.store.listAppEventSubscriptions(ev.App, ev.ProjectID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	tx, err := s.store.db.Begin()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	key := generateID()
+	if publisherID != "" {
+		hash := appEventHash(ev)
+		var existing string
+		err = tx.QueryRow(`SELECT payload_hash FROM app_event_receipts WHERE source_install_id=? AND event_id=?`, ev.InstallID, publisherID).Scan(&existing)
+		if err == nil {
+			if existing != hash {
+				return false, errAppEventConflict
+			}
+			return true, nil
+		}
+		if err != sql.ErrNoRows {
+			return false, err
+		}
+		if _, err = tx.Exec(`INSERT INTO app_event_receipts VALUES(?,?,?)`, ev.InstallID, publisherID, hash); err != nil {
+			return false, err
+		}
+		key = fmt.Sprintf("%d:%s", ev.InstallID, publisherID)
+	}
 	raw, _ := json.Marshal(ev)
 	for _, sub := range subs {
 		if appSubscriptionMatches(sub, ev) {
 			snapshot, _ := json.Marshal(sub)
-			if _, err := tx.Exec(`INSERT INTO app_subscription_outbox(event_key,subscription_id,subscription_json,event_json,created_at) VALUES(?,?,?,?,?)`, key, sub.ID, string(snapshot), string(raw), time.Now().Unix()); err != nil {
-				return err
+			if _, err = tx.Exec(`INSERT INTO app_subscription_outbox(event_key,subscription_id,subscription_json,event_json,created_at) VALUES(?,?,?,?,?)`, key, sub.ID, string(snapshot), string(raw), time.Now().Unix()); err != nil {
+				return false, err
 			}
 		}
 	}
-	return tx.Commit()
+	if err = queueAppEventTargets(tx, ev, key); err != nil {
+		return false, err
+	}
+	return false, tx.Commit()
 }
 
 func (d *AppEventDispatcher) enqueueAndDeliver(sub *Subscription, ev AppEvent) {
@@ -136,6 +162,7 @@ func (d *AppEventDispatcher) runOutbox(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		d.drainOutbox(ctx)
+		d.drainAppEventTargets(ctx)
 		d.server.store.db.Exec("DELETE FROM app_subscription_outbox WHERE id IN (SELECT id FROM app_subscription_outbox WHERE status IN ('delivered','canceled') AND created_at<? LIMIT 1000)", time.Now().Add(-7*24*time.Hour).Unix())
 		select {
 		case <-ctx.Done():

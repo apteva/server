@@ -4,6 +4,7 @@
     {
       "id": "personal-assistant",
       "category": "personal",
+      "interface_level": "personal",
       "name": "Personal assistant",
       "description": "A general assistant for planning, communication, reminders, and everyday follow-through.",
       "match": [
@@ -44,6 +45,7 @@
     {
       "id": "personal-household",
       "category": "personal",
+      "interface_level": "personal",
       "name": "Household",
       "description": "Coordinate household errands, maintenance, shared plans, and recurring responsibilities.",
       "match": [
@@ -83,6 +85,7 @@
     {
       "id": "personal-wellbeing",
       "category": "personal",
+      "interface_level": "personal",
       "name": "Wellbeing planner",
       "description": "Support non-clinical routines, reflection, habits, and appointment preparation.",
       "match": [
@@ -122,6 +125,7 @@
     {
       "id": "personal-creator",
       "category": "personal",
+      "interface_level": "personal",
       "name": "Independent creator",
       "description": "Organize ideas, a publishing cadence, research, and audience follow-up.",
       "match": [

@@ -1,0 +1,19 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "alg": "RS512",
+      "kid": "db2e0bb4-e33d-4fc6-a8c5-645e70331127",
+      "n": "piC9AfXk1FyhocC77L42j8zWhy-jOeuxdvZCRYACPbU5DB-4zd5JLpTFuYPY5LweqT8tmBbqgXMN_35EQifHrLbBB5a5p-0z3QlVhqMP_K4nu65uIVzC-wjKBcTctqY_jFzSotFZnDNCZEUXcGrTzQifOCy1OD7zT0jm7-1ceWs375joA-KnyJj5rVKBmYrLWa6E2ukLhNBHFzO2N7Aai2w6UFmwfG27viV3_aNkDVC6vkEtZx4oZuCtQ6DKmbiQBTiS1-41wU7QN5PTuA9YUlhOU9yiwnCAG9MDWuJHT7691iLvIIgRctuSQ4HDDg49M39Un4DBt51KCoZsAwxtNw",
+      "e": "AQAB"
+    },
+    {
+      "kty": "EC",
+      "alg": "ES512",
+      "kid": "45fc75cf-5649-4134-84b3-192c2c78e990",
+      "crv": "P-521",
+      "x": "oLuW4nFqoUuR8d7FVsUoI62libYdQlWGtLStnqdudLY92bQ0ra5eZAbkunrGTR9-w9mr4o2Etyb6pC7YB2-23WM",
+      "y": "AX1cjkGMiltikPrkX49qwuJDdcETaTsj-kyFP8jsF9W5XAB3Z4tBiQtc72DQnJYeKyAV_T6qZTtFKFr-Tp4iu-j7"
+    }
+  ]
+}

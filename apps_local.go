@@ -227,6 +227,26 @@ func (sup *LocalSupervisor) acquireBuildSlot() func() {
 // localPlatform returns the manifest binaries[] key for this host:
 // "<goos>-<goarch>" e.g. "linux-amd64", "darwin-arm64". Matches the
 // schema apps publish in their manifest.
+func hasLocalArtifact(m *sdk.Manifest) bool {
+	_, ok := m.Runtime.Artifacts[localPlatform()]
+	return ok
+}
+
+// Downloads do not consume compiler slots or wait behind source builds.
+func (sup *LocalSupervisor) acquireRuntimeBuildSlot(m *sdk.Manifest) func() {
+	if hasLocalArtifact(m) {
+		return func() {}
+	}
+	return sup.acquireBuildSlot()
+}
+
+func runtimeQueuedMessage(m *sdk.Manifest) string {
+	if hasLocalArtifact(m) {
+		return "Preparing prebuilt app…"
+	}
+	return "Queued — waiting for a build slot"
+}
+
 func localPlatform() string { return runtime.GOOS + "-" + runtime.GOARCH }
 
 // Install resolves the binary URL from the manifest, downloads + caches
@@ -236,6 +256,14 @@ func localPlatform() string { return runtime.GOOS + "-" + runtime.GOARCH }
 // Returns the spawned port + bin path so the caller can persist them
 // in app_installs. On any failure, leaves no orphan child.
 func (sup *LocalSupervisor) Install(installID int64, m *sdk.Manifest, env map[string]string) (port int, binPath string, err error) {
+	if _, ok := m.Runtime.Artifacts[localPlatform()]; ok {
+		binPath, err = sup.fetchAppArtifact(m, nil)
+		if err != nil {
+			return 0, "", err
+		}
+		port, err = sup.startBuiltSource(installID, m, binPath, env, func(string) {})
+		return port, binPath, err
+	}
 	bin, ok := m.Runtime.Binaries[localPlatform()]
 	if !ok {
 		return 0, "", fmt.Errorf("manifest has no binary for %s — author needs to publish a release for this platform", localPlatform())
@@ -262,6 +290,18 @@ func (sup *LocalSupervisor) Install(installID int64, m *sdk.Manifest, env map[st
 // to re-attach to apps the supervisor no longer holds in memory (server
 // restart, child died across restart).
 func (sup *LocalSupervisor) Restart(installID int64, m *sdk.Manifest, port int, binPath string, env map[string]string) error {
+	if digest := filepath.Base(filepath.Dir(binPath)); validArtifactDigest(digest) && filepath.Base(filepath.Dir(filepath.Dir(binPath))) == "artifacts" {
+		if selected, ok := m.Runtime.Artifacts[localPlatform()]; !ok || !strings.EqualFold(selected.SHA256, digest) {
+			return errors.New("cached artifact does not match installed manifest")
+		}
+		if env == nil {
+			env = map[string]string{}
+		}
+		if err := verifyAppArtifact(filepath.Dir(binPath), digest, m); err != nil {
+			return err
+		}
+		applyArtifactResourceEnv(m, binPath, env)
+	}
 	if binPath == "" || port == 0 {
 		return fmt.Errorf("no cached bin/port — re-install needed")
 	}
@@ -419,9 +459,8 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	// an upgrade rebuild lands in a fresh <version>/ folder without
 	// nuking the app's data. Layout:
 	//   <appsRoot>/<name>/data/<install-id>/app.db
-	// The double-parent walk turns <appsRoot>/<name>/<version>/ into
-	// <appsRoot>/<name>/.
-	persistentRoot := filepath.Join(filepath.Dir(dir), "data", strconv.FormatInt(installID, 10))
+	// Resolve from the app root, independent of the runtime package layout.
+	persistentRoot := filepath.Join(sup.cacheDir, appName, "data", strconv.FormatInt(installID, 10))
 	_ = os.MkdirAll(persistentRoot, 0755)
 	dbPath := filepath.Join(persistentRoot, "app.db")
 	logPath := filepath.Join(dir, "stderr.log")
@@ -752,6 +791,11 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 				err.Error(), installID)
 		}
 		return err
+	}
+	if _, prebuilt := m.Runtime.Artifacts[localPlatform()]; prebuilt {
+		if err := s.syncAgentPluginSkillsForInstall(installID, m, projectID, artifactAppRoot(m, binPath)); err != nil {
+			log.Printf("[APP-ARTIFACT] skills install=%d: %v", installID, err)
+		}
 	}
 	pid := s.localApps.PID(installID)
 	url := localSidecarURL(int64(port))
@@ -1175,12 +1219,19 @@ func (s *Server) PrepareCloneLocalRuntimes() error {
 	}
 	for _, r := range installs {
 		path, found := cloneLocalBinPath(s.localApps.cacheDir, r.appName, r.version)
+		var delivery sdk.Manifest
+		if err := json.Unmarshal([]byte(r.mj), &delivery); err != nil {
+			return err
+		}
+		if hasLocalArtifact(&delivery) {
+			found = false
+		}
 		if !found {
 			m, err := exactSourceRuntimeManifest(r.appName, r.version, r.mj)
 			if err != nil {
 				return fmt.Errorf("install %d (%s): parse manifest: %w", r.id, r.appName, err)
 			}
-			release := s.localApps.acquireBuildSlot()
+			release := s.localApps.acquireRuntimeBuildSlot(m)
 			path, err = s.localApps.BuildFromSourceBinary(m, func(msg string) {
 				s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, "Quarantine: "+msg, r.id)
 			})
@@ -1270,11 +1321,11 @@ func (s *Server) ResumePendingLocalInstalls() {
 		}
 		log.Printf("[APPS-LOCAL] resuming pending install=%d app=%s version=%s", r.id, m.Name, m.Version)
 		s.store.db.Exec(
-			`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`,
-			r.id,
+			`UPDATE app_installs SET status_message=? WHERE id=?`,
+			runtimeQueuedMessage(&m), r.id,
 		)
 		go func(r pendingLocalInstall, m sdk.Manifest, cfg map[string]string) {
-			release := s.localApps.acquireBuildSlot()
+			release := s.localApps.acquireRuntimeBuildSlot(&m)
 			defer release()
 			var err error
 			if m.Runtime.Kind == "source" || m.Runtime.Source != nil {
@@ -1296,6 +1347,9 @@ func isRecoverableLocalPending(m *sdk.Manifest) bool {
 		return false
 	}
 	if m.Runtime.Kind == "source" || m.Runtime.Source != nil {
+		return true
+	}
+	if _, ok := m.Runtime.Artifacts[localPlatform()]; ok {
 		return true
 	}
 	_, ok := m.Runtime.Binaries[localPlatform()]
@@ -1384,6 +1438,7 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 			env["APTEVA_MIGRATIONS_DIR"] = migrations
 		}
 	}
+	applyArtifactResourceEnv(&m, binPath, env)
 	log.Printf("[APPS-LOCAL] resuming install=%d (pid=%d was dead) ui=%s",
 		id, pid, env["APTEVA_UI_DIR"])
 	if err := s.localApps.Restart(id, &m, int(port), binPath, env); err != nil {
@@ -1403,6 +1458,15 @@ func portableLocalBinPath(recorded, cacheDir, appName, version string) (string, 
 	}
 	if appName == "" || version == "" || filepath.Base(appName) != appName || filepath.Base(version) != version {
 		return "", false
+	}
+	if digest := filepath.Base(filepath.Dir(recorded)); validArtifactDigest(digest) && filepath.Base(filepath.Dir(filepath.Dir(recorded))) == "artifacts" {
+		suffix := filepath.Join(appName, version, "artifacts", digest, "bin")
+		if !strings.HasSuffix(filepath.Clean(recorded), string(filepath.Separator)+suffix) {
+			return "", false
+		}
+		candidate := filepath.Join(cacheDir, suffix)
+		info, err := os.Stat(candidate)
+		return candidate, err == nil && !info.IsDir()
 	}
 	expectedSuffix := filepath.Join(appName, version, "bin")
 	cleanRecorded := filepath.Clean(recorded)
@@ -1431,7 +1495,7 @@ func (s *Server) queueExactRuntimeReconstruction(id int64, appName, projectID, c
 	}
 	s.store.db.Exec(`UPDATE app_installs SET status='pending', status_message='Queued — reconstructing exact installed version', error_message='' WHERE id=?`, id)
 	go func() {
-		release := s.localApps.acquireBuildSlot()
+		release := s.localApps.acquireRuntimeBuildSlot(m)
 		defer release()
 		if err := s.installFromSource(id, m, projectID, cfg); err != nil {
 			log.Printf("[APPS-LOCAL] exact reconstruction install=%d app=%s version=%s failed: %v", id, appName, installedVersion, err)
@@ -1443,6 +1507,12 @@ func exactSourceRuntimeManifest(appName, installedVersion, manifestJSON string) 
 	var m sdk.Manifest
 	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
 		return nil, err
+	}
+	if a, ok := m.Runtime.Artifacts[localPlatform()]; ok && a.URL != "" && validArtifactDigest(a.SHA256) && appName != "" && installedVersion != "" {
+		if m.Name != appName || m.Version != installedVersion {
+			return nil, errors.New("artifact does not match installed version")
+		}
+		return &m, nil
 	}
 	if appName == "" || installedVersion == "" || (m.Runtime.Kind != "source" && m.Runtime.Source == nil) {
 		return nil, errors.New("cached runtime is missing and cannot be reconstructed exactly")
@@ -1554,6 +1624,7 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 		}
 	}
 
+	applyArtifactResourceEnv(&m, binPath, env)
 	log.Printf("[APPS-LOCAL] respawning install=%d after bindings/config change", installID)
 	if err := s.localApps.Restart(installID, &m, int(port), binPath, env); err != nil {
 		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)

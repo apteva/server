@@ -106,6 +106,50 @@ func TestTelemetryInsertAndQuery(t *testing.T) {
 	}
 }
 
+func TestTelemetryPreservesCoreDiagnosticEventsAndCorrelationData(t *testing.T) {
+	s := newTestServer(t)
+	types := []string{
+		"llm.request.queued", "llm.request.started", "llm.request.first_output",
+		"llm.request.finished", "llm.http.started", "llm.http.headers", "llm.http.finished",
+		"llm.retry.scheduled", "llm.retry.finished", "tool.execution.queued",
+		"tool.execution.started", "tool.execution.finished", "worker.created", "worker.ready",
+		"worker.first_inference", "worker.first_action", "worker.finished",
+	}
+	events := make([]TelemetryEvent, 0, len(types))
+	for i, typ := range types {
+		events = append(events, makeTelemetryEvent(typ, "worker-7", map[string]any{
+			"worker_run_id": "run-7", "turn_id": "turn-3", "request_id": "request-2",
+			"http_attempt_id": "http-1", "tool_span_id": "tool-9", "attempt": i + 1,
+		}))
+	}
+	if err := s.store.InsertTelemetry(events); err != nil {
+		t.Fatalf("InsertTelemetry diagnostics: %v", err)
+	}
+	got, err := s.store.QueryTelemetry(1, "", time.Time{}, 100)
+	if err != nil {
+		t.Fatalf("QueryTelemetry diagnostics: %v", err)
+	}
+	if len(got) != len(types) {
+		t.Fatalf("stored %d diagnostic events, want %d", len(got), len(types))
+	}
+	seen := map[string]bool{}
+	for _, ev := range got {
+		seen[ev.Type] = true
+		var data map[string]any
+		if err := json.Unmarshal(ev.Data, &data); err != nil {
+			t.Fatalf("decode %s data: %v", ev.Type, err)
+		}
+		if data["worker_run_id"] != "run-7" || data["turn_id"] != "turn-3" || data["request_id"] != "request-2" {
+			t.Fatalf("correlation fields changed for %s: %#v", ev.Type, data)
+		}
+	}
+	for _, typ := range types {
+		if !seen[typ] {
+			t.Errorf("missing diagnostic event %s", typ)
+		}
+	}
+}
+
 func TestTelemetryProjectAllowlistIncludesPlatformHelper(t *testing.T) {
 	s := newTestServer(t)
 	user, err := s.store.CreateUser("telemetry-helper@test.com", "hash")
@@ -407,6 +451,10 @@ func TestTelemetryHTTPIngestAndQuery(t *testing.T) {
 	cookie := getSessionCookie(loginResp)
 	if cookie == "" {
 		t.Fatal("no session cookie")
+	}
+
+	if _, err := s.store.CreateAgent(1, "Telemetry owner", "Observe", "cautious", "{}", ""); err != nil {
+		t.Fatal(err)
 	}
 
 	// Ingest a batch of events (POST /telemetry — unauthenticated)

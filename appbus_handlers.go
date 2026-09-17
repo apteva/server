@@ -56,6 +56,7 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		EventID   string          `json:"event_id,omitempty"`
 		Topic     string          `json:"topic"`
 		ProjectID string          `json:"project_id,omitempty"`
 		Data      json.RawMessage `json:"data"`
@@ -102,10 +103,24 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 	if len(data) == 0 {
 		data = json.RawMessage(`null`)
 	}
-	if err := s.queueAppSubscriptions(AppEvent{App: appName, ProjectID: resolvedProject, InstallID: installID, Topic: body.Topic, Data: data, Time: time.Now().UTC()}); err != nil {
-		http.Error(w, "event delivery storage unavailable", http.StatusServiceUnavailable)
+	if len(body.EventID) > 160 || strings.ContainsAny(body.EventID, "\r\n\x00") {
+		http.Error(w, "invalid event_id", 400)
 		return
 	}
+	duplicate, err := s.queueAppSubscriptionsWithID(AppEvent{App: appName, ProjectID: resolvedProject, InstallID: installID, Topic: body.Topic, Data: data, Time: time.Now().UTC()}, body.EventID)
+	if err != nil {
+		if errors.Is(err, errAppEventConflict) {
+			http.Error(w, err.Error(), 409)
+		} else {
+			http.Error(w, "event delivery storage unavailable", 503)
+		}
+		return
+	}
+	if duplicate {
+		writeJSON(w, map[string]any{"ok": true, "duplicate": true})
+		return
+	}
+
 	ev := s.appBus.Publish(appName, resolvedProject, installID, body.Topic, data, true)
 	if s.appEventDispatcher != nil {
 		s.appEventDispatcher.wakeOutbox()

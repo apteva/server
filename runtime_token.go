@@ -22,7 +22,9 @@ package main
 // resolveRuntimeTokenConnection handles (2) via connections.legacy_provider_id.
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -31,9 +33,10 @@ import (
 // handleRuntimeToken serves the token core asks for, from whichever
 // store still owns the credential.
 //
-// Provider rows win while they exist so behavior is bit-identical during
-// the dual-read phase; the connection path takes over by itself the
-// moment the row is deleted. No flag day, no core restart.
+// A migrated connection owns its legacy provider ID even while the old row
+// remains. Interactive reauth updates the connection, so consulting the old
+// provider first would restore stale credentials on the next core request.
+// Unmigrated providers still take precedence over unrelated connection IDs.
 func (s *Server) handleRuntimeToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
@@ -47,12 +50,28 @@ func (s *Server) handleRuntimeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	migratedID, err := s.store.connectionForLegacyProvider(userID, id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "could not resolve provider migration", http.StatusInternalServerError)
+		return
+	}
+	conn, ok := s.resolveRuntimeTokenConnection(userID, id)
+	if err == nil {
+		// An inactive or unavailable migrated connection must not fall back to
+		// the legacy credential, or to an unrelated connection with this ID.
+		if !ok || conn.ID != migratedID || conn.LegacyProviderID != id {
+			http.Error(w, "provider not found", http.StatusNotFound)
+			return
+		}
+		s.writeConnectionRuntimeToken(w, conn, r.URL.Query().Get("force") == "1")
+		return
+	}
+
 	if _, _, err := s.store.GetProvider(userID, id); err == nil {
 		s.handleProviderAuthAction(w, r, "runtime-token")
 		return
 	}
 
-	conn, ok := s.resolveRuntimeTokenConnection(userID, id)
 	if !ok {
 		http.Error(w, "provider not found", http.StatusNotFound)
 		return

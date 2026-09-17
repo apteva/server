@@ -32,6 +32,7 @@ type ProjectPresetAgent struct {
 }
 
 type ProjectPreset struct {
+	InterfaceLevel  string                    `json:"interface_level,omitempty"`
 	ID              string                    `json:"id"`
 	Kind            string                    `json:"kind,omitempty"`
 	Scope           string                    `json:"scope,omitempty"`
@@ -152,6 +153,9 @@ func loadProjectPresetCatalog() (projectPresetCatalog, error) {
 }
 
 func validateProjectPreset(preset ProjectPreset) error {
+	if preset.InterfaceLevel != "" && !validInterfaceLevel(preset.InterfaceLevel) {
+		return fmt.Errorf("preset %q has invalid interface level %q", preset.ID, preset.InterfaceLevel)
+	}
 	if !validPresetIdentifier(preset.ID) || preset.Name == "" {
 		return fmt.Errorf("invalid preset id or name %q", preset.ID)
 	}
@@ -213,10 +217,19 @@ func (s *Server) handleProjectPresets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"schema_version": 2, "presets": catalog.Presets})
 }
 
+type ProjectPresetAgentOverride struct {
+	Key       string `json:"key"`
+	Name      string `json:"name"`
+	Directive string `json:"directive"`
+	Mode      string `json:"mode"`
+}
+
 type ProjectPresetPreviewRequest struct {
-	PresetID    string `json:"preset_id,omitempty"`
-	Category    string `json:"category,omitempty"`
-	Description string `json:"description,omitempty"`
+	InterfaceLevel string                       `json:"interface_level,omitempty"`
+	AgentOverrides []ProjectPresetAgentOverride `json:"agent_overrides,omitempty"`
+	PresetID       string                       `json:"preset_id,omitempty"`
+	Category       string                       `json:"category,omitempty"`
+	Description    string                       `json:"description,omitempty"`
 }
 
 type ProjectPresetAppPreview struct {
@@ -237,15 +250,16 @@ type ProjectPresetAgentPreview struct {
 }
 
 type ProjectPresetPreview struct {
-	Preset     ProjectPreset               `json:"preset"`
-	Planner    string                      `json:"planner"`
-	Confidence float64                     `json:"confidence"`
-	Project    map[string]string           `json:"project"`
-	Apps       []ProjectPresetAppPreview   `json:"apps"`
-	Agents     []ProjectPresetAgentPreview `json:"agents"`
-	Layout     []dashboardWidgetInstance   `json:"layout"`
-	Warnings   []string                    `json:"warnings"`
-	NextSteps  []string                    `json:"next_steps,omitempty"`
+	InterfaceLevel string                      `json:"interface_level,omitempty"`
+	Preset         ProjectPreset               `json:"preset"`
+	Planner        string                      `json:"planner"`
+	Confidence     float64                     `json:"confidence"`
+	Project        map[string]string           `json:"project"`
+	Apps           []ProjectPresetAppPreview   `json:"apps"`
+	Agents         []ProjectPresetAgentPreview `json:"agents"`
+	Layout         []dashboardWidgetInstance   `json:"layout"`
+	Warnings       []string                    `json:"warnings"`
+	NextSteps      []string                    `json:"next_steps,omitempty"`
 }
 
 type projectPresetPlanChoice struct {
@@ -330,10 +344,20 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 		agents = append(agents, agent)
 	}
 
+	if err := applySetupAgentOverrides(agents, request.AgentOverrides); err != nil {
+		return nil, err
+	}
+	level := preset.InterfaceLevel
+	if request.InterfaceLevel != "" {
+		level = request.InterfaceLevel
+	}
+	if level != "" && !validInterfaceLevel(level) {
+		return nil, fmt.Errorf("invalid interface level %q", level)
+	}
 	layout, layoutWarnings := s.compileProjectPresetDashboardLayout(projectID, preset)
 	warnings = append(warnings, layoutWarnings...)
 	return &ProjectPresetPreview{
-		Preset: preset, Planner: planner, Confidence: confidence,
+		Preset: preset, Planner: planner, Confidence: confidence, InterfaceLevel: level,
 		Project: map[string]string{"name": project.Name, "description": description, "color": project.Color},
 		Apps:    appPreviews, Agents: agents, Layout: layout, Warnings: warnings,
 		NextSteps: []string{"Review app access before enabling external actions.", "Preset Home widgets are added automatically and remain editable.", "Create durable tasks only when real work is requested."},
@@ -707,8 +731,10 @@ func availablePresetWidgetID(preferred, component string, used map[string]bool) 
 }
 
 type ProjectPresetApplyRequest struct {
-	PresetID    string `json:"preset_id"`
-	Description string `json:"description"`
+	InterfaceLevel string                       `json:"interface_level,omitempty"`
+	AgentOverrides []ProjectPresetAgentOverride `json:"agent_overrides,omitempty"`
+	PresetID       string                       `json:"preset_id"`
+	Description    string                       `json:"description"`
 }
 
 func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request, projectID string) {
@@ -723,6 +749,14 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PresetID == "" {
 		http.Error(w, "preset_id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate the complete request before any installation side effects.
+	if _, err := s.compileProjectPresetPreview(r.Context(), getUserID(r), projectID, ProjectPresetPreviewRequest{
+		PresetID: body.PresetID, Description: body.Description, AgentOverrides: body.AgentOverrides, InterfaceLevel: body.InterfaceLevel,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -748,7 +782,7 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 	}
 
 	preview, err := s.compileProjectPresetPreview(r.Context(), getUserID(r), projectID, ProjectPresetPreviewRequest{
-		PresetID: body.PresetID, Description: body.Description,
+		PresetID: body.PresetID, Description: body.Description, AgentOverrides: body.AgentOverrides, InterfaceLevel: body.InterfaceLevel,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -784,14 +818,25 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 	created := []Agent{}
 	existing := []Agent{}
 	for _, agent := range preview.Agents {
+		var priorID int64
+		lookupErr := s.store.db.QueryRow(`SELECT k.agent_id FROM agent_creation_keys k JOIN agents a ON a.id=k.agent_id WHERE k.project_id=? AND k.scope_user_id=0 AND k.idempotency_key=? AND a.project_id=?`, projectID, "preset:"+body.PresetID+":"+agent.Key, projectID).Scan(&priorID)
+		if lookupErr == nil {
+			if prior, err := s.store.GetAgentByID(priorID); err == nil {
+				existing = append(existing, *prior)
+				warnings = append(warnings, s.presetExistingAgentWarnings(prior.ID, agent)...)
+				continue
+			}
+		}
 		if current, ok := s.findPresetAgentByName(projectID, agent.Name); ok {
 			existing = append(existing, current)
+			warnings = append(warnings, s.presetExistingAgentWarnings(current.ID, agent)...)
 			continue
 		}
 		payload := map[string]any{
 			"name": agent.Name, "directive": agent.Directive, "mode": agent.Mode,
 			"project_id": projectID, "start": true, "unconscious": agent.Unconscious,
 			"bound_app_install_ids": agent.AppInstallIDs,
+			"idempotency_key":       "preset:" + body.PresetID + ":" + agent.Key,
 		}
 		raw, _ := json.Marshal(payload)
 		request := httptest.NewRequest(http.MethodPost, "/instances", bytes.NewReader(raw))
@@ -817,8 +862,13 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		}
 		created = append(created, result)
 	}
+	if len(created)+len(existing) > 0 {
+		if err := s.rememberOnboardingPreset(getUserID(r), projectID, preview); err != nil {
+			warnings = append(warnings, "Could not save the setup recommendation: "+err.Error())
+		}
+	}
 	writeJSON(w, map[string]any{
-		"status": "applied", "project_id": projectID, "preset_id": body.PresetID,
+		"status": "applied", "project_id": projectID, "preset_id": body.PresetID, "interface_level": preview.InterfaceLevel,
 		"created_agents": created, "existing_agents": existing, "warnings": warnings,
 	})
 }
@@ -827,9 +877,9 @@ func (s *Server) findPresetAgentByName(projectID, name string) (Agent, bool) {
 	var agent Agent
 	var createdAt string
 	err := s.store.db.QueryRow(`
-		SELECT id,user_id,name,directive,mode,config,port,pid,core_api_key,status,project_id,kind,created_at
+		SELECT id,user_id,name,directive,mode,proactivity,config,port,pid,core_api_key,status,project_id,kind,created_at
 		FROM agents WHERE project_id=? AND name=? AND kind='user' ORDER BY id LIMIT 1`, projectID, name).
-		Scan(&agent.ID, &agent.UserID, &agent.Name, &agent.Directive, &agent.Mode, &agent.Config,
+		Scan(&agent.ID, &agent.UserID, &agent.Name, &agent.Directive, &agent.Mode, &agent.Proactivity, &agent.Config,
 			&agent.Port, &agent.Pid, &agent.CoreAPIKey, &agent.Status, &agent.ProjectID, &agent.Kind, &createdAt)
 	if err != nil {
 		return Agent{}, false
@@ -863,4 +913,18 @@ func cleanPresetText(value string, limit int) string {
 		value = value[:limit]
 	}
 	return value
+}
+
+// Reapplication preserves operator edits. Report incomplete attachments on
+// reused agents rather than treating a newly installed app as already usable.
+func (s *Server) presetExistingAgentWarnings(agentID int64, expected ProjectPresetAgentPreview) []string {
+	warnings := []string{}
+	for _, installID := range expected.AppInstallIDs {
+		var bound int
+		err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE agent_id=? AND install_id=? AND enabled=1`, agentID, installID).Scan(&bound)
+		if err != nil || bound == 0 {
+			warnings = append(warnings, fmt.Sprintf("%s is preserved but still needs app install %d attached in its Capabilities settings", expected.Name, installID))
+		}
+	}
+	return warnings
 }

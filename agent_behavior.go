@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const behaviorVersion = 1
+const behaviorVersion = 3
 const behaviorStart = "<!-- apteva:behavior:v1:start -->"
 const behaviorEnd = "<!-- apteva:behavior:end -->"
 
@@ -34,7 +34,7 @@ func agentMode(mode string) string {
 
 // Only our delimited sections are replaced. Never infer ownership from prose
 // or headings: those may be instructions written by the user or by evolve.
-func withAgentBehavior(directive, mode string) string {
+func withAgentBehavior(directive, mode string, proactivity ...int) string {
 	var rule string
 	switch agentMode(mode) {
 	case "cautious":
@@ -44,7 +44,7 @@ func withAgentBehavior(directive, mode string) string {
 	default:
 		rule = "Autonomous: proceed independently within the assigned scope and available permissions. Clarify material uncertainty and respect explicit approval requirements and user constraints."
 	}
-	section := behaviorStart + "\nServer-managed behavior instructions (" + agentMode(mode) + "). These are instructions, not enforced approval gates.\n" + rule + "\nWhen delegating, include these applicable behavior rules in each worker's directive. Delegation must not bypass approval requirements.\n" + behaviorEnd
+	section := behaviorStart + "\nServer-managed behavior instructions (" + agentMode(mode) + "). These are instructions, not enforced approval gates.\n" + rule + "\n" + agentProactivityInstructions(proactivityValue(proactivity)) + "\nWhen delegating, include these applicable behavior rules in each worker's directive. Delegation must not bypass approval requirements.\n" + behaviorEnd
 	// Reuse the first section's position and remove any duplicate sections.
 	first := true
 	out := behaviorSection.ReplaceAllStringFunc(directive, func(string) string {
@@ -68,10 +68,13 @@ func withoutCoreMode(config string) string {
 	if json.Unmarshal([]byte(config), &cfg) != nil || cfg == nil {
 		return config
 	}
-	if _, exists := cfg["mode"]; !exists {
+	_, hasMode := cfg["mode"]
+	_, hasProactivity := cfg["proactivity"]
+	if !hasMode && !hasProactivity {
 		return config
 	}
 	delete(cfg, "mode")
+	delete(cfg, "proactivity")
 	data, _ := json.Marshal(cfg)
 	return string(data)
 }
@@ -141,7 +144,7 @@ func (s *Server) behaviorCoreJSON(ctx context.Context, inst *Agent, method, path
 	return err
 }
 
-func applyBehaviorToSavedWorkers(cfg map[string]any, mode string) {
+func applyBehaviorToSavedWorkers(cfg map[string]any, mode string, proactivity ...int) {
 	threads, _ := cfg["threads"].([]any)
 	for _, entry := range threads {
 		t, ok := entry.(map[string]any)
@@ -149,7 +152,7 @@ func applyBehaviorToSavedWorkers(cfg map[string]any, mode string) {
 			continue
 		}
 		directive, _ := t["directive"].(string)
-		t["directive"] = withAgentBehavior(directive, mode)
+		t["directive"] = withAgentBehavior(directive, mode, proactivity...)
 	}
 }
 
@@ -174,7 +177,7 @@ func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port i
 		directive = inst.Directive
 	}
 	inst.Mode = agentMode(inst.Mode)
-	inst.Directive = withAgentBehavior(directive, inst.Mode)
+	inst.Directive = withAgentBehavior(directive, inst.Mode, inst.Proactivity)
 	inst.Config = withoutCoreMode(inst.Config)
 	if err = s.store.UpdateAgent(inst); err != nil {
 		return err
@@ -190,8 +193,9 @@ func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port i
 	if port == 0 {
 		err = s.writeStoppedConfigAtomic(inst.ID, func(saved map[string]any) error {
 			delete(saved, "mode")
+			delete(saved, "proactivity")
 			saved["directive"] = inst.Directive
-			applyBehaviorToSavedWorkers(saved, inst.Mode)
+			applyBehaviorToSavedWorkers(saved, inst.Mode, inst.Proactivity)
 			return nil
 		})
 		if err != nil {
@@ -230,7 +234,7 @@ func (s *Server) applyBehaviorToLiveWorkers(ctx context.Context, inst *Agent) er
 			continue
 		}
 		directive, _ := t["directive"].(string)
-		next := withAgentBehavior(directive, inst.Mode)
+		next := withAgentBehavior(directive, inst.Mode, inst.Proactivity)
 		if next == directive {
 			continue
 		}
@@ -248,6 +252,7 @@ func (s *Server) applyBehaviorToLiveWorkers(ctx context.Context, inst *Agent) er
 
 func (s *Server) behaviorMetadata(inst *Agent, out map[string]any) {
 	out["mode"] = agentMode(inst.Mode)
+	out["proactivity"] = inst.Proactivity
 	if state, err := s.store.agentBehaviorState(inst.ID); err == nil {
 		out["behavior_sync"] = state
 	}

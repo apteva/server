@@ -698,6 +698,7 @@ func main() {
 	// should use the generic /presets envelope.
 	apiMux.HandleFunc("/project-presets", s.authMiddleware(s.handleProjectPresets))
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
+	apiMux.HandleFunc("/auth/onboarding/prepare", s.authMiddleware(s.handlePrepareOnboarding))
 	apiMux.HandleFunc("/auth/onboarding/status", s.authMiddleware(s.handleOnboardingStatus))
 	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
 	apiMux.HandleFunc("/mobile/push/subscriptions", s.authMiddleware(s.handleMobilePushSubscriptions))
@@ -926,6 +927,7 @@ func main() {
 	// returns effective values to authenticated users with managed connection
 	// identifiers redacted for non-admins. PUT is platform-admin-only.
 	apiMux.HandleFunc("/settings/server", s.authMiddleware(s.handleServerSettings))
+	apiMux.HandleFunc("/settings/new-agent-provider", s.authMiddleware(s.handleNewAgentProviderSettings))
 	apiMux.HandleFunc("/ingress/routes", s.authMiddleware(s.handleIngressRoutes))
 	apiMux.HandleFunc("/ingress/routes/", s.authMiddleware(s.handleIngressRoute))
 	apiMux.HandleFunc("/ingress/certs", s.authMiddleware(s.handleIngressCerts))
@@ -1414,25 +1416,9 @@ func main() {
 	appDashDir := filepath.Join(dataDir, "dashboard")
 	var dashboardSPA http.Handler
 	if _, err := os.Stat(filepath.Join(appDashDir, "index.html")); err == nil {
-		appFS := http.FileServer(http.Dir(appDashDir))
-		dashboardSPA = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			relPath := r.URL.Path
-			if relPath == "/" {
-				setStaticCacheHeaders(w, relPath, true)
-				http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
-				return
-			}
-			filePath := filepath.Join(appDashDir, relPath)
-			if _, err := os.Stat(filePath); err == nil {
-				setStaticCacheHeaders(w, relPath, false)
-				appFS.ServeHTTP(w, r)
-				return
-			}
-			setStaticCacheHeaders(w, relPath, true)
-			http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
-		})
+		dashboardSPA = s.dashboardSPAHandler(os.DirFS(appDashDir))
 	} else {
-		dashboardSPA = dashboardHandler()
+		dashboardSPA = s.dashboardHandler()
 	}
 	mux.Handle("/", compressHTTP(s.staticAppHandler(dashboardSPA)))
 

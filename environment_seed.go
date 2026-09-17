@@ -29,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // SeedCall is one tool invocation in a environment's seed plan.
@@ -51,6 +53,12 @@ func (s *Server) ExecuteSeedPlan(environment *Environment, plan []SeedCall) ([]j
 // read, and injected as content_base64 before the app tool is called.
 // Input values can reference earlier seed results with {"$ref":"0.id"}.
 func (s *Server) ExecuteSeedPlanWithBaseDir(environment *Environment, plan []SeedCall, baseDir string) ([]json.RawMessage, error) {
+	return s.executeSeedPlanAsSource(environment, plan, baseDir, 0)
+}
+
+// Only the authenticated source install can use private tools on its own
+// environment clone. Browser seeding and other apps retain public-tool access.
+func (s *Server) executeSeedPlanAsSource(environment *Environment, plan []SeedCall, baseDir string, callerInstallID int64) ([]json.RawMessage, error) {
 	results := make([]json.RawMessage, 0, len(plan))
 	for i, call := range plan {
 		inst, ok := environment.Install(call.App)
@@ -65,7 +73,11 @@ func (s *Server) ExecuteSeedPlanWithBaseDir(environment *Environment, plan []See
 		if err != nil {
 			return results, fmt.Errorf("seed call %d (%s.%s): app credential: %w", i, call.App, call.Tool, err)
 		}
-		res, err := callAppMCPTool(inst.SidecarURL+"/mcp", appToken, call.Tool, input)
+		boundID := int64(0)
+		if callerInstallID > 0 && environment.SourceInstallID(call.App) == callerInstallID {
+			boundID = callerInstallID
+		}
+		res, err := callAppMCPToolWithIdentity(inst.SidecarURL+"/mcp", appToken, "", boundID, call.App, call.Tool, input)
 		if err != nil {
 			return results, fmt.Errorf("seed call %d (%s.%s): %w", i, call.App, call.Tool, err)
 		}
@@ -255,6 +267,10 @@ func callAppMCPTool(mcpURL, token, tool string, input map[string]any) (json.RawM
 }
 
 func callAppMCPToolAsAgent(mcpURL, token, agentID, tool string, input map[string]any) (json.RawMessage, error) {
+	return callAppMCPToolWithIdentity(mcpURL, token, agentID, 0, "", tool, input)
+}
+
+func callAppMCPToolWithIdentity(mcpURL, token, agentID string, boundInstallID int64, boundApp, tool string, input map[string]any) (json.RawMessage, error) {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": input},
@@ -269,6 +285,10 @@ func callAppMCPToolAsAgent(mcpURL, token, agentID, tool string, input map[string
 	}
 	if strings.TrimSpace(agentID) != "" {
 		req.Header.Set("X-Apteva-Caller-Agent", strings.TrimSpace(agentID))
+	}
+	if boundInstallID > 0 && agentID == "" {
+		req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(boundInstallID, 10))
+		req.Header.Set(sdk.HeaderBoundCallerAppName, boundApp)
 	}
 	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
 	if err != nil {

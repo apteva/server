@@ -91,6 +91,10 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 			s.handleProjectMembers(w, r)
 			return
 		}
+		if seg == "setup/session" {
+			s.handleWorkspaceSetupSession(w, r, id[:i])
+			return
+		}
 		if seg == "setup/preview" {
 			s.handleProjectPresetPreview(w, r, id[:i])
 			return

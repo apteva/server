@@ -19,12 +19,13 @@ require (
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
+	github.com/open-banking-io/clients/go v0.5.0
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
 )
 
 require (
-	github.com/apteva/app-sdk v0.77.0
+	github.com/apteva/app-sdk v0.80.0
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3

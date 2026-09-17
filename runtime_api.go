@@ -1392,7 +1392,7 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 	if directiveETag(agent.Directive) != req.ExpectedETag {
 		return nil, fmt.Errorf("agent directive changed; refresh and retry")
 	}
-	req.Directive = withAgentBehavior(req.Directive, agent.Mode)
+	req.Directive = withAgentBehavior(req.Directive, agent.Mode, agent.Proactivity)
 	var cfg map[string]any
 	if json.Unmarshal([]byte(agent.Config), &cfg) != nil {
 		cfg = map[string]any{}
@@ -1438,6 +1438,9 @@ func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, in
 		http.Error(w, "install not found", http.StatusUnauthorized)
 		return 0, "", false
 	}
+	if principal, ok := r.Context().Value(appCallbackPrincipalKey{}).(appCallbackPrincipal); ok && principal.installID == installID && principal.userSession {
+		userID = principal.userID
+	}
 	projectID := strings.TrimSpace(requested)
 	if installProject != "" {
 		if projectID != "" && projectID != installProject {
@@ -1450,9 +1453,8 @@ func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, in
 		http.Error(w, "project_id required for global app installs", http.StatusBadRequest)
 		return 0, "", false
 	}
-	// authMiddleware normally provides this same user id. Use the install owner
-	// directly as the source of truth and verify membership without trusting a
-	// caller-supplied header.
+	// Use the authenticated browser user when present, otherwise the install
+	// owner. Neither identity can be selected through a numeric request header.
 	if s.store.GetPlatformRole(userID) != PlatformAdmin {
 		role, err := s.store.GetProjectRole(projectID, userID)
 		if err != nil || role.Rank() < need.Rank() {

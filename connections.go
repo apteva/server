@@ -1984,6 +1984,10 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		return &ExecuteResult{Success: true, Status: 200, Data: map[string]any{"ok": true, "_stub": true}}, nil
 	}
 
+	if app != nil && app.Slug == "open-banking-io" {
+		return executeOpenBankingIO(requestCtx, tool, credentials, input)
+	}
+
 	if app != nil && app.Slug == integrationOpenAICodexSlug {
 		return executeOpenAICodexIntegrationTool(app, tool, credentials, input, requestCtx)
 	}
@@ -2156,7 +2160,7 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// DNS delete endpoint, require a JSON body on DELETE; keeping the
 	// default DELETE path query-only preserves existing integrations.
 	var bodyReader io.Reader
-	if tool.Method != "GET" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
+	if tool.Method != "GET" && tool.Method != "OPTIONS" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
 		// Raw-body path: tool declared a single input field that
 		// carries the request body verbatim (S3 PutObject, R2
 		// PutObject, etc.). Skip the JSON map assembly entirely.
@@ -2516,6 +2520,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// to errors can erase the provider's error object and make failures look
 	// like empty resources (notably Gmail thread 404 responses).
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		for _, path := range tool.ResponseOmit {
+			data = omitPath(data, path)
+		}
 		return &ExecuteResult{
 			Success: false,
 			Status:  resp.StatusCode,
@@ -2532,6 +2539,10 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			return integrationResponseContractFailure(resp.StatusCode, hdrs, contractDetail), nil
 		}
 		if errorData != nil {
+			// Provider errors may echo credentials in their original envelope.
+			for _, path := range tool.ResponseOmit {
+				omitPath(data, path)
+			}
 			return &ExecuteResult{
 				Success: false,
 				Status:  resp.StatusCode,

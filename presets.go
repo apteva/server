@@ -17,6 +17,7 @@ const projectSetupPresetKind = "project_setup"
 // Dashboard keeps the compact component list used by bundled schema-v1 files;
 // DashboardLayout is the lossless representation used by captured presets.
 type ProjectSetupPresetDefinition struct {
+	InterfaceLevel  string                    `json:"interface_level,omitempty"`
 	Category        string                    `json:"category"`
 	Match           []string                  `json:"match,omitempty"`
 	Highlights      []string                  `json:"highlights,omitempty"`
@@ -176,7 +177,7 @@ func systemPresetEnvelope(preset ProjectPreset) Preset {
 		ID: preset.ID, Kind: projectSetupPresetKind, Scope: "system", Source: "system",
 		SchemaVersion: 1, Name: preset.Name, Description: preset.Description,
 		Definition: ProjectSetupPresetDefinition{
-			Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
+			InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
 		},
 	}
 }
@@ -185,7 +186,7 @@ func projectPresetFromEnvelope(preset Preset) ProjectPreset {
 	return ProjectPreset{
 		ID: preset.ID, Kind: preset.Kind, Scope: preset.Scope, Source: preset.Source,
 		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID, OwnerProjectID: preset.OwnerProjectID, Revision: preset.Revision,
-		Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
+		InterfaceLevel: preset.Definition.InterfaceLevel, Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
 		Match: preset.Definition.Match, Highlights: preset.Definition.Highlights, Agents: preset.Definition.Agents,
 		Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout,
 	}
@@ -746,7 +747,7 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 	}
 	preset := Preset{Kind: projectSetupPresetKind, Scope: scope, Source: "user", SchemaVersion: 2,
 		Name: name, Description: strings.TrimSpace(body.Description), OwnerProjectID: body.OwnerProjectID,
-		Definition: ProjectSetupPresetDefinition{Category: category, Highlights: body.Highlights, Agents: agents, DashboardLayout: layout}}
+		Definition: ProjectSetupPresetDefinition{InterfaceLevel: s.store.GetUserInterfaceLevel(userID), Category: category, Highlights: body.Highlights, Agents: agents, DashboardLayout: layout}}
 	preset.ID = s.store.availablePresetID(userID, scope, preset.OwnerProjectID, name)
 	if err := validatePresetEnvelope(preset); err != nil {
 		return Preset{}, err

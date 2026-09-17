@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -28,6 +29,16 @@ type rateLimiter struct {
 
 var loginLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
 var registerLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
+
+type appCallbackPrincipalKey struct{}
+
+// Stored in context only after validating the install token. Browser-scoped
+// callbacks retain user ownership; service callbacks can use explicit bindings.
+type appCallbackPrincipal struct {
+	installID   int64
+	userID      int64
+	userSession bool
+}
 
 func (rl *rateLimiter) allow(ip string, maxAttempts int, window time.Duration) bool {
 	if ip == "" {
@@ -171,8 +182,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// These identity headers are owned by the server. A network client
 		// cannot select a user or app install by supplying them directly.
 		clearPrincipalHeaders(r)
-		// Try session cookie first
-		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
+		token := privateRequestToken(r)
+		// An explicit API key takes precedence over ambient session cookies.
+		// Try session cookie when no key was supplied
+		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" && token == "" {
 			if userID, err := s.store.GetSession(cookie.Value); err == nil {
 				if !s.allowSessionMutation(w, r) {
 					return
@@ -210,21 +223,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		//   3. ?api_key=<key>                   — SSE/EventSource path
 		//      (browsers can't set custom headers on EventSource, so
 		//      the key must travel as a query param)
-		token := ""
-		if a := r.Header.Get("Authorization"); a != "" {
-			token = strings.TrimPrefix(a, "Bearer ")
-		}
-		if token == "" {
-			token = r.Header.Get("X-API-Key")
-		}
-		if token == "" && apiKeyQueryAllowed(r) {
-			token = r.URL.Query().Get("api_key")
-		} else if token == "" && appTokenQueryAllowed(r) {
-			candidate := r.URL.Query().Get("api_key")
-			if strings.HasPrefix(candidate, "app_") || strings.HasPrefix(candidate, "dev-") {
-				token = candidate
-			}
-		}
+
 		if token != "" {
 			// A core process has its own high-entropy key for its local HTTP API.
 			// It is not a user API key and must never authorize ordinary platform
@@ -276,8 +275,15 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					return
 				}
 			}
-			user, err := s.store.GetUserByAPIKey(keyHash)
+			user, access, err := s.store.getPrivateAPIKeyPrincipal(keyHash)
 			if err == nil {
+				if access != APIKeyReadWrite {
+					if access != APIKeyReadOnly || !readOnlyAPIRequestAllowed(r) {
+						http.Error(w, "read-only API key cannot access this operation", http.StatusForbidden)
+						return
+					}
+					r = withReadOnlyAPIKey(r)
+				}
 				r.Header.Set("X-User-ID", itoa(user.ID))
 				r.Header.Set("X-Apteva-Operator-ID", itoa(user.ID))
 				next(w, r)
@@ -310,6 +316,23 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					if installedBy == 0 {
 						installedBy = 1 // global / built-in installs default to admin
 					}
+					principal := appCallbackPrincipal{installID: id, userID: installedBy}
+					// An app handling a browser request may retain its user's
+					// session on callbacks. Both credentials must validate:
+					// the app keeps its permissions, while ownership checks use
+					// the requesting user. Never fall back on a stale session.
+					if session := r.Header.Get("X-Apteva-User-Session"); session != "" && strings.HasPrefix(strings.TrimPrefix(r.URL.Path, "/api"), "/apps/callback/") {
+						userID, err := s.store.GetSession(session)
+						if err != nil {
+							http.Error(w, "invalid app user session", http.StatusUnauthorized)
+							return
+						}
+						installedBy = userID
+						principal.userID = userID
+						principal.userSession = true
+					}
+					r = r.WithContext(context.WithValue(r.Context(), appCallbackPrincipalKey{}, principal))
+					r.Header.Del("X-Apteva-User-Session")
 					r.Header.Set("X-User-ID", itoa(installedBy))
 					r.Header.Set("X-Apteva-App-Install-ID", itoa(id))
 					next(w, r)
@@ -757,7 +780,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 			token = r.URL.Query().Get("api_key")
 		}
 		if token != "" {
-			if u, err := s.store.GetUserByAPIKey(HashAPIKey(token)); err == nil {
+			if u, access, err := s.store.getPrivateAPIKeyPrincipal(HashAPIKey(token)); err == nil && (access == APIKeyReadOnly || access == APIKeyReadWrite) {
 				userID = u.ID
 			}
 		}
@@ -856,9 +879,6 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "interface_level must be personal, business, or developer", http.StatusBadRequest)
 			return
 		}
-		if !s.prepareInterfaceApps(w, userID, *body.InterfaceLevel) {
-			return
-		}
 		if err := s.store.SetUserInterfaceLevel(userID, *body.InterfaceLevel); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -897,13 +917,27 @@ func (s *Server) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	// New accounts default to Business even before an explicit level choice.
-	if !s.prepareInterfaceApps(w, userID, s.store.GetUserInterfaceLevel(userID)) {
+	var body struct {
+		InterfaceLevel string `json:"interface_level"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil && err != io.EOF {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.MarkUserOnboarded(userID); err != nil {
-		http.Error(w, "failed to mark onboarded", http.StatusInternalServerError)
+	if body.InterfaceLevel != "" && !validInterfaceLevel(body.InterfaceLevel) {
+		http.Error(w, "invalid interface level", http.StatusBadRequest)
 		return
+	}
+	user, err := s.store.GetUserByID(userID)
+	if err != nil {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if user.OnboardedAt == nil {
+		if err := s.store.CompleteOnboardingWithInterface(userID, body.InterfaceLevel); err != nil {
+			http.Error(w, "failed to finish onboarding", http.StatusInternalServerError)
+			return
+		}
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
 }
@@ -990,13 +1024,17 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name               string          `json:"name"`
 		Kind               string          `json:"kind"`
+		Access             string          `json:"access"`
 		ProjectID          string          `json:"project_id"`
 		Scopes             json.RawMessage `json:"scopes"`
 		AllowedOrigins     []string        `json:"allowed_origins"`
 		RateLimitPerMinute int             `json:"rate_limit_per_minute"`
 		ExpiresAt          string          `json:"expires_at"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
 	if body.Name == "" {
 		body.Name = "default"
 	}
@@ -1006,6 +1044,18 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if kind != "private" && kind != "public_client" {
 		http.Error(w, "kind must be private or public_client", http.StatusBadRequest)
+		return
+	}
+	access := strings.TrimSpace(body.Access)
+	if access == "" {
+		access = APIKeyReadWrite
+	}
+	if access != APIKeyReadOnly && access != APIKeyReadWrite {
+		http.Error(w, "access must be read_only or read_write", http.StatusBadRequest)
+		return
+	}
+	if kind != "private" && access != APIKeyReadWrite {
+		http.Error(w, "read_only access is only supported for private keys", http.StatusBadRequest)
 		return
 	}
 	scopesJSON := "[]"
@@ -1056,6 +1106,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 
 	key, err := s.store.CreateAPIKey(userID, body.Name, keyHash, keyPrefix, APIKeyCreateOptions{
 		Kind:               kind,
+		Access:             access,
 		ProjectID:          projectID,
 		Scopes:             scopesJSON,
 		AllowedOrigins:     originsJSON,
@@ -1074,6 +1125,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		"key":     raw,
 		"prefix":  keyPrefix,
 		"kind":    key.Kind,
+		"access":  key.Access,
 		"message": "Save this key — it won't be shown again",
 	})
 }

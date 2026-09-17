@@ -4,6 +4,7 @@
     {
       "id": "development-software",
       "category": "development",
+      "interface_level": "developer",
       "name": "Software project",
       "description": "Plan, implement, test, and maintain a software product with visible durable work.",
       "match": [
@@ -44,6 +45,7 @@
     {
       "id": "development-engineering-team",
       "category": "development",
+      "interface_level": "developer",
       "name": "Engineering team",
       "description": "Coordinate planned, isolated, reviewed, and approved software delivery with a ready-made team of engineering agents.",
       "match": [
@@ -126,6 +128,7 @@
     {
       "id": "development-devops",
       "category": "development",
+      "interface_level": "developer",
       "name": "Infrastructure and operations",
       "description": "Operate deployments and infrastructure with conservative change control and clear evidence.",
       "match": [
@@ -167,6 +170,7 @@
     {
       "id": "development-qa",
       "category": "development",
+      "interface_level": "developer",
       "name": "Quality assurance",
       "description": "Design repeatable checks, investigate regressions, and report reproducible evidence.",
       "match": [
@@ -206,6 +210,7 @@
     {
       "id": "development-data",
       "category": "development",
+      "interface_level": "developer",
       "name": "Data and analytics",
       "description": "Explore data, maintain analytical definitions, and produce reproducible findings.",
       "match": [

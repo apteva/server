@@ -34,6 +34,7 @@ type recoveryFile struct {
 	SQLite bool   `json:"sqlite,omitempty"`
 }
 type recoveryManifest struct {
+	Excluded       map[string][]string     `json:"excluded,omitempty"`
 	FormatVersion  int                     `json:"format_version"`
 	GeneratedAt    string                  `json:"generated_at"`
 	ServerVersion  any                     `json:"server_version"`
@@ -111,7 +112,7 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.RemoveAll(tmp)
 	files := map[string]string{}
-	manifest := recoveryManifest{FormatVersion: 2, GeneratedAt: time.Now().UTC().Format(time.RFC3339), ServerVersion: versionInfo(), Files: map[string]recoveryFile{}, KeyFingerprint: keyFingerprint(s.secret), KeyPolicy: "original_key_required", SourceDataDir: s.dataDir}
+	manifest := recoveryManifest{Excluded: map[string][]string{}, FormatVersion: 2, GeneratedAt: time.Now().UTC().Format(time.RFC3339), ServerVersion: versionInfo(), Files: map[string]recoveryFile{}, KeyFingerprint: keyFingerprint(s.secret), KeyPolicy: "original_key_required", SourceDataDir: s.dataDir}
 	if s.localApps != nil {
 		manifest.SourceCacheDir = s.localApps.cacheDir
 	}
@@ -240,6 +241,20 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 				return fmt.Errorf("symlink requires explicit backup policy: %s", path)
 			}
 			if d.IsDir() {
+				// Legacy default destinations predate the marker.
+				legacy := root.Kind == "app" && root.Name == "backup" && path == filepath.Join(root.Path, "backups")
+				_, marked := os.Stat(filepath.Join(path, ".apteva-backup-destination"))
+				if legacy || marked == nil {
+					if path == root.Path {
+						return fmt.Errorf("backup destination must not be a managed data root")
+					}
+					rel, err := filepath.Rel(root.Path, path)
+					if err != nil {
+						return err
+					}
+					manifest.Excluded[root.Archive] = append(manifest.Excluded[root.Archive], filepath.ToSlash(rel))
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if !d.Type().IsRegular() {
@@ -533,6 +548,21 @@ func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphras
 				return err
 			}
 			used[name] = true
+		}
+		// Preserve excluded object storage using hard links to immutable archives.
+		for _, rel := range m.Excluded[root.Archive] {
+			if !safeRecoveryRelativePath(rel) {
+				return fmt.Errorf("invalid excluded recovery path")
+			}
+			for name := range staged {
+				prefix := root.Archive + "/" + rel
+				if name == prefix || strings.HasPrefix(name, prefix+"/") {
+					return fmt.Errorf("excluded path appears in recovery inventory")
+				}
+			}
+			if err := preserveRecoveryDirectory(dst, tmp, rel); err != nil {
+				return err
+			}
 		}
 		if err = syncRecoveryDir(tmp); err != nil {
 			return err

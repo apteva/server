@@ -1,10 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +14,8 @@ import (
 )
 
 type ModelInfo struct {
+	Methods                    []string                  `json:"methods,omitempty"`
+	Purposes                   []string                  `json:"purposes,omitempty"`
 	ID                         string                    `json:"id"`
 	Name                       string                    `json:"name"`
 	Description                string                    `json:"description,omitempty"`
@@ -31,7 +35,7 @@ type ModelInfo struct {
 // modelCache stores fetched models with TTL.
 type modelCache struct {
 	mu      sync.RWMutex
-	entries map[string]modelCacheEntry // key: "type:keyprefix"
+	entries map[string]modelCacheEntry // key: provider type + full credential hash
 }
 
 type modelCacheEntry struct {
@@ -43,9 +47,14 @@ var modelCacheTTL = 1 * time.Hour
 var globalModelCache = &modelCache{entries: make(map[string]modelCacheEntry)}
 
 // FetchModels returns the model list for a provider, using cache if fresh.
-func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
-	cacheKey := providerType + ":" + apiKey[:min(8, len(apiKey))]
+func FetchModels(providerType, apiKey string, refresh ...bool) ([]ModelInfo, error) {
+	cacheKey := fmt.Sprintf("%s:%x", providerType, sha256.Sum256([]byte(apiKey)))
 
+	if len(refresh) > 0 && refresh[0] {
+		globalModelCache.mu.Lock()
+		delete(globalModelCache.entries, cacheKey)
+		globalModelCache.mu.Unlock()
+	}
 	globalModelCache.mu.RLock()
 	if entry, ok := globalModelCache.entries[cacheKey]; ok && time.Since(entry.fetched) < modelCacheTTL {
 		globalModelCache.mu.RUnlock()
@@ -485,41 +494,46 @@ func fetchAnthropicModels(apiKey string) ([]ModelInfo, error) {
 // ── Google ──
 
 func fetchGoogleModels(apiKey string) ([]ModelInfo, error) {
-	data, err := apiGet("https://generativelanguage.googleapis.com/v1beta/models?key="+apiKey, nil)
-	if err != nil {
-		return nil, err
-	}
-	var resp struct {
-		Models []struct {
-			Name             string   `json:"name"`
-			DisplayName      string   `json:"displayName"`
-			InputTokenLimit  int      `json:"inputTokenLimit"`
-			SupportedMethods []string `json:"supportedGenerationMethods"`
-		} `json:"models"`
-	}
-	json.Unmarshal(data, &resp)
-
 	var models []ModelInfo
-	for _, m := range resp.Models {
-		// Filter to models that support generateContent
-		supportsGen := false
-		for _, method := range m.SupportedMethods {
-			if method == "generateContent" {
-				supportsGen = true
-				break
-			}
+	pageToken := ""
+	seen := map[string]bool{}
+	for {
+		query := url.Values{"pageSize": {"1000"}}
+		if pageToken != "" {
+			query.Set("pageToken", pageToken)
 		}
-		if !supportsGen {
-			continue
+		// Keep credentials out of URLs, including transport error messages.
+		data, err := apiGet("https://generativelanguage.googleapis.com/v1beta/models?"+query.Encode(), map[string]string{"x-goog-api-key": apiKey})
+		if err != nil {
+			return nil, err
 		}
-		id := strings.TrimPrefix(m.Name, "models/")
-		models = append(models, ModelInfo{
-			ID:          id,
-			Name:        m.DisplayName,
-			ContextSize: m.InputTokenLimit,
-		})
+		var resp struct {
+			Models []struct {
+				Name             string   `json:"name"`
+				DisplayName      string   `json:"displayName"`
+				Description      string   `json:"description"`
+				InputTokenLimit  int      `json:"inputTokenLimit"`
+				SupportedMethods []string `json:"supportedGenerationMethods"`
+			} `json:"models"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return nil, fmt.Errorf("invalid model catalog: %w", err)
+		}
+		for _, m := range resp.Models {
+			// Discovery retains methods; integration policy decides runtime eligibility.
+			models = append(models, ModelInfo{ID: strings.TrimPrefix(m.Name, "models/"), Name: m.DisplayName,
+				Description: m.Description, ContextSize: m.InputTokenLimit, Methods: m.SupportedMethods})
+		}
+		if resp.NextPageToken == "" {
+			return models, nil
+		}
+		if seen[resp.NextPageToken] || len(seen) >= 100 {
+			return nil, fmt.Errorf("invalid model catalog pagination")
+		}
+		pageToken = resp.NextPageToken
+		seen[pageToken] = true
 	}
-	return models, nil
 }
 
 // ── Venice ──

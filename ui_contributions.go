@@ -41,7 +41,11 @@ func (s *Server) handleUIContributions(w http.ResponseWriter, r *http.Request) {
 	}
 	if agentID > 0 {
 		agent, err := s.store.GetAgentByID(agentID)
-		if err != nil || agent.ProjectID != projectID {
+		// Helper is owned by the caller and intentionally has no project.
+		// It can host Conversations in an accessible project, but another
+		// user's Helper (or an ordinary unscoped agent) cannot be substituted.
+		ownedHelper := err == nil && agent.Kind == "platform_helper" && agent.UserID == getUserID(r) && agent.ProjectID == "" && platformHelperActivated(agent)
+		if err != nil || (agent.ProjectID != projectID && !ownedHelper) {
 			http.Error(w, "agent not found in project", http.StatusNotFound)
 			return
 		}

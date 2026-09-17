@@ -183,13 +183,13 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if spec.DirectiveOverride != "" {
 		directive = spec.DirectiveOverride
 	}
-	directive = withAgentBehavior(directive, src.Mode)
+	directive = withAgentBehavior(directive, src.Mode, src.Proactivity)
 	sourcePolicy := parseEnvironmentSourceAgentPolicy(src.Config)
 
 	// Transient environment-agent row cloned from the source.
 	row, err := s.store.CreateAgent(userID,
 		fmt.Sprintf("__environment_%s_%d__", environment.ID, time.Now().UnixNano()),
-		directive, src.Mode, src.Config, src.ProjectID)
+		directive, src.Mode, src.Config, src.ProjectID, src.Proactivity)
 	if err != nil {
 		return nil, fmt.Errorf("create environment agent: %w", err)
 	}
@@ -380,6 +380,7 @@ func isEnvironmentConnectionMCPURL(raw string) bool {
 }
 
 func runtimeProviderPool(pool []ProviderInfo, provider, model string) ([]ProviderInfo, string, string, error) {
+	pool = eligibleProviderPool(pool)
 	provider = providerKeyFromName(provider)
 	model = strings.TrimSpace(model)
 	selected := ProviderInfo{}
@@ -404,6 +405,9 @@ func runtimeProviderPool(pool []ProviderInfo, provider, model string) ([]Provide
 		if !found {
 			return nil, "", "", fmt.Errorf("LLM provider %q is not configured for this project", provider)
 		}
+	}
+	if err := validateProviderModel(pool, selected.Type, model); err != nil {
+		return nil, "", "", err
 	}
 	if model != "" {
 		selected.ModelLarge = model

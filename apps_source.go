@@ -89,7 +89,9 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	}
 	port, err = sup.startBuiltSource(installID, m, binPath, env, progress)
 	if err != nil {
-		cleanupFailedSourceVersionDir(filepath.Dir(binPath), binPath)
+		if _, prebuilt := m.Runtime.Artifacts[localPlatform()]; !prebuilt {
+			cleanupFailedSourceVersionDir(filepath.Dir(binPath), binPath)
+		}
 		return 0, "", err
 	}
 	return port, binPath, nil
@@ -101,6 +103,9 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 func (sup *LocalSupervisor) BuildFromSourceBinary(m *sdk.Manifest, progress func(string)) (binPath string, err error) {
 	if progress == nil {
 		progress = func(string) {}
+	}
+	if _, ok := m.Runtime.Artifacts[localPlatform()]; ok {
+		return sup.fetchAppArtifact(m, progress)
 	}
 	src := m.Runtime.Source
 	if src == nil || src.Repo == "" {
@@ -147,6 +152,9 @@ func (sup *LocalSupervisor) BuildFromSourceBinary(m *sdk.Manifest, progress func
 }
 
 func (sup *LocalSupervisor) startBuiltSource(installID int64, m *sdk.Manifest, binPath string, env map[string]string, progress func(string)) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
 	srcDir := filepath.Join(filepath.Dir(binPath), "src")
 	entry := "."
 	if m.Runtime.Source != nil && m.Runtime.Source.Entry != "" {

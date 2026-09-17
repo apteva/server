@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,9 @@ import (
 
 	sdk "github.com/apteva/app-sdk"
 )
+
+//go:embed skills/apteva-helper.md
+var aptevaHelperSkill string
 
 const helperGlobalMCPServerIDsKey = "helper_global_mcp_server_ids"
 const helperActivatedKey = "helper_activated"
@@ -275,6 +279,16 @@ func (s *Server) resolvePlatformHelperMCPs(userID int64, ids []int64, strict boo
 		seenIDs[id] = true
 		record, _, err := s.store.GetMCPServer(userID, id)
 		if err != nil {
+			// Conversations is fixed, shared platform infrastructure. Its MCP
+			// row belongs to the installer, while each caller owns their Helper.
+			// Permit only this running global install, never another user's
+			// arbitrary integration or a project-private app.
+			_, conversationsID, installed := s.platformHelperConversationsInstall(userID)
+			if installed && conversationsID == id {
+				record, err = s.store.GetMCPServerByIDUnscoped(id)
+			}
+		}
+		if err != nil {
 			if strict {
 				return nil, nil, fmt.Errorf("MCP server %d was not found", id)
 			}
@@ -405,7 +419,10 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 		return nil, errors.New("platform helper is deactivated")
 	}
 	wasRunning := s.agents.IsRunning(helper.ID)
-	needsRestart := wasRunning && !helperHasRequiredRuntimeConfig(helper)
+	// A retained core may still own an older stdio gateway process. Refresh
+	// that process once when Helper is next opened so setup tools are visible.
+	gatewayVersion, _ := helperConfigMap(helper)["helper_setup_gateway_version"].(float64)
+	needsRestart := wasRunning && (!helperHasRequiredRuntimeConfig(helper) || gatewayVersion < 2)
 	runtimeChanged, err := s.ensurePlatformHelperRuntimeConfig(helper)
 	if err != nil {
 		return nil, fmt.Errorf("configure platform helper capabilities: %w", err)
@@ -445,6 +462,11 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	pool := s.GetProviderPool(userID, "")
 	if len(pool) == 0 {
 		return nil, errors.New("no LLM provider configured - add one in Settings > Providers to enable the helper")
+	}
+	cfg := helperConfigMap(helper)
+	cfg["helper_setup_gateway_version"] = 2
+	if raw, err := json.Marshal(cfg); err == nil {
+		helper.Config = string(raw)
 	}
 	// Give the meta-agent the Apteva server gateway, channels, and
 	// Environment control tools before Start so core merges them into
@@ -768,10 +790,10 @@ func (s *Server) platformHelperConversationsInstall(userID int64) (installID, mc
 		SELECT i.id, COALESCE(m.id,0)
 		FROM app_installs i
 		JOIN apps a ON a.id=i.app_id
-		LEFT JOIN mcp_servers m ON m.upstream_id='app:' || i.id AND m.user_id=?
+		LEFT JOIN mcp_servers m ON m.upstream_id='app:' || i.id AND m.source='app' AND COALESCE(m.project_id,'')='' AND m.status='running'
 		WHERE a.name=? AND i.status='running' AND COALESCE(i.project_id,'')=''
 		ORDER BY CASE WHEN i.installed_by=? THEN 0 ELSE 1 END, i.id
-		LIMIT 1`, userID, defaultConversationsApp, userID).Scan(&installID, &mcpServerID)
+		LIMIT 1`, defaultConversationsApp, userID).Scan(&installID, &mcpServerID)
 	return installID, mcpServerID, err == nil && installID > 0
 }
 
@@ -948,9 +970,13 @@ func (s *Server) handlePlatformHelper(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, sanitizedPlatformHelper(helper, s.agents.IsRunning(helper.ID)))
 }
 
-const platformHelperSystemPrompt = `You are Apteva Helper, the platform assistant for the Apteva dashboard.
+const platformHelperBasePrompt = `You are Apteva Helper, the platform assistant for the Apteva dashboard.
 
-Help the operator understand the current page, design agents, create and manage agents, choose apps, integrations, and MCP servers, and inspect recent agent activity. Be concise and practical. User-facing dashboard conversations have their own durable reply capability and perform available control-plane mutations directly. Main has no internal chat-reply tool; when main receives an action-required request from a conversation, perform the durable work and return its result with the core send tool to that originating conversation. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.`
+Help the operator understand the current page, design agents, create and manage agents, choose apps, integrations, and MCP servers, and inspect recent agent activity. Be concise and practical. User-facing dashboard conversations have their own durable reply capability and perform available control-plane mutations directly. Main has no internal chat-reply tool; when main receives an action-required request from a conversation, perform the durable work and return its result with the core send tool to that originating conversation. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.
+
+For workspace setup, use setup_presets_list and setup_preview to explore the user's selected preset or recommend one. Read the current project's agents and apps before proposing changes. When a setup conversation opens with no user message, proactively send a brief welcome and ask what the user wants to accomplish; this is an intentional proactive check, not a dashboard-generated prompt. Ask concise questions about missing goals, show the proposed agents, apps, required connections and recommended interface from the preset, and wait for the user to agree to the concrete setup before calling setup_apply. Explain that interface recommendations affect only the current user at the end of onboarding; later preset installs preserve their interface. Include the agreed interface_level in setup_apply if the user overrides the recommendation. Use the exact project ID supplied by the setup conversation. Inspect returned warnings and agent status; explain unfinished work and help resolve it without duplicating resources. Keep the conversation with Helper while configuring the workspace; do not create a generic starter assistant merely to begin setup.`
+
+var platformHelperSystemPrompt = platformHelperBasePrompt + "\n\n" + aptevaHelperSkill
 
 // ─── Core-process HTTP helpers ─────────────────────────────────────
 

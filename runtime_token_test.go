@@ -130,10 +130,7 @@ func TestRuntimeTokenAcceptsOwningRunningCoreKey(t *testing.T) {
 	}
 }
 
-// TestRuntimeTokenPrefersProviderRow pins the dual-read precedence for
-// this endpoint: while a provider row still exists the behavior must be
-// bit-identical to before the fusion, so the connection path can be
-// shipped without a flag day.
+// An unrelated connection ID collision must not override a legacy provider.
 func TestRuntimeTokenPrefersProviderRow(t *testing.T) {
 	s := runtimeTestServer(t)
 	conn := codexConnection(t, s, 0)
@@ -155,6 +152,60 @@ func TestRuntimeTokenPrefersProviderRow(t *testing.T) {
 	rec := getRuntimeToken(t, s, provider.ID)
 	if rec.Code == http.StatusOK {
 		t.Fatal("provider row should have taken precedence and rejected the request")
+	}
+}
+
+func runtimeTokenLegacyCodexProvider(t *testing.T, s *Server) *Provider {
+	t.Helper()
+	state := map[string]any{
+		"auth": map[string]any{"provider": openAICodexAuthProvider},
+		"credentials": map[string]any{
+			"access_token": "old-token", "refresh_token": "old-refresh",
+			"expires_at": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := Encrypt(s.secret, string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := s.store.CreateProvider(1, 15, "llm", "OpenAI Codex", encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return provider
+}
+
+func TestRuntimeTokenUnavailableMigrationDoesNotRestoreLegacyCredential(t *testing.T) {
+	for _, status := range []string{"pending", "failed", "revoked", "missing-runtime"} {
+		t.Run(status, func(t *testing.T) {
+			s := runtimeTestServer(t)
+			provider := runtimeTokenLegacyCodexProvider(t, s)
+			conn := codexConnection(t, s, provider.ID)
+			if status == "missing-runtime" {
+				s.catalog = NewAppCatalog()
+			} else if err := s.store.UpdateConnectionStatus(conn.ID, status); err != nil {
+				t.Fatal(err)
+			}
+			if rec := getRuntimeToken(t, s, provider.ID); rec.Code != http.StatusNotFound {
+				t.Fatalf("status=%d; unavailable migrated connection must not restore legacy credentials", rec.Code)
+			}
+		})
+	}
+}
+
+func TestRuntimeTokenUnmigratedCodexProviderStillWorks(t *testing.T) {
+	s := runtimeTestServer(t)
+	provider := runtimeTokenLegacyCodexProvider(t, s)
+	rec := getRuntimeToken(t, s, provider.ID)
+	var payload struct {
+		AccessToken string `json:"access_token"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &payload) != nil || payload.AccessToken != "old-token" {
+		t.Fatalf("unmigrated provider callback failed: status=%d", rec.Code)
 	}
 }
 

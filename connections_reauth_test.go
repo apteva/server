@@ -162,6 +162,20 @@ func TestDeviceCodeReauthAtomicallyUpdatesExistingConnection(t *testing.T) {
 		case "/poll":
 			writeJSON(w, map[string]any{"authorization_code": "auth-code", "code_verifier": "verifier"})
 		case "/token":
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+				http.Error(w, "invalid form", http.StatusBadRequest)
+				return
+			}
+			if r.Form.Get("grant_type") == "refresh_token" {
+				if r.Form.Get("refresh_token") != "new-refresh" {
+					t.Error("forced refresh used the stale credential")
+					http.Error(w, "wrong refresh credential", http.StatusBadRequest)
+					return
+				}
+				writeJSON(w, map[string]any{"access_token": "rotated-token", "refresh_token": "rotated-refresh", "account_id": "acct-new"})
+				return
+			}
 			writeJSON(w, map[string]any{
 				"access_token": "new-token", "refresh_token": "new-refresh", "account_id": "acct-new",
 			})
@@ -187,11 +201,15 @@ func TestDeviceCodeReauthAtomicallyUpdatesExistingConnection(t *testing.T) {
 	ensureTestAdmin(t, s)
 	s.catalog = NewAppCatalog()
 	app := &AppTemplate{
-		Slug: integrationOpenAICodexSlug,
-		Name: "OpenAI Codex",
-		Auth: AppAuthConfig{Types: []string{connectionAuthTypeDeviceCode}},
+		Slug:    integrationOpenAICodexSlug,
+		Name:    "OpenAI Codex",
+		Auth:    AppAuthConfig{Types: []string{connectionAuthTypeDeviceCode}},
+		Runtime: &AppRuntimeConfig{Role: "llm", ProviderKey: "openai-codex"},
 	}
 	s.catalog.Register(app)
+	legacy := runtimeTokenLegacyCodexProvider(t, s)
+	// Distinct IDs exercise the legacy alias held by an existing core.
+	addConnection(t, s, "unrelated", "Unrelated", "", map[string]string{"api_key": "unused"})
 	encrypted, err := Encrypt(s.secret, `{"access_token":"old-token","refresh_token":"old-refresh"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +221,45 @@ func TestDeviceCodeReauthAtomicallyUpdatesExistingConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if _, err := s.store.db.Exec(`UPDATE connections SET legacy_provider_id=? WHERE id=?`, legacy.ID, conn.ID); err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(1, "reauth core", "wait", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const coreKey = "core_reauth_existing_agent"
+	if _, err := s.store.db.Exec(`UPDATE agents SET status='running', core_api_key=?, pid=77, port=7777 WHERE id=?`, coreKey, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Use the same authenticated agent callback before and after reauth;
+	// neither its provider reference nor its process credentials change.
+	checkAgentToken := func(wantToken, wantAccount string, force ...bool) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/providers/"+strconv.FormatInt(legacy.ID, 10)+"/auth/runtime-token", nil)
+		if len(force) > 0 && force[0] {
+			req.URL.RawQuery = "force=1"
+		}
+		req.RemoteAddr = "127.0.0.1:43777"
+		req.Header.Set("Authorization", "Bearer "+coreKey)
+		rec := httptest.NewRecorder()
+		s.authMiddleware(s.handleRuntimeToken)(rec, req)
+		var payload struct {
+			AccessToken string `json:"access_token"`
+			AccountID   string `json:"account_id"`
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("existing agent callback status=%d", rec.Code)
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.AccessToken != wantToken || payload.AccountID != wantAccount {
+			t.Fatal("existing agent received stale token or account after credential update")
+		}
+	}
+	checkAgentToken("old-token", "")
 
 	startReq := httptest.NewRequest(http.MethodPost, "/connections/"+strconv.FormatInt(conn.ID, 10)+"/reauth", nil)
 	startReq.Header.Set("X-User-ID", "1")
@@ -239,7 +296,10 @@ func TestDeviceCodeReauthAtomicallyUpdatesExistingConnection(t *testing.T) {
 	if err := json.Unmarshal([]byte(plain), &credentials); err != nil {
 		t.Fatal(err)
 	}
+	checkAgentToken("new-token", "acct-new")
 	if got.ID != conn.ID || got.Status != "active" || credentials["access_token"] != "new-token" || credentials["refresh_token"] != "new-refresh" || credentials["account_id"] != "acct-new" {
 		t.Fatalf("connection=%+v credential_keys=%v", got, filterKeys(credentials))
 	}
+	checkAgentToken("rotated-token", "acct-new", true)
+	checkAgentToken("rotated-token", "acct-new")
 }

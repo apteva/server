@@ -93,10 +93,8 @@ type AppRuntimeConfig struct {
 	// Capabilities — optional runtime feature flags, e.g.
 	// "subscription_usage" for providers exposing a quota endpoint.
 	Capabilities []string `json:"capabilities,omitempty"`
-	// No default model list here on purpose: model ids churn faster than
-	// the catalog ships, so a hardcoded default goes stale and fails at
-	// first inference. hydrateRuntimeModels asks the provider what it
-	// currently serves and caches that in the connection's runtime_config.
+	// Optional integration-owned eligibility and live-catalog tier preferences.
+	ModelPolicy *RuntimeModelPolicy `json:"model_policy,omitempty"`
 }
 
 type IntegrationURLProperty struct {

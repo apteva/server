@@ -4,6 +4,7 @@
     {
       "id": "work-executive",
       "category": "work",
+      "interface_level": "business",
       "name": "Executive workspace",
       "description": "Prioritize decisions, prepare briefings, and follow through across a busy role.",
       "match": [
@@ -45,6 +46,7 @@
     {
       "id": "work-sales",
       "category": "work",
+      "interface_level": "business",
       "name": "Sales team",
       "description": "Research accounts, maintain CRM hygiene, prepare outreach, and surface follow-ups.",
       "match": [
@@ -87,6 +89,7 @@
     {
       "id": "work-support",
       "category": "work",
+      "interface_level": "business",
       "name": "Customer support",
       "description": "Triage customer issues, prepare reliable responses, and escalate important cases.",
       "match": [
@@ -126,6 +129,7 @@
     {
       "id": "work-research",
       "category": "work",
+      "interface_level": "business",
       "name": "Research desk",
       "description": "Run structured research, preserve evidence, and produce decision-ready synthesis.",
       "match": [
@@ -165,6 +169,7 @@
     {
       "id": "work-youtube-to-blog",
       "category": "work",
+      "interface_level": "business",
       "name": "YouTube video to blog post",
       "description": "Turn a YouTube video or supplied transcript into an attributable article draft. Automatic transcription needs a configured provider.",
       "match": [

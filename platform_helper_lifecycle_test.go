@@ -182,3 +182,45 @@ func TestPlatformHelperActivationBindsConversationsAndIsIdempotent(t *testing.T)
 		t.Fatalf("bindings=%d err=%v", bindings, err)
 	}
 }
+
+func TestPlatformHelperMemberUsesSharedConversationsWithoutOtherOwnerCapabilities(t *testing.T) {
+	s := newTestServer(t)
+	admin := ensureTestAdmin(t, s)
+	user, _ := s.store.CreateUser("shared-helper-member@test.local", "hash")
+	encrypted, _ := Encrypt(s.secret, `{"api_key":"test"}`)
+	s.store.CreateProvider(user.ID, 0, "llm", "OpenAI", encrypted)
+	installID := seedAppWithTools(t, s, defaultConversationsApp, "", []string{"send", "list"})
+	if err := s.registerAppMCP(installID); err != nil {
+		t.Fatal(err)
+	}
+	s.platformHelperStarter = func(id int64) (*Agent, error) { return s.store.GetPlatformHelper(id) }
+	w := httptest.NewRecorder()
+	s.handlePlatformHelperActivate(w, helperLifecycleRequest(http.MethodPost, "/platform/helper/activate", user.ID, `{"install_conversations":true}`))
+	if w.Code != 200 {
+		t.Fatalf("member activation: %d %s", w.Code, w.Body.String())
+	}
+	helper, err := s.store.GetPlatformHelper(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := helperSelectedGlobalMCPServerIDs(helper)
+	if len(ids) != 1 {
+		t.Fatalf("selected capabilities: %v", ids)
+	}
+	var owner int64
+	s.store.db.QueryRow("SELECT user_id FROM mcp_servers WHERE id=?", ids[0]).Scan(&owner)
+	if owner != admin {
+		t.Fatal("shared install ownership changed")
+	}
+	private, err := s.store.CreateMCPServerExt(MCPServerInput{UserID: admin, Name: "private-provider", Source: "remote", Transport: "http", URL: "https://example.com/mcp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.resolvePlatformHelperMCPs(user.ID, []int64{private.ID}, true); err == nil {
+		t.Fatal("member could select another user's integration")
+	}
+	s.store.db.Exec("UPDATE mcp_servers SET project_id='private' WHERE id=?", ids[0])
+	if _, _, err := s.resolvePlatformHelperMCPs(user.ID, ids, true); err == nil {
+		t.Fatal("member could select a project-private app")
+	}
+}

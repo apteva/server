@@ -438,8 +438,13 @@ func (s *Store) updateProviderEncryptedDataCAS(providerID, userID int64, previou
 // kebab-case lookup key the rest of the stack uses ("OpenCode Go" →
 // "opencode-go"). createProviderByName, FetchModels, isLLMKey, and the
 // core's case-by-name dispatch all expect this normalized form.
+// providerKeyFromName normalizes a provider name to the key everything else
+// compares against. The rule must stay identical to the test runner's
+// normalizeProviderName: the two sides disagreeing on underscores meant a
+// request could match a provider on one side and miss it on the other.
 func providerKeyFromName(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
+	s = strings.ReplaceAll(s, "_", "-")
 	s = strings.ReplaceAll(s, " ", "-")
 	return s
 }
@@ -496,7 +501,7 @@ func isEnvVar(s string) bool {
 // GetProviderInfo extracts provider type + model selections from the first LLM provider.
 // Kept for backward compatibility — use GetProviderPool for multi-provider support.
 func (s *Server) GetProviderInfo(userID int64, projectID ...string) ProviderInfo {
-	pool := s.GetProviderPool(userID, projectID...)
+	pool := eligibleProviderPool(s.GetProviderPool(userID, projectID...))
 	if len(pool) == 0 {
 		return ProviderInfo{}
 	}
@@ -671,10 +676,18 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 	if hasManaged {
 		combined = append([]ProviderInfo{managed}, combined...)
 	}
+	for i := range combined {
+		if combined[i].ModelPolicy == nil {
+			combined[i].ModelPolicy = s.modelPolicyForProvider(combined[i].Type)
+		}
+	}
 	// Realtime adapters reuse their text provider's credential but remain
 	// separate core session types. Inject companions without synthetic DB rows.
 	var realtimeCompanions []ProviderInfo
 	for _, info := range combined {
+		if len(eligibleProviderPool([]ProviderInfo{info})) == 0 {
+			continue
+		}
 		switch info.Type {
 		case "openai":
 			realtimeCompanions = append(realtimeCompanions, ProviderInfo{

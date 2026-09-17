@@ -1202,15 +1202,15 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if manifest.Runtime.Kind == "source" || manifest.Runtime.Source != nil {
+		if manifest.Runtime.Kind == "source" || manifest.Runtime.Source != nil || hasLocalArtifact(manifest) {
 			// Outermost slot acquisition — gates concurrent top-level
 			// installs across the host. Dep-recursion inside
 			// installFromSource doesn't re-acquire (would deadlock).
 			// "Queued" status surfaced before the slot blocks so the
 			// dashboard pill reads coherently while the user waits.
-			s.store.db.Exec(`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`, installID)
+			s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(manifest), installID)
 			go func() {
-				release := s.localApps.acquireBuildSlot()
+				release := s.localApps.acquireRuntimeBuildSlot(manifest)
 				defer release()
 				if err := s.installFromSource(installID, manifest, body.ProjectID, body.Config); err != nil {
 					log.Printf("[APPS-SOURCE] install %d failed: %v", installID, err)
@@ -1220,14 +1220,14 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 				"install_id": installID,
 				"app_id":     appID,
 				"status":     "building",
-				"next_step":  "Apteva is cloning the repo and running `go build`. First builds take 30-60s while dependencies download; subsequent installs of the same version are cached. Refresh the Apps tab — status will be 'running' once health checks pass, or 'error' with details if the build fails.",
+				"next_step":  "Apteva is preparing the app. A matching prebuilt package is downloaded and verified; otherwise the app is built from source. The Apps tab shows preparation progress and any errors.",
 			})
 			return
 		}
 		if _, ok := manifest.Runtime.Binaries[localPlatform()]; ok {
-			s.store.db.Exec(`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`, installID)
+			s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(manifest), installID)
 			go func() {
-				release := s.localApps.acquireBuildSlot()
+				release := s.localApps.acquireRuntimeBuildSlot(manifest)
 				defer release()
 				if err := s.installLocally(installID, manifest, body.ProjectID, body.Config); err != nil {
 					log.Printf("[APPS-LOCAL] install %d failed: %v", installID, err)
@@ -2083,9 +2083,9 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Acquires the global build slot here (outermost goroutine) so
 	// concurrent upgrade-all clicks queue cleanly instead of OOM-ing
 	// the host with N parallel `go build` processes.
-	s.store.db.Exec(`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`, installID)
+	s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(live), installID)
 	go func() {
-		release := s.localApps.acquireBuildSlot()
+		release := s.localApps.acquireRuntimeBuildSlot(live)
 		defer release()
 		if err := s.installFromSource(installID, live, projectID, cfg); err != nil {
 			// installFromSource already wrote status='error' + error_message.

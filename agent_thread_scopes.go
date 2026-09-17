@@ -91,5 +91,23 @@ func (s *Server) appMCPThreadProject(r *http.Request) (string, error) {
 	if threadID == "" {
 		return "", nil
 	}
-	return s.store.AgentThreadProjectForUser(getUserID(r), agentID, threadID)
+	projectID, err := s.store.AgentThreadProjectForUser(getUserID(r), agentID, threadID)
+	if err != nil || projectID != "" {
+		return projectID, err
+	}
+	// Shared app credentials belong to the installer, while the caller agent
+	// may belong to another member. Resolve only scopes this exact app created
+	// for an agent that is still attached; a header alone grants no access.
+	principal, ok := r.Context().Value(appCallbackPrincipalKey{}).(appCallbackPrincipal)
+	if !ok || principal.userSession {
+		return "", nil
+	}
+	err = s.store.db.QueryRow(`SELECT ats.project_id FROM agent_thread_scopes ats
+		JOIN app_agent_bindings b ON b.agent_id=ats.agent_id AND b.install_id=ats.source_install_id
+		WHERE ats.agent_id=? AND ats.thread_id=? AND ats.source_install_id=? AND b.enabled=1`,
+		agentID, threadID, principal.installID).Scan(&projectID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return projectID, err
 }

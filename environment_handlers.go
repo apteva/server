@@ -60,7 +60,7 @@ type createEnvironmentRequest struct {
 	AllowSuffixes       []string                      `json:"allow_suffixes"`
 	Mocks               []HTTPMock                    `json:"mocks"`
 	IntegrationFixtures []IntegrationFixture          `json:"integration_fixtures"`
-	IntegrationBindings []RuntimeIntegrationBinding    `json:"integration_bindings"`
+	IntegrationBindings []RuntimeIntegrationBinding   `json:"integration_bindings"`
 	Subscriptions       []EnvironmentSubscriptionSpec `json:"subscriptions"`
 	SeedPlan            []SeedCall                    `json:"seed_plan"`
 	SeedBaseDir         string                        `json:"seed_base_dir"`
@@ -560,6 +560,14 @@ func (s *Server) createEnvironmentRuntime(req createEnvironmentRequest, userID i
 	if err != nil {
 		return nil, err
 	}
+	sourceInstallIDs := map[string]int64{}
+	for _, id := range req.AppInstallIDs {
+		var name string
+		if err := s.store.db.QueryRow(`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&name); err != nil {
+			return nil, err
+		}
+		sourceInstallIDs[name] = id
+	}
 	connectionIDs, err := s.environmentVisibleConnectionIDs(userID, req.ProjectID, req.ConnectionIDs)
 	if err != nil {
 		return nil, err
@@ -574,6 +582,7 @@ func (s *Server) createEnvironmentRuntime(req createEnvironmentRequest, userID i
 		GatewayURL:          gateway,
 		Apps:                apps,
 		AppSrcDirs:          appSrcDirs,
+		SourceInstallIDs:    sourceInstallIDs,
 		Policy:              SandboxPolicy{AllowHostSuffixes: req.AllowSuffixes, Mocks: req.Mocks},
 		Mode:                EdgeMode(req.Mode),
 		NetworkMode:         normalizeEnvironmentNetworkMode(EdgeMode(req.NetworkMode), EdgeMode(req.Mode)),
@@ -1143,7 +1152,11 @@ func (s *Server) handleEnvironmentSeed(w http.ResponseWriter, r *http.Request, e
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	results, err := s.ExecuteSeedPlanWithBaseDir(environment, req.Calls, req.SeedBaseDir)
+	var callerInstallID int64
+	if principal, ok := r.Context().Value(appCallbackPrincipalKey{}).(appCallbackPrincipal); ok {
+		callerInstallID = principal.installID
+	}
+	results, err := s.executeSeedPlanAsSource(environment, req.Calls, req.SeedBaseDir, callerInstallID)
 	if err != nil {
 		http.Error(w, "seed: "+err.Error(), http.StatusBadRequest)
 		return

@@ -830,8 +830,14 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 	}
 	log.Printf("[WEBHOOK] sub %s received body len=%d", sub.ID, len(body))
 
-	// Verify HMAC if configured
-	if encSecret != "" {
+	// Financial providers use asymmetric signatures, not the generic subscription HMAC.
+	providerVerified, verifyErr := s.verifyPaymentSubscription(r, sub, body)
+	if verifyErr != nil {
+		http.Error(w, "payment webhook verification failed", http.StatusUnauthorized)
+		return
+	}
+	// Verify HMAC for all other integrations if configured.
+	if !providerVerified && encSecret != "" {
 		secret, err := Decrypt(s.secret, encSecret)
 		if err != nil || secret == "" {
 			log.Printf("[WEBHOOK] sub %s: HMAC credential unavailable: %v", sub.ID, err)
@@ -854,7 +860,7 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 			}
 			log.Printf("[WEBHOOK] sub %s HMAC verified ok", sub.ID)
 		}
-	} else {
+	} else if !providerVerified {
 		log.Printf("[WEBHOOK] sub %s has no HMAC secret — skipping verification", sub.ID)
 	}
 

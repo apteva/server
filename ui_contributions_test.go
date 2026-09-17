@@ -10,6 +10,37 @@ import (
 	sdk "github.com/apteva/app-sdk"
 )
 
+func TestUIContributionsAllowsOnlyOwnActiveHelperAcrossProjectContext(t *testing.T) {
+	s := newTestServer(t)
+	owner, _ := s.store.CreateUser("helper-ui-owner@test.local", "hash")
+	other, _ := s.store.CreateUser("helper-ui-other@test.local", "hash")
+	project, _ := s.store.CreateProject(owner.ID, "Workspace", "", "")
+	helper, _ := s.store.GetOrCreatePlatformHelper(owner.ID, platformHelperSystemPrompt)
+	otherHelper, _ := s.store.GetOrCreatePlatformHelper(other.ID, platformHelperSystemPrompt)
+	ordinary, _ := s.store.CreateAgent(owner.ID, "Unscoped", "", "cautious", "{}", "")
+	call := func(id int64) int {
+		query := url.Values{"project_id": {project.ID}, "surface": {"dashboard.build"}, "agent_id": {itoa(id)}}
+		r := helperLifecycleRequest(http.MethodGet, "/ui/contributions?"+query.Encode(), owner.ID, "")
+		w := httptest.NewRecorder()
+		s.handleUIContributions(w, r)
+		return w.Code
+	}
+	if code := call(helper.ID); code != 200 {
+		t.Fatalf("own Helper: %d", code)
+	}
+	if code := call(otherHelper.ID); code != 404 {
+		t.Fatalf("other Helper: %d", code)
+	}
+	if code := call(ordinary.ID); code != 404 {
+		t.Fatalf("unscoped ordinary agent: %d", code)
+	}
+	setPlatformHelperActivated(helper, false)
+	s.store.UpdateAgent(helper)
+	if code := call(helper.ID); code != 404 {
+		t.Fatalf("inactive Helper: %d", code)
+	}
+}
+
 func TestUIContributionEligibilityUsesAgentAttachmentWithoutThreadKinds(t *testing.T) {
 	s := newTestServer(t)
 	user, err := s.store.CreateUser("contributions@test.com", "hash")

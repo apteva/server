@@ -111,12 +111,14 @@ func (s *Server) handleConnectionRuntimeConfig(w http.ResponseWriter, r *http.Re
 		http.Error(w, "invalid connection ID", http.StatusBadRequest)
 		return
 	}
-	conn, _, err := s.store.GetConnection(userID, connID)
+	conn, encrypted, err := s.store.GetConnection(userID, connID)
 	if err != nil {
 		http.Error(w, "connection not found", http.StatusNotFound)
 		return
 	}
 
+	unlock := s.lockRuntimeModelConfig(connID)
+	defer unlock()
 	current, err := s.store.GetConnectionRuntimeConfig(userID, connID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -136,6 +138,12 @@ func (s *Server) handleConnectionRuntimeConfig(w http.ResponseWriter, r *http.Re
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&patch); err != nil {
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
 			return
+		}
+		if app.Runtime.ModelPolicy != nil {
+			if err := s.validateRuntimeModelPatch(conn, encrypted, app, current, patch); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		for key, value := range patch {
 			// A null clears the key, which is how the dashboard says
@@ -234,7 +242,7 @@ func (s *Server) handleConnectionModels(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "connection has no API key to list models with", http.StatusBadRequest)
 		return
 	}
-	models, err := FetchModels(app.Runtime.ProviderKey, apiKey)
+	models, err := fetchRuntimeModels(app.Runtime, apiKey, r.URL.Query().Get("refresh") == "1")
 	if err != nil {
 		http.Error(w, "failed to fetch models: "+err.Error(), http.StatusBadGateway)
 		return
@@ -467,6 +475,11 @@ func (s *Server) handleListRuntimeConnections(w http.ResponseWriter, r *http.Req
 		config := map[string]any{}
 		if raw := strings.TrimSpace(conn.RuntimeConfig); raw != "" {
 			_ = json.Unmarshal([]byte(raw), &config)
+		}
+		if app.Runtime.ModelPolicy != nil && conn.Status == "active" {
+			if src, err := buildRuntimeSources(conn, s.secret); err == nil {
+				s.hydrateRuntimeModels(conn, app, src, config)
+			}
 		}
 		scope := "global"
 		if conn.ProjectID != "" {

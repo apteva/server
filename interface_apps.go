@@ -11,14 +11,9 @@ import (
 	sdk "github.com/apteva/app-sdk"
 )
 
-// Conversations is product infrastructure for Personal and Business, not a
-// marketplace choice. This path provisions only that fixed dependency using
-// the operator's configured registry and existing installer. It does not grant
-// ordinary users app-management privileges or activate a platform Helper.
-func (s *Server) prepareInterfaceApps(w http.ResponseWriter, userID int64, level string) bool {
-	if level != "personal" && level != "business" {
-		return true
-	}
+// Prepare the fixed dependency only when the user chooses AI-assisted setup.
+// This respects the operator allowlist without granting app-management access.
+func (s *Server) prepareHelperConversations(w http.ResponseWriter, userID int64) bool {
 	if err := s.ensureInterfaceConversations(userID); err != nil {
 		log.Printf("[INTERFACE] prepare Conversations user=%d: %v", userID, err)
 		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]string{
@@ -111,7 +106,7 @@ func (s *Server) ensureInterfaceConversations(userID int64) error {
 				return errors.New("registry entry is not a global Conversations app")
 			}
 			// Keep the shared infrastructure owned by the server administrator,
-			// not the first member who happens to select Personal or Business.
+			// not the first member who happens to select AI-assisted setup.
 			ownerID, err := s.firstPlatformAdmin()
 			if err != nil {
 				return fmt.Errorf("find platform owner: %w", err)

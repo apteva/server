@@ -80,9 +80,30 @@ func (s *Server) appInstallForToken(token string) (installID, installedBy int64,
 }
 
 // App credentials are capabilities for the app data plane, not user API
-// credentials. Never allow one to reach ordinary management handlers.
+// credentials. Never allow one to reach ordinary management handlers. The
+// environment SDK routes below have their own manifest-permission gates.
 func appTokenRouteAllowed(path string) bool {
 	switch {
+	case path == "/environments":
+		return true // handleEnvironments requires environments.read/manage.
+	case strings.HasPrefix(path, "/environments/"):
+		parts := strings.Split(strings.TrimPrefix(path, "/environments/"), "/")
+		if parts[0] == "" || parts[0] == "migrate-to-app" {
+			return false
+		}
+		// Only SDK endpoints that enforce requireEnvironmentPermission or
+		// requireEnvironmentAgentPermission. Do not admit lifecycle/migration
+		// or arbitrary proxy routes merely because they share this prefix.
+		if len(parts) == 1 {
+			return true
+		}
+		if len(parts) == 2 {
+			switch parts[1] {
+			case "seed", "snapshot", "agents", "agent":
+				return true
+			}
+		}
+		return len(parts) == 3 && parts[1] == "agents" && parts[2] != ""
 	case path == "/app-events/internal/emit":
 		return true
 	case strings.HasPrefix(path, "/app-events/"):

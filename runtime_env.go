@@ -488,15 +488,18 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 		if state == nil {
 			state = map[string]any{}
 		}
-		s.hydrateRuntimeModels(conn, app, src, state)
+		availableModels := s.hydrateRuntimeModels(conn, app, src, state)
 
 		info := ProviderInfo{
-			Type:              providerKey,
-			ModelLarge:        normalizeStaleModel(providerKey, stringValue(state["model_large"])),
-			ModelMedium:       normalizeStaleModel(providerKey, stringValue(state["model_medium"])),
-			ModelSmall:        normalizeStaleModel(providerKey, stringValue(state["model_small"])),
-			BuiltinTools:      runtimeBuiltinTools(state),
-			ModelCapabilities: runtimeModelCapabilities(state),
+			Type:                providerKey,
+			ModelLarge:          normalizeStaleModel(providerKey, stringValue(state["model_large"])),
+			ModelMedium:         normalizeStaleModel(providerKey, stringValue(state["model_medium"])),
+			ModelSmall:          normalizeStaleModel(providerKey, stringValue(state["model_small"])),
+			BuiltinTools:        runtimeBuiltinTools(state),
+			ModelCapabilities:   runtimeModelCapabilities(state),
+			ModelPolicy:         app.Runtime.ModelPolicy,
+			AvailableModels:     availableModels,
+			ModelSelectionError: state["model_selection_errors"] != nil,
 		}
 		if providerKey == "openai-codex" {
 			codexPool = append(codexPool, info)
@@ -574,25 +577,20 @@ func runtimeGroupOrder(s *Server, conns []runtimeConnection) map[string]int64 {
 	return order
 }
 
-// hydrateRuntimeModels fills a connection's model tiers from the
-// provider's LIVE model list when runtime_config doesn't pin them, then
-// persists the result so the fetch happens once rather than on every
-// agent boot.
-//
-// Deliberately not a static default in the catalog: model ids churn
-// faster than the catalog ships, and a stale hardcoded id fails at first
-// inference with an unhelpful upstream error. Asking the provider what
-// it currently serves is the only answer that stays correct.
-//
-// Every failure path is non-fatal. Saved models — or apteva-core's own
-// factory defaults — are a better outcome than refusing to boot the
-// agent because a model list endpoint was slow.
-func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, src runtimeTemplateSources, state map[string]any) {
+// hydrateRuntimeModels resolves tiers against the integration's optional policy,
+// returning its live eligible IDs for per-agent override validation. Policy-free
+// providers retain the existing discovery/default behavior. Policy-managed
+// providers keep compatible saved models during outages but never pass empty
+// or incompatible choices through to core factory defaults.
+func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, src runtimeTemplateSources, state map[string]any) map[string]bool {
 	if state == nil || app == nil || app.Runtime == nil {
-		return
+		return nil
+	}
+	if app.Runtime.ModelPolicy != nil {
+		return s.hydratePolicyModels(conn, app, src, state)
 	}
 	if !runtimeModelsMissing(state) {
-		return
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -605,28 +603,28 @@ func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, 
 		accessToken, _ := lookupRuntimeRef("credentials.access_token", src)
 		accountID, _ := lookupRuntimeRef("credentials.account_id", src)
 		if strings.TrimSpace(accessToken) == "" {
-			return
+			return nil
 		}
 		fetched, err := fetchCodexModelCatalog(ctx, accessToken, accountID, false)
 		if err != nil {
 			log.Printf("[RUNTIME-MODELS] connection=%d catalog unavailable; retaining saved models: %v", conn.ID, err)
-			return
+			return nil
 		}
 		applyCodexCatalogToState(state, fetched)
 		s.persistRuntimeModels(conn, state)
-		return
+		return nil
 	}
 
 	apiKey := runtimeAPIKeyFor(app.Runtime, src)
 	if apiKey == "" {
-		return
+		return nil
 	}
 	models, err := FetchModels(app.Runtime.ProviderKey, apiKey)
 	if err != nil || len(models) == 0 {
 		if err != nil {
 			log.Printf("[RUNTIME-MODELS] connection=%d model list unavailable: %v", conn.ID, err)
 		}
-		return
+		return nil
 	}
 	// One list, applied to every unset tier. Tier-specific selection is
 	// the operator's call in the Providers tab; this only stops the pool
@@ -638,6 +636,7 @@ func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, 
 		}
 	}
 	s.persistRuntimeModels(conn, state)
+	return nil
 }
 
 // runtimeModelsMissing reports whether any tier is still unset.

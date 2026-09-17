@@ -4,6 +4,7 @@
     {
       "id": "business-lead-generation",
       "category": "business",
+      "interface_level": "business",
       "name": "Lead-generation business",
       "description": "Operate lead research, qualification, CRM follow-up, and client reporting.",
       "match": [
@@ -48,6 +49,7 @@
     {
       "id": "business-professional-services",
       "category": "business",
+      "interface_level": "business",
       "name": "Professional services",
       "description": "Coordinate client delivery, preparation, follow-up, and account context.",
       "match": [
@@ -90,6 +92,7 @@
     {
       "id": "business-ecommerce",
       "category": "business",
+      "interface_level": "business",
       "name": "E-commerce",
       "description": "Monitor products, customers, content, and operational exceptions for an online store.",
       "match": [
@@ -133,6 +136,7 @@
     {
       "id": "business-local-services",
       "category": "business",
+      "interface_level": "business",
       "name": "Local service business",
       "description": "Handle enquiries, appointment preparation, follow-up, and local business operations.",
       "match": [
@@ -175,6 +179,7 @@
     {
       "id": "business-webinars",
       "category": "business",
+      "interface_level": "business",
       "name": "Webinar studio",
       "description": "Host live, scheduled, and replay webinars: registration funnel, reminders, live room with polls and offers, replays, and follow-up.",
       "match": [

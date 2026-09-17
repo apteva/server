@@ -63,6 +63,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 	}
 
 	tools := []toolDef{
+		{Name: "setup_presets_list", Description: "Explore available workspace presets, including their agents, apps, purpose and recommended interface.", InputSchema: toolSchema{Type: "object"}},
+		{Name: "setup_preview", Description: "Preview a workspace setup without creating anything. Inspect existing agents/apps first and show the proposed setup and missing connections to the user.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Workspace project ID from the conversation context"}, "preset_id": {Type: "string", Description: "Selected preset ID, or omit to recommend one"}, "category": {Type: "string", Description: "personal, business, work or development"}, "interface_level": {Type: "string", Description: "Optional interface recommendation override: personal (focused), business (workspace), developer (advanced). Presentation only."}, "description": {Type: "string", Description: "What the user wants this setup to do"}}, Required: []string{"project_id", "description"}}},
+		{Name: "setup_apply", Description: "Apply the workspace preset the user agreed to after preview. Uses the same provisioning as the dashboard, reuses existing agents and reports partial failures. Check warnings and agent status; do not claim success when work remains.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Workspace project ID"}, "preset_id": {Type: "string", Description: "Agreed preset ID"}, "interface_level": {Type: "string", Description: "Agreed interface override: personal, business or developer. Saved for onboarding review; does not change existing preferences."}, "description": {Type: "string", Description: "Agreed setup purpose"}}, Required: []string{"project_id", "preset_id", "description"}}},
 		// Agents
 		{Name: "agents_list", Description: "List Apteva agents visible to this user. Defaults to the current project when the gateway was launched for one.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}}}},
 		{Name: "agents_get", Description: "Get one Apteva agent by ID, including current running/stopped status.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
@@ -121,6 +124,8 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			return handleGatewayAppTool(name, args, projectID, serverAPI)
 		}
 		switch name {
+		case "setup_presets_list", "setup_preview", "setup_apply":
+			return handleGatewaySetupTool(name, args, projectID, serverAPI)
 		// --- Integrations ---
 		case "list_integrations":
 			q, _ := args["query"].(string)
@@ -1255,7 +1260,11 @@ func (c gatewayAPIClient) do(method, path string, body any, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	timeout := 30 * time.Second
+	if strings.HasSuffix(path, "/setup/apply") {
+		timeout = 10 * time.Minute
+	}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
