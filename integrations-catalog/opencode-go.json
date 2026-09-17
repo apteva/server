@@ -3,10 +3,18 @@
   "name": "OpenCode Go",
   "description": "OpenAI-compatible chat completions for the OpenCode Go subscription gateway. Flat-rate access to a curated catalog of frontier models (Kimi K2.6, GLM-5.1, Qwen3.6 Plus, DeepSeek V4 Pro, etc.) with multimodal support — text + image inputs in a single request. Use for chat, summarization, structured-output, and image description / captioning where vision-capable models like Kimi K2.6 are bound. One endpoint, one tool, one bearer key.",
   "logo": "https://www.google.com/s2/favicons?domain=opencode.ai&sz=128",
-  "categories": ["ai", "llm", "chat", "vision", "multimodal"],
+  "categories": [
+    "ai",
+    "llm",
+    "chat",
+    "vision",
+    "multimodal"
+  ],
   "base_url": "https://opencode.ai/zen/go",
   "auth": {
-    "types": ["api_key"],
+    "types": [
+      "api_key"
+    ],
     "headers": {
       "Authorization": "Bearer {{api_key}}"
     },
@@ -24,6 +32,9 @@
       "description": "Chat completion via OpenCode Go's OpenAI-compatible endpoint. Supports text-only and multimodal (text + image_url) messages. Returns the assistant's response in OpenAI's standard chat-completion shape. Pick a model from the OpenCode Go catalog (see https://opencode.ai/docs/go/) — recommended: kimi-k2.6 for general chat + vision, glm-5.1 for summarisation, qwen3.6-plus when you want a different style. Vision: pass content as an array of parts where each is either {type:'text', text:...} or {type:'image_url', image_url:{url:...}}. The image URL must be publicly reachable or a data: URI. Tool-calling, structured output (response_format=json_object / json_schema), and streaming are all supported but stream defaults to false for simpler callers.",
       "method": "POST",
       "path": "/v1/chat/completions",
+      "headers": {
+        "x-opencode-session": "apteva-integration"
+      },
       "timeout_ms": 120000,
       "input_schema": {
         "type": "object",
@@ -41,11 +52,18 @@
               "properties": {
                 "role": {
                   "type": "string",
-                  "enum": ["system", "user", "assistant", "tool"]
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
                 },
                 "content": {}
               },
-              "required": ["role"]
+              "required": [
+                "role"
+              ]
             }
           },
           "temperature": {
@@ -69,8 +87,15 @@
           "stop": {
             "description": "String or array of strings — model stops when any is generated.",
             "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             ]
           },
           "presence_penalty": {
@@ -106,7 +131,10 @@
             "description": "Server-sent events streaming. Defaults to false; integrations that don't speak SSE should leave this off."
           }
         },
-        "required": ["model", "messages"]
+        "required": [
+          "model",
+          "messages"
+        ]
       }
     }
   ],

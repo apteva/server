@@ -661,6 +661,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Registration deliberately provisions nothing. Conversations is prepared
+	// only once the AI route is explicitly selected, via
+	// handlePrepareOnboarding(mode:"ai") -> prepareHelperConversations. An
+	// eager background install here would provision apps for users who go on
+	// to pick manual workspace setup, which
+	// TestManualOnboardingDoesNotProvisionConversations forbids.
 	writeJSON(w, map[string]any{"id": user.ID, "email": user.Email, "project_id": project.ID})
 }
 
