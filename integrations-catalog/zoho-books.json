@@ -1,0 +1,17 @@
+{
+  "slug": "zoho-books",
+  "name": "Zoho Books",
+  "description": "Zoho Books accounting API for organizations, contacts, invoices, bills, expenses and payments.",
+  "logo": "https://www.google.com/s2/favicons?domain=zoho.com&sz=128",
+  "categories": ["accounting", "invoicing", "bookkeeping", "finance"],
+  "base_url": "https://www.zohoapis.com/books/v3",
+  "auth": {"types":["bearer","oauth2"],"headers":{"Authorization":"Zoho-oauthtoken {{token}}","Accept":"application/json"},"credential_fields":[{"name":"token","label":"OAuth access token","required":true},{"name":"organization_id","label":"Organization ID","required":true}],"oauth2":{"authorize_url":"https://accounts.zoho.com/oauth/v2/auth","token_url":"https://accounts.zoho.com/oauth/v2/token","scopes":["ZohoBooks.contacts.READ","ZohoBooks.invoices.CREATE","ZohoBooks.invoices.READ","ZohoBooks.expenses.CREATE","ZohoBooks.expenses.READ","ZohoBooks.settings.READ"],"client_id_required":true,"pkce":true}},
+  "tools": [
+    {"name":"list_contacts","description":"List Zoho Books contacts.","method":"GET","path":"/contacts","input_schema":{"type":"object","properties":{"page":{"type":"integer"},"per_page":{"type":"integer"},"contact_name":{"type":"string"}},"required":["organization_id"]},"query_params":["organization_id","page","per_page","contact_name"]},
+    {"name":"create_contact","description":"Create a Zoho Books contact.","method":"POST","path":"/contacts","input_schema":{"type":"object","properties":{"contact":{"type":"object"},"organization_id":{"type":"string"}},"required":["organization_id","contact"]}},
+    {"name":"list_invoices","description":"List Zoho Books invoices.","method":"GET","path":"/invoices","input_schema":{"type":"object","properties":{"organization_id":{"type":"string"},"page":{"type":"integer"},"status":{"type":"string"}},"required":["organization_id"]},"query_params":["organization_id","page","status"]},
+    {"name":"create_invoice","description":"Create a Zoho Books invoice.","method":"POST","path":"/invoices","input_schema":{"type":"object","properties":{"organization_id":{"type":"string"},"invoice":{"type":"object"}},"required":["organization_id","invoice"]}},
+    {"name":"list_expenses","description":"List Zoho Books expenses.","method":"GET","path":"/expenses","input_schema":{"type":"object","properties":{"organization_id":{"type":"string"},"page":{"type":"integer"},"date_start":{"type":"string"},"date_end":{"type":"string"}},"required":["organization_id"]},"query_params":["organization_id","page","date_start","date_end"]},
+    {"name":"list_bills","description":"List Zoho Books vendor bills.","method":"GET","path":"/bills","input_schema":{"type":"object","properties":{"organization_id":{"type":"string"},"page":{"type":"integer"},"status":{"type":"string"}},"required":["organization_id"]},"query_params":["organization_id","page","status"]}
+  ]
+}

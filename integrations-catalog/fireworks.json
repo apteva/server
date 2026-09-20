@@ -95,6 +95,36 @@
     "provider_key": "fireworks",
     "env": {
       "FIREWORKS_API_KEY": "{{credentials.token}}"
+    },
+    "model_policy": {
+      "purpose": "agent",
+      "required_methods": [
+        "chat_completion"
+      ],
+      "allowed_id_patterns": [
+        "^accounts/fireworks/models/deepseek-v4p[0-9]+-flash$",
+        "^accounts/fireworks/models/kimi-k2p[0-9]+$",
+        "^accounts/fireworks/routers/kimi-k2p[0-9]+-turbo$",
+        "^accounts/fireworks/models/minimax-m2p[0-9]+$"
+      ],
+      "tier_preferences": {
+        "large": [
+          "^accounts/fireworks/models/deepseek-v4p1-flash$",
+          "^accounts/fireworks/models/kimi-k2p[0-9]+$",
+          "^accounts/fireworks/routers/kimi-k2p[0-9]+-turbo$",
+          "^accounts/fireworks/models/minimax-m2p[0-9]+$"
+        ],
+        "medium": [
+          "^accounts/fireworks/models/deepseek-v4p1-flash$",
+          "^accounts/fireworks/models/minimax-m2p[0-9]+$",
+          "^accounts/fireworks/models/kimi-k2p[0-9]+$",
+          "^accounts/fireworks/routers/kimi-k2p[0-9]+-turbo$"
+        ],
+        "small": [
+          "^accounts/fireworks/models/deepseek-v4p1-flash$",
+          "^accounts/fireworks/models/minimax-m2p[0-9]+$"
+        ]
+      }
     }
   }
 }

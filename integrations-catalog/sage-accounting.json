@@ -1,0 +1,18 @@
+{
+  "slug": "sage-accounting",
+  "name": "Sage Accounting",
+  "description": "Sage Business Cloud Accounting API for contacts, sales invoices, purchase invoices, bank accounts and transactions.",
+  "logo": "https://www.google.com/s2/favicons?domain=sage.com&sz=128",
+  "categories": ["accounting", "invoicing", "bookkeeping", "finance"],
+  "base_url": "https://api.accounting.sage.com/v3.1",
+  "auth": {"types": ["bearer", "oauth2"], "headers": {"Authorization": "Bearer {{token}}", "Accept": "application/json"}, "credential_fields": [{"name": "token", "label": "OAuth access token", "required": true}], "oauth2": {"authorize_url": "https://www.sage.com/oauth2/auth", "token_url": "https://www.sage.com/oauth2/token", "scopes": ["full_access"], "client_id_required": true, "pkce": true}},
+  "tools": [
+    {"name":"list_contacts","description":"List Sage contacts.","method":"GET","path":"/contacts","input_schema":{"type":"object","properties":{"items_per_page":{"type":"integer"},"page":{"type":"integer"},"search":{"type":"string"}}},"query_params":["items_per_page","page","search"]},
+    {"name":"create_contact","description":"Create a Sage customer or supplier contact.","method":"POST","path":"/contacts","input_schema":{"type":"object","properties":{"contact":{"type":"object"}},"required":["contact"]}},
+    {"name":"list_sales_invoices","description":"List sales invoices.","method":"GET","path":"/sales_invoices","input_schema":{"type":"object","properties":{"status":{"type":"string"},"contact_id":{"type":"string"},"items_per_page":{"type":"integer"},"page":{"type":"integer"}}},"query_params":["status","contact_id","items_per_page","page"]},
+    {"name":"create_sales_invoice","description":"Create a sales invoice.","method":"POST","path":"/sales_invoices","input_schema":{"type":"object","properties":{"sales_invoice":{"type":"object"}},"required":["sales_invoice"]}},
+    {"name":"list_purchase_invoices","description":"List purchase invoices.","method":"GET","path":"/purchase_invoices","input_schema":{"type":"object","properties":{"status":{"type":"string"},"items_per_page":{"type":"integer"},"page":{"type":"integer"}}},"query_params":["status","items_per_page","page"]},
+    {"name":"list_bank_accounts","description":"List bank accounts and balances.","method":"GET","path":"/bank_accounts","input_schema":{"type":"object","properties":{} }},
+    {"name":"list_bank_transactions","description":"List bank transactions.","method":"GET","path":"/bank_transactions","input_schema":{"type":"object","properties":{"bank_account_id":{"type":"string"},"items_per_page":{"type":"integer"},"page":{"type":"integer"}}},"query_params":["bank_account_id","items_per_page","page"]}
+  ]
+}
