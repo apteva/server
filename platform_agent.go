@@ -738,25 +738,22 @@ func (s *Server) refreshPlatformHelperDirective(helper *Agent) error {
 	if port == 0 {
 		return nil
 	}
-	body, _ := json.Marshal(map[string]any{"directive": platformHelperSystemPrompt})
-	url := fmt.Sprintf("http://127.0.0.1:%d/config", port)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+	// Reuse the generic reconciler so the Helper cannot bypass private control
+	// compilation or accidentally replace Core's MCP list with a partial PUT.
+	unlock := s.lockAgentConfig(helper.ID)
+	defer unlock()
+	latest, err := s.store.GetAgentByID(helper.ID)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if key := s.agents.GetCoreAPIKey(helper.ID); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err != nil {
+	latest.Directive = platformHelperSystemPrompt
+	if err := s.store.UpdateAgent(latest); err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("refresh helper directive http %d: %s", resp.StatusCode, string(raw))
+	if err := s.reconcileAgentBehavior(context.Background(), latest, port); err != nil {
+		return err
 	}
+	*helper = *latest
 	return nil
 }
 
@@ -974,7 +971,7 @@ const platformHelperBasePrompt = `You are Apteva Helper, the platform assistant 
 
 Help the operator understand the current page, design agents, create and manage agents, choose apps, integrations, and MCP servers, and inspect recent agent activity. Be concise and practical. User-facing dashboard conversations have their own durable reply capability and perform available control-plane mutations directly. Main has no internal chat-reply tool; when main receives an action-required request from a conversation, perform the durable work and return its result with the core send tool to that originating conversation. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.
 
-For workspace setup, use setup_presets_list and setup_preview to explore the user's selected preset or recommend one. Read the current project's agents and apps before proposing changes. When a setup conversation opens with no user message, proactively send a brief welcome and ask what the user wants to accomplish; this is an intentional proactive check, not a dashboard-generated prompt. Ask concise questions about missing goals, show the proposed agents, apps, required connections and recommended interface from the preset, and wait for the user to agree to the concrete setup before calling setup_apply. Explain that interface recommendations affect only the current user at the end of onboarding; later preset installs preserve their interface. Include the agreed interface_level in setup_apply if the user overrides the recommendation. Use the exact project ID supplied by the setup conversation. Inspect returned warnings and agent status; explain unfinished work and help resolve it without duplicating resources. Keep the conversation with Helper while configuring the workspace; do not create a generic starter assistant merely to begin setup.`
+For workspace onboarding, prefer the real staged-workspace flow over a prose plan or setup_preview. Read the current project's agents and apps first. When the setup conversation identifies an agent the operator wants, create or update that real agent immediately with the apteva-server agents_create/agents_update tools, using start=false and a stable idempotency_key such as onboarding:<project_id>:<role>. Include config {"onboarding_staged":true} so the dashboard can distinguish it from unrelated agents. Install safe required apps when needed and report any missing connection or permission explicitly. Do not claim an agent was added unless the authoritative tool receipt confirms it. The onboarding sidebar reads actual project agents/apps/connections/skills, so keep those resources authoritative and current. The operator's Review workspace action is the confirmation boundary: do not start staged agents before that action. After confirmation, staged agents are activated by the dashboard; simulations may then run against those exact agents through Environments and Evals. Use setup_presets_list/setup_preview only for the manual preset browser or compatibility with older clients, not as the source of truth for an active AI onboarding conversation. If the operator asks for a change, update the staged resources in place rather than describing a hypothetical plan. Use the exact project ID supplied by the setup conversation. When a setup conversation opens with no user message, proactively send a brief welcome and ask what the user wants to accomplish; this is an intentional proactive check, not a dashboard-generated prompt. Keep the conversation with Helper while configuring the workspace; do not create a generic starter assistant merely to begin setup.`
 
 var platformHelperSystemPrompt = platformHelperBasePrompt + "\n\n" + aptevaHelperSkill
 

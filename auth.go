@@ -1182,6 +1182,8 @@ func clearPrincipalHeaders(r *http.Request) {
 		"X-Apteva-Caller-Agent-ID", "X-Apteva-Caller-App", "X-Apteva-Caller-Install-ID",
 		sdk.HeaderBoundCallerInstallID,
 		sdk.HeaderBoundCallerAppName,
+		sdk.HeaderTrustedPrincipal,
+		sdk.HeaderTrustedPrincipalSignature,
 	} {
 		r.Header.Del(header)
 	}

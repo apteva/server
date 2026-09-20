@@ -73,9 +73,24 @@ type automaticTransport struct {
 	background                        bool
 }
 
+type automaticAdmissionContextKey struct{}
+
+type automaticAdmissionMetadata struct {
+	target, operation, caller, source string
+	background                        bool
+}
+
+func withAutomaticAdmissionMetadata(ctx context.Context, metadata automaticAdmissionMetadata) context.Context {
+	return context.WithValue(ctx, automaticAdmissionContextKey{}, metadata)
+}
+
 func (t *automaticTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	a := t.server.automaticRuntime()
-	permit, err := a.get().Acquire(r.Context(), admission.Request{Key: t.target, Operation: t.operation, Caller: t.caller, Background: t.background})
+	metadata := automaticAdmissionMetadata{target: t.target, operation: t.operation, caller: t.caller, source: t.source, background: t.background}
+	if scoped, ok := r.Context().Value(automaticAdmissionContextKey{}).(automaticAdmissionMetadata); ok {
+		metadata = scoped
+	}
+	permit, err := a.get().Acquire(r.Context(), admission.Request{Key: metadata.target, Operation: metadata.operation, Caller: metadata.caller, Background: metadata.background})
 	if err != nil {
 		return nil, err
 	}

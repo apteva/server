@@ -993,6 +993,7 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeTelemetrySSE(w io.Writer, ev TelemetryEvent) {
+	ev = publicTelemetryEvent(ev)
 	data, _ := json.Marshal(ev)
 	if ev.Seq > 0 {
 		fmt.Fprintf(w, "id: %d\n", ev.Seq)
@@ -1036,7 +1037,7 @@ func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 	if events == nil {
 		events = []TelemetryEvent{}
 	}
-	writeJSON(w, events)
+	writeJSON(w, publicTelemetryEvents(events))
 }
 
 // GET /instances/:id/chat-history?limit=50

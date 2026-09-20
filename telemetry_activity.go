@@ -71,5 +71,5 @@ func (s *Server) handleProjectActivity(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "query failed", 500)
 		return
 	}
-	writeJSON(w, out)
+	writeJSON(w, publicTelemetryEvents(out))
 }

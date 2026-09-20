@@ -31,6 +31,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,20 @@ import (
 // ─── Router ────────────────────────────────────────────────────────
 
 func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
+	if raw := r.Header.Get(sdk.HeaderAppCallDeadline); raw != "" {
+		millis, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid app deadline", http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithDeadline(r.Context(), time.UnixMilli(millis))
+		defer cancel()
+		r = r.WithContext(ctx)
+		if ctx.Err() != nil {
+			http.Error(w, "app deadline exceeded", http.StatusGatewayTimeout)
+			return
+		}
+	}
 	releaseBody, ok := s.holdAdmissionBody(w, r)
 	if !ok {
 		return
@@ -1151,10 +1166,15 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		s.handleCallbackAppProxy(w, r, parts[0], parts[2:])
 		return
 	}
+	if len(parts) == 2 && parts[1] == "batch" && r.Method == http.MethodPost {
+		s.handleCallbackAppBatch(w, r, parts[0])
+		return
+	}
 	if len(parts) != 2 || parts[1] != "call" || r.Method != http.MethodPost {
 		http.Error(w, "use /apps/:name/call or /apps/:name/proxy/*", http.StatusMethodNotAllowed)
 		return
 	}
+	callStarted := time.Now()
 	installID, err := requireInstallID(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
@@ -1183,11 +1203,6 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, "tool required", http.StatusBadRequest)
 		return
 	}
-	if !installHasPermission(s, installID, sdk.PermAppsCall) {
-		log.Printf("[APPS-CALL] DENY caller_install=%d target=%s reason=missing-permission", installID, targetAppName)
-		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
-		return
-	}
 	if body.Input == nil {
 		body.Input = map[string]any{}
 	}
@@ -1196,64 +1211,12 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	effectiveProjectID, ok := s.appCallProject(w, installID, requestedProjectID)
+	authorized, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID)
 	if !ok {
 		return
 	}
-	// Resolve the binding's target install_id. The binding is
-	// authoritative — last-wins GetByName(targetAppName) silently
-	// dispatches to whichever install was registered last in
-	// byName, which misroutes when multiple project-scoped installs
-	// of the target exist. Using the bound install_id directly
-	// keeps the call inside the project context the operator
-	// originally wired up.
-	targetInstallID := installBoundAppID(s, installID, targetAppName)
-	if targetInstallID == 0 {
-		// No static binding — try the dynamic bypass for callers
-		// that declare requires.dynamic_app_calls and are identified
-		// as official (apps_dynamic_call.go). resolveDynamicTarget
-		// returns the correct 403 message on failure so consumers
-		// can tell "not eligible" apart from "eligible but target
-		// absent".
-		id, msg, ok := s.resolveDynamicTarget(installID, targetAppName, effectiveProjectID)
-		if !ok {
-			log.Printf("[APPS-CALL] DENY caller_install=%d project=%s target=%s reason=%s", installID, effectiveProjectID, targetAppName, msg)
-			http.Error(w, msg, http.StatusForbidden)
-			return
-		}
-		targetInstallID = id
-	}
-	target := s.installedApps.Get(targetInstallID)
-	if target == nil {
-		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s reason=not-running", installID, effectiveProjectID, targetAppName)
-		http.Error(w, "target app not running: "+targetAppName, http.StatusBadGateway)
-		return
-	}
-	if target.SidecarURL == "" {
-		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s reason=no-sidecar-url", installID, effectiveProjectID, targetAppName)
-		http.Error(w, "target app has no sidecar URL", http.StatusBadGateway)
-		return
-	}
-	callerAppName := strings.TrimSpace(s.callerAppName(installID))
-	if callerAppName == "" {
-		http.Error(w, "calling app is not running", http.StatusUnauthorized)
-		return
-	}
-	if target.ProjectID != "" {
-		if effectiveProjectID == "" {
-			// Compatibility for global callers with an exact binding to a
-			// project-scoped target. Older SDKs did not send _project_id;
-			// the binding itself makes the intended project unambiguous.
-			effectiveProjectID, ok = s.appCallProject(w, installID, target.ProjectID)
-			if !ok {
-				return
-			}
-		} else if effectiveProjectID != target.ProjectID {
-			log.Printf("[APPS-CALL] DENY caller_install=%d project=%s target=%s target_project=%s reason=project-mismatch", installID, effectiveProjectID, targetAppName, target.ProjectID)
-			http.Error(w, "project_id does not match target app install", http.StatusForbidden)
-			return
-		}
-	}
+	target, targetInstallID := authorized.target, authorized.targetInstallID
+	effectiveProjectID, callerAppName := authorized.effectiveProject, authorized.callerAppName
 	if isPlatformBackupApp(target) {
 		// Scheduled calls may only enqueue an existing policy. General backup
 		// management and restore require a direct authenticated administrator.
@@ -1266,6 +1229,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 			return
 		}
 	}
+	authDone := time.Now()
 	// Replace rather than preserve routing metadata. The value above is
 	// pinned by the caller install or validated against its owning user.
 	delete(body.Input, "_project_id")
@@ -1285,7 +1249,14 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		},
 	}
 	rpcBody, _ := json.Marshal(rpc)
-	req, _ := http.NewRequestWithContext(r.Context(), "POST", target.SidecarURL+"/mcp", strings.NewReader(string(rpcBody)))
+	requestContext := withAutomaticAdmissionMetadata(r.Context(), automaticAdmissionMetadata{
+		target:     fmt.Sprintf("app:%d", targetInstallID),
+		operation:  admissionCallbackIdentity(body.Tool, body.Input),
+		caller:     fmt.Sprintf("app:%d", installID),
+		source:     fmt.Sprintf("app:%d", installID),
+		background: callerAppName == "jobs",
+	})
+	req, _ := http.NewRequestWithContext(requestContext, "POST", target.SidecarURL+"/mcp", strings.NewReader(string(rpcBody)))
 	req.Header.Set("Content-Type", "application/json")
 	if target.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+target.Token)
@@ -1296,8 +1267,14 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	// through an agent-facing MCP connection.
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(installID, 10))
 	req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
-	client := &http.Client{Transport: &automaticTransport{server: s, target: fmt.Sprintf("app:%d", targetInstallID), operation: admissionCallbackIdentity(body.Tool, body.Input), caller: fmt.Sprintf("app:%d", installID), source: fmt.Sprintf("app:%d", installID), background: callerAppName == "jobs"}}
-	resp, err := client.Do(req)
+	setAppCallbackPrincipalHeaders(s, req, requestContext, effectiveProjectID)
+	if deadline, ok := requestContext.Deadline(); ok {
+		req.Header.Set(sdk.HeaderAppCallDeadline, strconv.FormatInt(deadline.UnixMilli(), 10))
+	}
+	if r.Header.Get(sdk.HeaderAppResultFormat) == sdk.AppResultJSON {
+		req.Header.Set(sdk.HeaderAppResultFormat, sdk.AppResultJSON)
+	}
+	resp, err := s.appCallbackClient().Do(req)
 	if err != nil {
 		if isAdmissionFailure(err) {
 			writeAdmissionError(w, err)
@@ -1311,14 +1288,29 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s tool=%s status=%d", installID, effectiveProjectID, targetAppName, body.Tool, resp.StatusCode)
 	}
-	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxAppCallResponseBytes+1))
 	if readErr != nil {
 		http.Error(w, "downstream response interrupted", 502)
 		return
 	}
+	if len(respBody) > maxAppCallResponseBytes {
+		http.Error(w, "app response too large", 502)
+		return
+	}
+	direct := resp.Header.Get(sdk.HeaderAppResultFormat) == sdk.AppResultJSON && r.Header.Get(sdk.HeaderAppResultFormat) == sdk.AppResultJSON
+	if direct {
+		w.Header().Set(sdk.HeaderAppResultFormat, sdk.AppResultJSON)
+	}
+	// Negotiating clients can decode legacy MCP themselves. Do not strip that
+	// envelope without a format marker: application data may contain "error".
+	if !direct && r.Header.Get(sdk.HeaderAppResultFormat) != sdk.AppResultJSON && resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Header.Get(sdk.HeaderAppCallResult) == "inner" {
+		respBody = unwrapAppCallResult(respBody)
+	}
 	if wait := resp.Header.Get("X-Apteva-Admission-Wait-Ms"); wait != "" {
 		w.Header().Set("X-Apteva-Admission-Wait-Ms", wait)
 	}
+	w.Header().Set("Server-Timing", fmt.Sprintf("apteva_app_auth;dur=%.1f, apteva_app_dispatch;dur=%.1f", authDone.Sub(callStarted).Seconds()*1000, time.Since(authDone).Seconds()*1000))
+	debugLogf("[APPS-CALL] caller_install=%d target=%s tool=%s auth_ms=%.1f dispatch_ms=%.1f total_ms=%.1f", installID, targetAppName, body.Tool, authDone.Sub(callStarted).Seconds()*1000, time.Since(authDone).Seconds()*1000, time.Since(callStarted).Seconds()*1000)
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
@@ -1344,17 +1336,20 @@ func appCallProjectArg(input map[string]any) (string, error) {
 // installs may delegate a project only when their owning user can access it.
 // An empty project remains valid for genuinely global app tools.
 func (s *Server) appCallProject(w http.ResponseWriter, installID int64, requestedProjectID string) (string, bool) {
-	var (
-		installProjectID string
-		ownerUserID      int64
-	)
-	if err := s.store.db.QueryRow(
-		`SELECT COALESCE(project_id,''), COALESCE(installed_by,0) FROM app_installs WHERE id=?`,
-		installID,
-	).Scan(&installProjectID, &ownerUserID); err != nil || ownerUserID == 0 {
+	metadata, err := s.appMetadata(installID)
+	if err != nil || metadata.owner == 0 {
 		http.Error(w, "install not found", http.StatusUnauthorized)
 		return "", false
 	}
+	return s.appCallProjectMetadata(w, metadata, requestedProjectID)
+}
+
+func (s *Server) appCallProjectMetadata(w http.ResponseWriter, metadata *appInstallMetadata, requestedProjectID string) (string, bool) {
+	if metadata.owner == 0 {
+		http.Error(w, "install not found", http.StatusUnauthorized)
+		return "", false
+	}
+	installProjectID, ownerUserID := metadata.project, metadata.owner
 	requestedProjectID = strings.TrimSpace(requestedProjectID)
 	if installProjectID != "" {
 		if requestedProjectID != "" && requestedProjectID != installProjectID {
@@ -1485,17 +1480,11 @@ func requireInstallID(r *http.Request) (int64, error) {
 // bindingsForInstall returns the parsed integration_bindings JSON for
 // an install. Returns an empty map on missing/malformed.
 func bindingsForInstall(s *Server, installID int64) map[string]any {
-	var raw string
-	if err := s.store.db.QueryRow(
-		`SELECT COALESCE(integration_bindings,'{}') FROM app_installs WHERE id=?`, installID,
-	).Scan(&raw); err != nil || raw == "" {
+	metadata, err := s.appMetadata(installID)
+	if err != nil {
 		return map[string]any{}
 	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return map[string]any{}
-	}
-	return out
+	return cloneAppBinding(metadata.bindings).(map[string]any)
 }
 
 // ─── /oauth/start ──────────────────────────────────────────────────
@@ -2276,37 +2265,21 @@ func (s *Server) resolver() *serverResolver { return &serverResolver{srv: s} }
 // may declare new platform permissions, but those permissions are not granted
 // until the install row is explicitly backfilled/approved.
 func installHasPermission(s *Server, installID int64, perm sdk.Permission) bool {
-	var rawPerms string
-	if err := s.store.db.QueryRow(
-		`SELECT COALESCE(permissions_json, '[]') FROM app_installs WHERE id=?`, installID,
-	).Scan(&rawPerms); err == nil {
-		var perms []sdk.Permission
-		if json.Unmarshal([]byte(rawPerms), &perms) == nil {
-			for _, p := range perms {
-				if p == perm {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	metadata, err := s.appMetadata(installID)
+	return err == nil && metadata.permissions[perm]
 }
 
-// installManifest pulls + parses the manifest_json for the install's app.
+// installManifest returns a shared read-only parsed manifest. Callers must not
+// mutate it; installation updates go through persisted metadata instead.
 func installManifest(s *Server, installID int64) (*sdk.Manifest, error) {
-	var raw string
-	err := s.store.db.QueryRow(
-		`SELECT COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
-		 FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID,
-	).Scan(&raw)
+	metadata, err := s.appMetadata(installID)
 	if err != nil {
 		return nil, err
 	}
-	var m sdk.Manifest
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		return nil, err
+	if metadata.manifestErr != nil {
+		return nil, metadata.manifestErr
 	}
-	return &m, nil
+	return &metadata.manifest, nil
 }
 
 // installRoleDep returns the IntegrationDep for the named role.
@@ -2359,11 +2332,19 @@ func installBoundApp(s *Server, installID int64, appName string) bool {
 // install — last-wins GetByName misroutes when multiple project-
 // scoped installs of the target exist.
 func installBoundAppID(s *Server, installID int64, appName string) int64 {
-	m, err := installManifest(s, installID)
-	if err != nil || m == nil {
+	metadata, err := s.appMetadata(installID)
+	if err != nil {
 		return 0
 	}
-	bindings := bindingsForInstall(s, installID)
+	return s.installBoundAppMetadata(metadata, appName)
+}
+
+func (s *Server) installBoundAppMetadata(metadata *appInstallMetadata, appName string) int64 {
+	if metadata.manifestErr != nil {
+		return 0
+	}
+	m := &metadata.manifest
+	bindings := metadata.bindings
 	resolve := func(key string) int64 {
 		raw, ok := bindings[key]
 		if !ok || raw == nil {
@@ -2377,13 +2358,8 @@ func installBoundAppID(s *Server, installID int64, appName string) int64 {
 		if boundInstallID == 0 {
 			return 0
 		}
-		var boundName, status string
-		if err := s.store.db.QueryRow(
-			`SELECT a.name, i.status
-				   FROM app_installs i JOIN apps a ON a.id = i.app_id
-				  WHERE i.id = ?`,
-			boundInstallID,
-		).Scan(&boundName, &status); err != nil || boundName != appName || status != "running" {
+		bound, err := s.appMetadata(boundInstallID)
+		if err != nil || bound.name != appName || bound.status != "running" {
 			return 0
 		}
 		return boundInstallID

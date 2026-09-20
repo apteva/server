@@ -1392,11 +1392,13 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 	if directiveETag(agent.Directive) != req.ExpectedETag {
 		return nil, fmt.Errorf("agent directive changed; refresh and retry")
 	}
-	req.Directive = withAgentBehavior(req.Directive, agent.Mode, agent.Proactivity)
+	req.Directive = withoutAgentControls(req.Directive)
 	var cfg map[string]any
 	if json.Unmarshal([]byte(agent.Config), &cfg) != nil {
 		cfg = map[string]any{}
 	}
+	// This metadata blob is public server state, so it keeps only the authored
+	// directive. reconcileAgentBehavior compiles controls into Core's config.
 	cfg["directive"] = req.Directive
 	configJSON, _ := json.Marshal(cfg)
 	tx, err := s.store.db.Begin()

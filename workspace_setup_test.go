@@ -58,6 +58,58 @@ func TestWorkspaceSetupDraftResumesAndEnforcesProjectAccess(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSetupConfirmActivatesOnlyStagedAgents(t *testing.T) {
+	s := newTestServer(t)
+	owner, _ := s.store.CreateUser("confirm-owner@test.local", "hash")
+	project, _ := s.store.CreateProject(owner.ID, "Workspace", "", "")
+	stagedConfig := `{"onboarding_staged":true}`
+	staged, err := s.store.CreateAgent(owner.ID, "Staged assistant", "Help with the workspace.", "cautious", stagedConfig, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := s.store.CreateAgent(owner.ID, "Existing assistant", "Already active.", "cautious", `{}`, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active.Status = "running"
+	if err := s.store.UpdateAgent(active); err != nil {
+		t.Fatal(err)
+	}
+	if !workspaceSetupStagedAgent(*staged) {
+		t.Fatalf("fixture agent was not marked staged: %q", staged.Config)
+	}
+	req := helperLifecycleRequest(http.MethodPost, "/projects/"+project.ID+"/setup/confirm", owner.ID, "")
+	rec := httptest.NewRecorder()
+	s.handleProject(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("confirm status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Status   string   `json:"status"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "needs_attention" || len(body.Warnings) == 0 {
+		t.Fatalf("confirm body=%s", rec.Body.String())
+	}
+	got, err := s.store.GetAgentByID(staged.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !workspaceSetupStagedAgent(*got) {
+		t.Fatalf("staged agent was finalized despite failed activation: %+v", got)
+	}
+	untouched, err := s.store.GetAgentByID(active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspaceSetupStagedAgent(*untouched) {
+		t.Fatal("unrelated agent was treated as staged")
+	}
+}
+
 func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	s := newTestServer(t)
 	seedPresetProject(t, s, "setup-project")
@@ -75,6 +127,12 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "My lead assistant") {
 		t.Fatalf("preview %d %s", w.Code, w.Body.String())
 	}
+	proposalRequest := authedRequest(t, http.MethodGet, "/projects/setup-project/setup/proposal", "", nil)
+	proposalResponse := httptest.NewRecorder()
+	s.handleProject(proposalResponse, proposalRequest)
+	if proposalResponse.Code != http.StatusOK || !strings.Contains(proposalResponse.Body.String(), `"status":"proposed"`) || !strings.Contains(proposalResponse.Body.String(), "My lead assistant") {
+		t.Fatalf("proposal %d %s", proposalResponse.Code, proposalResponse.Body.String())
+	}
 	agents, _ := s.store.ListAgentsInProject("setup-project")
 	if len(agents) != 0 {
 		t.Fatal("preview created agents")
@@ -82,6 +140,11 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	w = call("apply")
 	if w.Code != 200 {
 		t.Fatalf("apply %d %s", w.Code, w.Body.String())
+	}
+	proposalResponse = httptest.NewRecorder()
+	s.handleProject(proposalResponse, proposalRequest)
+	if proposalResponse.Code != http.StatusOK || strings.Contains(proposalResponse.Body.String(), `"status":"proposed"`) || !strings.Contains(proposalResponse.Body.String(), `"agents":[`) {
+		t.Fatalf("applied proposal %d %s", proposalResponse.Code, proposalResponse.Body.String())
 	}
 	agents, _ = s.store.ListAgentsInProject("setup-project")
 	if len(agents) != 1 || agents[0].Name != "My lead assistant" || agents[0].Mode != "cautious" {

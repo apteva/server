@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -9,6 +10,39 @@ import (
 	"testing"
 	"time"
 )
+
+func TestInstallRuntimeTokenIsOpaqueStableAndNotCacheable(t *testing.T) {
+	s := newTestServer(t)
+	installID := seedSecurityAppInstall(t, s)
+
+	issue := func() string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/apps/installs/"+itoa(installID)+"/runtime-token", nil)
+		rec := httptest.NewRecorder()
+		s.handleIssueInstallRuntimeToken(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("runtime token status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		if rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("cache-control=%q", rec.Header().Get("Cache-Control"))
+		}
+		var body struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(body.Token, "app_") || len(body.Token) != len("app_")+64 {
+			t.Fatal("runtime token is not an opaque app credential")
+		}
+		return body.Token
+	}
+
+	first := issue()
+	if second := issue(); second != first {
+		t.Fatal("runtime token changed between requests")
+	}
+}
 
 func seedSecurityAppInstall(t *testing.T, s *Server) int64 {
 	t.Helper()

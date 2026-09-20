@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Setup is a resumable workspace operation, also available after onboarding.
@@ -19,6 +21,172 @@ type workspaceSetupDraft struct {
 	PresetID       string                       `json:"preset_id"`
 	Description    string                       `json:"description"`
 	Mode           string                       `json:"mode"`
+}
+
+type workspaceSetupResultAgent struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Existing bool   `json:"existing,omitempty"`
+}
+
+type workspaceSetupResult struct {
+	Agents   []workspaceSetupResultAgent `json:"agents"`
+	Warnings []string                    `json:"warnings,omitempty"`
+}
+
+// workspaceSetupProposal is the authoritative bridge between Helper and the
+// onboarding UI. The conversation remains prose; setup_preview writes this
+// typed snapshot so the dashboard never has to scrape messages to render the
+// workspace being proposed.
+type workspaceSetupProposal struct {
+	Revision  int64                 `json:"revision"`
+	Status    string                `json:"status"`
+	UpdatedAt string                `json:"updated_at,omitempty"`
+	Preview   *ProjectPresetPreview `json:"preview,omitempty"`
+	Result    *workspaceSetupResult `json:"result,omitempty"`
+}
+
+func workspaceSetupProposalKey(userID int64, projectID string) string {
+	return fmt.Sprintf("workspace_setup_proposal:%d:%s", userID, projectID)
+}
+
+func (s *Server) getWorkspaceSetupProposal(userID int64, projectID string) (workspaceSetupProposal, error) {
+	proposal := workspaceSetupProposal{Status: "empty"}
+	var raw string
+	err := s.store.db.QueryRow("SELECT value FROM server_settings WHERE key=?", workspaceSetupProposalKey(userID, projectID)).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return proposal, nil
+	}
+	if err != nil {
+		return proposal, err
+	}
+	if err := json.Unmarshal([]byte(raw), &proposal); err != nil {
+		return workspaceSetupProposal{}, err
+	}
+	return proposal, nil
+}
+
+func (s *Server) saveWorkspaceSetupProposal(userID int64, projectID, status string, preview *ProjectPresetPreview, result *workspaceSetupResult) error {
+	proposal, err := s.getWorkspaceSetupProposal(userID, projectID)
+	if err != nil {
+		return err
+	}
+	proposal.Revision = time.Now().UTC().UnixMicro()
+	proposal.Status = status
+	proposal.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	proposal.Preview = preview
+	proposal.Result = result
+	raw, err := json.Marshal(proposal)
+	if err != nil {
+		return err
+	}
+	return s.store.SetSetting(workspaceSetupProposalKey(userID, projectID), string(raw))
+}
+
+func (s *Server) handleWorkspaceSetupProposal(w http.ResponseWriter, r *http.Request, projectID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+		return
+	}
+	proposal, err := s.getWorkspaceSetupProposal(getUserID(r), projectID)
+	if err != nil {
+		http.Error(w, "Could not load workspace proposal", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, proposal)
+}
+
+func workspaceSetupStagedAgent(agent Agent) bool {
+	var config map[string]any
+	if json.Unmarshal([]byte(agent.Config), &config) != nil {
+		return false
+	}
+	staged, _ := config["onboarding_staged"].(bool)
+	return staged
+}
+
+// handleWorkspaceSetupConfirm activates agents Helper created during the
+// onboarding conversation. The agents already exist and are visible in the
+// live sidebar; this endpoint only performs the explicit activation step.
+func (s *Server) handleWorkspaceSetupConfirm(w http.ResponseWriter, r *http.Request, projectID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectEditor); !ok {
+		return
+	}
+	agents, err := s.store.ListAgentsInProject(projectID)
+	if err != nil {
+		http.Error(w, "Could not load staged agents", http.StatusInternalServerError)
+		return
+	}
+	staged := make([]Agent, 0, len(agents))
+	for _, agent := range agents {
+		full, getErr := s.store.GetAgentByID(agent.ID)
+		if getErr == nil && workspaceSetupStagedAgent(*full) {
+			staged = append(staged, *full)
+		}
+	}
+	warnings := []string{}
+	confirmed := make([]Agent, 0, len(staged))
+	for _, agent := range staged {
+		if agent.Status == "running" || s.agents.IsRunning(agent.ID) {
+			current, getErr := s.store.GetAgentByID(agent.ID)
+			if getErr == nil {
+				var config map[string]any
+				if json.Unmarshal([]byte(current.Config), &config) != nil || config == nil {
+					config = map[string]any{}
+				}
+				config["onboarding_staged"] = false
+				config["onboarding_confirmed"] = true
+				if raw, marshalErr := json.Marshal(config); marshalErr == nil {
+					current.Config = string(raw)
+					_ = s.store.UpdateAgent(current)
+				}
+				confirmed = append(confirmed, *current)
+			}
+			continue
+		}
+		path := "/instances/" + itoa64(agent.ID) + "/start"
+		startRequest := httptest.NewRequest(http.MethodPost, path, nil)
+		startRequest.Header.Set("X-User-ID", r.Header.Get("X-User-ID"))
+		startRequest.Header.Set("X-User-Name", r.Header.Get("X-User-Name"))
+		startResponse := httptest.NewRecorder()
+		s.handleStartInstance(startResponse, startRequest)
+		if startResponse.Code < 200 || startResponse.Code >= 300 {
+			warnings = append(warnings, fmt.Sprintf("%s could not be started: %s", agent.Name, strings.TrimSpace(startResponse.Body.String())))
+			continue
+		}
+		current, getErr := s.store.GetAgentByID(agent.ID)
+		if getErr != nil {
+			warnings = append(warnings, fmt.Sprintf("%s started but its status could not be read", agent.Name))
+			continue
+		}
+		var config map[string]any
+		if json.Unmarshal([]byte(current.Config), &config) != nil || config == nil {
+			config = map[string]any{}
+		}
+		config["onboarding_staged"] = false
+		config["onboarding_confirmed"] = true
+		if raw, marshalErr := json.Marshal(config); marshalErr == nil {
+			current.Config = string(raw)
+			if updateErr := s.store.UpdateAgent(current); updateErr != nil {
+				warnings = append(warnings, fmt.Sprintf("%s started but could not be finalized: %v", current.Name, updateErr))
+				continue
+			}
+		}
+		confirmed = append(confirmed, *current)
+	}
+	status := "confirmed"
+	if len(warnings) > 0 {
+		status = "needs_attention"
+	}
+	writeJSON(w, map[string]any{"status": status, "project_id": projectID, "agents": confirmed, "warnings": warnings})
 }
 
 func (s *Server) handleWorkspaceSetupSession(w http.ResponseWriter, r *http.Request, projectID string) {

@@ -537,10 +537,6 @@ func runGitWithRetry(dir string, args ...string) error {
 // dashboard's poll loop has new content but the DB doesn't get
 // hammered. Pass nil to disable.
 func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress func(string)) error {
-	goBin, err := resolveGoBinary()
-	if err != nil {
-		return err
-	}
 	buildDir := srcDir
 	if entry != "" && entry != "." {
 		buildDir = filepath.Join(srcDir, entry)
@@ -548,100 +544,131 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 	if _, err := os.Stat(filepath.Join(buildDir, "go.mod")); err != nil {
 		return fmt.Errorf("entry dir %q has no go.mod — each kind:source app must be its own Go module", entry)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, goBin, "build", "-o", binPath, ".")
-	cmd.Dir = buildDir
-	// GOCACHE / GOMODCACHE MUST be absolute — Go rejects relative
-	// values with "GOMODCACHE entry is relative; must be absolute
-	// path". The caller (apps_source.go's NewLocalSupervisor wiring)
-	// already absolutises cacheBase, but a malformed env or a
-	// future caller passing a relative path would shadow that. One
-	// extra filepath.Abs call here costs nothing and keeps the
-	// failure mode "fail loudly during go build" instead of "every
-	// install error is the same opaque message."
-	absCache, err := filepath.Abs(cacheDir)
-	if err != nil {
-		return fmt.Errorf("resolve app build cache: %w", err)
-	}
-	envv := os.Environ()
-	envv = append(envv,
-		"CGO_ENABLED=0",
-		"GOCACHE="+filepath.Join(absCache, "gocache"),
-		"GOMODCACHE="+filepath.Join(absCache, "gomodcache"),
-	)
-	// Caller-supplied build env (e.g. GOWORK pointing at a temp workspace
-	// so a local-source build resolves sibling modules like app-sdk from
-	// the working copy). Appended last so it wins. Empty for git installs.
-	envv = append(envv, goEnv...)
-	// The checksum database keeps its trusted tree head under GOPATH/pkg/sumdb,
-	// independently of GOMODCACHE. Services without HOME or GOPATH otherwise
-	// cannot verify downloaded modules/toolchains. Inspect the effective child
-	// environment (last entry wins), preserving explicit build overrides.
-	gopath := ""
-	for i := len(envv) - 1; i >= 0; i-- {
-		if value, ok := strings.CutPrefix(envv[i], "GOPATH="); ok {
-			gopath = value
-			break
-		}
-	}
-	if gopath == "" {
-		gopath = filepath.Join(absCache, "gopath")
-		if err := os.MkdirAll(gopath, 0700); err != nil {
-			return fmt.Errorf("create app build GOPATH: %w", err)
-		}
-		envv = append(envv, "GOPATH="+gopath)
-	}
-	cmd.Env = envv
-
-	// Capture stdout + stderr together — `go build` emits download +
-	// progress lines on stderr, build errors on stderr too. Stream
-	// line-by-line so we can surface live status; keep a tail buffer
-	// for the error message if the build fails.
-	stdout, err := cmd.StdoutPipe()
+	goBin, err := resolveGoBinary(buildDir, goEnv)
 	if err != nil {
 		return err
 	}
-	cmd.Stderr = cmd.Stdout
-	if err := cmd.Start(); err != nil {
-		return err
-	}
+	gocacheDir := filepath.Join(absCacheOf(cacheDir), "gocache")
 
-	var (
-		tail       []string // last N lines for error output
-		lastUpdate = time.Now()
-		downloads  = 0 // count distinct downloads
-	)
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+	// One build attempt. The deadline lives here so a retry gets a full
+	// window rather than the remains of the first attempt's.
+	attempt := func() (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, goBin, "build", "-o", binPath, ".")
+		cmd.Dir = buildDir
+		// GOCACHE / GOMODCACHE MUST be absolute — Go rejects relative
+		// values with "GOMODCACHE entry is relative; must be absolute
+		// path". The caller (apps_source.go's NewLocalSupervisor wiring)
+		// already absolutises cacheBase, but a malformed env or a
+		// future caller passing a relative path would shadow that. One
+		// extra filepath.Abs call here costs nothing and keeps the
+		// failure mode "fail loudly during go build" instead of "every
+		// install error is the same opaque message."
+		absCache, err := filepath.Abs(cacheDir)
+		if err != nil {
+			return "", fmt.Errorf("resolve app build cache: %w", err)
 		}
-		tail = append(tail, line)
-		if len(tail) > 100 {
-			tail = tail[len(tail)-100:]
-		}
-		if progress != nil && time.Since(lastUpdate) > 500*time.Millisecond {
-			if strings.HasPrefix(line, "go: downloading ") {
-				downloads++
-				progress(fmt.Sprintf("Downloading dependencies (%d so far)…", downloads))
-			} else if strings.HasPrefix(line, "go: extracting ") {
-				progress("Extracting dependencies…")
-			} else if strings.HasPrefix(line, "go: finding ") {
-				progress("Resolving dependencies…")
-			} else {
-				progress(humaniseBuildLine(line))
+		envv := os.Environ()
+		envv = append(envv,
+			"CGO_ENABLED=0",
+			"GOCACHE="+filepath.Join(absCache, "gocache"),
+			"GOMODCACHE="+filepath.Join(absCache, "gomodcache"),
+		)
+		// Caller-supplied build env (e.g. GOWORK pointing at a temp workspace
+		// so a local-source build resolves sibling modules like app-sdk from
+		// the working copy). Appended last so it wins. Empty for git installs.
+		envv = append(envv, goEnv...)
+		// The checksum database keeps its trusted tree head under GOPATH/pkg/sumdb,
+		// independently of GOMODCACHE. Services without HOME or GOPATH otherwise
+		// cannot verify downloaded modules/toolchains. Inspect the effective child
+		// environment (last entry wins), preserving explicit build overrides.
+		gopath := ""
+		for i := len(envv) - 1; i >= 0; i-- {
+			if value, ok := strings.CutPrefix(envv[i], "GOPATH="); ok {
+				gopath = value
+				break
 			}
+		}
+		if gopath == "" {
+			gopath = filepath.Join(absCache, "gopath")
+			if err := os.MkdirAll(gopath, 0700); err != nil {
+				return "", fmt.Errorf("create app build GOPATH: %w", err)
+			}
+			envv = append(envv, "GOPATH="+gopath)
+		}
+		cmd.Env = envv
+
+		// Capture stdout + stderr together — `go build` emits download +
+		// progress lines on stderr, build errors on stderr too. Stream
+		// line-by-line so we can surface live status; keep a tail buffer
+		// for the error message if the build fails.
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return "", err
+		}
+		cmd.Stderr = cmd.Stdout
+		if err := cmd.Start(); err != nil {
+			return "", err
+		}
+
+		var (
+			tail       []string // last N lines for error output
 			lastUpdate = time.Now()
+			downloads  = 0 // count distinct downloads
+		)
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			tail = append(tail, line)
+			if len(tail) > 100 {
+				tail = tail[len(tail)-100:]
+			}
+			if progress != nil && time.Since(lastUpdate) > 500*time.Millisecond {
+				if strings.HasPrefix(line, "go: downloading ") {
+					downloads++
+					progress(fmt.Sprintf("Downloading dependencies (%d so far)…", downloads))
+				} else if strings.HasPrefix(line, "go: extracting ") {
+					progress("Extracting dependencies…")
+				} else if strings.HasPrefix(line, "go: finding ") {
+					progress("Resolving dependencies…")
+				} else {
+					progress(humaniseBuildLine(line))
+				}
+				lastUpdate = time.Now()
+			}
+		}
+		waitErr := cmd.Wait()
+		if waitErr != nil {
+			return strings.TrimSpace(strings.Join(tail, "\n")), waitErr
+		}
+		return "", nil
+	}
+
+	tail, err := attempt()
+	if err != nil && buildCacheSuspect(tail) {
+		// A stale entry in the isolated build cache can make the go command
+		// report a present dependency as missing. The cache is derived data,
+		// so discard it and try once more before surfacing the failure —
+		// otherwise the install stays broken until someone clears it by hand.
+		log.Printf("[APPS-SOURCE] %s: %q — clearing build cache and retrying once", srcDir, firstLine(tail))
+		if rmErr := os.RemoveAll(gocacheDir); rmErr == nil {
+			if progress != nil {
+				progress("Clearing the build cache and retrying…")
+			}
+			tail, err = attempt()
+		} else {
+			log.Printf("[APPS-SOURCE] could not clear build cache %s: %v", gocacheDir, rmErr)
 		}
 	}
-	waitErr := cmd.Wait()
-	if waitErr != nil {
-		out := strings.Join(tail, "\n")
-		return fmt.Errorf("%w: %s", waitErr, strings.TrimSpace(out))
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, tail)
 	}
+
 	if progress != nil {
 		progress("Linking binary…")
 	}
@@ -652,14 +679,79 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 	return nil
 }
 
-// resolveGoBinary returns the path to a usable `go` toolchain. Today
-// it just trusts $PATH; a future version can self-bootstrap a Go
-// toolchain into ~/.apteva/go for users who don't have Go installed.
-func resolveGoBinary() (string, error) {
-	if p, err := exec.LookPath("go"); err == nil {
-		return p, nil
+// buildCacheSuspect reports whether a failed build looks like the stale-cache
+// symptom: the go command claiming no module provides a package that the
+// module actually requires. Kept narrow so real missing-dependency errors are
+// still reported on the first attempt.
+func buildCacheSuspect(out string) bool {
+	return strings.Contains(out, "no required module provides package")
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
 	}
-	return "", fmt.Errorf("go toolchain not found on PATH — apteva-server needs Go ≥ 1.22 to build kind:source apps")
+	return s
+}
+
+// absCacheOf mirrors the absolutisation goBuild already performs; a relative
+// value would have failed the build long before this point.
+func absCacheOf(cacheDir string) string {
+	if abs, err := filepath.Abs(cacheDir); err == nil {
+		return abs
+	}
+	return cacheDir
+}
+
+// resolveGoBinary asks the PATH go command which toolchain it selected for the
+// app workspace, then invokes that toolchain directly for the build. This is
+// important when PATH points at an older bootstrap Go: otherwise `go build`
+// attempts to download the selected toolchain into Apteva's isolated
+// GOMODCACHE and can fail halfway through materialising it.
+func resolveGoBinary(buildDir string, goEnv []string) (string, error) {
+	bootstrap, err := exec.LookPath("go")
+	if err != nil {
+		return "", fmt.Errorf("go toolchain not found on PATH — apteva-server needs Go ≥ 1.22 to build kind:source apps")
+	}
+	// First capture the toolchain selected for the server's own workspace. A
+	// local checkout commonly has a newer downloaded toolchain than the PATH
+	// bootstrap binary. Starting the app-context resolution with that binary
+	// avoids needlessly selecting (and downloading) the app's minimum patch
+	// version when the already-present server toolchain is newer.
+	selected := resolvedGoRootBinary(bootstrap, "", nil)
+	if selected == "" {
+		selected = bootstrap
+	}
+	// Then let that selected toolchain inspect the app workspace. If the app
+	// genuinely requires something newer it may switch once, using the normal
+	// host module cache rather than the isolated build cache.
+	if appSelected := resolvedGoRootBinary(selected, buildDir, goEnv); appSelected != "" {
+		return appSelected, nil
+	}
+	// Keep source installs working with unusual wrappers that do not implement
+	// `go env GOROOT`; the wrapper may still be fully capable of building.
+	return selected, nil
+}
+
+func resolvedGoRootBinary(goBin, dir string, envOverrides []string) string {
+	cmd := exec.Command(goBin, "env", "GOROOT")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(os.Environ(), envOverrides...)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	goroot := strings.TrimSpace(string(out))
+	if goroot == "" {
+		return ""
+	}
+	selected := filepath.Join(goroot, "bin", "go")
+	if info, statErr := os.Stat(selected); statErr == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+		return selected
+	}
+	return ""
 }
 
 // --- DB-side adapter ----------------------------------------------------------

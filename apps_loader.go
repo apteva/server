@@ -575,6 +575,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) { writeAdmissionError(w, err) }
 	}
 	publicRoute := appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r))
+	var requestPrincipal *sdk.TrustedPrincipal
+	if !publicRoute && authenticatedAppID == 0 {
+		requestPrincipal = s.trustedAppPrincipal(r, effectiveProjectID, true)
+	}
 	// Rewrite path so the sidecar sees its own routes (without the
 	// /apps/<name> prefix). The token swap happens in Director.
 	originalDirector := proxy.Director
@@ -590,6 +594,8 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		// /apps/callback/apps/:name/call bridge may mint this identity.
 		req.Header.Del(sdk.HeaderBoundCallerInstallID)
 		req.Header.Del(sdk.HeaderBoundCallerAppName)
+		req.Header.Del(sdk.HeaderTrustedPrincipal)
+		req.Header.Del(sdk.HeaderTrustedPrincipalSignature)
 		// Named app MCP profiles were abandoned. Scrub the old header so
 		// sidecars built with the short-lived SDK implementation cannot split
 		// their tool surface when reached through a current server.
@@ -609,6 +615,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 				req.Header.Set("Authorization", "Bearer "+entry.Token)
 			}
 		}
+		setTrustedAppPrincipalHeaders(req, entry.Token, requestPrincipal)
 		req.Header.Set("X-Apteva-App-Install-ID", fmt.Sprintf("%d", entry.InstallID))
 	}
 	if asyncReq != nil {

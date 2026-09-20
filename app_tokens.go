@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -77,6 +78,37 @@ func (s *Server) appInstallForToken(token string) (installID, installedBy int64,
 		HashAPIKey(token),
 	).Scan(&installID, &installedBy, &status)
 	return
+}
+
+// POST /api/apps/installs/:id/runtime-token returns the opaque credential a
+// manually launched sidecar must use for outbound PlatformAPI callbacks. The
+// route is owner-gated in main.go and uses POST plus no-store because the
+// response contains a secret. This also gives external `apteva test --server`
+// runs a supported way to launch the checkout under test without falling back
+// to the retired predictable dev-<install-id> credentials.
+func (s *Server) handleIssueInstallRuntimeToken(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[1] != "runtime-token" {
+		http.NotFound(w, r)
+		return
+	}
+	installID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || installID <= 0 {
+		http.Error(w, "invalid install id", http.StatusBadRequest)
+		return
+	}
+	token, err := s.appInstallToken(installID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "install not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "app credential unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]string{"token": token})
 }
 
 // App credentials are capabilities for the app data plane, not user API

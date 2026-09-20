@@ -95,6 +95,14 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 			s.handleWorkspaceSetupSession(w, r, id[:i])
 			return
 		}
+		if seg == "setup/proposal" {
+			s.handleWorkspaceSetupProposal(w, r, id[:i])
+			return
+		}
+		if seg == "setup/confirm" {
+			s.handleWorkspaceSetupConfirm(w, r, id[:i])
+			return
+		}
 		if seg == "setup/preview" {
 			s.handleProjectPresetPreview(w, r, id[:i])
 			return

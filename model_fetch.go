@@ -352,23 +352,43 @@ func openCodeGoModels() []ModelInfo {
 	}
 }
 
-// fetchFireworksModels uses the native /v1/accounts/fireworks/models
-// endpoint instead of /inference/v1/models. The OpenAI-compat endpoint
-// only returns ~11 curated entries with no pagination; the native one
-// paginates through the full catalog (200+ entries, including newer
-// models like kimi-k2p6 that the compat endpoint omits).
+var (
+	fireworksInferenceModelsURL = "https://api.fireworks.ai/inference/v1/models"
+	fireworksNativeModelsURL    = "https://api.fireworks.ai/v1/accounts/fireworks/models"
+)
+
+// fetchFireworksModels treats the OpenAI-compatible inference catalog as the
+// source of truth. The much larger native catalog includes models that exist
+// in Fireworks but are not available through serverless inference; using it as
+// the eligibility source previously selected READY models that then returned
+// 404 from /chat/completions. Native metadata is used only to enrich entries
+// that the inference endpoint already admitted.
 func fetchFireworksModels(apiKey string) ([]ModelInfo, error) {
-	var models []ModelInfo
-	seen := map[string]bool{}
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
+	data, err := apiGet(fireworksInferenceModelsURL, headers)
+	if err != nil {
+		return nil, err
+	}
+	models, err := parseFireworksInferenceModels(data)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]int, len(models))
+	for i := range models {
+		byID[models[i].ID] = i
+	}
+
 	pageToken := ""
 	for page := 0; page < 20; page++ { // hard cap defensively; real catalog is ~1 page
-		url := "https://api.fireworks.ai/v1/accounts/fireworks/models?pageSize=200"
+		endpoint := fireworksNativeModelsURL + "?pageSize=200"
 		if pageToken != "" {
-			url += "&pageToken=" + pageToken
+			endpoint += "&pageToken=" + url.QueryEscape(pageToken)
 		}
-		data, err := apiGet(url, map[string]string{"Authorization": "Bearer " + apiKey})
+		data, err := apiGet(endpoint, headers)
 		if err != nil {
-			return nil, err
+			// Metadata enrichment is optional. The inference endpoint above is
+			// sufficient to safely select and use a model.
+			break
 		}
 		var resp struct {
 			Models []struct {
@@ -380,33 +400,62 @@ func fetchFireworksModels(apiKey string) ([]ModelInfo, error) {
 			NextPageToken string `json:"nextPageToken"`
 		}
 		if err := json.Unmarshal(data, &resp); err != nil {
-			return nil, err
+			break
 		}
 		for _, m := range resp.Models {
-			if m.State != "" && m.State != "READY" {
+			i, eligible := byID[strings.TrimSpace(m.Name)]
+			if !eligible {
 				continue
 			}
-			if seen[m.Name] {
-				continue
+			if display := strings.TrimSpace(m.DisplayName); display != "" {
+				models[i].Name = display
 			}
-			seen[m.Name] = true
-			display := m.DisplayName
-			if display == "" {
-				display = m.Name
-				if parts := strings.Split(display, "/"); len(parts) > 1 {
-					display = parts[len(parts)-1]
-				}
+			if m.ContextLength > 0 {
+				models[i].ContextSize = m.ContextLength
+				models[i].Capabilities.ContextWindow = m.ContextLength
+				models[i].Capabilities.MaxContextWindow = m.ContextLength
 			}
-			models = append(models, ModelInfo{
-				ID:          m.Name,
-				Name:        display,
-				ContextSize: m.ContextLength,
-			})
 		}
 		if resp.NextPageToken == "" {
 			break
 		}
 		pageToken = resp.NextPageToken
+	}
+	return models, nil
+}
+
+func parseFireworksInferenceModels(data []byte) ([]ModelInfo, error) {
+	var response struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, err
+	}
+	serverless := true
+	seen := map[string]bool{}
+	models := make([]ModelInfo, 0, len(response.Data))
+	for _, entry := range response.Data {
+		id := strings.TrimSpace(entry.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		name := strings.TrimSpace(entry.Name)
+		if name == "" {
+			name = id
+			if parts := strings.Split(name, "/"); len(parts) > 1 {
+				name = parts[len(parts)-1]
+			}
+		}
+		models = append(models, ModelInfo{
+			ID:           id,
+			Name:         name,
+			Methods:      []string{"chat_completion"},
+			SupportedAPI: &serverless,
+		})
 	}
 	return models, nil
 }
