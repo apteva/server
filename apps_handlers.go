@@ -519,12 +519,37 @@ func deriveManifestURL(m *sdk.Manifest) string {
 	if !strings.HasPrefix(repo, "github.com/") {
 		return ""
 	}
+	// Registry entries historically used a GitHub tree URL in their
+	// human-facing repo field (for example
+	// github.com/apteva/apps/tree/main/mcp/tables), while runtime.source
+	// expects the repository root. Strip that display-only suffix before
+	// constructing a raw manifest URL. Keep an embedded ref/entry as
+	// fallbacks for callers that did not provide them explicitly.
+	var embeddedRef, embeddedEntry string
+	parts := strings.Split(strings.Trim(repo, "/"), "/")
+	for i, part := range parts {
+		if part != "tree" || i+1 >= len(parts) {
+			continue
+		}
+		repo = strings.Join(parts[:i], "/")
+		embeddedRef = parts[i+1]
+		if i+2 < len(parts) {
+			embeddedEntry = strings.Join(parts[i+2:], "/")
+		}
+		break
+	}
 	ownerAndRepo := strings.TrimPrefix(repo, "github.com/")
 	ref := s.Ref
 	if ref == "" {
-		ref = "main"
+		ref = embeddedRef
+		if ref == "" {
+			ref = "main"
+		}
 	}
 	entry := s.Entry
+	if entry == "" || entry == "." {
+		entry = embeddedEntry
+	}
 	if entry == "" || entry == "." {
 		return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/apteva.yaml", ownerAndRepo, ref)
 	}
@@ -2037,16 +2062,22 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Source apps: re-fetch the upstream apteva.yaml so the install
 	// gets the version the user actually wants, not the snapshot in
 	// apps.manifest_json (which may itself be stale if the cache hasn't
-	// rolled over).
-	// The catalog row is the moving update channel. The installed manifest
-	// intentionally contains an immutable release ref, so deriving the URL
-	// from it can repeatedly fetch the old release and silently revert an
-	// upgrade. Prefer the catalog repo/ref, then fall back to the registry or
-	// installed manifest for legacy rows.
-	url := ""
-	if catalogRepo != "" && catalogRef != "" {
+	// rolled over). The installed manifest intentionally contains an
+	// immutable release ref, so deriving the URL from it can repeatedly
+	// fetch the old release and silently revert an upgrade. Prefer the
+	// registry's manifest URL, then fall back to catalog source metadata or
+	// the installed manifest for legacy rows.
+	// Curated registry entries already provide the authoritative moving
+	// manifest URL. Prefer it over the catalog's human-facing repo field;
+	// that field may be a GitHub tree URL rather than a clone root.
+	url := s.lookupRegistryManifestURL(stored.Name)
+	if url == "" && catalogRepo != "" {
 		candidate := stored
-		candidate.Runtime.Source = &sdk.SourceSpec{Repo: catalogRepo, Ref: catalogRef, Entry: "mcp/market-intel"}
+		entry := ""
+		if stored.Runtime.Source != nil {
+			entry = stored.Runtime.Source.Entry
+		}
+		candidate.Runtime.Source = &sdk.SourceSpec{Repo: catalogRepo, Ref: catalogRef, Entry: entry}
 		url = deriveManifestURL(&candidate)
 	}
 	if url == "" {

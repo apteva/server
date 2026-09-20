@@ -277,6 +277,37 @@ func TestUpdateManifestURLPrefersRegistryReleaseChannel(t *testing.T) {
 	}
 }
 
+func TestDeriveManifestURLNormalizesGitHubTreeRepo(t *testing.T) {
+	tests := []struct {
+		name string
+		m    sdk.Manifest
+		want string
+	}{
+		{
+			name: "tree repo with explicit release ref",
+			m: sdk.Manifest{Runtime: sdk.Runtime{Source: &sdk.SourceSpec{
+				Repo: "https://github.com/apteva/apps/tree/main/mcp/market-intel",
+				Ref:  "market-intel/v0.4.0",
+			}}},
+			want: "https://raw.githubusercontent.com/apteva/apps/market-intel/v0.4.0/mcp/market-intel/apteva.yaml",
+		},
+		{
+			name: "tree repo supplies defaults",
+			m: sdk.Manifest{Runtime: sdk.Runtime{Source: &sdk.SourceSpec{
+				Repo: "github.com/apteva/apps/tree/main/mcp/tables",
+			}}},
+			want: "https://raw.githubusercontent.com/apteva/apps/main/mcp/tables/apteva.yaml",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deriveManifestURL(&tt.m); got != tt.want {
+				t.Fatalf("deriveManifestURL()=%q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeSparsePaths(t *testing.T) {
 	got := normalizeSparsePaths("mcp/code/", "/ui/dist", ".", "", "mcp/code")
 	want := []string{"mcp/code", "ui/dist"}
