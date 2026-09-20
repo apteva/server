@@ -29,6 +29,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -74,6 +76,16 @@ func localServerPort() string {
 // nothing to expose. The caller can still call this safely; we
 // just no-op.
 func (s *Server) registerAppMCP(installID int64) error {
+	return s.registerAppMCPWithSurface(installID, s.snapshotAppMCPSurface(installID))
+}
+
+// registerAppMCPWithSurface writes the agent-facing bridge together with a
+// deterministic capability revision. The revision deliberately excludes the
+// app version: implementation-only upgrades keep the same URL and every live
+// Core continues through the stable proxy without reconnecting. A changed
+// tools/list contract changes the URL, which lets the server use Core's
+// existing atomic MCP reconciliation path without restarting the agent.
+func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfaceSnapshot) error {
 	// Pull everything we need in one query: app row's name, the
 	// install's project, the user who owns it, and the cached
 	// manifest_json (which we re-read on every call so manifest
@@ -121,8 +133,9 @@ func (s *Server) registerAppMCP(installID int64) error {
 	if err != nil {
 		return fmt.Errorf("create app credential: %w", err)
 	}
-	mcpURL := fmt.Sprintf("http://127.0.0.1:%s/api/apps/%s/mcp?api_key=%s&install_id=%d",
-		localServerPort(), appName, appToken, installID)
+	capabilityRevision := appMCPCapabilityRevision(surface, tools)
+	mcpURL := fmt.Sprintf("http://127.0.0.1:%s/api/apps/%s/mcp?api_key=%s&install_id=%d&cap_rev=%s",
+		localServerPort(), appName, appToken, installID, capabilityRevision)
 
 	// user_id must be a real user. installed_by is 0 for built-ins
 	// + global installs the platform seeded; fall back to user 1
@@ -211,6 +224,29 @@ type appMCPSurfaceSnapshot struct {
 	Available bool
 }
 
+// appMCPCapabilityRevision returns a content address for the agent-visible
+// contract. A live tools/list snapshot is authoritative because it includes
+// the actual input schemas and protocol metadata. The manifest is a stable
+// fallback for tests, startup, and temporarily unreachable sidecars.
+func appMCPCapabilityRevision(surface appMCPSurfaceSnapshot, manifestTools []sdk.MCPToolSpec) string {
+	var contract any
+	if surface.Available {
+		contract = canonicalAppMCPSurface(surface.Tools)
+	} else {
+		fallback := append([]sdk.MCPToolSpec(nil), manifestTools...)
+		sort.SliceStable(fallback, func(i, j int) bool {
+			if fallback[i].Name != fallback[j].Name {
+				return fallback[i].Name < fallback[j].Name
+			}
+			return fallback[i].Description < fallback[j].Description
+		})
+		contract = fallback
+	}
+	raw, _ := json.Marshal(contract)
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:12])
+}
+
 func (s *Server) snapshotAppMCPSurface(installID int64) appMCPSurfaceSnapshot {
 	if s.installedApps == nil {
 		return appMCPSurfaceSnapshot{}
@@ -277,24 +313,65 @@ func appMCPSurfaceChanged(before, after appMCPSurfaceSnapshot) bool {
 	return !reflect.DeepEqual(canonicalAppMCPSurface(before.Tools), canonicalAppMCPSurface(after.Tools))
 }
 
-// registerAppMCPAfterActivation refreshes the bridge only after the new
-// sidecar has passed health checks and become the active registry entry. A
-// changed live tool contract invalidates Core's tools/list cache, so restart
-// only enabled, bound agents that are currently running.
-func (s *Server) registerAppMCPAfterActivation(installID int64, before appMCPSurfaceSnapshot) error {
-	if err := s.registerAppMCP(installID); err != nil {
-		return err
-	}
-	after := s.snapshotAppMCPSurface(installID)
-	if !appMCPSurfaceChanged(before, after) {
-		return nil
-	}
-	return s.restartBoundRunningAgentsForAppMCPChange(installID, s.updateAgentCore)
+func appMCPCapabilityChanged(
+	before, after appMCPSurfaceSnapshot,
+	previousRevision, currentRevision string,
+	hadBridge, hasBridge bool,
+) bool {
+	return appMCPSurfaceChanged(before, after) ||
+		(hadBridge != hasBridge) ||
+		(hadBridge && hasBridge && previousRevision != currentRevision)
 }
 
-func (s *Server) restartBoundRunningAgentsForAppMCPChange(
+func (s *Server) storedAppMCPCapabilityRevision(installID int64) (string, bool) {
+	var rawURL string
+	err := s.store.db.QueryRow(
+		`SELECT url FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID),
+	).Scan(&rawURL)
+	if err != nil {
+		return "", false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", true
+	}
+	return strings.TrimSpace(parsed.Query().Get("cap_rev")), true
+}
+
+// registerAppMCPAfterActivation refreshes the bridge only after the new
+// sidecar has passed health checks and become the active registry entry. A
+// changed live tool contract invalidates Core's tools/list cache, so reconcile
+// only enabled, bound agents that are currently running. A process restart is
+// reserved for the failure fallback.
+func (s *Server) registerAppMCPAfterActivation(installID int64, before appMCPSurfaceSnapshot) error {
+	previousRevision, hadBridge := s.storedAppMCPCapabilityRevision(installID)
+	after := s.snapshotAppMCPSurface(installID)
+	if err := s.registerAppMCPWithSurface(installID, after); err != nil {
+		return err
+	}
+	currentRevision, hasBridge := s.storedAppMCPCapabilityRevision(installID)
+	// The live before/after comparison is preferred. The stored content
+	// revision closes the old gap where either snapshot was unavailable and
+	// also upgrades pre-revision bridge rows exactly once.
+	changed := appMCPCapabilityChanged(
+		before, after, previousRevision, currentRevision, hadBridge, hasBridge,
+	)
+	if !changed {
+		return nil
+	}
+	return s.reconcileBoundRunningAgentsForAppMCPChange(
+		installID,
+		func(ctx context.Context, agentID int64) error {
+			return s.reconcileRunningAgentAppMCP(ctx, agentID, installID)
+		},
+		s.updateAgentCore,
+	)
+}
+
+func (s *Server) reconcileBoundRunningAgentsForAppMCPChange(
 	installID int64,
-	restart func(context.Context, int64) error,
+	reconcile func(context.Context, int64) error,
+	restartFallback func(context.Context, int64) error,
 ) error {
 	rows, err := s.store.db.Query(
 		`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1 ORDER BY agent_id`,
@@ -315,18 +392,29 @@ func (s *Server) restartBoundRunningAgentsForAppMCPChange(
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	var restartErrs []error
+	var reconcileErrs []error
 	for _, agentID := range agentIDs {
 		if !s.agents.IsRunning(agentID) {
 			continue
 		}
-		if err := restart(context.Background(), agentID); err != nil {
-			restartErrs = append(restartErrs, fmt.Errorf("restart agent %d after app MCP change: %w", agentID, err))
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := reconcile(ctx, agentID)
+		cancel()
+		if err == nil {
+			log.Printf("[APPS-MCP] reconciled bound agent=%d live after install=%d capability change", agentID, installID)
 			continue
 		}
-		log.Printf("[APPS-MCP] restarted bound agent=%d after install=%d tool surface changed", agentID, installID)
+		log.Printf("[APPS-MCP] live reconcile agent=%d install=%d failed: %v; restarting agent", agentID, installID, err)
+		if fallbackErr := restartFallback(context.Background(), agentID); fallbackErr != nil {
+			reconcileErrs = append(reconcileErrs, fmt.Errorf(
+				"refresh agent %d after app MCP change: live reconcile: %v; restart fallback: %w",
+				agentID, err, fallbackErr,
+			))
+			continue
+		}
+		log.Printf("[APPS-MCP] restarted bound agent=%d after install=%d capability reconcile failed", agentID, installID)
 	}
-	return errors.Join(restartErrs...)
+	return errors.Join(reconcileErrs...)
 }
 
 // unregisterAppMCP removes the bridge row for an install. Used on

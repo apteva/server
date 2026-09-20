@@ -41,7 +41,7 @@ type localInstall struct {
 // scoped to projectID, and returns its running coordinates. env is the spawn
 // env the caller wants threaded to the sidecar (e.g. HTTP_PROXY=<edge>,
 // APTEVA_ENVIRONMENT_ID); installLocalSource fills in the platform identity vars.
-func (s *Server) installLocalSource(srcDir, projectID string, env map[string]string, restoredDataDir string, progress func(string)) (*localInstall, error) {
+func (s *Server) installLocalSource(srcDir, projectID string, env map[string]string, restoredDataDir string, initialBindings map[string]any, progress func(string)) (*localInstall, error) {
 	if s.localApps == nil {
 		return nil, fmt.Errorf("installLocalSource: local supervisor not configured")
 	}
@@ -62,29 +62,39 @@ func (s *Server) installLocalSource(srcDir, projectID string, env map[string]str
 		return nil, fmt.Errorf("manifest has no name")
 	}
 
-	// 2. Upsert the apps row (source=local).
+	// 2. Reuse the catalog row without changing it. Environment installs must
+	// never rewrite source-project/global catalog metadata. When no catalog row
+	// exists, create an explicitly environment-owned row that teardown may
+	// remove after its final temporary install is gone.
 	manifestJSON, _ := json.Marshal(m)
 	var appID int64
+	createdAppRow := false
 	if err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name = ?`, m.Name).Scan(&appID); err != nil {
 		res, e := s.store.db.Exec(
-			`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'local', '', '', ?)`,
+			`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'environment', '', '', ?)`,
 			m.Name, string(manifestJSON))
 		if e != nil {
 			return nil, fmt.Errorf("create app row: %w", e)
 		}
 		appID, _ = res.LastInsertId()
-	} else {
-		s.updateAppCatalogMetadata(appID, m, "local", "", "")
+		createdAppRow = true
 	}
 
 	// 3. Create the install row, project-scoped, permissions from manifest.
 	permsJSON, _ := json.Marshal(m.Requires.Permissions)
+	bindingsJSON, _ := json.Marshal(initialBindings)
+	if initialBindings == nil {
+		bindingsJSON = []byte("{}")
+	}
 	res, err := s.store.db.Exec(
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
-		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'local', '', '', ?, 0, '{}')`,
-		appID, projectID, m.Version, string(manifestJSON), string(permsJSON))
+		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'local', '', '', ?, 0, ?)`,
+		appID, projectID, m.Version, string(manifestJSON), string(permsJSON), string(bindingsJSON))
 	if err != nil {
+		if createdAppRow {
+			_, _ = s.store.db.Exec(`DELETE FROM apps WHERE id=? AND source='environment'`, appID)
+		}
 		return nil, fmt.Errorf("create install row: %w", err)
 	}
 	installID, _ := res.LastInsertId()
@@ -182,9 +192,9 @@ func localInstallDataDir(supervisor *LocalSupervisor, appName string, installID 
 // production install.
 func (s *Server) deleteEnvironmentInstall(installID int64) {
 	var appID int64
-	var appName string
-	_ = s.store.db.QueryRow(`SELECT i.app_id, a.name
-		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&appID, &appName)
+	var appName, appSource string
+	_ = s.store.db.QueryRow(`SELECT i.app_id, a.name, COALESCE(a.source,'')
+		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&appID, &appName, &appSource)
 	_ = s.localApps.Stop(installID)
 	s.localApps.ReleaseFixedPorts(installID)
 	if s.installedApps != nil {
@@ -192,7 +202,7 @@ func (s *Server) deleteEnvironmentInstall(installID int64) {
 	}
 	_, _ = s.store.db.Exec(`DELETE FROM app_installs WHERE id=?`, installID)
 	// Drop the apps row only if no other install references it.
-	if appID != 0 {
+	if appID != 0 && appSource == "environment" {
 		var n int
 		_ = s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs WHERE app_id=?`, appID).Scan(&n)
 		if n == 0 {
@@ -215,6 +225,14 @@ func genLocalGoWork(appDir string) (path string, cleanup func(), err error) {
 	if err != nil {
 		return "", noop, err
 	}
+	// Go compares workspace members against the canonical module directory.
+	// On macOS, temporary paths commonly arrive as /var/... while getcwd and
+	// the Go command resolve them to /private/var/.... Keep the generated
+	// go.work on the same canonical path so a listed module is not rejected as
+	// "not one of the workspace modules".
+	if canonical, evalErr := filepath.EvalSymlinks(appAbs); evalErr == nil {
+		appAbs = canonical
+	}
 	sdkAbs := ""
 	if root != "" {
 		candidate := filepath.Join(root, "app-sdk")
@@ -224,6 +242,11 @@ func genLocalGoWork(appDir string) (path string, cleanup func(), err error) {
 	}
 	if sdkAbs == "" {
 		sdkAbs = findLocalAppSDKDir(appAbs)
+	}
+	if sdkAbs != "" {
+		if canonical, evalErr := filepath.EvalSymlinks(sdkAbs); evalErr == nil {
+			sdkAbs = canonical
+		}
 	}
 
 	// Derive the go directive from the modules this workspace actually

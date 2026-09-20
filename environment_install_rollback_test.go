@@ -73,7 +73,7 @@ runtime:
 	t.Cleanup(func() { s.localApps.StopAll(time.Second) })
 
 	missingRestore := filepath.Join(root, "missing-restore")
-	if _, err := s.installLocalSource(appDir, "environment-test", nil, missingRestore, nil); err == nil {
+	if _, err := s.installLocalSource(appDir, "environment-test", nil, missingRestore, nil, nil); err == nil {
 		t.Fatal("installLocalSource unexpectedly succeeded with a missing restore directory")
 	}
 
@@ -108,5 +108,29 @@ runtime:
 		t.Errorf("rollback left data directories under %s: %v", dataRoot, entries)
 	} else if err != nil && !os.IsNotExist(err) {
 		t.Fatal(fmt.Errorf("inspect rollback data root: %w", err))
+	}
+}
+
+func TestDeleteEnvironmentInstallPreservesExistingCatalogRow(t *testing.T) {
+	s := newTestServer(t)
+	s.localApps = NewLocalSupervisor(t.TempDir())
+	res, err := s.store.db.Exec(`INSERT INTO apps(name,source,manifest_json) VALUES('catalog-app','registry','{"name":"catalog-app","version":"1.0.0"}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appID, _ := res.LastInsertId()
+	res, err = s.store.db.Exec(`INSERT INTO app_installs(app_id,project_id,status,version,manifest_json) VALUES(?,'environment-test','running','1.0.0','{"name":"catalog-app","version":"1.0.0"}')`, appID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID, _ := res.LastInsertId()
+
+	s.deleteEnvironmentInstall(installID)
+	var source string
+	if err := s.store.db.QueryRow(`SELECT source FROM apps WHERE id=?`, appID).Scan(&source); err != nil {
+		t.Fatalf("source catalog row was removed: %v", err)
+	}
+	if source != "registry" {
+		t.Fatalf("source catalog metadata changed to %q", source)
 	}
 }

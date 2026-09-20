@@ -30,8 +30,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -356,10 +354,6 @@ func (s *Server) environmentAppSrcDirsForInstalls(projectID string, installIDs [
 	if s.environments == nil {
 		return nil, fmt.Errorf("environment manager not configured")
 	}
-	resolve := s.environments.ResolveSource
-	if resolve == nil {
-		resolve = defaultSourceResolver
-	}
 	out := map[string]string{}
 	seen := map[int64]bool{}
 	for _, installID := range installIDs {
@@ -367,13 +361,14 @@ func (s *Server) environmentAppSrcDirsForInstalls(projectID string, installIDs [
 			continue
 		}
 		seen[installID] = true
-		var name, installProject, status, binPath string
+		var name, installProject, status, version, binPath, manifestJSON string
 		if err := s.store.db.QueryRow(
-			`SELECT a.name, COALESCE(i.project_id, ''), i.status, COALESCE(i.local_bin_path, '')
+			`SELECT a.name, COALESCE(i.project_id, ''), i.status, COALESCE(i.version,''),
+			        COALESCE(i.local_bin_path, ''), COALESCE(NULLIF(i.manifest_json,''),a.manifest_json)
 			 FROM app_installs i JOIN apps a ON a.id = i.app_id
 			 WHERE i.id = ?`,
 			installID,
-		).Scan(&name, &installProject, &status, &binPath); err != nil {
+		).Scan(&name, &installProject, &status, &version, &binPath, &manifestJSON); err != nil {
 			return nil, fmt.Errorf("app install %d not found", installID)
 		}
 		if status != "running" {
@@ -382,37 +377,39 @@ func (s *Server) environmentAppSrcDirsForInstalls(projectID string, installIDs [
 		if projectID != "" && installProject != "" && installProject != projectID {
 			return nil, fmt.Errorf("app install %d (%s) is scoped to another project", installID, name)
 		}
-		if dir := cachedInstallSourceDir(name, binPath); dir != "" {
+		var manifest sdk.Manifest
+		if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
+			return nil, fmt.Errorf("app install %d (%s) has invalid manifest: %w", installID, name, err)
+		}
+		if manifest.Name == "" {
+			manifest.Name = name
+		}
+		if manifest.Version == "" {
+			manifest.Version = version
+		}
+		if dir := environmentSourceDirForManifest(&manifest, binPath); dir != "" {
 			out[name] = dir
 			continue
 		}
-		dir, err := resolve(name)
+		if s.localApps != nil {
+			if materializedBin, materializeErr := s.localApps.BuildFromSourceBinary(&manifest, nil); materializeErr == nil {
+				if dir := environmentSourceDirForManifest(&manifest, materializedBin); dir != "" {
+					out[name] = dir
+					continue
+				}
+			}
+		}
+		constraint := ""
+		if version != "" {
+			constraint = "=" + version
+		}
+		dir, err := s.environments.resolveAppSource(projectID, name, constraint)
 		if err != nil {
 			return nil, fmt.Errorf("resolve source for app install %d (%s): %w", installID, name, err)
 		}
 		out[name] = dir
 	}
 	return out, nil
-}
-
-func cachedInstallSourceDir(name, binPath string) string {
-	if strings.TrimSpace(name) == "" || strings.TrimSpace(binPath) == "" {
-		return ""
-	}
-	versionDir := filepath.Dir(binPath)
-	candidates := []string{
-		filepath.Join(versionDir, "src", "mcp", name),
-		filepath.Join(versionDir, "src"),
-	}
-	for _, dir := range candidates {
-		if fi, err := os.Stat(filepath.Join(dir, "apteva.yaml")); err == nil && !fi.IsDir() {
-			if abs, aerr := filepath.Abs(dir); aerr == nil {
-				return abs
-			}
-			return dir
-		}
-	}
-	return ""
 }
 
 func (s *Server) environmentVisibleConnectionIDs(userID int64, projectID string, connectionIDs []int64) ([]int64, error) {
@@ -552,13 +549,35 @@ func (s *Server) createEnvironmentRuntime(req createEnvironmentRequest, userID i
 	if gateway == "" {
 		gateway = "http://127.0.0.1:" + s.port
 	}
-	apps := make([]SandboxApp, 0, len(req.Apps))
-	for _, name := range req.Apps {
-		apps = append(apps, SandboxApp{Name: name})
-	}
 	appSrcDirs, err := s.environmentAppSrcDirsForInstalls(req.ProjectID, req.AppInstallIDs)
 	if err != nil {
 		return nil, err
+	}
+	if appSrcDirs == nil {
+		appSrcDirs = map[string]string{}
+	}
+	apps := make([]SandboxApp, 0, len(req.Apps))
+	for _, name := range req.Apps {
+		if _, exists := appSrcDirs[name]; exists {
+			continue
+		}
+		var sourceErr error
+		if s.environments.ResolveEnvironmentSource != nil {
+			if dir, resolveErr := s.environments.resolveAppSource(req.ProjectID, name, ""); resolveErr == nil {
+				appSrcDirs[name] = dir
+				continue
+			} else {
+				sourceErr = resolveErr
+			}
+		}
+		bin, binErr := s.environments.ResolveBinary(name)
+		if binErr != nil {
+			if sourceErr != nil {
+				return nil, fmt.Errorf("resolve environment app %q: %v; binary fallback: %w", name, sourceErr, binErr)
+			}
+			return nil, fmt.Errorf("resolve environment app %q: %w", name, binErr)
+		}
+		apps = append(apps, SandboxApp{Name: name, BinaryPath: bin})
 	}
 	sourceInstallIDs := map[string]int64{}
 	for _, id := range req.AppInstallIDs {

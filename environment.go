@@ -221,6 +221,12 @@ type environmentAppSource struct {
 	Dir  string
 }
 
+type environmentAppDependency struct {
+	BindingKey string
+	TargetName string
+	Multiple   bool
+}
+
 func cloneInt64Map(in map[string]int64) map[string]int64 {
 	out := make(map[string]int64, len(in))
 	for k, v := range in {
@@ -595,6 +601,12 @@ type EnvironmentManager struct {
 	// dir (for installLocalSource / environment-from-bindings derivation).
 	// Injectable for tests. Defaults to defaultSourceResolver.
 	ResolveSource func(name string) (string, error)
+
+	// ResolveEnvironmentSource is the production package-aware resolver. It
+	// understands project/global installs, the immutable app cache, registry
+	// packages, version constraints, and finally development checkouts.
+	// Tests can replace it without requiring a live registry.
+	ResolveEnvironmentSource func(projectID, name, constraint string) (string, error)
 }
 
 // NewEnvironmentManager creates the manager and ensures its data root exists.
@@ -609,6 +621,17 @@ func NewEnvironmentManager(dataDir string) *EnvironmentManager {
 		ResolveBinary: defaultBinaryResolver,
 		ResolveSource: defaultSourceResolver,
 	}
+}
+
+func (wm *EnvironmentManager) resolveAppSource(projectID, name, constraint string) (string, error) {
+	if wm != nil && wm.ResolveEnvironmentSource != nil {
+		return wm.ResolveEnvironmentSource(projectID, name, constraint)
+	}
+	resolve := defaultSourceResolver
+	if wm != nil && wm.ResolveSource != nil {
+		resolve = wm.ResolveSource
+	}
+	return resolve(name)
 }
 
 // Snapshots exposes the snapshot store.
@@ -771,7 +794,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		w.removeInterceptor = removeIntegrationMode
 	}
 
-	appSources, depBindings, err := wm.expandAppSourcesWithRequiredDeps(spec.AppSrcDirs)
+	appSources, depBindings, err := wm.expandAppSourcesWithRequiredDeps(spec.ProjectID, spec.AppSrcDirs)
 	if err != nil {
 		w.Stop()
 		return nil, fmt.Errorf("environment %q: resolve app dependencies: %w", spec.ID, err)
@@ -818,7 +841,12 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 			"NO_PROXY":              "",
 			"APTEVA_ENVIRONMENT_ID": spec.ID,
 		}
-		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, env, spec.RestoredAppDataDirs[src.Name], nil)
+		initialBindings, bindErr := environmentDependencyBindingValues(w, depBindings[src.Name])
+		if bindErr != nil {
+			w.Stop()
+			return nil, fmt.Errorf("environment %q: prepare app %q bindings: %w", spec.ID, src.Name, bindErr)
+		}
+		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, env, spec.RestoredAppDataDirs[src.Name], initialBindings, nil)
 		if ierr != nil {
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: install app %q: %w", spec.ID, src.Name, ierr)
@@ -853,19 +881,23 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 // Environment apps. Required requires.apps dependencies are installed before their
 // parents so a Environment selected with only "media" also gets "storage". Optional
 // deps stay opt-in; callers can include them explicitly in AppSrcDirs.
-func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[string]string) ([]environmentAppSource, map[string][]string, error) {
+func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(projectID string, initial map[string]string) ([]environmentAppSource, map[string][]environmentAppDependency, error) {
 	if len(initial) == 0 {
 		return nil, nil, nil
 	}
-	resolve := wm.ResolveSource
-	if resolve == nil {
-		resolve = defaultSourceResolver
+	resolve := func(name, constraint string) (string, error) {
+		return wm.resolveAppSource(projectID, name, constraint)
 	}
 	dirByName := map[string]string{}
-	depsByName := map[string][]string{}
+	depsByName := map[string][]environmentAppDependency{}
+	manifestByName := map[string]*sdk.Manifest{}
 	visiting := map[string]bool{}
 	visited := map[string]bool{}
 	var ordered []environmentAppSource
+	initialByName := map[string]string{}
+	for name, dir := range initial {
+		initialByName[normalizeAppName(name)] = dir
+	}
 
 	readManifest := func(dir string) (*sdk.Manifest, error) {
 		data, err := os.ReadFile(filepath.Join(dir, "apteva.yaml"))
@@ -882,21 +914,37 @@ func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[strin
 		return m, nil
 	}
 
-	appendDep := func(parent, dep string) {
+	appendDep := func(parent string, dep environmentAppDependency) {
 		for _, existing := range depsByName[parent] {
-			if existing == dep {
+			if existing.BindingKey == dep.BindingKey && existing.TargetName == dep.TargetName {
 				return
 			}
 		}
 		depsByName[parent] = append(depsByName[parent], dep)
 	}
 
-	var visit func(name, dir string) (string, error)
-	visit = func(name, dir string) (string, error) {
+	var visit func(name, dir, constraint, parent string) (string, error)
+	visit = func(name, dir, constraint, parent string) (string, error) {
+		requested := normalizeAppName(name)
+		if requested == "" {
+			return "", fmt.Errorf("empty app dependency name")
+		}
+		if visiting[requested] {
+			return "", fmt.Errorf("dependency cycle involving %q", name)
+		}
+		if existing := manifestByName[requested]; existing != nil {
+			if err := validateEnvironmentAppVersion(existing.Version, constraint); err != nil {
+				return "", fmt.Errorf("app %q required by %q: %w", name, parent, err)
+			}
+			return existing.Name, nil
+		}
 		if dir == "" {
-			resolved, err := resolve(name)
+			resolved, err := resolve(name, constraint)
 			if err != nil {
-				return "", fmt.Errorf("resolve source for required app %q: %w", name, err)
+				if parent != "" {
+					return "", fmt.Errorf("resolve dependency %q required by %q (version %q): %w", name, parent, constraint, err)
+				}
+				return "", fmt.Errorf("resolve source for app %q (version %q): %w", name, constraint, err)
 			}
 			dir = resolved
 		}
@@ -905,39 +953,93 @@ func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[strin
 			return "", fmt.Errorf("read manifest for app %q: %w", name, err)
 		}
 		actual := m.Name
-		if visited[actual] {
+		if normalizeAppName(actual) != requested {
+			return "", fmt.Errorf("resolved app %q to manifest %q at %s", name, actual, dir)
+		}
+		if err := validateEnvironmentAppVersion(m.Version, constraint); err != nil {
+			return "", fmt.Errorf("app %q required by %q: %w", actual, parent, err)
+		}
+		if visited[requested] {
 			return actual, nil
 		}
-		if visiting[actual] {
-			return "", fmt.Errorf("dependency cycle involving %q", actual)
-		}
-		visiting[actual] = true
+		visiting[requested] = true
 		dirByName[actual] = dir
+		manifestByName[normalizeAppName(actual)] = m
 		for _, dep := range m.Requires.Apps {
 			if dep.Name == "" {
 				continue
 			}
 			if dep.Optional {
-				if _, explicitlyIncluded := initial[dep.Name]; !explicitlyIncluded {
+				if _, explicitlyIncluded := initialByName[normalizeAppName(dep.Name)]; !explicitlyIncluded {
 					continue
 				}
 			}
-			if depDir, ok := initial[dep.Name]; ok {
-				depActual, err := visit(dep.Name, depDir)
-				if err != nil {
-					return "", err
+			depDir := initialByName[normalizeAppName(dep.Name)]
+			depActual, err := visit(dep.Name, depDir, dep.Version, actual)
+			if err != nil {
+				return "", err
+			}
+			appendDep(actual, environmentAppDependency{BindingKey: dep.Name, TargetName: depActual})
+		}
+		for _, dep := range m.Requires.Integrations {
+			if !strings.EqualFold(strings.TrimSpace(dep.Kind), "app") {
+				continue
+			}
+			role := strings.TrimSpace(dep.Role)
+			if role == "" {
+				if dep.Required {
+					return "", fmt.Errorf("app %q has required app integration with no role", actual)
 				}
-				appendDep(actual, depActual)
-			} else {
-				depActual, err := visit(dep.Name, "")
-				if err != nil {
-					return "", err
+				continue
+			}
+			isMultiple := appBindingIsMultipleForManifest(m, dep)
+			selected := make([]string, 0, len(dep.CompatibleAppNames))
+			for _, candidate := range dep.CompatibleAppNames {
+				if _, ok := initialByName[normalizeAppName(candidate)]; ok {
+					selected = append(selected, candidate)
+					if !isMultiple {
+						break
+					}
 				}
-				appendDep(actual, depActual)
+			}
+			autoSelect := len(selected) == 0 && dep.Required
+			if autoSelect {
+				selected = append(selected, dep.CompatibleAppNames...)
+			}
+			if len(selected) == 0 {
+				if dep.Required {
+					return "", fmt.Errorf("app %q requires app integration role %q but declares no compatible app", actual, role)
+				}
+				continue
+			}
+			resolvedCount := 0
+			resolutionErrors := make([]string, 0)
+			for _, candidate := range selected {
+				depDir := initialByName[normalizeAppName(candidate)]
+				if depDir == "" && autoSelect {
+					resolved, resolveErr := resolve(candidate, "")
+					if resolveErr != nil {
+						resolutionErrors = append(resolutionErrors, candidate+": "+resolveErr.Error())
+						continue
+					}
+					depDir = resolved
+				}
+				depActual, err := visit(candidate, depDir, "", actual)
+				if err != nil {
+					return "", fmt.Errorf("resolve app integration role %q: %w", role, err)
+				}
+				appendDep(actual, environmentAppDependency{BindingKey: role, TargetName: depActual, Multiple: isMultiple})
+				resolvedCount++
+				if autoSelect || !isMultiple {
+					break
+				}
+			}
+			if dep.Required && resolvedCount == 0 {
+				return "", fmt.Errorf("app %q requires app integration role %q; no compatible app resolved (%s)", actual, role, strings.Join(resolutionErrors, "; "))
 			}
 		}
-		delete(visiting, actual)
-		visited[actual] = true
+		delete(visiting, requested)
+		visited[requested] = true
 		ordered = append(ordered, environmentAppSource{Name: actual, Dir: dirByName[actual]})
 		return actual, nil
 	}
@@ -948,14 +1050,14 @@ func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[strin
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if _, err := visit(name, initial[name]); err != nil {
+		if _, err := visit(name, initial[name], "", ""); err != nil {
 			return nil, nil, err
 		}
 	}
 	return ordered, depsByName, nil
 }
 
-func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[string][]string) error {
+func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[string][]environmentAppDependency) error {
 	for parent, deps := range depsByName {
 		parentInst, ok := w.Install(parent)
 		if !ok {
@@ -966,17 +1068,15 @@ func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[s
 		if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&raw); err == nil {
 			_ = json.Unmarshal([]byte(raw), &bindings)
 		}
-		changed := false
-		for _, dep := range deps {
-			depInst, ok := w.Install(dep)
-			if !ok {
-				return fmt.Errorf("%s requires %s but it is not installed in environment", parent, dep)
-			}
-			bindings[dep] = depInst.InstallID
-			changed = true
+		resolved, err := environmentDependencyBindingValues(w, deps)
+		if err != nil {
+			return fmt.Errorf("%s: %w", parent, err)
 		}
-		if !changed {
+		if len(resolved) == 0 {
 			continue
+		}
+		for key, value := range resolved {
+			bindings[key] = value
 		}
 		next, _ := json.Marshal(bindings)
 		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
@@ -985,6 +1085,38 @@ func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[s
 	}
 	s.LoadInstalledApps()
 	return nil
+}
+
+func environmentDependencyBindingValues(w *Environment, deps []environmentAppDependency) (map[string]any, error) {
+	byKey := map[string][]int64{}
+	multiple := map[string]bool{}
+	for _, dep := range deps {
+		depInst, ok := w.Install(dep.TargetName)
+		if !ok {
+			return nil, fmt.Errorf("requires %s but it is not installed in environment", dep.TargetName)
+		}
+		ids := byKey[dep.BindingKey]
+		found := false
+		for _, id := range ids {
+			found = found || id == depInst.InstallID
+		}
+		if !found {
+			byKey[dep.BindingKey] = append(ids, depInst.InstallID)
+		}
+		multiple[dep.BindingKey] = multiple[dep.BindingKey] || dep.Multiple
+	}
+	bindings := make(map[string]any, len(byKey))
+	for key, ids := range byKey {
+		if len(ids) == 1 && !multiple[key] {
+			bindings[key] = ids[0]
+			continue
+		}
+		if len(ids) > 1 && !multiple[key] {
+			return nil, fmt.Errorf("binding %q resolved to multiple apps", key)
+		}
+		bindings[key] = map[string]any{"ids": ids, "default_id": ids[0]}
+	}
+	return bindings, nil
 }
 
 func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, bindings []RuntimeIntegrationBinding) error {

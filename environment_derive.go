@@ -8,9 +8,9 @@ package main
 // and remain directly bound. This turns the resulting membership into an
 // EnvironmentSpec rather than maintaining a second runtime tool catalog.
 //
-// Today it derives the directly-bound apps. Sibling deps (manifest
-// requires.apps, e.g. social→storage/jobs) are a documented follow-up; the
-// common single-app case (your "files via storage" agent) needs nothing more.
+// It derives the directly bound apps here; Environment.Create then expands
+// every required app and app-integration dependency through the same generic
+// package-aware resolver used by explicit environment requests.
 
 import (
 	"fmt"
@@ -58,13 +58,9 @@ func (s *Server) DeriveEnvironmentSpecForAgent(agent *Agent, environmentID strin
 	if err != nil {
 		return EnvironmentSpec{}, fmt.Errorf("read bindings for agent %d: %w", agent.ID, err)
 	}
-	resolve := s.environments.ResolveSource
-	if resolve == nil {
-		resolve = defaultSourceResolver
-	}
 	appSrcDirs := make(map[string]string, len(names))
 	for _, name := range names {
-		dir, rerr := resolve(name)
+		dir, rerr := s.environments.resolveAppSource(agent.ProjectID, name, "")
 		if rerr != nil {
 			return EnvironmentSpec{}, fmt.Errorf("resolve source for bound app %q: %w", name, rerr)
 		}

@@ -231,6 +231,9 @@ func TestRegisterAppMCP_InsertsRow(t *testing.T) {
 	if !strings.Contains(url, "install_id=") {
 		t.Errorf("url = %q, expected install_id query param", url)
 	}
+	if !strings.Contains(url, "cap_rev=") {
+		t.Errorf("url = %q, expected agent capability revision", url)
+	}
 
 	var tools []string
 	if err := json.Unmarshal([]byte(row["allowed_tools"].(string)), &tools); err != nil {

@@ -96,6 +96,10 @@ type Server struct {
 	// Optional transport used by managed-LLM gateway tests. Production uses
 	// the default HTTPS transport.
 	managedLLMTransport http.RoundTripper
+	// Optional test seam for environment registry package materialization.
+	// Production resolves through the configured curated app registry and the
+	// normal verified app cache.
+	environmentRegistrySource func(name, constraint string) (string, error)
 	// appCallbackClient reuses one pooled transport for sibling-app calls.
 	// Per-call admission metadata is carried in the request context, so the
 	// client remains safe to share across concurrent callbacks.
@@ -598,6 +602,7 @@ func main() {
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
 	s.environments.server = s
+	s.environments.ResolveEnvironmentSource = s.resolveEnvironmentAppSource
 
 	// Start console telemetry logger
 	if os.Getenv("QUIET") != "1" {
