@@ -605,11 +605,7 @@ func (s *Server) lookupRegistryManifestURL(appName string) string {
 // source='builtin'.
 func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
-	if projectID != "" {
-		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
-			return
-		}
-	}
+	scope := r.URL.Query().Get("scope")
 	q := `
 		SELECT i.id, i.app_id, i.project_id, i.status, i.status_message, i.error_message,
 			i.upgrade_policy, i.version, i.permissions_json, a.name,
@@ -618,8 +614,19 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0),
 			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != ''
 		FROM app_installs i JOIN apps a ON a.id = i.app_id`
+	if scope != "" && scope != "global" {
+		http.Error(w, "unsupported app scope", http.StatusBadRequest)
+		return
+	}
+	if scope != "global" && projectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+	}
 	args := []any{}
-	if projectID != "" {
+	if scope == "global" {
+		q += ` WHERE i.project_id = ''`
+	} else if projectID != "" {
 		q += ` WHERE i.project_id = '' OR i.project_id = ?`
 		args = append(args, projectID)
 	} else if s.store.GetPlatformRole(getUserID(r)) != PlatformAdmin {
@@ -775,22 +782,26 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Append integration rows: every connection in this project whose
+	// Append integration rows: every connection in this project (or the
+	// global connection set for scope=global) whose
 	// integration declares ui_components surfaces here as a synthetic
 	// AppRow so the dashboard's chat-component lookup finds it via
 	// the same `apps[]` array. Source flips to "integration" so the
 	// UI can distinguish (badges, settings link) without a new endpoint.
-	if projectID != "" && s.catalog != nil {
+	if s.catalog != nil {
 		seen := map[string]bool{}
 		// Track app names already in `out` so app/integration slugs
 		// don't shadow each other (highly unusual but defensive).
 		for _, r := range out {
 			seen[r.Name] = true
 		}
-		connRows, err := s.store.db.Query(
-			`SELECT DISTINCT app_slug FROM connections WHERE project_id = ? AND status != 'disabled'`,
-			projectID,
-		)
+		connectionScope := projectID
+		connectionQuery := `SELECT DISTINCT app_slug FROM connections WHERE project_id = ? AND status != 'disabled'`
+		if scope == "global" {
+			connectionScope = ""
+			connectionQuery = `SELECT DISTINCT app_slug FROM connections WHERE project_id = '' AND status != 'disabled'`
+		}
+		connRows, err := s.store.db.Query(connectionQuery, connectionScope)
 		if err == nil {
 			defer connRows.Close()
 			for connRows.Next() {
@@ -809,16 +820,17 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 				uiComps := make([]sdk.UIComponent, 0, len(tmpl.UIComponents))
 				for _, c := range tmpl.UIComponents {
 					uiComps = append(uiComps, sdk.UIComponent{
-						Name:           c.Name,
-						Entry:          c.Entry,
-						Slots:          c.Slots,
-						SupportedSizes: c.SupportedSizes,
-						DefaultSize:    c.DefaultSize,
-						Visibility:     c.Visibility,
-						RefreshTopics:  c.RefreshTopics,
-						PropsSchema:    c.PropsSchema,
-						SettingsSchema: c.SettingsSchema,
-						PreviewProps:   c.PreviewProps,
+						Name:            c.Name,
+						Entry:           c.Entry,
+						Slots:           c.Slots,
+						SupportedSizes:  c.SupportedSizes,
+						DefaultSize:     c.DefaultSize,
+						Visibility:      c.Visibility,
+						DashboardScopes: c.DashboardScopes,
+						RefreshTopics:   c.RefreshTopics,
+						PropsSchema:     c.PropsSchema,
+						SettingsSchema:  c.SettingsSchema,
+						PreviewProps:    c.PreviewProps,
 					})
 				}
 				icon := ""
@@ -835,7 +847,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 					Serving:      true,
 					Source:       "integration",
 					Version:      "1.0.0",
-					ProjectID:    projectID,
+					ProjectID:    connectionScope,
 					UIComponents: uiComps,
 				})
 			}
@@ -1933,14 +1945,16 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	}
 	var (
 		source, manifestJSON, availableManifestJSON, currentVersion, projectID, configEnc, permissionsJSON string
+		catalogRepo, catalogRef                                                                            string
 	)
 	err = s.store.db.QueryRow(
 		`SELECT COALESCE(NULLIF(i.source, ''), a.source),
 		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
 		        i.version, i.project_id, COALESCE(i.config_encrypted,''), COALESCE(i.permissions_json,'[]')
+		        , a.repo, a.ref
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&source, &manifestJSON, &availableManifestJSON, &currentVersion, &projectID, &configEnc, &permissionsJSON)
+	).Scan(&source, &manifestJSON, &availableManifestJSON, &currentVersion, &projectID, &configEnc, &permissionsJSON, &catalogRepo, &catalogRef)
 	if err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
@@ -2024,7 +2038,20 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// gets the version the user actually wants, not the snapshot in
 	// apps.manifest_json (which may itself be stale if the cache hasn't
 	// rolled over).
-	url := s.updateManifestURL(stored.Name, &stored)
+	// The catalog row is the moving update channel. The installed manifest
+	// intentionally contains an immutable release ref, so deriving the URL
+	// from it can repeatedly fetch the old release and silently revert an
+	// upgrade. Prefer the catalog repo/ref, then fall back to the registry or
+	// installed manifest for legacy rows.
+	url := ""
+	if catalogRepo != "" && catalogRef != "" {
+		candidate := stored
+		candidate.Runtime.Source = &sdk.SourceSpec{Repo: catalogRepo, Ref: catalogRef, Entry: "mcp/market-intel"}
+		url = deriveManifestURL(&candidate)
+	}
+	if url == "" {
+		url = s.updateManifestURL(stored.Name, &stored)
+	}
 	if url == "" {
 		http.Error(w, "manifest has no github source — uninstall + reinstall at the desired ref", http.StatusNotImplemented)
 		return
