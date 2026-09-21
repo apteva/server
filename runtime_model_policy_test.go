@@ -96,6 +96,61 @@ func TestGeminiRuntimeModelEligibility(t *testing.T) {
 	}
 }
 
+func TestFireworksRuntimeModelEligibility(t *testing.T) {
+	policy := fireworksPolicyFixture(t).Runtime.ModelPolicy
+	good := []string{
+		"accounts/fireworks/models/deepseek-v4-flash-0731",
+		"accounts/fireworks/models/deepseek-v4-pro-0813",
+		"accounts/fireworks/models/deepseek-v4p1-flash",
+		"accounts/fireworks/models/glm-5p3",
+		"accounts/fireworks/models/glm-5p3-flash",
+		"accounts/fireworks/routers/glm-5p3-fast",
+		"accounts/fireworks/models/gpt-oss-120b",
+		"accounts/fireworks/models/kimi-k2p7-code",
+		"accounts/fireworks/models/kimi-k3",
+		"accounts/fireworks/routers/kimi-k3-fast",
+		"accounts/fireworks/models/minimax-m3",
+		"accounts/fireworks/models/nemotron-3-ultra-nvfp4",
+		"accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+		"accounts/fireworks/models/qwen3p7-plus",
+		"accounts/fireworks/models/qwen3p8-2p4t-a95b",
+		"accounts/fireworks/models/qwen3p8-max",
+	}
+	bad := []string{
+		"accounts/fireworks/models/deepseek-v4-flash-vision-exp",
+		"accounts/fireworks/models/kimi-k3-fast",
+		"accounts/fireworks/models/kimi-k3-preview",
+		"accounts/fireworks/models/qwen3-embedding-8b",
+		"accounts/fireworks/models/qwen3-reranker-8b",
+		"accounts/fireworks/models/inkling",
+		"accounts/fireworks/models/muse-glimmer-30b",
+		"accounts/other/models/kimi-k3",
+	}
+	models := []ModelInfo{}
+	for _, id := range append(good, bad...) {
+		models = append(models, ModelInfo{ID: id, Methods: []string{"chat_completion"}})
+	}
+	models = append(models, ModelInfo{ID: "accounts/fireworks/models/kimi-k3", Methods: []string{"embedding"}})
+
+	got := policy.filter(models)
+	ids := make([]string, 0, len(got))
+	for _, model := range got {
+		ids = append(ids, model.ID)
+	}
+	if !reflect.DeepEqual(ids, good) {
+		t.Fatalf("eligible=%v want=%v", ids, good)
+	}
+	if selected := policy.selectTier(got, "large"); selected != "accounts/fireworks/models/kimi-k3" {
+		t.Fatalf("large=%q", selected)
+	}
+	if selected := policy.selectTier(got, "medium"); selected != "accounts/fireworks/routers/kimi-k3-fast" {
+		t.Fatalf("medium=%q", selected)
+	}
+	if selected := policy.selectTier(got, "small"); selected != "accounts/fireworks/routers/glm-5p3-fast" {
+		t.Fatalf("small=%q", selected)
+	}
+}
+
 func TestGeminiRuntimeTierPreferencesAndRepair(t *testing.T) {
 	p := geminiPolicyFixture(t).Runtime.ModelPolicy
 	models := p.filter(policyModels("antigravity-preview-05-2026", "gemini-3.9-pro", "gemini-3.10-pro", "gemini-4-pro-preview", "gemini-3.7-flash", "gemini-2.5-flash-lite"))

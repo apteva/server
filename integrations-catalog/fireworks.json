@@ -38,7 +38,7 @@
         "properties": {
           "model": {
             "type": "string",
-            "description": "Model ID, e.g. accounts/fireworks/models/kimi-k2p6. Call list_models for the live set."
+            "description": "Model ID, e.g. accounts/fireworks/models/kimi-k3. Call list_models for the live set."
           },
           "messages": {
             "type": "array",
@@ -102,27 +102,61 @@
         "chat_completion"
       ],
       "allowed_id_patterns": [
-        "^accounts/fireworks/models/deepseek-v4p[0-9]+-flash$",
-        "^accounts/fireworks/models/kimi-k2p[0-9]+$",
+        "^accounts/fireworks/models/deepseek-v4(?:p[0-9]+-flash|-flash-[0-9]+|-pro(?:-[0-9]+)?)$",
+        "^accounts/fireworks/models/glm-5p[0-9]+(?:-flash)?$",
+        "^accounts/fireworks/routers/glm-5p[0-9]+-fast$",
+        "^accounts/fireworks/models/gpt-oss-(?:20b|120b)$",
+        "^accounts/fireworks/models/kimi-k3$",
+        "^accounts/fireworks/routers/kimi-k3-fast$",
+        "^accounts/fireworks/models/kimi-k2p[0-9]+(?:-code)?$",
         "^accounts/fireworks/routers/kimi-k2p[0-9]+-turbo$",
-        "^accounts/fireworks/models/minimax-m2p[0-9]+$"
+        "^accounts/fireworks/models/minimax-m(?:2p[0-9]+|3)$",
+        "^accounts/fireworks/models/nemotron-(?:3-ultra-nvfp4|lightning-3p[0-9]+-[0-9]+b-a[0-9]+b)$",
+        "^accounts/fireworks/models/qwen3p[0-9]+-(?:plus|max|[0-9]+p[0-9]+t-a[0-9]+b)$"
       ],
       "tier_preferences": {
         "large": [
-          "^accounts/fireworks/models/deepseek-v4p1-flash$",
-          "^accounts/fireworks/models/kimi-k2p[0-9]+$",
+          "^accounts/fireworks/models/kimi-k3$",
+          "^accounts/fireworks/models/glm-5p[0-9]+$",
+          "^accounts/fireworks/models/deepseek-v4-pro(?:-[0-9]+)?$",
+          "^accounts/fireworks/models/qwen3p[0-9]+-max$",
+          "^accounts/fireworks/models/qwen3p[0-9]+-[0-9]+p[0-9]+t-a[0-9]+b$",
+          "^accounts/fireworks/models/minimax-m3$",
+          "^accounts/fireworks/models/nemotron-3-ultra-nvfp4$",
+          "^accounts/fireworks/models/gpt-oss-120b$",
+          "^accounts/fireworks/models/kimi-k2p[0-9]+(?:-code)?$",
+          "^accounts/fireworks/models/deepseek-v4(?:p[0-9]+-flash|-flash-[0-9]+)$",
+          "^accounts/fireworks/models/qwen3p[0-9]+-plus$",
+          "^accounts/fireworks/models/glm-5p[0-9]+-flash$",
+          "^accounts/fireworks/models/minimax-m2p[0-9]+$",
+          "^accounts/fireworks/models/nemotron-lightning-3p[0-9]+-[0-9]+b-a[0-9]+b$",
+          "^accounts/fireworks/routers/kimi-k3-fast$",
+          "^accounts/fireworks/routers/glm-5p[0-9]+-fast$",
           "^accounts/fireworks/routers/kimi-k2p[0-9]+-turbo$",
-          "^accounts/fireworks/models/minimax-m2p[0-9]+$"
+          "^accounts/fireworks/models/gpt-oss-20b$"
         ],
         "medium": [
-          "^accounts/fireworks/models/deepseek-v4p1-flash$",
+          "^accounts/fireworks/routers/kimi-k3-fast$",
+          "^accounts/fireworks/routers/glm-5p[0-9]+-fast$",
+          "^accounts/fireworks/models/glm-5p[0-9]+-flash$",
+          "^accounts/fireworks/models/deepseek-v4(?:p[0-9]+-flash|-flash-[0-9]+)$",
+          "^accounts/fireworks/models/qwen3p[0-9]+-plus$",
           "^accounts/fireworks/models/minimax-m2p[0-9]+$",
-          "^accounts/fireworks/models/kimi-k2p[0-9]+$",
-          "^accounts/fireworks/routers/kimi-k2p[0-9]+-turbo$"
+          "^accounts/fireworks/models/kimi-k2p[0-9]+(?:-code)?$",
+          "^accounts/fireworks/models/gpt-oss-(?:20b|120b)$",
+          "^accounts/fireworks/models/nemotron-lightning-3p[0-9]+-[0-9]+b-a[0-9]+b$",
+          "^accounts/fireworks/routers/kimi-k2p[0-9]+-turbo$",
+          "^accounts/fireworks/models/kimi-k3$",
+          "^accounts/fireworks/models/glm-5p[0-9]+$"
         ],
         "small": [
-          "^accounts/fireworks/models/deepseek-v4p1-flash$",
-          "^accounts/fireworks/models/minimax-m2p[0-9]+$"
+          "^accounts/fireworks/routers/glm-5p[0-9]+-fast$",
+          "^accounts/fireworks/models/glm-5p[0-9]+-flash$",
+          "^accounts/fireworks/models/deepseek-v4(?:p[0-9]+-flash|-flash-[0-9]+)$",
+          "^accounts/fireworks/models/nemotron-lightning-3p[0-9]+-[0-9]+b-a[0-9]+b$",
+          "^accounts/fireworks/models/minimax-m2p[0-9]+$",
+          "^accounts/fireworks/routers/kimi-k3-fast$",
+          "^accounts/fireworks/models/gpt-oss-20b$"
         ]
       }
     }
