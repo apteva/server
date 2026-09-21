@@ -55,7 +55,7 @@ func TestEnvironmentMCP_CallApp_RealStorage(t *testing.T) {
 	s := newEnvironmentTestServer(t)
 
 	environment, err := s.environments.Create(EnvironmentSpec{
-		ID: "mcp-w", ProjectID: "mcp-w", GatewayURL: s.localGatewayURL(),
+		ID: "mcp-w", ProjectID: "mcp-w", GatewayURL: s.localGatewayURL(), CreatorUserID: 1,
 		AppSrcDirs: map[string]string{"storage": src}, Mode: EdgeBlock, HealthBudget: 120 * time.Second,
 	})
 	if err != nil {

@@ -599,6 +599,7 @@ func (s *Server) createEnvironmentRuntime(req createEnvironmentRequest, userID i
 		ID:                  req.ID,
 		ProjectID:           req.ProjectID,
 		GatewayURL:          gateway,
+		CreatorUserID:       userID,
 		Apps:                apps,
 		AppSrcDirs:          appSrcDirs,
 		SourceInstallIDs:    sourceInstallIDs,

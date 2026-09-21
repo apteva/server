@@ -42,6 +42,11 @@ type EnvironmentSpec struct {
 	ID         string // unique id for this environment (caller-supplied)
 	ProjectID  string // project scope the in-environment apps run under
 	GatewayURL string // shared apteva-server URL sidecars call back to
+	// CreatorUserID is the authenticated user responsible for temporary app
+	// installs. It is persisted as app_installs.installed_by so environment
+	// sidecars retain a real platform principal. Install-backed environments
+	// fail closed when it is absent.
+	CreatorUserID int64
 	// Set only by the generic app-facing runtime API. Legacy environment callers
 	// leave these zero-valued.
 	RuntimeOwnerInstallID int64
@@ -92,6 +97,7 @@ type Environment struct {
 	NetworkMode     EdgeMode
 	IntegrationMode string
 	ownerInstallID  int64
+	creatorUserID   int64
 	expiresAt       time.Time
 
 	edge              *EnvironmentEdge
@@ -112,6 +118,7 @@ type Environment struct {
 }
 
 func (w *Environment) OwnerInstallID() int64 { return w.ownerInstallID }
+func (w *Environment) CreatorUserID() int64  { return w.creatorUserID }
 func (w *Environment) ExpiresAt() time.Time  { return w.expiresAt }
 
 func (w *Environment) SourceInstallID(appName string) int64 {
@@ -583,13 +590,14 @@ func (w *Environment) Stop() {
 // EnvironmentManager owns the live set of Environments. Hung off Server as s.environments;
 // nil-safe — created at boot but only touched by environment endpoints.
 type EnvironmentManager struct {
-	mu           sync.Mutex
-	environments map[string]*Environment
-	creating     map[string]bool
-	dataDir      string
-	snapshots    *SnapshotStore
-	server       *Server // set in NewServer; needed for real (install-backed) environment apps
-	expiryTimers map[string]*time.Timer
+	mu             sync.Mutex
+	environments   map[string]*Environment
+	creating       map[string]bool
+	creatorUserIDs map[string]int64
+	dataDir        string
+	snapshots      *SnapshotStore
+	server         *Server // set in NewServer; needed for real (install-backed) environment apps
+	expiryTimers   map[string]*time.Timer
 
 	// ResolveBinary maps an app manifest name to its sidecar binary path
 	// when a SandboxApp doesn't carry an explicit BinaryPath. Injectable
@@ -613,13 +621,14 @@ type EnvironmentManager struct {
 func NewEnvironmentManager(dataDir string) *EnvironmentManager {
 	_ = os.MkdirAll(dataDir, 0755)
 	return &EnvironmentManager{
-		environments:  map[string]*Environment{},
-		creating:      map[string]bool{},
-		dataDir:       dataDir,
-		snapshots:     NewSnapshotStore(dataDir),
-		expiryTimers:  map[string]*time.Timer{},
-		ResolveBinary: defaultBinaryResolver,
-		ResolveSource: defaultSourceResolver,
+		environments:   map[string]*Environment{},
+		creating:       map[string]bool{},
+		creatorUserIDs: map[string]int64{},
+		dataDir:        dataDir,
+		snapshots:      NewSnapshotStore(dataDir),
+		expiryTimers:   map[string]*time.Timer{},
+		ResolveBinary:  defaultBinaryResolver,
+		ResolveSource:  defaultSourceResolver,
 	}
 }
 
@@ -730,12 +739,18 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 	if spec.ID == "" {
 		return nil, fmt.Errorf("environment: ID required")
 	}
+	if len(spec.AppSrcDirs) > 0 && spec.CreatorUserID <= 0 {
+		return nil, fmt.Errorf("environment: authenticated creator required for install-backed apps")
+	}
 	wm.mu.Lock()
 	if _, exists := wm.environments[spec.ID]; exists || wm.creating[spec.ID] {
 		wm.mu.Unlock()
 		return nil, fmt.Errorf("environment %q already exists", spec.ID)
 	}
 	wm.creating[spec.ID] = true
+	if spec.CreatorUserID > 0 {
+		wm.creatorUserIDs[spec.ID] = spec.CreatorUserID
+	}
 	wm.mu.Unlock()
 	registered := false
 	defer func() {
@@ -744,6 +759,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		}
 		wm.mu.Lock()
 		delete(wm.creating, spec.ID)
+		delete(wm.creatorUserIDs, spec.ID)
 		wm.mu.Unlock()
 	}()
 
@@ -765,6 +781,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		NetworkMode:       edge.mode,
 		IntegrationMode:   integrationMode,
 		ownerInstallID:    spec.RuntimeOwnerInstallID,
+		creatorUserID:     spec.CreatorUserID,
 		expiresAt:         spec.RuntimeExpiresAt,
 		edge:              edge,
 		server:            wm.server,
@@ -846,7 +863,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: prepare app %q bindings: %w", spec.ID, src.Name, bindErr)
 		}
-		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, env, spec.RestoredAppDataDirs[src.Name], initialBindings, nil)
+		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, spec.CreatorUserID, env, spec.RestoredAppDataDirs[src.Name], initialBindings, nil)
 		if ierr != nil {
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: install app %q: %w", spec.ID, src.Name, ierr)
@@ -1397,6 +1414,20 @@ func (wm *EnvironmentManager) Get(id string) (*Environment, bool) {
 	return w, ok
 }
 
+// CreatorOwnsScope reports whether userID is the authenticated creator of an
+// active or currently-starting environment. Environment IDs are deliberately
+// not persisted as ordinary projects, so this is the narrow authorization
+// bridge used by temporary installs calling project-scoped SDK endpoints.
+func (wm *EnvironmentManager) CreatorOwnsScope(id string, userID int64) bool {
+	if wm == nil || id == "" || userID <= 0 {
+		return false
+	}
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	creator, ok := wm.creatorUserIDs[id]
+	return ok && creator == userID
+}
+
 // List returns a snapshot of all live Environments.
 func (wm *EnvironmentManager) List() []*Environment {
 	wm.mu.Lock()
@@ -1419,6 +1450,7 @@ func (wm *EnvironmentManager) Destroy(id string) {
 		timer.Stop()
 	}
 	delete(wm.expiryTimers, id)
+	delete(wm.creatorUserIDs, id)
 	wm.mu.Unlock()
 	if ok && w != nil {
 		w.Stop()
@@ -1431,6 +1463,7 @@ func (wm *EnvironmentManager) StopAll() {
 	ws := wm.environments
 	wm.environments = map[string]*Environment{}
 	wm.creating = map[string]bool{}
+	wm.creatorUserIDs = map[string]int64{}
 	for _, timer := range wm.expiryTimers {
 		timer.Stop()
 	}

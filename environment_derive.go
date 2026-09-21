@@ -67,11 +67,12 @@ func (s *Server) DeriveEnvironmentSpecForAgent(agent *Agent, environmentID strin
 		appSrcDirs[name] = dir
 	}
 	return EnvironmentSpec{
-		ID:         environmentID,
-		ProjectID:  agent.ProjectID,
-		GatewayURL: s.localGatewayURL(),
-		AppSrcDirs: appSrcDirs,
-		Mode:       EdgeBlock,
+		ID:            environmentID,
+		ProjectID:     agent.ProjectID,
+		GatewayURL:    s.localGatewayURL(),
+		CreatorUserID: agent.UserID,
+		AppSrcDirs:    appSrcDirs,
+		Mode:          EdgeBlock,
 	}, nil
 }
 

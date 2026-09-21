@@ -81,6 +81,7 @@ func TestCampaignsEnvironmentInstallsBindsAndTearsDownDependencyGraph(t *testing
 		ID:              "campaigns-environment",
 		ProjectID:       "source-project",
 		GatewayURL:      "http://127.0.0.1:5280",
+		CreatorUserID:   1,
 		AppSrcDirs:      map[string]string{"campaigns": dirs["campaigns"]},
 		NetworkMode:     EdgeBlock,
 		IntegrationMode: IntegrationModeMock,
@@ -95,6 +96,14 @@ func TestCampaignsEnvironmentInstallsBindsAndTearsDownDependencyGraph(t *testing
 	campaigns, ok := environment.Install("campaigns")
 	if !ok {
 		t.Fatal("campaigns install missing")
+	}
+	var installedBy int64
+	var installSource string
+	if err := s.store.db.QueryRow(`SELECT installed_by, source FROM app_installs WHERE id=?`, campaigns.InstallID).Scan(&installedBy, &installSource); err != nil {
+		t.Fatalf("read campaigns environment identity: %v", err)
+	}
+	if installedBy != 1 || installSource != "environment" {
+		t.Fatalf("environment identity owner=%d source=%q, want owner=1 source=environment", installedBy, installSource)
 	}
 	bindings := readBindings(t, s, campaigns.InstallID)
 	for _, name := range []string{"messaging", "crm", "jobs"} {
@@ -148,12 +157,13 @@ func TestEnvironmentDependencyInstallFailureRollsBackStartedDependencies(t *test
 	t.Cleanup(func() { s.localApps.StopAll(time.Second) })
 
 	_, err := s.environments.Create(EnvironmentSpec{
-		ID:           "rollback-environment",
-		ProjectID:    "source-project",
-		GatewayURL:   "http://127.0.0.1:5280",
-		AppSrcDirs:   map[string]string{"rollback-consumer": consumerDir},
-		NetworkMode:  EdgeBlock,
-		HealthBudget: 10 * time.Second,
+		ID:            "rollback-environment",
+		ProjectID:     "source-project",
+		GatewayURL:    "http://127.0.0.1:5280",
+		CreatorUserID: 1,
+		AppSrcDirs:    map[string]string{"rollback-consumer": consumerDir},
+		NetworkMode:   EdgeBlock,
+		HealthBudget:  10 * time.Second,
 	})
 	if err == nil {
 		t.Fatal("environment unexpectedly succeeded with an invalid consumer")

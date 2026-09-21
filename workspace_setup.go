@@ -259,7 +259,10 @@ func handleGatewaySetupTool(name string, args map[string]any, defaultProjectID s
 	var result any
 	if name == "setup_presets_list" {
 		err := api.do(http.MethodGet, "/templates", nil, &result)
-		return result, err
+		if err != nil {
+			return nil, err
+		}
+		return compactGatewaySetup(result, name), nil
 	}
 	projectID, _ := args["project_id"].(string)
 	if projectID == "" {
@@ -281,7 +284,10 @@ func handleGatewaySetupTool(name string, args map[string]any, defaultProjectID s
 		}
 	}
 	err := api.do(http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/setup/"+suffix, body, &result)
-	return result, err
+	if err != nil {
+		return nil, err
+	}
+	return compactGatewaySetup(result, name), nil
 }
 
 func applySetupAgentOverrides(agents []ProjectPresetAgentPreview, overrides []ProjectPresetAgentOverride) error {

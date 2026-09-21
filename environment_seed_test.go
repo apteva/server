@@ -109,12 +109,13 @@ func TestEnvironment_SeedPlan_RealStorage(t *testing.T) {
 	s := newEnvironmentTestServer(t)
 
 	environment, err := s.environments.Create(EnvironmentSpec{
-		ID:           "seed-w",
-		ProjectID:    "seed-w",
-		GatewayURL:   s.localGatewayURL(),
-		AppSrcDirs:   map[string]string{"storage": src},
-		Mode:         EdgeBlock,
-		HealthBudget: 120 * time.Second,
+		ID:            "seed-w",
+		ProjectID:     "seed-w",
+		GatewayURL:    s.localGatewayURL(),
+		CreatorUserID: 1,
+		AppSrcDirs:    map[string]string{"storage": src},
+		Mode:          EdgeBlock,
+		HealthBudget:  120 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("create environment: %v", err)

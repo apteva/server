@@ -51,7 +51,7 @@ func TestDeriveEnvironmentSpecForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("derive: %v", err)
 	}
-	if spec.ID != "w1" || spec.ProjectID != "proj-1" {
+	if spec.ID != "w1" || spec.ProjectID != "proj-1" || spec.CreatorUserID != agent.UserID {
 		t.Fatalf("spec scope wrong: %+v", spec)
 	}
 	if len(spec.AppSrcDirs) != 2 ||

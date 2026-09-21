@@ -73,7 +73,7 @@ runtime:
 	t.Cleanup(func() { s.localApps.StopAll(time.Second) })
 
 	missingRestore := filepath.Join(root, "missing-restore")
-	if _, err := s.installLocalSource(appDir, "environment-test", nil, missingRestore, nil, nil); err == nil {
+	if _, err := s.installLocalSource(appDir, "environment-test", 1, nil, missingRestore, nil, nil); err == nil {
 		t.Fatal("installLocalSource unexpectedly succeeded with a missing restore directory")
 	}
 

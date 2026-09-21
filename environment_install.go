@@ -41,9 +41,12 @@ type localInstall struct {
 // scoped to projectID, and returns its running coordinates. env is the spawn
 // env the caller wants threaded to the sidecar (e.g. HTTP_PROXY=<edge>,
 // APTEVA_ENVIRONMENT_ID); installLocalSource fills in the platform identity vars.
-func (s *Server) installLocalSource(srcDir, projectID string, env map[string]string, restoredDataDir string, initialBindings map[string]any, progress func(string)) (*localInstall, error) {
+func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int64, env map[string]string, restoredDataDir string, initialBindings map[string]any, progress func(string)) (*localInstall, error) {
 	if s.localApps == nil {
 		return nil, fmt.Errorf("installLocalSource: local supervisor not configured")
+	}
+	if creatorUserID <= 0 {
+		return nil, fmt.Errorf("installLocalSource: authenticated creator required")
 	}
 	if progress == nil {
 		progress = func(string) {}
@@ -89,8 +92,8 @@ func (s *Server) installLocalSource(srcDir, projectID string, env map[string]str
 	res, err := s.store.db.Exec(
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
-		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'local', '', '', ?, 0, ?)`,
-		appID, projectID, m.Version, string(manifestJSON), string(permsJSON), string(bindingsJSON))
+		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'environment', '', '', ?, ?, ?)`,
+		appID, projectID, m.Version, string(manifestJSON), string(permsJSON), creatorUserID, string(bindingsJSON))
 	if err != nil {
 		if createdAppRow {
 			_, _ = s.store.db.Exec(`DELETE FROM apps WHERE id=? AND source='environment'`, appID)

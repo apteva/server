@@ -272,6 +272,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			ID:                    req.ID,
 			ProjectID:             projectID,
 			GatewayURL:            "http://127.0.0.1:" + s.port,
+			CreatorUserID:         userID,
 			RuntimeOwnerInstallID: installID,
 			RuntimeExpiresAt:      time.Now().Add(ttl).UTC(),
 			SourceInstallIDs:      sourceIDs,
@@ -1436,7 +1437,9 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, installID int64, requested string, need ProjectRole) (int64, string, bool) {
 	var userID int64
 	var installProject string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(installed_by,0), COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&userID, &installProject); err != nil || userID == 0 {
+	var installSource string
+	if err := s.store.db.QueryRow(`SELECT COALESCE(i.installed_by,0), COALESCE(i.project_id,''), COALESCE(NULLIF(i.source,''),a.source)
+		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&userID, &installProject, &installSource); err != nil || userID == 0 {
 		http.Error(w, "install not found", http.StatusUnauthorized)
 		return 0, "", false
 	}
@@ -1457,7 +1460,8 @@ func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, in
 	}
 	// Use the authenticated browser user when present, otherwise the install
 	// owner. Neither identity can be selected through a numeric request header.
-	if s.store.GetPlatformRole(userID) != PlatformAdmin {
+	environmentScope := installSource == "environment" && s.environments != nil && s.environments.CreatorOwnsScope(projectID, userID)
+	if s.store.GetPlatformRole(userID) != PlatformAdmin && !environmentScope {
 		role, err := s.store.GetProjectRole(projectID, userID)
 		if err != nil || role.Rank() < need.Rank() {
 			http.Error(w, "insufficient role on project", http.StatusForbidden)
