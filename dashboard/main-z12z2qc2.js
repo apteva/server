@@ -1,5 +1,0 @@
-import{Xa as Z}from"./main-xvvxxvdg.js";import{createContext as A,useCallback as F,useContext as f,useState as X,useEffect as k}from"react";import{jsx as v}from"react/jsx-runtime";var $=A({projects:[],currentProject:null,loaded:!1,setCurrentProject:()=>{},reload:()=>{}}),q="apteva_project_id";function L(M,H,N){let Q=new Set(M),z=H.getItem(q);if(z&&Q.has(z))return z;let B=N.getItem(q),y=B&&Q.has(B)?B:M[0]??null;if(!y)return H.removeItem(q),null;if(H.setItem(q,y),B!==y)N.setItem(q,y);return y}function K({children:M}){let[H,N]=X([]),[Q,z]=X(null),[B,y]=X(!1),U=F(()=>{Z.list().then((G)=>{let V=G||[];N(V);let w=L(V.map((W)=>W.id),window.sessionStorage,window.localStorage);z(V.find((W)=>W.id===w)||null),y(!0)}).catch(()=>{y(!0)})},[]);k(()=>{U()},[U]);let m=(G)=>{if(z(G),G)window.sessionStorage.setItem(q,G.id),window.localStorage.setItem(q,G.id);else window.sessionStorage.removeItem(q),window.localStorage.removeItem(q)};return v($.Provider,{value:{projects:H,currentProject:Q,loaded:B,setCurrentProject:m,reload:U},children:M})}function O(){return f($)}
-export{K as Aa,O as Ba};
-
-//# debugId=5AF177ED5A805CFC64756E2164756E21
-//# sourceMappingURL=main-z12z2qc2.js.map
