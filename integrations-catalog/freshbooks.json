@@ -1,0 +1,17 @@
+{
+  "slug": "freshbooks",
+  "name": "FreshBooks",
+  "description": "FreshBooks accounting API for clients, invoices, expenses and payments.",
+  "logo": "https://www.google.com/s2/favicons?domain=freshbooks.com&sz=128",
+  "categories": ["accounting", "invoicing", "expenses", "finance"],
+  "base_url": "https://api.freshbooks.com/accounting/account/{account_id}",
+  "auth": {"types": ["bearer", "oauth2"], "headers": {"Authorization": "Bearer {{token}}", "Accept": "application/json"}, "credential_fields": [{"name":"token","label":"OAuth access token","required":true},{"name":"account_id","label":"Business account ID","required":true}], "oauth2":{"authorize_url":"https://my.freshbooks.com/service/auth/oauth/authorize","token_url":"https://api.freshbooks.com/auth/oauth/token","scopes":["user:profile:read","user:clients:read","user:clients:write","user:invoices:read","user:invoices:write","user:expenses:read","user:expenses:write"],"client_id_required":true,"pkce":true}},
+  "tools": [
+    {"name":"list_clients","description":"List FreshBooks clients.","method":"GET","path":"/users/clients","input_schema":{"type":"object","properties":{"search":{"type":"string"},"page":{"type":"integer"},"per_page":{"type":"integer"}}},"query_params":["search","page","per_page"]},
+    {"name":"create_client","description":"Create a FreshBooks client.","method":"POST","path":"/users/clients","input_schema":{"type":"object","properties":{"client":{"type":"object"}},"required":["client"]}},
+    {"name":"list_invoices","description":"List FreshBooks invoices.","method":"GET","path":"/invoices/invoices","input_schema":{"type":"object","properties":{"page":{"type":"integer"},"per_page":{"type":"integer"},"search":{"type":"string"}}},"query_params":["page","per_page","search"]},
+    {"name":"create_invoice","description":"Create a FreshBooks invoice.","method":"POST","path":"/invoices/invoices","input_schema":{"type":"object","properties":{"invoice":{"type":"object"}},"required":["invoice"]}},
+    {"name":"list_expenses","description":"List FreshBooks expenses.","method":"GET","path":"/expenses/expenses","input_schema":{"type":"object","properties":{"page":{"type":"integer"},"per_page":{"type":"integer"},"date_from":{"type":"string"},"date_to":{"type":"string"}}},"query_params":["page","per_page","date_from","date_to"]},
+    {"name":"create_expense","description":"Create a FreshBooks expense.","method":"POST","path":"/expenses/expenses","input_schema":{"type":"object","properties":{"expense":{"type":"object"}},"required":["expense"]}}
+  ]
+}

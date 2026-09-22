@@ -1,0 +1,17 @@
+{
+  "slug": "netsuite",
+  "name": "Oracle NetSuite",
+  "description": "NetSuite SuiteTalk REST record API for customers, invoices, vendors, expenses and financial reports.",
+  "logo": "https://www.google.com/s2/favicons?domain=oracle.com&sz=128",
+  "categories": ["accounting", "erp", "invoicing", "finance"],
+  "base_url": "https://{{account_id}}.suitetalk.api.netsuite.com/services/rest/record/v1",
+  "auth": {"types":["bearer","oauth2"],"headers":{"Authorization":"Bearer {{token}}","Accept":"application/json"},"credential_fields":[{"name":"token","label":"OAuth access token","required":true},{"name":"account_id","label":"NetSuite account ID","required":true}],"oauth2":{"authorize_url":"https://system.netsuite.com/app/login/oauth2/authorize.nl","token_url":"https://system.netsuite.com/services/rest/auth/oauth2/v1/token","scopes":["rest_webservices"],"client_id_required":true,"pkce":true}},
+  "tools": [
+    {"name":"list_customers","description":"List NetSuite customer records.","method":"GET","path":"/customer","input_schema":{"type":"object","properties":{"limit":{"type":"integer"},"offset":{"type":"integer"}}},"query_params":["limit","offset"]},
+    {"name":"create_customer","description":"Create a NetSuite customer record.","method":"POST","path":"/customer","input_schema":{"type":"object","properties":{"customer":{"type":"object"}},"required":["customer"]}},
+    {"name":"list_invoices","description":"List NetSuite invoice records.","method":"GET","path":"/invoice","input_schema":{"type":"object","properties":{"limit":{"type":"integer"},"offset":{"type":"integer"}}},"query_params":["limit","offset"]},
+    {"name":"create_invoice","description":"Create a NetSuite invoice record.","method":"POST","path":"/invoice","input_schema":{"type":"object","properties":{"invoice":{"type":"object"}},"required":["invoice"]}},
+    {"name":"list_vendors","description":"List NetSuite vendor records.","method":"GET","path":"/vendor","input_schema":{"type":"object","properties":{"limit":{"type":"integer"},"offset":{"type":"integer"}}},"query_params":["limit","offset"]},
+    {"name":"list_expenses","description":"List NetSuite expense reports.","method":"GET","path":"/expensereport","input_schema":{"type":"object","properties":{"limit":{"type":"integer"},"offset":{"type":"integer"}}},"query_params":["limit","offset"]}
+  ]
+}
