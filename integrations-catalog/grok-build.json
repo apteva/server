@@ -1,0 +1,33 @@
+{
+  "slug": "grok-build",
+  "name": "Grok Build",
+  "description": "Subscription-backed Grok Build session using xAI device-code sign-in and the Responses runtime.",
+  "logo": "https://www.google.com/s2/favicons?domain=x.ai&sz=128",
+  "categories": ["ai", "llm", "xai", "grok", "coding", "subscription"],
+  "base_url": "https://cli-chat-proxy.grok.com/v1",
+  "auth": {
+    "types": ["oauth_device_code"]
+  },
+  "tools": [],
+  "runtime": {
+    "role": "llm",
+    "provider_key": "grok-build",
+    "env": {
+      "GROK_BUILD_ACCESS_TOKEN": "{{credentials.access_token}}",
+      "GROK_BUILD_PROVIDER_ID": "{{connection.provider_ref}}",
+      "GROK_BUILD_USER_ID": "{{credentials.user_id}}",
+      "GROK_BUILD_ACCOUNT_EMAIL": "{{credentials.account_email}}",
+      "GROK_BUILD_PRINCIPAL_TYPE": "{{credentials.principal_type}}",
+      "GROK_BUILD_PRINCIPAL_ID": "{{credentials.principal_id}}",
+      "GROK_BUILD_BASE_URL": "{{credentials.runtime_base_url}}"
+    },
+    "capabilities": [
+      "llm",
+      "subscription",
+      "subscription_usage",
+      "responses",
+      "streaming",
+      "native_tools"
+    ]
+  }
+}
