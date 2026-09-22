@@ -109,7 +109,7 @@ func TestFireworksPolicyRejectsNonInferenceReadyAndRanksPreferredModel(t *testin
 		t.Fatalf("eligible=%v", eligible)
 	}
 	for _, tier := range runtimeModelTiers {
-		if got := policy.selectTier(eligible, tier); got != "accounts/fireworks/models/deepseek-v4p1-flash" {
+		if got := policy.selectTier(eligible, tier); got != "accounts/fireworks/models/kimi-k2p6" {
 			t.Fatalf("%s=%q", tier, got)
 		}
 	}
@@ -121,7 +121,7 @@ func TestFireworksPolicyRejectsNonInferenceReadyAndRanksPreferredModel(t *testin
 	reconcileRuntimeModels(policy, state, eligible, nil)
 	for _, tier := range runtimeModelTiers {
 		key := "model_" + tier
-		if state[key] != "accounts/fireworks/models/deepseek-v4p1-flash" || stateObject(state, "model_selection_sources")[key] != "automatic" {
+		if state[key] != "accounts/fireworks/models/kimi-k2p6" || stateObject(state, "model_selection_sources")[key] != "automatic" {
 			t.Fatalf("%s not repaired: %v", key, state)
 		}
 	}
