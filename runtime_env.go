@@ -614,6 +614,26 @@ func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, 
 		s.persistRuntimeModels(conn, state)
 		return nil
 	}
+	if app.Runtime.ProviderKey == integrationGrokBuildSlug {
+		credentials := map[string]string{
+			"access_token":  stringValue(src.credentials["access_token"]),
+			"account_id":    stringValue(src.credentials["account_id"]),
+			"account_email": stringValue(src.credentials["account_email"]),
+			"user_id":       stringValue(src.credentials["user_id"]),
+			"principal_id":  stringValue(src.credentials["principal_id"]),
+		}
+		if strings.TrimSpace(credentials["access_token"]) == "" {
+			return nil
+		}
+		fetched, err := fetchGrokBuildModelCatalog(ctx, credentials, false)
+		if err != nil {
+			log.Printf("[RUNTIME-MODELS] connection=%d Grok Build catalog unavailable; retaining saved models: %v", conn.ID, err)
+			return nil
+		}
+		applyGrokBuildCatalogToState(state, fetched)
+		s.persistRuntimeModels(conn, state)
+		return nil
+	}
 
 	apiKey := runtimeAPIKeyFor(app.Runtime, src)
 	if apiKey == "" {

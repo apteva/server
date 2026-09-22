@@ -288,6 +288,10 @@ func (s *Server) handleProjectPresetPreview(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.saveWorkspaceSetupProposal(getUserID(r), projectID, "proposed", preview, nil); err != nil {
+		http.Error(w, "Could not save workspace proposal", http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, preview)
 }
 
@@ -336,8 +340,8 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 			Mode:      spec.Mode, Unconscious: spec.Unconscious,
 		}
 		for _, name := range spec.Apps {
+			agent.Apps = append(agent.Apps, name)
 			if app := visibleApps[name]; app.InstallID > 0 {
-				agent.Apps = append(agent.Apps, name)
 				agent.AppInstallIDs = append(agent.AppInstallIDs, app.InstallID)
 			}
 		}
@@ -866,6 +870,20 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		if err := s.rememberOnboardingPreset(getUserID(r), projectID, preview); err != nil {
 			warnings = append(warnings, "Could not save the setup recommendation: "+err.Error())
 		}
+	}
+	resultAgents := make([]workspaceSetupResultAgent, 0, len(created)+len(existing))
+	for _, agent := range created {
+		resultAgents = append(resultAgents, workspaceSetupResultAgent{ID: agent.ID, Name: agent.Name, Status: agent.Status})
+	}
+	for _, agent := range existing {
+		resultAgents = append(resultAgents, workspaceSetupResultAgent{ID: agent.ID, Name: agent.Name, Status: agent.Status, Existing: true})
+	}
+	proposalStatus := "ready"
+	if len(warnings) > 0 {
+		proposalStatus = "needs_attention"
+	}
+	if err := s.saveWorkspaceSetupProposal(getUserID(r), projectID, proposalStatus, preview, &workspaceSetupResult{Agents: resultAgents, Warnings: warnings}); err != nil {
+		warnings = append(warnings, "Could not update the live workspace plan: "+err.Error())
 	}
 	writeJSON(w, map[string]any{
 		"status": "applied", "project_id": projectID, "preset_id": body.PresetID, "interface_level": preview.InterfaceLevel,

@@ -122,6 +122,17 @@ func TestHelperAppToolsSearchAndCall(t *testing.T) {
 		t.Fatal("project was not injected")
 	}
 }
+
+func TestHelperProxyResponseDoesNotRejectValidLargeResult(t *testing.T) {
+	recorder := &helperProxyResponse{header: make(http.Header)}
+	payload := strings.Repeat("x", 64*1024)
+	if _, err := recorder.Write([]byte(payload)); err != nil {
+		t.Fatalf("large app result rejected: %v", err)
+	}
+	if recorder.body.Len() != len(payload) {
+		t.Fatalf("large app result bytes=%d want=%d", recorder.body.Len(), len(payload))
+	}
+}
 func TestHelperAppToolsRecheckRestrictions(t *testing.T) {
 	for _, kind := range []string{"tampered", "expired", "other-thread", "other-project", "disabled", "stopped", "schema-changed", "public", "revoked", "forged-project", "reserved"} {
 		t.Run(kind, func(t *testing.T) {

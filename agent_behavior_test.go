@@ -19,19 +19,22 @@ func TestAgentBehaviorComposition(t *testing.T) {
 	base := "# Role\nKeep  two spaces.\n\n# Custom instructions\nPreserve me exactly.\n"
 	directive := base
 	for _, mode := range []string{"autonomous", "cautious", "learn", "cautious", "autonomous"} {
-		directive = withAgentBehavior(directive, mode)
+		directive = compileAgentDirective(directive, mode, defaultAgentProactivity)
 		if strings.Count(directive, behaviorStart) != 1 || strings.Count(directive, behaviorEnd) != 1 {
 			t.Fatal("duplicate section", directive)
 		}
 		if !strings.HasPrefix(directive, base) {
 			t.Fatal("unrelated instructions changed")
 		}
-		if next := withAgentBehavior(directive, mode); next != directive {
+		if next := compileAgentDirective(directive, mode, defaultAgentProactivity); next != directive {
 			t.Fatal("not idempotent")
 		}
 		if !strings.Contains(directive, "instructions ("+mode+")") || !strings.Contains(directive, "When delegating") {
 			t.Fatal("missing behavior or delegation")
 		}
+	}
+	if clean := withoutAgentControls(directive); clean != base {
+		t.Fatalf("compiled controls leaked into authored directive: %q", clean)
 	}
 	duplicate := withAgentBehavior("first", "learn") + "\nMIDDLE\n" + withAgentBehavior("last", "cautious")
 	result := withAgentBehavior(duplicate, "autonomous")
@@ -166,7 +169,8 @@ func TestAgentBehaviorStoppedUpdatesAndValidation(t *testing.T) {
 		}
 		a, _ = s.store.GetAgentByID(a.ID)
 		cfg := readBehaviorDisk(t, s, a.ID)
-		if a.Mode != mode || cfg["directive"] != a.Directive || !strings.HasPrefix(a.Directive, "disk evolved") {
+		effective, _ := cfg["directive"].(string)
+		if a.Mode != mode || a.Directive != "disk evolved" || !strings.HasPrefix(effective, a.Directive) || !strings.Contains(effective, "instructions ("+mode+")") {
 			t.Fatal(a, cfg)
 		}
 		if _, exists := cfg["mode"]; exists {
@@ -195,7 +199,7 @@ func TestAgentBehaviorStoppedUpdatesAndValidation(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	a, _ = s.store.GetAgentByID(a.ID)
-	if strings.Contains(a.Directive, "disk evolved") || !strings.Contains(a.Directive, behaviorStart) {
+	if a.Directive != "" || !strings.Contains(readBehaviorDisk(t, s, a.ID)["directive"].(string), behaviorStart) {
 		t.Fatal("explicit empty directive not handled")
 	}
 }
@@ -258,6 +262,9 @@ func TestAgentBehaviorRunningModeAndVoicePending(t *testing.T) {
 		}
 		if got["execution_control"].(map[string]any)["mode"] != "paused" {
 			t.Fatal("nested execution mode lost", got)
+		}
+		if directive, _ := got["directive"].(string); strings.Contains(directive, behaviorStart) {
+			t.Fatal("private controls leaked through public config", directive)
 		}
 	}
 }
@@ -340,7 +347,7 @@ func TestAgentBehaviorMigrationIdempotent(t *testing.T) {
 			t.Fatal(err)
 		}
 		state, _ := s.store.agentBehaviorState(a.ID)
-		if state.Pending || state.Revision != 1 || !strings.HasPrefix(a.Directive, "new disk\nKeep custom text") || !strings.Contains(a.Directive, "instructions (learn)") {
+		if state.Pending || state.Revision != 1 || a.Directive != "new disk\nKeep custom text" || strings.Contains(a.Directive, behaviorStart) {
 			t.Fatal(state, a.Directive)
 		}
 		if err = s.store.migrateReviewFixes(); err != nil {
@@ -365,7 +372,7 @@ func TestAgentBehaviorConcurrentModeAndDirectiveEdits(t *testing.T) {
 	}
 	wg.Wait()
 	a, _ = s.store.GetAgentByID(a.ID)
-	if a.Mode != "learn" || !strings.HasPrefix(a.Directive, "concurrent edit") || strings.Count(a.Directive, behaviorStart) != 1 || !strings.Contains(a.Directive, "instructions (learn)") {
+	if a.Mode != "learn" || a.Directive != "concurrent edit" || strings.Contains(a.Directive, behaviorStart) {
 		t.Fatal(a)
 	}
 }

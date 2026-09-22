@@ -39,16 +39,18 @@ var (
 )
 
 type connectionDeviceAuthSession struct {
-	ID           string
-	UserID       int64
-	ConnectionID int64
-	AppSlug      string
-	DeviceAuthID string
-	UserCode     string
-	ExpiresAt    time.Time
-	Interval     int
-	Reauth       bool
-	CreatedAt    time.Time
+	ID                      string
+	UserID                  int64
+	ConnectionID            int64
+	AppSlug                 string
+	DeviceAuthID            string
+	UserCode                string
+	VerificationURI         string
+	VerificationURIComplete string
+	ExpiresAt               time.Time
+	Interval                int
+	Reauth                  bool
+	CreatedAt               time.Time
 }
 
 type connectionDeviceAuthSessionStore struct {
@@ -98,27 +100,20 @@ func (v *connectionDeviceLooseInt) UnmarshalJSON(raw []byte) error {
 }
 
 func supportsConnectionDeviceAuth(app *AppTemplate) bool {
-	return app != nil && app.Slug == integrationOpenAICodexSlug && containsString(app.Auth.Types, connectionAuthTypeDeviceCode)
+	return app != nil && connectionSessionAuthDriverFor(app.Slug) != nil && containsString(app.Auth.Types, connectionAuthTypeDeviceCode)
 }
 
 func (s *Server) startConnectionDeviceAuth(ctx context.Context, userID int64, app *AppTemplate, conn *Connection, reauth bool) (map[string]any, error) {
 	if !supportsConnectionDeviceAuth(app) {
 		return nil, fmt.Errorf("%s does not support device-code auth", app.Slug)
 	}
-	var payload struct {
-		UserCode     string                   `json:"user_code"`
-		DeviceAuthID string                   `json:"device_auth_id"`
-		ExpiresIn    connectionDeviceLooseInt `json:"expires_in"`
-		Interval     connectionDeviceLooseInt `json:"interval"`
-	}
-	if err := postConnectionDeviceJSON(ctx, integrationOpenAICodexDeviceUserCodeURL, map[string]string{"client_id": integrationOpenAICodexClientID}, &payload); err != nil {
+	driver := connectionSessionAuthDriverFor(app.Slug)
+	authorization, err := driver.Start(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if payload.UserCode == "" || payload.DeviceAuthID == "" {
-		return nil, fmt.Errorf("OpenAI Codex device auth response was incomplete")
-	}
-	expiresIn := int(payload.ExpiresIn)
-	interval := int(payload.Interval)
+	expiresIn := authorization.ExpiresIn
+	interval := authorization.Interval
 	if expiresIn <= 0 {
 		expiresIn = 15 * 60
 	}
@@ -126,27 +121,33 @@ func (s *Server) startConnectionDeviceAuth(ctx context.Context, userID int64, ap
 		interval = 5
 	}
 	session := &connectionDeviceAuthSession{
-		ID:           "cauth_" + generateToken(18),
-		UserID:       userID,
-		ConnectionID: conn.ID,
-		AppSlug:      app.Slug,
-		DeviceAuthID: payload.DeviceAuthID,
-		UserCode:     payload.UserCode,
-		ExpiresAt:    time.Now().Add(time.Duration(expiresIn) * time.Second),
-		Interval:     interval,
-		Reauth:       reauth,
-		CreatedAt:    time.Now(),
+		ID:                      "cauth_" + generateToken(18),
+		UserID:                  userID,
+		ConnectionID:            conn.ID,
+		AppSlug:                 app.Slug,
+		DeviceAuthID:            authorization.DeviceCode,
+		UserCode:                authorization.UserCode,
+		VerificationURI:         authorization.VerificationURI,
+		VerificationURIComplete: authorization.VerificationURIComplete,
+		ExpiresAt:               time.Now().Add(time.Duration(expiresIn) * time.Second),
+		Interval:                interval,
+		Reauth:                  reauth,
+		CreatedAt:               time.Now(),
 	}
 	globalConnectionDeviceAuthSessions.put(session)
-	return map[string]any{
+	response := map[string]any{
 		"session_id":       session.ID,
-		"provider":         integrationOpenAICodexSlug,
+		"provider":         app.Slug,
 		"method":           connectionAuthTypeDeviceCode,
-		"verification_uri": integrationOpenAICodexIssuer + "/codex/device",
-		"user_code":        payload.UserCode,
+		"verification_uri": authorization.VerificationURI,
+		"user_code":        authorization.UserCode,
 		"expires_at":       session.ExpiresAt.Format(time.RFC3339),
 		"interval_seconds": interval,
-	}, nil
+	}
+	if authorization.VerificationURIComplete != "" {
+		response["verification_uri_complete"] = authorization.VerificationURIComplete
+	}
+	return response, nil
 }
 
 func (s *Server) handlePollConnectionDeviceAuth(w http.ResponseWriter, r *http.Request) {
@@ -176,55 +177,53 @@ func (s *Server) handlePollConnectionDeviceAuth(w http.ResponseWriter, r *http.R
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	reqBody := map[string]string{
-		"device_auth_id": session.DeviceAuthID,
-		"user_code":      session.UserCode,
+	driver := connectionSessionAuthDriverFor(session.AppSlug)
+	if driver == nil {
+		globalConnectionDeviceAuthSessions.delete(sessionID)
+		http.Error(w, "device auth provider is no longer available", http.StatusBadRequest)
+		return
 	}
-	var codeResp struct {
-		AuthorizationCode string `json:"authorization_code"`
-		CodeVerifier      string `json:"code_verifier"`
-	}
-	status, body, err := postConnectionDeviceJSONStatus(ctx, integrationOpenAICodexDeviceTokenURL, reqBody, &codeResp)
+	result, err := driver.Poll(ctx, session)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	if status == http.StatusForbidden || status == http.StatusNotFound {
+	if result.NextPollSeconds > 0 {
+		session.Interval = result.NextPollSeconds
+	}
+	if result.Status == "pending" {
 		writeJSON(w, map[string]any{
 			"status":            "pending",
 			"next_poll_seconds": session.Interval,
 		})
 		return
 	}
-	if status < 200 || status >= 300 {
+	if result.Status == "expired" {
 		globalConnectionDeviceAuthSessions.delete(sessionID)
 		if !session.Reauth {
 			_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
 		}
 		writeJSON(w, map[string]any{
-			"status": "failed",
-			"error":  strings.TrimSpace(string(body)),
+			"status": "expired",
 		})
 		return
 	}
-	if codeResp.AuthorizationCode == "" || codeResp.CodeVerifier == "" {
+	if result.Status != "connected" || len(result.Credentials) == 0 {
 		globalConnectionDeviceAuthSessions.delete(sessionID)
 		if !session.Reauth {
 			_ = s.store.UpdateConnectionStatus(session.ConnectionID, "failed")
 		}
+		errorMessage := strings.TrimSpace(result.Error)
+		if errorMessage == "" {
+			errorMessage = "device auth response was incomplete"
+		}
 		writeJSON(w, map[string]any{
 			"status": "failed",
-			"error":  "OpenAI Codex device auth response was incomplete",
+			"error":  errorMessage,
 		})
 		return
 	}
-
-	tokens, err := exchangeConnectionOpenAICodexCode(ctx, codeResp.AuthorizationCode, codeResp.CodeVerifier)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	credentials := buildConnectionOpenAICodexCredentials(tokens)
+	credentials := result.Credentials
 	raw, _ := json.Marshal(credentials)
 	encrypted, err := Encrypt(s.secret, string(raw))
 	if err != nil {

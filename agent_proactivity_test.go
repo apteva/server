@@ -32,7 +32,7 @@ func TestAgentProactivityDefaultsAndCreation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if a.Proactivity != level || a.Mode != "cautious" || !strings.Contains(a.Directive, fmt.Sprintf("PROACTIVITY: %d/100", level)) {
+		if a.Proactivity != level || a.Mode != "cautious" || strings.Contains(a.Directive, "PROACTIVITY:") || !strings.Contains(compileAgentDirective(a.Directive, a.Mode, a.Proactivity), fmt.Sprintf("PROACTIVITY: %d/100", level)) {
 			t.Fatalf("unexpected policy: %+v", a)
 		}
 	}
@@ -79,7 +79,7 @@ func TestAgentProactivityUpdatesAndValidation(t *testing.T) {
 			t.Fatal(a)
 		}
 		cfg := readBehaviorDisk(t, s, a.ID)
-		if cfg["directive"] != a.Directive || cfg["proactivity"] != nil {
+		if directive, _ := cfg["directive"].(string); !strings.HasPrefix(directive, a.Directive) || !strings.Contains(directive, fmt.Sprintf("PROACTIVITY: %d/100", level)) || cfg["proactivity"] != nil {
 			t.Fatal(cfg)
 		}
 	}
@@ -160,6 +160,10 @@ func TestAgentProactivityLegacyMigration(t *testing.T) {
 	a := behaviorAgent(t, s, "learn")
 	// Recreate the pre-proactivity schema while retaining telemetry migrations.
 	for _, q := range []string{
+		`DROP TRIGGER agent_controls_update`,
+		`DROP TRIGGER agent_controls_insert`,
+		`DROP TABLE agent_control_assignments`,
+		`DELETE FROM server_schema_migrations WHERE version=6`,
 		`DROP TRIGGER agent_behavior_update`,
 		`ALTER TABLE agents DROP COLUMN proactivity`,
 		`DELETE FROM server_schema_migrations WHERE version=4`,
@@ -183,8 +187,11 @@ func TestAgentProactivityLegacyMigration(t *testing.T) {
 	if err := s.reconcileAgentBehavior(context.Background(), a, 0); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(a.Directive, "newer disk role") || !strings.Contains(a.Directive, "25/100 (Conservative)") || a.Mode != "learn" {
+	if a.Directive != "newer disk role" || strings.Contains(a.Directive, behaviorStart) || a.Mode != "learn" {
 		t.Fatal(a)
+	}
+	if directive := readBehaviorDisk(t, s, a.ID)["directive"].(string); !strings.Contains(directive, "25/100 (Conservative)") {
+		t.Fatal(directive)
 	}
 	if err := s.store.migrateReviewFixes(); err != nil {
 		t.Fatal(err)
@@ -223,7 +230,10 @@ func TestAgentProactivitySharperPolicyUpgrade(t *testing.T) {
 	if a.Proactivity != 75 || a.Mode != "cautious" || !strings.Contains(a.Directive, "Keep the new core-authored method.") || strings.Contains(a.Directive, "Legacy generic") {
 		t.Fatal("policy upgrade changed agent intent or settings")
 	}
-	if strings.Count(a.Directive, behaviorStart) != 1 {
-		t.Fatal("policy upgrade duplicated its managed section")
+	if strings.Contains(a.Directive, behaviorStart) {
+		t.Fatal("compiled policy remained in stored directive")
+	}
+	if directive := readBehaviorDisk(t, s, a.ID)["directive"].(string); strings.Count(directive, behaviorStart) != 1 {
+		t.Fatal("policy upgrade duplicated its managed section", directive)
 	}
 }

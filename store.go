@@ -108,6 +108,7 @@ type Agent struct {
 }
 
 type Store struct {
+	appMetadata     appMetadataCache
 	automatic       automaticRuntime
 	db              *sql.DB
 	path            string
@@ -1307,6 +1308,10 @@ func (s *Store) migrate() error {
 		SET ref = COALESCE((SELECT ref FROM apps WHERE apps.id = app_installs.app_id), '')
 		WHERE ref = ''`)
 	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_installs_token_hash ON app_installs(app_token_hash) WHERE app_token_hash != ''`)
+	// Dependency resolution only considers live installs. Keep this partial
+	// index small even if a legacy database contains many failed rows.
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_installs_running_app_project
+		ON app_installs(app_id, project_id, id) WHERE status = 'running'`)
 	// Durable app-owned agent executions. This is operational ownership and
 	// idempotency state, deliberately separate from retention-managed telemetry.
 	// The app-facing event id is scoped to the authenticated installation; Core
@@ -1781,6 +1786,9 @@ func (s *Store) migrate() error {
 	}
 	if err := s.removeLegacyHostedIntegrationProvider(); err != nil {
 		return fmt.Errorf("remove legacy hosted integration provider: %w", err)
+	}
+	if err := s.migrateAppMetadataGeneration(); err != nil {
+		return fmt.Errorf("app metadata cache migration: %w", err)
 	}
 	return s.validateMigratedSchema()
 }
@@ -2753,7 +2761,7 @@ func (s *Store) CreateAgent(userID int64, name, directive, mode, config, project
 	if !validProactivity(level) {
 		return nil, fmt.Errorf("proactivity must be an integer from 0 to 100")
 	}
-	directive = withAgentBehavior(directive, mode, level)
+	directive = withoutAgentControls(directive)
 	config = withoutCoreMode(config)
 	result, err := s.db.Exec(
 		"INSERT INTO agents (user_id, name, directive, mode, proactivity, config, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -2785,7 +2793,7 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 	if !validProactivity(level) {
 		return nil, false, fmt.Errorf("proactivity must be an integer from 0 to 100")
 	}
-	directive = withAgentBehavior(directive, mode, level)
+	directive = withoutAgentControls(directive)
 	config = withoutCoreMode(config)
 	scopeUserID := userID
 	if projectID != "" {
@@ -2925,11 +2933,10 @@ func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 // Idempotent: subsequent calls for the same user return the existing
 // row. The directive is the canonical user-facing platform-helper prompt.
 func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agent, error) {
-	directive = withAgentBehavior(directive, "autonomous")
+	directive = withoutAgentControls(directive)
 	// Look up existing helper for this user.
 	ag, err := s.GetPlatformHelper(userID)
 	if err == nil {
-		directive = withAgentBehavior(directive, ag.Mode, ag.Proactivity)
 		if ag.Name == "__platform_helper__" || strings.TrimSpace(ag.Name) == "" {
 			s.db.Exec(`UPDATE agents SET name = ? WHERE id = ?`, "Apteva Helper", ag.ID)
 			ag.Name = "Apteva Helper"
@@ -3079,7 +3086,7 @@ func (s *Store) UpdateAgent(inst *Agent) error {
 	}
 	if inst.original == nil || inst.Mode != inst.original.Mode || inst.Proactivity != inst.original.Proactivity || inst.Directive != inst.original.Directive {
 		inst.Mode = agentMode(inst.Mode)
-		inst.Directive = withAgentBehavior(inst.Directive, inst.Mode, inst.Proactivity)
+		inst.Directive = withoutAgentControls(inst.Directive)
 	}
 	inst.Config = withoutCoreMode(inst.Config)
 	if strings.EqualFold(inst.Status, "stopped") && (inst.original == nil || inst.original.Status != inst.Status) {

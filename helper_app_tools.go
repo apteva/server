@@ -56,13 +56,12 @@ func (s *Server) readHelperTool(raw string) (helperToolRef, error) {
 	return ref, nil
 }
 
-// A bounded in-process proxy response preserves existing app routing, admission,
+// An in-process proxy response preserves existing app routing, admission,
 // user/project checks and caller identity without exposing service credentials.
 type helperProxyResponse struct {
-	header   http.Header
-	body     bytes.Buffer
-	status   int
-	overflow bool
+	header http.Header
+	body   bytes.Buffer
+	status int
 }
 
 func (w *helperProxyResponse) Header() http.Header { return w.header }
@@ -74,10 +73,6 @@ func (w *helperProxyResponse) WriteHeader(status int) {
 func (w *helperProxyResponse) Write(b []byte) (int, error) {
 	if w.status == 0 {
 		w.status = 200
-	}
-	if w.body.Len()+len(b) > 256*1024 {
-		w.overflow = true
-		return 0, fmt.Errorf("app result exceeds 256 KiB")
 	}
 	return w.body.Write(b)
 }
@@ -93,9 +88,6 @@ func (s *Server) helperAppRequest(parent *http.Request, agent *Agent, project, t
 	req.Header.Set("Content-Type", "application/json")
 	rec := &helperProxyResponse{header: make(http.Header)}
 	s.handleAppProxy(rec, req)
-	if rec.overflow {
-		return nil, fmt.Errorf("app result too large; narrow the query")
-	}
 	if rec.status < 200 || rec.status >= 300 {
 		return nil, fmt.Errorf("app request rejected (HTTP %d)", rec.status)
 	}

@@ -84,12 +84,11 @@ func isOfficialCaller(m *sdk.Manifest) bool {
 // string for global-scope installs (and on lookup failure, treated
 // as global by downstream consumers — the conservative read).
 func installProjectID(s *Server, installID int64) string {
-	var pid string
-	_ = s.store.db.QueryRow(
-		`SELECT COALESCE(project_id, '') FROM app_installs WHERE id = ?`,
-		installID,
-	).Scan(&pid)
-	return pid
+	metadata, err := s.appMetadata(installID)
+	if err != nil {
+		return ""
+	}
+	return metadata.project
 }
 
 // resolveDynamicIntegration is the integration-tool gate's bypass.

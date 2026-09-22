@@ -48,8 +48,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 	// Tool definitions
 	type toolParam struct {
-		Type        string `json:"type"`
-		Description string `json:"description,omitempty"`
+		Type        string     `json:"type"`
+		Description string     `json:"description,omitempty"`
+		Items       *toolParam `json:"items,omitempty"`
 	}
 	type toolSchema struct {
 		Type       string               `json:"type"`
@@ -67,51 +68,53 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "setup_preview", Description: "Preview a workspace setup without creating anything. Inspect existing agents/apps first and show the proposed setup and missing connections to the user.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Workspace project ID from the conversation context"}, "preset_id": {Type: "string", Description: "Selected preset ID, or omit to recommend one"}, "category": {Type: "string", Description: "personal, business, work or development"}, "interface_level": {Type: "string", Description: "Optional interface recommendation override: personal (focused), business (workspace), developer (advanced). Presentation only."}, "description": {Type: "string", Description: "What the user wants this setup to do"}}, Required: []string{"project_id", "description"}}},
 		{Name: "setup_apply", Description: "Apply the workspace preset the user agreed to after preview. Uses the same provisioning as the dashboard, reuses existing agents and reports partial failures. Check warnings and agent status; do not claim success when work remains.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Workspace project ID"}, "preset_id": {Type: "string", Description: "Agreed preset ID"}, "interface_level": {Type: "string", Description: "Agreed interface override: personal, business or developer. Saved for onboarding review; does not change existing preferences."}, "description": {Type: "string", Description: "Agreed setup purpose"}}, Required: []string{"project_id", "preset_id", "description"}}},
 		// Agents
-		{Name: "agents_list", Description: "List Apteva agents visible to this user. Defaults to the current project when the gateway was launched for one.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}}}},
-		{Name: "agents_get", Description: "Get one Apteva agent by ID, including current running/stopped status.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
-		{Name: "agents_create", Description: "Create an Apteva agent using the same server path as the dashboard. Call agents_list immediately before creation, adopt or update a matching agent when one exists, and pass a stable idempotency_key for the logical managed agent. Reusing that key in the same project returns the existing agent instead of creating a duplicate. Provide a clear name and directive. Prefer structured markdown headings such as # Role, # Goals, # Operating Rules, # Tools and Integrations, # Schedule, # Escalation and Safety, # Tone, and # Learning. By default the new agent starts immediately and attaches apps marked as defaults for new agents in its project; the legacy channels MCPs are opt-in via include_channels.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Agent directive / system instructions. Prefer structured markdown with stable sections."}, "idempotency_key": {Type: "string", Description: "Stable key for this logical managed agent. Retries in the same project return the existing agent. Do not reuse it for a different agent."}, "mode": {Type: "string", Description: "Server-managed behavior instructions: autonomous, cautious, or learn. Not enforced approval gates. Defaults to autonomous."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "start": {Type: "string", Description: "true/false. Defaults to true."}, "include_channels": {Type: "string", Description: "true/false. Defaults to true."}, "unconscious": {Type: "string", Description: "true/false. Optional background memory setting."}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config."}, "use_default_apps": {Type: "string", Description: "true/false. Defaults to true. Set false to create the agent without default apps."}, "bound_app_install_ids": {Type: "string", Description: "Optional comma-separated installed app IDs. When provided, this exact selection replaces app defaults."}, "bound_connection_ids": {Type: "string", Description: "Optional comma-separated integration connection IDs to attach as MCP servers."}}, Required: []string{"name", "directive"}}},
-		{Name: "agents_update", Description: "Update an Apteva agent using the normal dashboard/server handlers. Supports rename, full directive/mode/config updates, markdown directive section edits, and MCP server attachment changes via mcp_server_ids from list_mcp_servers. For empty directives, prefer directive_section/directive_content edits so the directive starts as structured Markdown instead of plain text.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "New full directive. Use only when intentionally replacing the whole directive; prefer section edits for structured Markdown."}, "directive_edit_mode": {Type: "string", Description: "Optional section edit mode: section_append, section_replace, section_replace_line, or section_remove_line. Defaults to section_append when directive_section is provided. Ignored when directive is provided."}, "directive_section": {Type: "string", Description: "Markdown section name to edit, e.g. Learning or Tools and Integrations. With directive_content and no directive_edit_mode, creates/appends this section."}, "directive_match": {Type: "string", Description: "Line substring to match for section_replace_line or section_remove_line."}, "directive_content": {Type: "string", Description: "Content to append, replace, or use as the replacement line."}, "directive_edits": {Type: "string", Description: "Optional JSON array of section edits with mode, section, match, and content fields. Use this to initialize or update several Markdown sections at once."}, "mode": {Type: "string", Description: "Server-managed behavior instructions: autonomous, cautious, or learn; not enforced approval gates"}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config"}, "mcp_server_ids": {Type: "string", Description: "Optional comma-separated MCP server IDs from list_mcp_servers"}, "mcp_action": {Type: "string", Description: "set, add, or remove MCP servers. Defaults to set when mcp_server_ids is provided."}}, Required: []string{"id"}}},
-		{Name: "agents_start", Description: "Start a stopped Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
-		{Name: "agents_stop", Description: "Stop a running Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agents_list", Description: "List compact Apteva agent summaries visible to this user. Results are searchable and paginated and default to the current project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional name/status search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
+		{Name: "agents_get", Description: "Get one Apteva agent without exposing runtime credentials. Long directives are returned in chunks.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "directive_offset": {Type: "integer", Description: "Byte offset for the directive chunk"}, "directive_limit": {Type: "integer", Description: "Directive bytes to return, maximum 8000"}}, Required: []string{"id"}}},
+		{Name: "agents_create", Description: "Create an idempotent project agent and return a compact receipt. List agents first and reuse a stable idempotency_key.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Structured agent instructions"}, "idempotency_key": {Type: "string", Description: "Stable key for this logical agent"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "start": {Type: "boolean", Description: "Start immediately; defaults true"}, "include_channels": {Type: "boolean", Description: "Attach legacy channel MCPs"}, "unconscious": {Type: "boolean", Description: "Enable background memory"}, "config": {Type: "object", Description: "Optional advanced agent settings"}, "use_default_apps": {Type: "boolean", Description: "Attach default project apps; defaults true"}, "bound_app_install_ids": {Type: "array", Description: "Exact installed-app selection", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach", Items: &toolParam{Type: "integer"}}}, Required: []string{"name", "directive"}}},
+		{Name: "agents_update", Description: "Update agent metadata, directive sections, settings or attached MCP servers and return a compact change receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "object", Description: "Advanced agent settings"}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "set, add, or remove; defaults to set"}}, Required: []string{"id"}}},
+		{Name: "agents_start", Description: "Start a stopped agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agents_stop", Description: "Stop a running agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_send_event", Description: "Send a work instruction to a running Apteva agent through the server's normal Core event delivery. The target must belong to the trusted current project, or project_id must be supplied explicitly when this gateway has no project context. Pass a stable event_id to opt into idempotent delivery and a lifecycle-tracked execution receipt; tracked and untracked events both default to main when thread_id is omitted.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Target agent ID"}, "message": {Type: "string", Description: "Work instruction to deliver"}, "project_id": {Type: "string", Description: "Target project ID. Required when the gateway has no trusted project context."}, "thread_id": {Type: "string", Description: "Optional target thread ID. Defaults to main."}, "event_id": {Type: "string", Description: "Optional stable idempotency key. Reusing it with the same message returns duplicate=true and the same execution_id without waking another turn."}}, Required: []string{"id", "message"}}},
-		{Name: "agents_delete", Description: "Delete an Apteva agent using the same server cleanup path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
-		{Name: "agent_list_activity", Description: "List recent agent activity actions from stored telemetry. Returns merged thought, tool, thread, event, and error rows; chat reply actions are omitted. Use include_payloads=true for built thought text and tool args/results, include_raw=true only for debugging.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "agent_id": {Type: "string", Description: "Optional agent ID. Omit to list activity for all agents in the project."}, "thread_id": {Type: "string", Description: "Optional thread ID filter, e.g. main."}, "kind": {Type: "string", Description: "Optional filter: all, thought, tool, thread, event, or error."}, "status": {Type: "string", Description: "Optional filter: all, running, success, error, or info."}, "period": {Type: "string", Description: "Lookback window such as 1h, 24h, 7d, 30d, or a Go duration like 15m. Defaults to 24h."}, "since": {Type: "string", Description: "Optional RFC3339 timestamp; overrides period."}, "limit": {Type: "string", Description: "Maximum action rows to return, up to 320. Defaults to 100."}, "query": {Type: "string", Description: "Optional text search across agent, thread, title, detail, and included payloads."}, "include_payloads": {Type: "string", Description: "true/false. When true, includes built thought text and tool args/results. Defaults to false."}, "include_raw": {Type: "string", Description: "true/false. Include raw telemetry events used to build each row. Defaults to false."}}}},
+		{Name: "agents_delete", Description: "Delete an agent and return an authoritative receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agent_list_activity", Description: "List recent agent activity. Defaults to 25 compact rows; payloads are opt-in and raw debugging is capped at 10 rows.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "agent_id": {Type: "integer", Description: "Optional agent ID. Omit to list activity for all agents in the project."}, "thread_id": {Type: "string", Description: "Optional thread ID filter, e.g. main."}, "kind": {Type: "string", Description: "Optional filter: all, thought, tool, thread, event, or error."}, "status": {Type: "string", Description: "Optional filter: all, running, success, error, or info."}, "period": {Type: "string", Description: "Lookback window such as 1h, 24h, 7d, 30d, or a Go duration like 15m. Defaults to 24h."}, "since": {Type: "string", Description: "Optional RFC3339 timestamp; overrides period."}, "limit": {Type: "integer", Description: "Maximum action rows, default 25 and maximum 100."}, "query": {Type: "string", Description: "Optional text search across agent, thread, title and detail."}, "include_payloads": {Type: "boolean", Description: "Include bounded thought text and tool arguments/results."}, "include_raw": {Type: "boolean", Description: "Include raw telemetry for debugging; limits results to 10 rows."}}}},
 		// Apps
-		{Name: "apps_list", Description: "List installed Apteva apps visible in a project. Defaults to the current project and includes global installs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}}}},
-		{Name: "apps_marketplace", Description: "List marketplace apps, marking which are installed in the current project. Defaults to the current project and includes global installs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "registry_url": {Type: "string", Description: "Optional registry URL override."}}}},
-		{Name: "apps_install", Description: "Install an Apteva app using the same server path as the dashboard. Defaults to the current project. To install globally, pass global=true explicitly.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"manifest_url": {Type: "string", Description: "Manifest URL to install."}, "manifest_yaml": {Type: "string", Description: "Inline manifest YAML."}, "repo": {Type: "string", Description: "Optional source repo metadata."}, "ref": {Type: "string", Description: "Optional source ref metadata."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "global": {Type: "string", Description: "true/false. Required true for a global install when no project_id/current project is available."}, "config": {Type: "string", Description: "Optional JSON object or JSON string with app config."}, "upgrade_policy": {Type: "string", Description: "manual, auto-patch, or auto-minor."}, "bindings": {Type: "string", Description: "Optional JSON object mapping required roles to connection/install IDs."}}}},
-		{Name: "apps_upgrade", Description: "Upgrade an installed Apteva app using the same server path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "string", Description: "App install ID"}, "approve_new_permissions": {Type: "string", Description: "true/false. Confirms new permissions shown to the operator."}}, Required: []string{"install_id"}}},
-		{Name: "apps_uninstall", Description: "Uninstall an Apteva app from the explicitly named project using the same server cleanup path as the dashboard. Returns an authoritative receipt with app_name, display_name, install_id, app_id, project_id, version, and status. Treat a successful receipt as final; do not re-list apps to reinterpret whether the uninstall happened.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "string", Description: "App install ID"}, "project_id": {Type: "string", Description: "Apteva project ID that owns this install. Must match the current dashboard project."}, "force": {Type: "string", Description: "true/false. Override dependency blockers when intentionally removing anyway."}}, Required: []string{"install_id", "project_id"}}},
+		{Name: "apps_list", Description: "List compact installed-app summaries with short descriptions. Searchable and paginated; defaults to the current project and includes global installs. Use apps_get only when full metadata for one install is needed.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional app name or description search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset; use next_offset from the previous result"}}}},
+		{Name: "apps_get", Description: "Get details for one installed app without returning dashboard UI component schemas.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "integer", Description: "Installed app ID"}, "project_id": {Type: "string", Description: "Optional project scope; defaults to the current project"}}, Required: []string{"install_id"}}},
+		{Name: "apps_marketplace", Description: "Search the app marketplace using compact paginated results, marking apps installed in the current project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "registry_url": {Type: "string", Description: "Optional registry URL override."}, "query": {Type: "string", Description: "Optional app name, description or tag search"}, "category": {Type: "string", Description: "Optional marketplace category"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based result offset"}}}},
+		{Name: "apps_install", Description: "Install an app through the normal server path and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"manifest_url": {Type: "string", Description: "Manifest URL to install"}, "manifest_yaml": {Type: "string", Description: "Inline manifest YAML"}, "repo": {Type: "string", Description: "Optional source repository"}, "ref": {Type: "string", Description: "Optional source ref"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "global": {Type: "boolean", Description: "Install globally when explicitly true"}, "config": {Type: "object", Description: "Optional app configuration"}, "upgrade_policy": {Type: "string", Description: "manual, auto-patch, or auto-minor"}, "bindings": {Type: "object", Description: "Required role to connection/install ID map"}}}},
+		{Name: "apps_upgrade", Description: "Upgrade an installed app and return a compact receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "integer", Description: "App install ID"}, "approve_new_permissions": {Type: "boolean", Description: "Approve newly requested permissions"}}, Required: []string{"install_id"}}},
+		{Name: "apps_uninstall", Description: "Uninstall an app from the explicitly named project and return an authoritative receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "integer", Description: "App install ID"}, "project_id": {Type: "string", Description: "Project that owns this install"}, "force": {Type: "boolean", Description: "Override dependency blockers"}}, Required: []string{"install_id", "project_id"}}},
 		// Integrations
-		{Name: "list_integrations", Description: "Browse available integrations. Returns name, slug, description, tool count.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}}}},
-		{Name: "get_integration", Description: "Get full details of an integration including credential fields and tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}}, Required: []string{"slug"}}},
-		{Name: "list_connections", Description: "List active integration connections.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "create_connection", Description: "Create a new integration connection. Credentials are stored securely — after creating, use the returned connect_now instruction to access tools. NEVER pass API keys to threads or include them in messages/directives. Pass allowed_tools to scope the resulting MCP server row to a subset of the integration's tools (least-privilege). Omit or pass empty for all tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON string with credential fields matching the integration's auth config. Example: {\"api_key\": \"sk_...\"}"}, "allowed_tools": {Type: "string", Description: "Comma-separated list of tool names to expose. Leave empty to expose all tools. Use list_integrations + get_integration to see the full set before picking."}}, Required: []string{"slug", "credentials"}}},
+		{Name: "list_integrations", Description: "Search compact integration summaries. Omitting query returns the first page, not the entire catalog.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
+		{Name: "get_integration", Description: "Get integration authentication details and a paginated page of compact tool summaries. Internal HTTP execution templates are omitted.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "query": {Type: "string", Description: "Optional tool-name or description search"}, "limit": {Type: "integer", Description: "Tool page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based tool offset"}}, Required: []string{"slug"}}},
+		{Name: "get_integration_tool", Description: "Get the input schema for one integration tool without exposing its internal HTTP execution template.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "tool": {Type: "string", Description: "Exact tool name"}}, Required: []string{"slug", "tool"}}},
+		{Name: "list_connections", Description: "List compact active integration connections without credentials or runtime capability URLs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Optional integration or connection-name search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
+		{Name: "create_connection", Description: "Create an encrypted integration connection and MCP row. Returns identifiers, never credentials or runtime URLs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "object", Description: "Credential fields from get_integration"}, "allowed_tools": {Type: "array", Description: "Optional least-privilege tool names", Items: &toolParam{Type: "string"}}}, Required: []string{"slug", "credentials"}}},
 		{Name: "delete_connection", Description: "Delete an integration connection.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Connection ID"}}, Required: []string{"id"}}},
-		{Name: "create_mcp_server_from_connection", Description: "Create a second MCP server row over an existing connection with a different tool scope. Lets a team give some workers a read-only surface while others see the full tool set over the same credentials.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID to attach to"}, "name": {Type: "string", Description: "Friendly name for this scoped server (e.g. \"sheets-readonly\")"}, "allowed_tools": {Type: "string", Description: "Comma-separated list of tool names this view exposes. Required — use list_integrations/get_integration to pick."}}, Required: []string{"connection_id", "allowed_tools"}}},
-		{Name: "update_mcp_server_tools", Description: "Change the allowed_tools filter on an existing MCP server row. Pass an empty string to clear the filter (all tools re-enabled). The gateway applies the change immediately.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "MCP server ID"}, "allowed_tools": {Type: "string", Description: "Comma-separated tool names (empty = all)"}}, Required: []string{"id"}}},
+		{Name: "create_mcp_server_from_connection", Description: "Create a least-privilege MCP view over an existing connection.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "integer", Description: "Connection ID"}, "name": {Type: "string", Description: "Friendly scoped-server name"}, "allowed_tools": {Type: "array", Description: "Exact tool names exposed by this view", Items: &toolParam{Type: "string"}}}, Required: []string{"connection_id", "allowed_tools"}}},
+		{Name: "update_mcp_server_tools", Description: "Replace the allowed-tool filter on an MCP server. An empty array enables all tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "MCP server ID"}, "allowed_tools": {Type: "array", Description: "Allowed tool names; empty means all", Items: &toolParam{Type: "string"}}}, Required: []string{"id", "allowed_tools"}}},
 		// MCP Servers
-		{Name: "list_mcp_servers", Description: "List registered MCP servers with status, tool count, kind, source, and connection/app ownership metadata. Use kind=app to list only app MCP servers, kind=integration for integration MCP servers, kind=custom for manually registered MCP servers, or kind=remote for hosted MCP servers. Use mcp_url or proxy_config to connect to tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "kind": {Type: "string", Description: "Optional filter: app, integration, custom, remote, or all."}, "include_app_owned": {Type: "string", Description: "true/false. When false, hides app-owned MCP rows from unfiltered results. Defaults to true for backward compatibility."}}}},
-		{Name: "create_mcp_server", Description: "Register a new custom MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string"}, "command": {Type: "string"}, "args": {Type: "string", Description: "Comma-separated arguments"}, "description": {Type: "string"}}, Required: []string{"name", "command"}}},
+		{Name: "list_mcp_servers", Description: "List registered MCP server summaries for selection and attachment. Runtime URLs, tokens, commands and process details are never returned.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "kind": {Type: "string", Description: "Optional filter: app, integration, custom, remote, or all."}, "include_app_owned": {Type: "boolean", Description: "When false, hides app-owned MCP rows from unfiltered results. Defaults to true."}, "query": {Type: "string", Description: "Optional name or description search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
+		{Name: "create_mcp_server", Description: "Register a custom MCP subprocess and return a compact receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string"}, "command": {Type: "string"}, "args": {Type: "array", Description: "Command arguments", Items: &toolParam{Type: "string"}}, "description": {Type: "string"}}, Required: []string{"name", "command"}}},
 		{Name: "start_mcp_server", Description: "Start a registered MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
 		{Name: "stop_mcp_server", Description: "Stop a running MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
 		{Name: "delete_mcp_server", Description: "Delete an MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
-		{Name: "list_server_tools", Description: "List tools from a running MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
+		{Name: "list_server_tools", Description: "Search compact tool summaries from a running MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Server ID"}, "query": {Type: "string", Description: "Optional tool-name or description search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}, Required: []string{"id"}}},
 		// Subscriptions
-		{Name: "list_subscribable", Description: "List connected integrations that support native or poll-backed webhook event subscriptions.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "create_subscription", Description: "Subscribe to events from a connected integration. Native events auto-register a webhook with the external service; poll-backed events are refreshed by Apteva. Use list_subscribable to see available events. Set thread_id to deliver webhook events directly to a specific thread instead of main.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "string", Description: "Comma-separated event names from list_subscribable. Use EXACT event names (e.g. 'messaging.inbound_message_processed'). Do NOT invent event names."}, "thread_id": {Type: "string", Description: "Target thread ID for webhook events. Must be an already-running thread (spawn it first). If omitted, events go to main thread."}, "interval_seconds": {Type: "string", Description: "Optional poll interval in seconds for poll-backed events."}, "poll_input": {Type: "string", Description: "Optional JSON object merged into the poll tool input."}}, Required: []string{"connection_id"}}},
-		{Name: "list_subscriptions", Description: "List active webhook subscriptions for this instance.", InputSchema: toolSchema{Type: "object"}},
+		{Name: "list_subscribable", Description: "List connected integrations and compact event summaries that can be subscribed to.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
+		{Name: "create_subscription", Description: "Subscribe to exact events from list_subscribable. Registration and delivery capabilities remain server-side.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "integer", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "array", Description: "Exact event names from list_subscribable", Items: &toolParam{Type: "string"}}, "thread_id": {Type: "string", Description: "Existing target thread; defaults to main"}, "interval_seconds": {Type: "integer", Description: "Optional poll interval"}, "poll_input": {Type: "object", Description: "Optional input merged into a poll tool call"}}, Required: []string{"connection_id"}}},
+		{Name: "list_subscriptions", Description: "List compact active subscription summaries without webhook capability paths.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
 		{Name: "delete_subscription", Description: "Remove a webhook subscription.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Subscription ID"}}, Required: []string{"id"}}},
 		// Providers
-		{Name: "list_providers", Description: "List active providers.", InputSchema: toolSchema{Type: "object"}},
+		{Name: "list_providers", Description: "List compact active provider summaries.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
 		{Name: "activate_provider", Description: "Activate a provider.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"type": {Type: "string"}, "name": {Type: "string"}, "credentials": {Type: "string", Description: "JSON object of credentials (optional)"}}, Required: []string{"type", "name"}}},
 		{Name: "deactivate_provider", Description: "Deactivate a provider.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Provider ID"}}, Required: []string{"id"}}},
 		// Credential-group suites (OmniKit, SocialCast, ...)
-		{Name: "list_credential_groups", Description: "List integration suites (groups of apps that share one credential). Members, account/project scope support, and display metadata.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "add_account_credential", Description: "Add an account-wide credential for a suite, run project discovery, and cache the discovered project list. Use for OmniKit/SocialCast-style suites where one key unlocks many sub-services across many projects. NEVER echo the key in responses.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string", Description: "Suite id (e.g. omnikit, socialcast)"}, "credentials": {Type: "string", Description: "JSON object matching the group's account-scope credential_fields. Example: {\"api_key\":\"okt_acc_...\"}"}}, Required: []string{"group_id", "credentials"}}},
-		{Name: "list_group_projects", Description: "List the projects discovered for a suite's account credential. Returns cached values; call refresh_group_projects to re-query upstream.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string", Description: "Suite id"}}, Required: []string{"group_id"}}},
+		{Name: "list_credential_groups", Description: "List paginated integration suites that share credentials.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
+		{Name: "add_account_credential", Description: "Store an account-wide suite credential, discover projects and return a compact receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string", Description: "Suite id"}, "credentials": {Type: "object", Description: "Account-scope credential fields"}}, Required: []string{"group_id", "credentials"}}},
+		{Name: "list_group_projects", Description: "Search paginated projects discovered for a suite account credential. Returns cached values.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string", Description: "Suite id"}, "query": {Type: "string", Description: "Optional project id or label search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}, Required: []string{"group_id"}}},
 		{Name: "refresh_group_projects", Description: "Re-run discovery for a suite's account credential, picking up any new projects on the remote side.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}}, Required: []string{"group_id"}}},
-		{Name: "enable_apps_for_projects", Description: "Fan out a suite credential into project-scoped connections. selections is a JSON array of { app_slug, external_project_id, label }. One child connection per pair; idempotent on re-run.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}, "selections": {Type: "string", Description: "JSON array of { app_slug, external_project_id, label } objects"}, "replace": {Type: "string", Description: "'true' to remove child connections not in the new selection; defaults to false"}}, Required: []string{"group_id", "selections"}}},
+		{Name: "enable_apps_for_projects", Description: "Create idempotent project-scoped suite connections from selected apps and external projects.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}, "selections": {Type: "array", Description: "Objects containing app_slug, external_project_id and label", Items: &toolParam{Type: "object"}}, "replace": {Type: "boolean", Description: "Remove child connections absent from this selection"}}, Required: []string{"group_id", "selections"}}},
 		{Name: "delete_group_credential", Description: "Remove a suite's account credential and every child connection fanned out from it. Use with care — equivalent to the dashboard's 'Disconnect all'.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}}, Required: []string{"group_id"}}},
 	}
 
@@ -129,10 +132,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		// --- Integrations ---
 		case "list_integrations":
 			q, _ := args["query"].(string)
-			if q != "" {
-				return catalog.Search(q), nil
+			var summaries []AppSummary
+			if strings.TrimSpace(q) != "" {
+				summaries = catalog.Search(q)
+			} else {
+				summaries = catalog.List()
 			}
-			return catalog.List(), nil
+			items := make([]any, 0, len(summaries))
+			for _, summary := range summaries {
+				items = append(items, compactGatewayIntegration(summary, false))
+			}
+			return gatewayPage(items, args, "integrations")
 
 		case "get_integration":
 			slug, _ := args["slug"].(string)
@@ -140,24 +150,53 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if app == nil {
 				return nil, fmt.Errorf("integration %q not found", slug)
 			}
-			return app, nil
+			detail := compactGatewayIntegration(app, true)
+			query, _ := args["query"].(string)
+			tools := []any{}
+			for _, tool := range gatewayArray(detail["tools"]) {
+				row := gatewayObject(tool)
+				if gatewayQueryMatch(query, row["name"], row["description"]) {
+					tools = append(tools, row)
+				}
+			}
+			page, err := gatewayPage(tools, args, "tools")
+			if err != nil {
+				return nil, err
+			}
+			detail["tools"] = page["tools"]
+			detail["tools_total"] = page["total"]
+			detail["tools_offset"] = page["offset"]
+			detail["tools_limit"] = page["limit"]
+			detail["tools_has_more"] = page["has_more"]
+			return detail, nil
+
+		case "get_integration_tool":
+			slug, _ := args["slug"].(string)
+			toolName, _ := args["tool"].(string)
+			app := catalog.Get(slug)
+			if app == nil {
+				return nil, fmt.Errorf("integration %q not found", slug)
+			}
+			for _, tool := range app.Tools {
+				if tool.Name == toolName {
+					return map[string]any{
+						"integration": slug, "name": tool.Name,
+						"description":  gatewayCompactText(tool.Description, gatewayDescriptionSize),
+						"input_schema": tool.InputSchema,
+					}, nil
+				}
+			}
+			return nil, fmt.Errorf("tool %q not found in integration %q", toolName, slug)
 
 		case "list_connections":
 			conns, err := store.ListConnections(userID, projectID)
 			if err != nil {
 				return nil, err
 			}
-			serverPort := os.Getenv("PORT")
-			if serverPort == "" {
-				serverPort = "8080"
-			}
-			// Enrich with server config so core can connect directly
-			type connWithServer struct {
-				Connection
-				ToolCount int            `json:"tool_count"`
-				Server    map[string]any `json:"server"`
-			}
-			var result []connWithServer
+			// Return selection metadata only. Runtime connection capabilities
+			// stay inside the server and agent configuration paths.
+			var result []any
+			query, _ := args["query"].(string)
 			for _, c := range conns {
 				tc := 0
 				if app := catalog.Get(c.AppSlug); app != nil {
@@ -168,26 +207,26 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				// connection id in the numeric MCP-row namespace: ids from the
 				// two tables can collide and resolve to another integration.
 				serverName := c.AppSlug
-				serverURL := authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/connection/%d", serverPort, c.ID), instanceSecret)
+				serverID := int64(0)
 				canonical, lookupErr := store.FindCanonicalMCPServerByConnection(c.ID)
 				if lookupErr != nil {
 					return nil, fmt.Errorf("resolve MCP server for connection %d: %w", c.ID, lookupErr)
 				}
 				if canonical != nil {
 					serverName = canonical.Name
-					serverURL = authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, canonical.ID), instanceSecret)
+					serverID = canonical.ID
 				}
-				result = append(result, connWithServer{
-					Connection: c,
-					ToolCount:  tc,
-					Server: map[string]any{
-						"name":      serverName,
-						"transport": "http",
-						"url":       serverURL,
-					},
+				if !gatewayQueryMatch(query, c.AppSlug, c.AppName, c.Name, c.Status) {
+					continue
+				}
+				result = append(result, map[string]any{
+					"id": c.ID, "app_slug": c.AppSlug, "app_name": c.AppName,
+					"name": c.Name, "status": c.Status, "source": c.Source,
+					"project_id": c.ProjectID, "tool_count": tc,
+					"mcp_server_id": serverID, "mcp_server_name": serverName,
 				})
 			}
-			return result, nil
+			return gatewayPage(result, args, "connections")
 
 		case "create_connection":
 			slug, _ := args["slug"].(string)
@@ -266,21 +305,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			}
 			srvID, _ := store.CreateMCPServerFromConnection(userID, conn, toolCount, allowedTools)
 
-			// Return connection + server config for core to connect.
-			// URL is keyed on the mcp_servers row id (not the connection
-			// id) so this row gets a unique URL even if the user later
-			// creates additional scoped views over the same connection.
-			serverPort := os.Getenv("PORT")
-			if serverPort == "" {
-				serverPort = "8080"
-			}
-			mcpURL := authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srvID), instanceSecret)
+			// Return stable identifiers. Capability-bearing runtime URLs are
+			// resolved internally when an agent is attached to the MCP row.
 			return map[string]any{
 				"connection_id": conn.ID,
+				"mcp_server_id": srvID,
+				"name":          conn.Name,
+				"app_slug":      conn.AppSlug,
 				"status":        "connected",
 				"tools_count":   toolCount,
 				"allowed_tools": allowedTools,
-				"connect_now":   fmt.Sprintf("Use [[connect name=\"%s\" url=\"%s\" transport=\"http\"]] to access the tools. Credentials are securely stored — NEVER pass API keys to threads or include them in directives.", slug, mcpURL),
+				"next_step":     "Attach mcp_server_id to an agent with agents_update.",
 			}, nil
 
 		case "create_mcp_server_from_connection":
@@ -332,20 +367,12 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if err != nil {
 				return nil, fmt.Errorf("create scoped mcp_server: %w", err)
 			}
-			serverPort := os.Getenv("PORT")
-			if serverPort == "" {
-				serverPort = "8080"
-			}
-			// URL is keyed on the mcp_servers row id (not the
-			// connection id) so two scoped views over the same
-			// connection get distinct URLs. The HTTP endpoint at
-			// /mcp/{id} resolves the row → connection + allowed_tools.
 			return map[string]any{
 				"id":            row.ID,
 				"name":          row.Name,
 				"connection_id": conn.ID,
 				"allowed_tools": allowedTools,
-				"url":           authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID), instanceSecret),
+				"status":        "created",
 			}, nil
 
 		case "update_mcp_server_tools":
@@ -372,23 +399,35 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if serverPort == "" {
 				serverPort = "8080"
 			}
-			return listGatewayMCPServers(store, userID, projectID, args, serverPort, instanceSecret)
+			servers, err := listGatewayMCPServers(store, userID, projectID, args, serverPort, instanceSecret)
+			if err != nil {
+				return nil, err
+			}
+			query, _ := args["query"].(string)
+			items := make([]any, 0, len(servers))
+			for _, server := range servers {
+				if gatewayQueryMatch(query, server.Name, server.Description, server.Kind, server.Status) {
+					items = append(items, server)
+				}
+			}
+			return gatewayPage(items, args, "servers")
 
 		case "create_mcp_server":
 			name, _ := args["name"].(string)
 			command, _ := args["command"].(string)
-			argsStr, _ := args["args"].(string)
 			desc, _ := args["description"].(string)
 
-			var mcpArgs []string
-			if argsStr != "" {
-				for _, a := range splitArgs(argsStr) {
-					mcpArgs = append(mcpArgs, a)
-				}
-			}
+			mcpArgs := parseCSV(args["args"])
 			argsJSON, _ := json.Marshal(mcpArgs)
 
-			return store.CreateMCPServer(userID, name, command, string(argsJSON), "", desc)
+			record, err := store.CreateMCPServer(userID, name, command, string(argsJSON), "", desc)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"id": record.ID, "name": record.Name, "description": gatewayCompactText(record.Description, gatewayDescriptionSize),
+				"status": record.Status, "source": record.Source, "transport": record.Transport,
+			}, nil
 
 		case "start_mcp_server":
 			id, _ := parseIntArg(args["id"])
@@ -430,19 +469,24 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				if err == nil {
 					if app := catalog.Get(conn.AppSlug); app != nil {
 						prefix := store.CanonicalMCPNameForConnection(conn.ID)
-						var toolList []map[string]string
+						var toolList []any
+						query, _ := args["query"].(string)
 						for _, t := range app.Tools {
+							name := prefix + "_" + t.Name
+							if !gatewayQueryMatch(query, name, t.Description) {
+								continue
+							}
 							toolList = append(toolList, map[string]string{
-								"name":        prefix + "_" + t.Name,
-								"description": t.Description,
+								"name":        name,
+								"description": gatewayCompactText(t.Description, gatewayDescriptionSize),
 								"method":      t.Method,
 							})
 						}
-						return toolList, nil
+						return gatewayPage(toolList, args, "tools")
 					}
 				}
 			}
-			return []any{}, nil
+			return gatewayPage([]any{}, args, "tools")
 
 		// --- Subscriptions ---
 		case "list_subscribable":
@@ -450,26 +494,26 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if err != nil {
 				return nil, err
 			}
-			type subscribableConn struct {
-				ConnectionID int64             `json:"connection_id"`
-				AppSlug      string            `json:"app_slug"`
-				AppName      string            `json:"app_name"`
-				Events       []AppWebhookEvent `json:"events,omitempty"`
-			}
-			var result []subscribableConn
+			var result []any
 			for _, c := range conns {
 				if app := catalog.Get(c.AppSlug); app != nil {
 					if app.Webhooks != nil && len(app.Webhooks.Events) > 0 {
-						result = append(result, subscribableConn{ConnectionID: c.ID, AppSlug: c.AppSlug, AppName: c.AppName, Events: app.Webhooks.Events})
+						events := make([]map[string]any, 0, len(app.Webhooks.Events))
+						for _, event := range app.Webhooks.Events {
+							events = append(events, map[string]any{
+								"name": event.Name, "description": gatewayCompactText(event.Description, gatewayDescriptionSize),
+								"delivery": event.Delivery,
+							})
+						}
+						result = append(result, map[string]any{"connection_id": c.ID, "app_slug": c.AppSlug, "app_name": c.AppName, "events": events})
 					}
 				}
 			}
-			return result, nil
+			return gatewayPage(result, args, "connections")
 
 		case "create_subscription":
 			connIDRaw, _ := parseIntArg(args["connection_id"])
 			subName, _ := args["name"].(string)
-			eventsStr, _ := args["events"].(string)
 			threadID, _ := args["thread_id"].(string)
 			intervalSeconds, _ := parseIntArg(args["interval_seconds"])
 			pollInput := map[string]any{}
@@ -483,14 +527,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			case map[string]any:
 				pollInput = v
 			}
-			var eventsList []string
-			if eventsStr != "" {
-				for _, e := range strings.Split(eventsStr, ",") {
-					if t := strings.TrimSpace(e); t != "" {
-						eventsList = append(eventsList, t)
-					}
-				}
-			}
+			eventsList := parseCSV(args["events"])
 
 			conn, encCreds, err := store.GetConnection(userID, connIDRaw)
 			if err != nil {
@@ -636,10 +673,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			}
 
 			return map[string]any{
-				"id":              sub.ID,
-				"webhook_url":     webhookURL,
-				"events":          eventsList,
-				"auto_registered": autoRegistered,
+				"id":                    sub.ID,
+				"events":                eventsList,
+				"auto_registered":       autoRegistered,
+				"status":                "created",
+				"manual_setup_required": !autoRegistered,
+				"next_step": func() string {
+					if autoRegistered {
+						return "Webhook registration completed."
+					}
+					return "Complete any provider-specific manual webhook setup in the dashboard."
+				}(),
 			}, nil
 
 		case "list_subscriptions":
@@ -651,7 +695,18 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if err != nil {
 				return nil, err
 			}
-			return subs, nil
+			items := make([]any, 0, len(subs))
+			for _, sub := range subs {
+				items = append(items, map[string]any{
+					"id": sub.ID, "connection_id": sub.ConnectionID, "name": sub.Name,
+					"integration": sub.Slug, "description": gatewayCompactText(sub.Description, gatewayDescriptionSize),
+					"enabled": sub.Enabled, "thread_id": sub.ThreadID, "project_id": sub.ProjectID,
+					"events": sub.Events, "delivery": sub.Delivery, "last_run_at": sub.LastRunAt,
+					"next_run_at": sub.NextRunAt, "failure_count": sub.FailureCount,
+					"last_error": gatewayCompactText(sub.LastError, gatewayDescriptionSize),
+				})
+			}
+			return gatewayPage(items, args, "subscriptions")
 
 		case "delete_subscription":
 			id, _ := args["id"].(string)
@@ -660,7 +715,18 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 		// --- Providers ---
 		case "list_providers":
-			return store.ListProviders(userID)
+			providers, err := store.ListProviders(userID, projectID)
+			if err != nil {
+				return nil, err
+			}
+			items := make([]any, 0, len(providers))
+			for _, provider := range providers {
+				items = append(items, map[string]any{
+					"id": provider.ID, "type": provider.Type, "name": provider.Name,
+					"status": provider.Status, "project_id": provider.ProjectID,
+				})
+			}
+			return gatewayPage(items, args, "providers")
 
 		case "activate_provider":
 			ptype, _ := args["type"].(string)
@@ -683,7 +749,14 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 			dataJSON, _ := json.Marshal(data)
 			encrypted, _ := Encrypt(secret, string(dataJSON))
-			return store.CreateProvider(userID, 0, ptype, pname, encrypted)
+			provider, err := store.CreateProvider(userID, 0, ptype, pname, encrypted)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"id": provider.ID, "type": provider.Type, "name": provider.Name,
+				"status": provider.Status, "project_id": provider.ProjectID,
+			}, nil
 
 		case "deactivate_provider":
 			id, _ := parseIntArg(args["id"])
@@ -692,7 +765,12 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 		// --- Credential-group (suite) management ---
 		case "list_credential_groups":
-			return catalog.ListGroups(), nil
+			groups := catalog.ListGroups()
+			items := make([]any, 0, len(groups))
+			for _, group := range groups {
+				items = append(items, group)
+			}
+			return gatewayPage(items, args, "credential_groups")
 
 		case "add_account_credential":
 			groupID, _ := args["group_id"].(string)
@@ -707,10 +785,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if app == nil {
 				return nil, fmt.Errorf("group %q has no resolvable members", groupID)
 			}
-			credsJSON, _ := args["credentials"].(string)
-			var creds map[string]string
-			if err := json.Unmarshal([]byte(credsJSON), &creds); err != nil {
-				return nil, fmt.Errorf("credentials must be JSON object: %v", err)
+			creds, ok, err := optionalStringMapArg(args["credentials"])
+			if err != nil || !ok {
+				return nil, fmt.Errorf("credentials must be a JSON object")
 			}
 			projects, err := discoverProjects(app, &g.Meta, creds)
 			if err != nil {
@@ -740,7 +817,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				if err := store.UpdateConnectionCredentials(existingID, enc); err != nil {
 					return nil, err
 				}
-				return map[string]any{"master_id": existingID, "projects": projects, "updated": true}, nil
+				return map[string]any{"master_id": existingID, "project_count": len(projects), "updated": true, "next_step": "Call list_group_projects to review discovered projects."}, nil
 			}
 			conn, err := store.CreateConnectionExt(ConnectionInput{
 				UserID: userID, AppSlug: MasterSlug(groupID), AppName: g.Meta.Name,
@@ -750,7 +827,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"master_id": conn.ID, "projects": projects, "created": true}, nil
+			return map[string]any{"master_id": conn.ID, "project_count": len(projects), "created": true, "next_step": "Call list_group_projects to review discovered projects."}, nil
 
 		case "list_group_projects":
 			groupID, _ := args["group_id"].(string)
@@ -771,7 +848,19 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				json.Unmarshal([]byte(plain), &blob)
 				var projects []CachedProject
 				json.Unmarshal([]byte(blob[credKeyProjectsCache]), &projects)
-				return map[string]any{"master_id": c.ID, "projects": projects}, nil
+				query, _ := args["query"].(string)
+				items := make([]any, 0, len(projects))
+				for _, project := range projects {
+					if gatewayQueryMatch(query, project.ID, project.Label) {
+						items = append(items, project)
+					}
+				}
+				page, err := gatewayPage(items, args, "projects")
+				if err != nil {
+					return nil, err
+				}
+				page["master_id"] = c.ID
+				return page, nil
 			}
 			return nil, fmt.Errorf("no master credential for group %q — call add_account_credential first", groupID)
 
@@ -801,7 +890,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				encoded, _ := json.Marshal(blob)
 				enc2, _ := Encrypt(secret, string(encoded))
 				store.UpdateConnectionCredentials(c.ID, enc2)
-				return map[string]any{"projects": projects}, nil
+				return map[string]any{"project_count": len(projects), "refreshed": true, "next_step": "Call list_group_projects to review the refreshed cache."}, nil
 			}
 			return nil, fmt.Errorf("no master for group %q", groupID)
 
@@ -811,14 +900,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if g == nil {
 				return nil, fmt.Errorf("group %q not found", groupID)
 			}
-			selJSON, _ := args["selections"].(string)
 			var selections []struct {
 				AppSlug           string `json:"app_slug"`
 				ExternalProjectID string `json:"external_project_id"`
 				Label             string `json:"label"`
 			}
-			if err := json.Unmarshal([]byte(selJSON), &selections); err != nil {
-				return nil, fmt.Errorf("selections must be JSON array: %v", err)
+			rawSelections, err := json.Marshal(args["selections"])
+			if legacy, ok := args["selections"].(string); ok {
+				rawSelections = []byte(legacy)
+			}
+			if err != nil || json.Unmarshal(rawSelections, &selections) != nil {
+				return nil, fmt.Errorf("selections must be an array of objects")
 			}
 			members := map[string]bool{}
 			for _, m := range g.Members {
@@ -893,7 +985,11 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				store.CreateMCPServerFromConnectionWithSlug(userID, conn, len(app.Tools), sel.AppSlug+"-"+connName)
 				created = append(created, map[string]any{"id": conn.ID, "app_slug": conn.AppSlug, "project_id": sel.ExternalProjectID})
 			}
-			return map[string]any{"created": created, "already_exists": len(existing)}, nil
+			createdIDs := make([]any, 0, len(created))
+			for _, row := range created {
+				createdIDs = append(createdIDs, row["id"])
+			}
+			return map[string]any{"created_count": len(created), "created_connection_ids": createdIDs, "already_exists": len(existing)}, nil
 
 		case "delete_group_credential":
 			groupID, _ := args["group_id"].(string)
@@ -999,10 +1095,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 					"isError": true,
 				}
 			} else {
-				text, _ := json.MarshalIndent(res, "", "  ")
-				result = map[string]any{
-					"content": []map[string]any{{"type": "text", "text": string(text)}},
-					"isError": false,
+				text, marshalErr := gatewayMarshalToolResult(res)
+				if marshalErr != nil {
+					result = map[string]any{
+						"content": []map[string]any{{"type": "text", "text": "error: " + marshalErr.Error()}},
+						"isError": true,
+					}
+				} else {
+					result = map[string]any{
+						"content": []map[string]any{{"type": "text", "text": string(text)}},
+						"isError": false,
+					}
 				}
 			}
 
@@ -1024,15 +1127,29 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 }
 
 type gatewayMCPServer struct {
-	MCPServerRecord
-	Kind              string         `json:"kind"`
-	CreatedVia        string         `json:"created_via,omitempty"`
-	OwnerAppInstallID int64          `json:"owner_app_install_id,omitempty"`
-	MCPURL            string         `json:"mcp_url,omitempty"`
-	ProxyConfig       map[string]any `json:"proxy_config,omitempty"`
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	Description       string `json:"description,omitempty"`
+	Status            string `json:"status"`
+	ToolCount         int    `json:"tool_count"`
+	Source            string `json:"source"`
+	Transport         string `json:"transport"`
+	ConnectionID      int64  `json:"connection_id,omitempty"`
+	ProjectID         string `json:"project_id,omitempty"`
+	Restricted        bool   `json:"restricted"`
+	AllowedToolCount  int    `json:"allowed_tool_count,omitempty"`
+	Kind              string `json:"kind"`
+	CreatedVia        string `json:"created_via,omitempty"`
+	OwnerAppInstallID int64  `json:"owner_app_install_id,omitempty"`
+	// Deprecated compatibility fields are intentionally never populated or
+	// serialized. Runtime capabilities must not cross the agent result boundary.
+	MCPURL      string         `json:"-"`
+	ProxyConfig map[string]any `json:"-"`
 }
 
 func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, args map[string]any, serverPort, instanceSecret string) ([]gatewayMCPServer, error) {
+	_ = serverPort
+	_ = instanceSecret
 	projectID, _ := args["project_id"].(string)
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -1089,49 +1206,18 @@ func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, 
 		}
 
 		row := gatewayMCPServer{
-			MCPServerRecord:   srv,
+			ID: srv.ID, Name: srv.Name, Description: gatewayCompactText(srv.Description, gatewayDescriptionSize),
+			Status: srv.Status, ToolCount: srv.ToolCount, Source: srv.Source, Transport: srv.Transport,
+			ConnectionID: srv.ConnectionID, ProjectID: srv.ProjectID,
+			Restricted: len(srv.AllowedTools) > 0, AllowedToolCount: len(srv.AllowedTools),
 			Kind:              kind,
 			CreatedVia:        createdVia,
 			OwnerAppInstallID: ownerID,
 		}
-
-		switch {
-		case srv.Source == "local" && srv.ConnectionID > 0:
+		if (srv.Source == "local" && srv.ConnectionID > 0) || srv.Source == "app" {
 			row.Status = "running"
-			row.MCPURL = authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srv.ID), instanceSecret)
-			row.ProxyConfig = map[string]any{
-				"name":      srv.Name,
-				"transport": "http",
-				"url":       row.MCPURL,
-			}
-		case srv.Source == "app" && srv.URL != "":
-			row.Status = "running"
-			row.MCPURL = srv.URL
-			if projectID != "" {
-				row.MCPURL = addQueryParam(row.MCPURL, "project_id", projectID)
-			}
-			row.ProxyConfig = map[string]any{
-				"name":      srv.Name,
-				"transport": "http",
-				"url":       row.MCPURL,
-			}
-		case srv.Source == "remote" && srv.URL != "":
-			if row.Status == "" {
-				row.Status = "unprobed"
-			}
-			row.MCPURL = srv.URL
-			row.ProxyConfig = map[string]any{
-				"name":      srv.Name,
-				"transport": "http",
-				"url":       srv.URL,
-			}
-		case srv.Source == "custom" || srv.Source == managedMCPSource:
-			row.MCPURL = authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", serverPort, srv.ID), instanceSecret)
-			row.ProxyConfig = map[string]any{
-				"name":      srv.Name,
-				"transport": "http",
-				"url":       row.MCPURL,
-			}
+		} else if srv.Source == "remote" && row.Status == "" {
+			row.Status = "unprobed"
 		}
 
 		result = append(result, row)
@@ -1295,7 +1381,38 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
 			return nil, err
 		}
-		return out, nil
+		query, _ := args["query"].(string)
+		items := []any{}
+		for _, value := range gatewayArray(out) {
+			row := compactGatewayApp(value, false)
+			if row != nil && gatewayQueryMatch(query, row["name"], row["display_name"], row["description"], row["status"]) {
+				items = append(items, row)
+			}
+		}
+		return gatewayPage(items, args, "apps")
+
+	case "apps_get":
+		installID, err := parseInstallIDArg(args)
+		if err != nil {
+			return nil, err
+		}
+		pid := gatewayProjectIDArg(args, defaultProjectID)
+		path := "/apps"
+		if pid != "" {
+			path += "?project_id=" + url.QueryEscape(pid)
+		}
+		var out any
+		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		for _, value := range gatewayArray(out) {
+			row := gatewayObject(value)
+			id, _ := parseIntArg(row["install_id"])
+			if id == installID {
+				return compactGatewayApp(row, true), nil
+			}
+		}
+		return nil, fmt.Errorf("installed app %d not found in the current project", installID)
 
 	case "apps_marketplace":
 		pid := gatewayProjectIDArg(args, defaultProjectID)
@@ -1306,6 +1423,18 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		if registryURL, _ := args["registry_url"].(string); strings.TrimSpace(registryURL) != "" {
 			params = append(params, "registry_url="+url.QueryEscape(strings.TrimSpace(registryURL)))
 		}
+		if query, _ := args["query"].(string); strings.TrimSpace(query) != "" {
+			params = append(params, "q="+url.QueryEscape(strings.TrimSpace(query)))
+		}
+		if category, _ := args["category"].(string); strings.TrimSpace(category) != "" {
+			params = append(params, "category="+url.QueryEscape(strings.TrimSpace(category)))
+		}
+		offset, limit, err := gatewayPageArgs(args, int(^uint(0)>>1))
+		if err != nil {
+			return nil, err
+		}
+		page := offset/limit + 1
+		params = append(params, "page="+strconv.Itoa(page), "page_size="+strconv.Itoa(limit))
 		path := "/apps/marketplace"
 		if len(params) > 0 {
 			path += "?" + strings.Join(params, "&")
@@ -1314,7 +1443,22 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
 			return nil, err
 		}
-		return out, nil
+		root := gatewayObject(out)
+		apps := gatewayArray(root["apps"])
+		compact := make([]any, 0, len(apps))
+		for _, app := range apps {
+			if row := compactGatewayMarketplaceApp(app); row != nil {
+				compact = append(compact, row)
+			}
+		}
+		root["apps"] = compact
+		root["offset"] = offset
+		root["limit"] = limit
+		root["has_more"] = offset+len(compact) < gatewayIntFromAny(root["total"])
+		delete(root, "registry_url")
+		delete(root, "page")
+		delete(root, "page_size")
+		return root, nil
 
 	case "apps_install":
 		manifestURL, _ := args["manifest_url"].(string)
@@ -1451,7 +1595,15 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
 			return nil, err
 		}
-		return out, nil
+		query, _ := args["query"].(string)
+		items := []any{}
+		for _, value := range gatewayArray(out) {
+			row := compactGatewayAgent(value, false, nil)
+			if row != nil && gatewayQueryMatch(query, row["name"], row["status"], row["mode"], row["project_id"]) {
+				items = append(items, row)
+			}
+		}
+		return gatewayPage(items, args, "agents")
 
 	case "agent_list_activity":
 		if store == nil {
@@ -1469,7 +1621,7 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d", id), nil, &out); err != nil {
 			return nil, err
 		}
-		return out, nil
+		return compactGatewayAgent(out, true, args), nil
 
 	case "agents_create":
 		agentName, _ := args["name"].(string)
@@ -1542,17 +1694,19 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if err := serverAPI.do(http.MethodPost, "/agents", body, &out); err != nil {
 			return nil, err
 		}
-		return out, nil
+		return compactGatewayAgent(out, false, nil), nil
 
 	case "agents_update":
 		id, _ := parseIntArg(args["id"])
-		result := map[string]any{"id": id}
+		result := map[string]any{"id": id, "status": "updated"}
+		changed := []string{}
 		if newName, _ := args["name"].(string); strings.TrimSpace(newName) != "" {
 			var out any
 			if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d", id), map[string]any{"name": strings.TrimSpace(newName)}, &out); err != nil {
 				return nil, err
 			}
-			result["rename"] = out
+			result["name"] = strings.TrimSpace(newName)
+			changed = append(changed, "name")
 		}
 		configBody := map[string]any{}
 		if directive, _ := args["directive"].(string); strings.TrimSpace(directive) != "" {
@@ -1575,7 +1729,11 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d/config", id), configBody, &out); err != nil {
 				return nil, err
 			}
-			result["config"] = out
+			for _, key := range []string{"directive", "mode", "config"} {
+				if _, ok := configBody[key]; ok {
+					changed = append(changed, key)
+				}
+			}
 		}
 		if _, ok := args["mcp_server_ids"]; ok {
 			if store == nil {
@@ -1598,10 +1756,12 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 				return nil, err
 			}
 			result["mcp_servers"] = out
+			changed = append(changed, "mcp_servers")
 		}
-		if len(result) == 1 {
+		if len(changed) == 0 {
 			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, config, or mcp_server_ids")
 		}
+		result["changed"] = changed
 		return result, nil
 
 	case "agents_start":
@@ -1610,7 +1770,7 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/agents/%d/start", id), nil, &out); err != nil {
 			return nil, err
 		}
-		return out, nil
+		return compactGatewayAgent(out, false, nil), nil
 
 	case "agents_stop":
 		id, _ := parseIntArg(args["id"])
@@ -1618,7 +1778,7 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/agents/%d/stop", id), nil, &out); err != nil {
 			return nil, err
 		}
-		return out, nil
+		return compactGatewayAgent(out, false, nil), nil
 
 	case "agents_send_event":
 		if store == nil {
@@ -1769,7 +1929,7 @@ func directiveEditsForGatewayAgent(agentID int64, args map[string]any, serverAPI
 }
 
 func gatewayAgentActivityOptions(args map[string]any, defaultProjectID string) (AgentActivityOptions, error) {
-	var opts AgentActivityOptions
+	opts := AgentActivityOptions{Limit: 25}
 	if projectID, _ := args["project_id"].(string); strings.TrimSpace(projectID) != "" {
 		opts.ProjectID = strings.TrimSpace(projectID)
 	} else {
@@ -1827,6 +1987,12 @@ func gatewayAgentActivityOptions(args map[string]any, defaultProjectID string) (
 	} else if ok {
 		opts.IncludeRaw = v
 	}
+	if opts.Limit > 100 {
+		opts.Limit = 100
+	}
+	if opts.IncludeRaw && opts.Limit > 10 {
+		opts.Limit = 10
+	}
 	return opts, nil
 }
 
@@ -1858,13 +2024,20 @@ func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, 
 	if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d/config", agentID), nil, &current); err != nil {
 		return nil, err
 	}
+	servers := make([]map[string]any, 0, len(current.MCPServers))
+	for _, config := range current.MCPServers {
+		name, _ := config["name"].(string)
+		if strings.TrimSpace(name) == "" || gatewayMCPConfigIsSystem(config) {
+			continue
+		}
+		servers = append(servers, map[string]any{"name": name})
+	}
 	return map[string]any{
 		"id":             agentID,
 		"action":         action,
 		"mcp_server_ids": serverIDs,
-		"mcp_servers":    current.MCPServers,
-		"count":          len(current.MCPServers),
-		"result":         mutation,
+		"mcp_servers":    servers,
+		"count":          len(servers),
 	}, nil
 }
 

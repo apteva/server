@@ -190,6 +190,9 @@ func TestProjectPresetPreviewUsesConstrainedPlannerAndResolvesProjectApps(t *tes
 	if !containsInt64(preview.Agents[0].AppInstallIDs, crmInstallID) {
 		t.Fatalf("CRM install %d not attached: %+v", crmInstallID, preview.Agents[0])
 	}
+	if !containsString(preview.Agents[0].Apps, "tasks") {
+		t.Fatalf("planned but uninstalled apps must remain visible in the preview: %+v", preview.Agents[0])
+	}
 	if strings.Contains(preview.Agents[0].Directive, "{{") {
 		t.Fatalf("directive still contains an unresolved placeholder: %q", preview.Agents[0].Directive)
 	}

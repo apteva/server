@@ -183,7 +183,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if spec.DirectiveOverride != "" {
 		directive = spec.DirectiveOverride
 	}
-	directive = withAgentBehavior(directive, src.Mode, src.Proactivity)
+	directive = withoutAgentControls(directive)
 	sourcePolicy := parseEnvironmentSourceAgentPolicy(src.Config)
 
 	// Transient environment-agent row cloned from the source.

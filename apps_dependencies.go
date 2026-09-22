@@ -13,6 +13,7 @@ package main
 // uses that to resolve every dep recursively.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -195,37 +196,51 @@ func (s *Server) findInstalledApp(name, projectID string) (int64, bool) {
 			}
 		}
 	}
-	// Same-project match preferred; global match accepted. ORDER BY
-	// project_id DESC pulls the project-scoped row first since the
-	// empty-string global rows sort lowest. status='running' so we
-	// don't bind to a half-installed or errored sibling. Name match
-	// happens in Go because normalizeAppName strips non-alphanumerics
-	// and SQLite collations don't replicate that for a SQL filter.
-	query := `SELECT i.id, a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
-			  WHERE i.status = 'running' AND (i.project_id = '' OR i.project_id = ?)
-			  ORDER BY i.project_id DESC, i.id ASC`
-	args := []any{projectID}
-	if projectID == "" {
-		query = `SELECT i.id, a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
-				 WHERE i.status = 'running'
-				 ORDER BY i.id ASC`
-		args = nil
-	}
-	rows, err := s.store.db.Query(query, args...)
-	if err != nil {
+	// Resolve the small app catalog first, then constrain the install lookup by
+	// app_id. The old implementation normalized names while scanning every
+	// running install; a retry storm with many leaked rows made this path burn
+	// CPU quadratically. Exact canonical names take the indexed fast path, while
+	// the bounded catalog fallback preserves slug/display-name compatibility.
+	var appID int64
+	err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name=?`, name).Scan(&appID)
+	if err == sql.ErrNoRows {
+		rows, queryErr := s.store.db.Query(`SELECT id, name FROM apps`)
+		if queryErr != nil {
+			return 0, false
+		}
+		for rows.Next() {
+			var candidateID int64
+			var candidateName string
+			if rows.Scan(&candidateID, &candidateName) == nil && normalizeAppName(candidateName) == target {
+				appID = candidateID
+				break
+			}
+		}
+		rows.Close()
+	} else if err != nil {
 		return 0, false
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			id int64
-			n  string
-		)
-		if rows.Scan(&id, &n) == nil && normalizeAppName(n) == target {
-			return id, true
-		}
+	if appID == 0 {
+		return 0, false
 	}
-	return 0, false
+
+	// Same-project match preferred; global match accepted. A global parent may
+	// use any running scope, retaining the existing first-install behavior.
+	query := `SELECT id FROM app_installs
+			  WHERE app_id=? AND status='running' AND (project_id='' OR project_id=?)
+			  ORDER BY project_id DESC, id ASC LIMIT 1`
+	args := []any{appID, projectID}
+	if projectID == "" {
+		query = `SELECT id FROM app_installs
+				 WHERE app_id=? AND status='running'
+				 ORDER BY id ASC LIMIT 1`
+		args = []any{appID}
+	}
+	var installID int64
+	if err := s.store.db.QueryRow(query, args...).Scan(&installID); err != nil {
+		return 0, false
+	}
+	return installID, true
 }
 
 // loadRegistryNameMap fetches the configured registry once and

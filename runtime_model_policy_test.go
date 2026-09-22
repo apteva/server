@@ -28,6 +28,22 @@ func geminiPolicyFixture(t *testing.T) *AppTemplate {
 	return &app
 }
 
+func fireworksPolicyFixture(t *testing.T) *AppTemplate {
+	t.Helper()
+	raw, err := os.ReadFile("integrations-catalog/fireworks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app AppTemplate
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatal(err)
+	}
+	if app.Runtime == nil || app.Runtime.ModelPolicy == nil {
+		t.Fatal("Fireworks policy missing")
+	}
+	return &app
+}
+
 func policyModels(ids ...string) []ModelInfo {
 	out := []ModelInfo{}
 	for _, id := range ids {

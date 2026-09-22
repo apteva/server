@@ -533,7 +533,7 @@ func (s *Server) GetProviderInfo(userID int64, projectID ...string) ProviderInfo
 // core has no factory for.
 func isLLMKey(k string) bool {
 	switch k {
-	case "managed", "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice", "xai":
+	case "managed", "fireworks", "openai", "openai-codex", "grok-build", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice", "xai":
 		return true
 	}
 	return false

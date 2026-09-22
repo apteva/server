@@ -96,6 +96,19 @@ type Server struct {
 	// Optional transport used by managed-LLM gateway tests. Production uses
 	// the default HTTPS transport.
 	managedLLMTransport http.RoundTripper
+	// Optional test seam for environment registry package materialization.
+	// Production resolves through the configured curated app registry and the
+	// normal verified app cache.
+	environmentRegistrySource func(name, constraint string) (string, error)
+	// appCallbackClient reuses one pooled transport for sibling-app calls.
+	// Per-call admission metadata is carried in the request context, so the
+	// client remains safe to share across concurrent callbacks.
+	appCallbackClientOnce sync.Once
+	appCallbackHTTPClient *http.Client
+	// appBatchCapabilities remembers whether a particular running target
+	// supports the SDK-owned single-request batch transport. The key includes
+	// runtime identity so endpoint or token rotation naturally re-negotiates.
+	appBatchCapabilities sync.Map
 	// agentConfigLocks serializes read/modify/write updates to one agent's
 	// config. MCP attachment changes are additive at the API, but ultimately
 	// core consumes one desired mcp_servers list; without this lock two
@@ -589,6 +602,7 @@ func main() {
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
 	s.environments.server = s
+	s.environments.ResolveEnvironmentSource = s.resolveEnvironmentAppSource
 
 	// Start console telemetry logger
 	if os.Getenv("QUIET") != "1" {
@@ -1097,6 +1111,9 @@ func main() {
 		if strings.HasSuffix(path, "/delegated-access-policies") {
 			need = ProjectOwner
 		}
+		if strings.HasSuffix(path, "/runtime-token") {
+			need = ProjectOwner
+		}
 		if _, ok := s.requireAppInstallAccess(w, r, installID, need); !ok {
 			return
 		}
@@ -1113,6 +1130,8 @@ func main() {
 			s.handlePreflightInstalled(w, r)
 		case strings.HasSuffix(path, "/tools") && r.Method == http.MethodGet:
 			s.handleInstallTools(w, r)
+		case strings.HasSuffix(path, "/runtime-token") && r.Method == http.MethodPost:
+			s.handleIssueInstallRuntimeToken(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodGet:
 			s.handleGetInstallConfig(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodPut:

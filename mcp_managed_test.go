@@ -421,9 +421,8 @@ func TestManagedMCPIsSharedWithProjectEditors(t *testing.T) {
 	if err != nil || len(gatewayRows) != 1 {
 		t.Fatalf("gateway project inventory=%#v err=%v", gatewayRows, err)
 	}
-	if gatewayRows[0].ProxyConfig["transport"] != "http" ||
-		gatewayRows[0].MCPURL != authorizeMCPURL("http://127.0.0.1:5280/mcp/custom/"+itoa64(record.ID), s.instanceSecret) {
-		t.Fatalf("gateway managed config=%#v", gatewayRows[0])
+	if gatewayRows[0].ProxyConfig != nil || gatewayRows[0].MCPURL != "" {
+		t.Fatalf("gateway managed summary leaked runtime capability=%#v", gatewayRows[0])
 	}
 
 	scopeReq := httptest.NewRequest(

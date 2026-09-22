@@ -41,6 +41,7 @@ type dashboardWidgetDefinition struct {
 }
 
 var dashboardHomeBuiltins = []dashboardWidgetDefinition{
+	{Component: "native:agent-activity", Kind: "builtin", Label: "Agent activity", Description: "Current work, progress, blockers, and next steps across your agents.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
 	{Component: "native:usage", Kind: "builtin", Label: "Usage summary", Description: "Agents, calls, tokens, errors, and cost for the last 24 hours.", SupportedSizes: []string{"full"}, DefaultSize: "full"},
 	{Component: "native:activity", Kind: "builtin", Label: "Recent activity", Description: "Significant agent actions and tool events.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
 }

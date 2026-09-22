@@ -229,6 +229,21 @@ func (s *Server) handleConnectionModels(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, models)
 		return
 	}
+	if app.Runtime.ProviderKey == integrationGrokBuildSlug {
+		models, fetchErr := fetchGrokBuildModelCatalog(r.Context(), map[string]string{
+			"access_token":  stringValue(src.credentials["access_token"]),
+			"account_id":    stringValue(src.credentials["account_id"]),
+			"account_email": stringValue(src.credentials["account_email"]),
+			"user_id":       stringValue(src.credentials["user_id"]),
+			"principal_id":  stringValue(src.credentials["principal_id"]),
+		}, r.URL.Query().Get("refresh") == "1")
+		if fetchErr != nil {
+			http.Error(w, "failed to fetch models: "+fetchErr.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, models)
+		return
+	}
 
 	env := renderRuntimeEnv(app.Runtime, src)
 	apiKey := ""
@@ -299,11 +314,7 @@ func (s *Server) handleConnectionUsage(w http.ResponseWriter, r *http.Request) {
 	// credentials flat. Reshaping here keeps one fetcher and one cache
 	// for both paths rather than forking the upstream call.
 	state := map[string]any{
-		"credentials": map[string]any{
-			"access_token": credentials["access_token"],
-			"account_id":   credentials["account_id"],
-			"expires_at":   credentials["token_expires_at"],
-		},
+		"credentials": providerUsageCredentialState(credentials),
 	}
 	snapshot, err := s.fetchConnectionUsage(r, conn, state, fetcher, credentials)
 	if err != nil {
@@ -351,8 +362,8 @@ func (s *Server) fetchConnectionUsage(
 	}
 
 	staleEntry, hasStale := globalProviderUsageCache.entry(key)
-	if connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
-		if err := refreshIntegrationOpenAICodexCredentials(credentials); err != nil {
+	if driver := connectionSessionAuthDriverFor(conn.AppSlug); driver != nil && driver.NeedsRefresh(credentials, 10*time.Minute) {
+		if err := driver.Refresh(r.Context(), credentials); err != nil {
 			return providerUsageStaleOrError(conn.ID, staleEntry, hasStale, err)
 		}
 		if encoded, err := json.Marshal(credentials); err == nil {
@@ -360,11 +371,7 @@ func (s *Server) fetchConnectionUsage(
 				_ = s.store.UpdateConnectionCredentials(conn.ID, reEncrypted)
 			}
 		}
-		state["credentials"] = map[string]any{
-			"access_token": credentials["access_token"],
-			"account_id":   credentials["account_id"],
-			"expires_at":   credentials["token_expires_at"],
-		}
+		state["credentials"] = providerUsageCredentialState(credentials)
 	}
 
 	snapshot, err := fetcher.FetchUsage(r.Context(), state)
@@ -377,6 +384,17 @@ func (s *Server) fetchConnectionUsage(
 	snapshot.Stale = false
 	globalProviderUsageCache.put(fetcher.CacheKey(state), providerUsageCacheEntry{snapshot: *snapshot, fetched: now})
 	return snapshot, nil
+}
+
+func providerUsageCredentialState(credentials map[string]string) map[string]any {
+	state := make(map[string]any, len(credentials))
+	for key, value := range credentials {
+		state[key] = value
+	}
+	if strings.TrimSpace(stringValue(state["expires_at"])) == "" {
+		state["expires_at"] = credentials["token_expires_at"]
+	}
+	return state
 }
 
 // GetConnectionRuntimeConfig returns the decoded runtime_config, or an

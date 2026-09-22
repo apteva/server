@@ -1738,6 +1738,7 @@ type installMCPToolInfo struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Meta        map[string]any `json:"_meta,omitempty"`
 }
 
 func (s *Server) handleInstallTools(w http.ResponseWriter, r *http.Request) {

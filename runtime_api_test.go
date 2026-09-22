@@ -449,7 +449,7 @@ func TestRuntimeAPI_DirectiveUpdateUsesETagAndAudits(t *testing.T) {
 		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
 	}
 	got, _ := s.store.GetAgentByID(agent.ID)
-	if got.Directive != withAgentBehavior("new directive", "autonomous") || !strings.Contains(got.Config, "new directive") {
+	if got.Directive != "new directive" || strings.Contains(got.Directive, behaviorStart) || !strings.Contains(got.Config, "new directive") {
 		t.Fatalf("directive/config not updated: %+v", got)
 	}
 	var auditCount int

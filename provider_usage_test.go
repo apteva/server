@@ -16,11 +16,13 @@ func installTestProviderUsage(t *testing.T, handler http.Handler) {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	oldBaseURL := providerUsageCodexBaseURL
+	oldGrokBuildBaseURL := providerUsageGrokBuildBaseURL
 	oldClient := providerUsageHTTPClient
 	oldFreshTTL := providerUsageFreshTTL
 	oldStaleTTL := providerUsageStaleTTL
 	oldManualRefreshMin := providerUsageManualRefreshMin
 	providerUsageCodexBaseURL = server.URL
+	providerUsageGrokBuildBaseURL = server.URL
 	providerUsageHTTPClient = server.Client()
 	providerUsageFreshTTL = 2 * time.Minute
 	providerUsageStaleTTL = 30 * time.Minute
@@ -29,12 +31,53 @@ func installTestProviderUsage(t *testing.T, handler http.Handler) {
 	t.Cleanup(func() {
 		server.Close()
 		providerUsageCodexBaseURL = oldBaseURL
+		providerUsageGrokBuildBaseURL = oldGrokBuildBaseURL
 		providerUsageHTTPClient = oldClient
 		providerUsageFreshTTL = oldFreshTTL
 		providerUsageStaleTTL = oldStaleTTL
 		providerUsageManualRefreshMin = oldManualRefreshMin
 		globalProviderUsageCache = &providerUsageCacheStore{entries: map[string]providerUsageCacheEntry{}}
 	})
+}
+
+func createTestGrokBuildUsageConnection(t *testing.T, s *Server, accessToken string) *Connection {
+	t.Helper()
+	if len(s.secret) == 0 {
+		s.secret = testSecret()
+	}
+	if s.catalog == nil {
+		s.catalog = NewAppCatalog()
+	}
+	s.catalog.Register(&AppTemplate{
+		Slug: integrationGrokBuildSlug, Name: "Grok Build",
+		Auth: AppAuthConfig{Types: []string{"oauth_device_code"}},
+		Runtime: &AppRuntimeConfig{
+			Role: "llm", ProviderKey: integrationGrokBuildSlug,
+			Env:          map[string]string{"GROK_BUILD_ACCESS_TOKEN": "{{credentials.access_token}}"},
+			Capabilities: []string{providerUsageCapability},
+		},
+	})
+	raw, err := json.Marshal(map[string]string{
+		"access_token":     accessToken,
+		"refresh_token":    "refresh-grok-usage",
+		"token_expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		"user_id":          "user-grok-usage",
+		"principal_id":     "principal-grok-usage",
+		"account_email":    "grok-usage@example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := Encrypt(s.secret, string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := s.store.CreateConnection(1, integrationGrokBuildSlug, "Grok Build", "Grok Build",
+		"oauth_device_code", encrypted, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conn
 }
 
 // createTestCodexUsageConnection builds the Codex connection the usage
@@ -206,6 +249,106 @@ func TestProviderUsageCodexNormalizesCachesAndThrottlesRefresh(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("upstream calls=%d want 1", got)
+	}
+}
+
+func TestProviderUsageGrokBuildNormalizesIdentityBillingAndCaches(t *testing.T) {
+	var userCalls atomic.Int32
+	var billingCalls atomic.Int32
+	installTestProviderUsage(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer access-grok-usage" {
+			t.Errorf("Authorization=%q", got)
+		}
+		if got := r.Header.Get("X-XAI-Token-Auth"); got != "xai-grok-cli" {
+			t.Errorf("X-XAI-Token-Auth=%q", got)
+		}
+		switch r.URL.Path {
+		case "/user":
+			userCalls.Add(1)
+			if got := r.Header.Get("x-userid"); got != "" {
+				t.Errorf("identity x-userid=%q want empty", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"userId": "live-grok-user"})
+		case "/billing":
+			billingCalls.Add(1)
+			if r.URL.Query().Get("format") != "credits" {
+				t.Errorf("billing format=%q", r.URL.Query().Get("format"))
+			}
+			if got := r.Header.Get("x-userid"); got != "live-grok-user" {
+				t.Errorf("billing x-userid=%q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"subscriptionTier": "supergrok",
+				"config": map[string]any{
+					"creditUsagePercent": 37.6,
+					"currentPeriod": map[string]any{
+						"type":  "USAGE_PERIOD_TYPE_WEEKLY",
+						"start": "2026-09-20T00:00:00Z",
+						"end":   "2026-09-27T00:00:00Z",
+					},
+					"productUsage": []map[string]any{
+						{"product": "Grok Build", "usagePercent": 41.2},
+					},
+					"prepaidBalance": map[string]any{"val": 1234},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	conn := createTestGrokBuildUsageConnection(t, s, "access-grok-usage")
+	rec, snapshot := requestTestProviderUsage(t, s, 1, conn.ID, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("usage status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !snapshot.Supported || snapshot.Kind != "subscription_quota" || snapshot.Plan != "supergrok" {
+		t.Fatalf("snapshot metadata=%+v", snapshot)
+	}
+	if len(snapshot.Limits) != 2 {
+		t.Fatalf("limits=%+v", snapshot.Limits)
+	}
+	primary := snapshot.Limits[0]
+	if primary.ID != "grok-build" || primary.Windows[0].ID != "weekly" || primary.Windows[0].UsedPercent != 38 {
+		t.Fatalf("primary=%+v", primary)
+	}
+	if primary.Windows[0].DurationMinutes != 7*24*60 || primary.Windows[0].ResetsAt == nil {
+		t.Fatalf("window=%+v", primary.Windows[0])
+	}
+	if snapshot.Limits[1].Label != "Grok Build" || snapshot.Limits[1].Windows[0].UsedPercent != 41 {
+		t.Fatalf("product limit=%+v", snapshot.Limits[1])
+	}
+	if snapshot.Credits == nil || !snapshot.Credits.HasCredits || snapshot.Credits.Balance != "12.34" {
+		t.Fatalf("credits=%+v", snapshot.Credits)
+	}
+
+	// A normal second read and an immediate manual refresh both reuse the
+	// shared quota cache, matching the Codex card's polling behavior.
+	requestTestProviderUsage(t, s, 1, conn.ID, false)
+	requestTestProviderUsage(t, s, 1, conn.ID, true)
+	if userCalls.Load() != 1 || billingCalls.Load() != 1 {
+		t.Fatalf("upstream calls user=%d billing=%d want 1 each", userCalls.Load(), billingCalls.Load())
+	}
+}
+
+func TestNormalizeGrokBuildUsageToleratesSnakeCaseAndMonetaryFallback(t *testing.T) {
+	snapshot, err := normalizeGrokBuildUsage(map[string]any{
+		"subscription_tier": "premium",
+		"config": map[string]any{
+			"current_period": map[string]any{
+				"type": "MONTHLY", "start": "2026-09-01T00:00:00Z", "end": "2026-10-01T00:00:00Z",
+			},
+			"used":          map[string]any{"val": float64(2500)},
+			"monthly_limit": map[string]any{"val": float64(10000)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Plan != "premium" || len(snapshot.Limits) != 1 || snapshot.Limits[0].Windows[0].UsedPercent != 25 {
+		t.Fatalf("snapshot=%+v", snapshot)
 	}
 }
 

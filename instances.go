@@ -43,6 +43,8 @@ type runningAgent struct {
 	lastProc    string // latest /proc snapshot captured while the child was alive
 }
 
+const coreRuntimeInfoCacheTTL = 5 * time.Second
+
 func (r *runningAgent) wait() error {
 	if r == nil || r.cmd == nil || r.reattached {
 		return nil
@@ -133,13 +135,15 @@ func (r *runningAgent) procSnapshot() string {
 }
 
 type AgentManager struct {
-	internalMCPSecret  string
-	AuthorizeMCPConfig func(*Agent, map[string]any) error
-	mu                 sync.RWMutex
-	processes          map[int64]*runningAgent // instanceID → running process + port
-	dataDir            string
-	coreCmd            string // path to core binary
-	serverCmd          string // optional apteva-server binary override for the stdio management gateway
+	internalMCPSecret    string
+	AuthorizeMCPConfig   func(*Agent, map[string]any) error
+	mu                   sync.RWMutex
+	processes            map[int64]*runningAgent // instanceID → running process + port
+	coreStatusClientOnce sync.Once
+	coreStatusClient     *http.Client
+	dataDir              string
+	coreCmd              string // path to core binary
+	serverCmd            string // optional apteva-server binary override for the stdio management gateway
 
 	// PostChannelsInit is invoked right after an instance's
 	// ChannelRegistry is created and the CLI bridge is registered,
@@ -177,6 +181,13 @@ type AgentManager struct {
 	// spawning core with live=false, while Reattach calls it after the
 	// live core is recorded with live=true.
 	CapabilityMemorySync func(inst *Agent, includeChannels bool, live bool) error
+}
+
+func (im *AgentManager) coreStatusHTTPClient() *http.Client {
+	im.coreStatusClientOnce.Do(func() {
+		im.coreStatusClient = &http.Client{Timeout: 800 * time.Millisecond}
+	})
+	return im.coreStatusClient
 }
 
 func describeProcessState(ps *os.ProcessState) string {
@@ -537,12 +548,13 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 
-	// Core owns directive evolution; the server owns the behavior section.
+	// Core owns directive evolution; the server stores only the authored base
+	// and compiles private controls at this Core boundary.
 	if _, hasDirective := config["directive"]; !hasDirective {
 		config["directive"] = inst.Directive
 	}
 	directive, _ := config["directive"].(string)
-	config["directive"] = withAgentBehavior(directive, inst.Mode, inst.Proactivity)
+	config["directive"] = compileAgentDirective(directive, inst.Mode, inst.Proactivity)
 	delete(config, "mode")
 	delete(config, "proactivity")
 	applyBehaviorToSavedWorkers(config, inst.Mode, inst.Proactivity)
@@ -1588,12 +1600,19 @@ func (im *AgentManager) coreRuntimeInfoContext(ctx context.Context, instanceID i
 	port := ri.port
 	coreAPIKey := ri.coreAPIKey
 	im.mu.RUnlock()
+	ri.runtimeMu.Lock()
+	if !ri.runtimeAt.IsZero() && time.Since(ri.runtimeAt) < coreRuntimeInfoCacheTTL {
+		cached := ri.runtimeInfo
+		ri.runtimeMu.Unlock()
+		return cached, true
+	}
+	ri.runtimeMu.Unlock()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/status", port), nil)
 	if coreAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
 	}
-	resp, err := (&http.Client{Timeout: 800 * time.Millisecond}).Do(req)
+	resp, err := im.coreStatusHTTPClient().Do(req)
 	if err != nil {
 		return coreRuntimeInfo{}, false
 	}
@@ -2550,7 +2569,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		out["directive"] = inst.Directive
 		out["mode"] = agentMode(inst.Mode)
 		out["proactivity"] = inst.Proactivity
+		out["controls"] = publicAgentControls(inst)
 		out["config_source"] = "saved"
+		sanitizeDirectiveFields(out)
 		writeJSON(w, out)
 		return
 	}
@@ -2761,7 +2782,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	_, proactivitySent := rawBody["proactivity"]
 	behaviorChanged := directiveSent || modeSent || proactivitySent
 	if behaviorChanged {
-		base := body.Directive
+		base := withoutAgentControls(body.Directive)
 		if !directiveSent {
 			state, stateErr := s.store.agentBehaviorState(inst.ID)
 			if stateErr != nil {
@@ -2776,7 +2797,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				if latest, ok := cfg["directive"].(string); ok {
-					base = latest
+					base = withoutAgentControls(latest)
 				}
 			}
 		}
@@ -2786,9 +2807,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if proactivitySent {
 			inst.Proactivity = int(rawBody["proactivity"].(float64))
 		}
-		inst.Directive = withAgentBehavior(base, inst.Mode, inst.Proactivity)
+		inst.Directive = withoutAgentControls(base)
 		body.Directive = inst.Directive
-		rawBody["directive"] = inst.Directive
+		rawBody["directive"] = compileAgentDirective(inst.Directive, inst.Mode, inst.Proactivity)
 	}
 	delete(rawBody, "mode")
 	delete(rawBody, "proactivity")
@@ -2909,7 +2930,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "core config updated but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 				return
 			}
-			if body.Directive != "" {
+			if directiveSent {
 				s.refreshChannelChatConversationDirectives(inst.ID)
 			}
 		}
@@ -2924,8 +2945,8 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// threads, unconscious) and the `reset` sub-object.
 	err = s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
 		delete(cfg, "computer")
-		if body.Directive != "" {
-			cfg["directive"] = body.Directive
+		if behaviorChanged {
+			cfg["directive"] = compileAgentDirective(inst.Directive, inst.Mode, inst.Proactivity)
 		}
 		delete(cfg, "mode")
 		delete(cfg, "proactivity")
@@ -2968,7 +2989,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config saved but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 		return
 	}
-	if body.Directive != "" {
+	if directiveSent {
 		s.refreshChannelChatConversationDirectives(inst.ID)
 	}
 	log.Printf("[CONFIG] PUT stopped agent=%d — persisted to config.json (applies on next start)", inst.ID)
@@ -3095,7 +3116,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if directive, ok := payload["directive"].(string); ok && directive != "" {
-				payload["directive"] = withAgentBehavior(directive, inst.Mode, inst.Proactivity)
+				payload["directive"] = compileAgentDirective(directive, inst.Mode, inst.Proactivity)
 			}
 			data, _ = json.Marshal(payload)
 			r.Body = io.NopCloser(bytes.NewReader(data))
@@ -3179,6 +3200,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				// verbatim.
 				if bytes.HasPrefix(line, []byte("data: ")) {
 					rewritten := enrichLLMDoneSSELine(line)
+					rewritten = sanitizeDirectiveSSELine(rewritten)
 					if _, err := w.Write(rewritten); err != nil {
 						return
 					}
@@ -3196,7 +3218,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		needsRewrite := resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet && (corePath == "/status" || corePath == "/threads")
+		needsRewrite := resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet && (corePath == "/status" || corePath == "/threads" || strings.HasPrefix(corePath, "/threads/"))
 		if !needsRewrite {
 			for k, v := range resp.Header {
 				w.Header()[k] = v
@@ -3221,6 +3243,10 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				body, rewritten = s.enrichAgentStatusBody(inst.ID, body, time.Now(), inst)
 			case "/threads":
 				body, rewritten = s.enrichAgentThreadsBody(inst.ID, body, time.Now())
+			default:
+				if strings.HasPrefix(corePath, "/threads/") {
+					body, rewritten = sanitizeDirectiveJSON(body)
+				}
 			}
 		}
 		for k, v := range resp.Header {
@@ -3329,7 +3355,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 						"id":          t["id"],
 						"parent_id":   t["parent_id"],
 						"depth":       depth,
-						"directive":   t["directive"],
+						"directive":   withoutAgentControls(sleepStringValue(t["directive"])),
 						"tools":       t["tools"],
 						"mcp_names":   t["mcp_names"],
 						"realtime":    t["realtime"],
@@ -3368,6 +3394,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 
 	case "/config":
 		directive, _ := config["directive"].(string)
+		directive = withoutAgentControls(directive)
 		if directive == "" {
 			directive = inst.Directive
 		}
@@ -3405,6 +3432,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			out["mcp_servers"] = []any{}
 		}
 		s.behaviorMetadata(inst, out)
+		sanitizeDirectiveFields(out)
 		writeJSON(w, out)
 	}
 }

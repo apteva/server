@@ -165,7 +165,7 @@ func TestUpdateConfig(t *testing.T) {
 	}
 
 	inst, _ := s.store.GetAgent(1, 1)
-	if inst.Directive != withAgentBehavior("new directive", inst.Mode) {
+	if inst.Directive != "new directive" {
 		t.Errorf("expected new directive, got %s", inst.Directive)
 	}
 }

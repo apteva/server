@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -290,6 +292,96 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 		log.Printf("[MCP-ATTACH] refreshed stale app configs agent=%d", inst.ID)
 	}
 	return s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, mcpMapsAsAny(refreshed))
+}
+
+// reconcileRunningAgentAppMCP replaces one app attachment through Core's
+// existing transactional MCP reconciliation. The app process already switched
+// behind the stable server proxy; only an agent-visible capability revision
+// reaches this path. A failed replacement leaves Core's previous connection
+// intact, allowing the caller to use the restart fallback safely.
+func (s *Server) reconcileRunningAgentAppMCP(ctx context.Context, agentID, installID int64) error {
+	unlock := s.lockAgentConfig(agentID)
+	defer unlock()
+
+	inst, err := s.store.GetAgentByID(agentID)
+	if err != nil {
+		return fmt.Errorf("load agent: %w", err)
+	}
+	port := s.agents.GetPort(agentID)
+	if port == 0 {
+		return fmt.Errorf("agent is not running")
+	}
+	current, err := s.currentAgentMCPServers(inst, port)
+	if err != nil {
+		return err
+	}
+
+	var serverID int64
+	bridgeErr := s.store.db.QueryRow(`
+		SELECT id FROM mcp_servers
+		WHERE source='app' AND upstream_id=?
+		  AND (COALESCE(project_id,'')='' OR project_id=?)`,
+		appMCPUpstreamID(installID), inst.ProjectID,
+	).Scan(&serverID)
+	var desired []map[string]any
+	if bridgeErr == sql.ErrNoRows {
+		// The upgraded app no longer exposes agent-visible MCP tools. Detach
+		// only this install; keep the app binding itself because it may still
+		// provide skills, UI, workers, or other non-MCP capabilities.
+		desired = removeAppInstallMCPConfig(current, installID)
+	} else if bridgeErr != nil {
+		return fmt.Errorf("resolve app MCP bridge: %w", bridgeErr)
+	} else {
+		record, err := s.store.GetMCPServerByIDUnscoped(serverID)
+		if err != nil {
+			return fmt.Errorf("load app MCP bridge: %w", err)
+		}
+		serverPort := s.port
+		if serverPort == "" {
+			serverPort = localServerPort()
+		}
+		replacement, err := gatewayMCPConfigFromRecord(*record, inst.ProjectID, serverPort, "")
+		if err != nil {
+			return err
+		}
+		desired = mutateMCPServers(current, []map[string]any{replacement}, "add")
+	}
+	if mcpConfigListsEqual(current, desired) {
+		return nil
+	}
+
+	body, err := json.Marshal(map[string]any{"mcp_servers": mcpMapsAsAny(desired)})
+	if err != nil {
+		return err
+	}
+	targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
+	resp, err := s.coreDoWithBootWaitContext(
+		ctx, agentID, http.MethodPut, targetURL, body, s.agents.GetCoreAPIKey(agentID),
+		http.Header{"Content-Type": []string{"application/json"}},
+	)
+	if err != nil {
+		return fmt.Errorf("apply live app MCP config: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("apply live app MCP config: status %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+	}
+	if err := s.syncAppBindingsFromMCPServers(agentID, inst.ProjectID, mcpMapsAsAny(desired)); err != nil {
+		return fmt.Errorf("sync app attachment metadata: %w", err)
+	}
+	return nil
+}
+
+func removeAppInstallMCPConfig(current []map[string]any, installID int64) []map[string]any {
+	out := make([]map[string]any, 0, len(current))
+	for _, entry := range current {
+		if appInstallIDFromMCPConfig(entry) == installID {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func localMCPServerIDFromConfig(config map[string]any) (int64, bool) {
