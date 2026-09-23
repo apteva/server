@@ -33,17 +33,20 @@ import (
 
 // SnapshotManifest is the metadata written at the root of every snapshot.
 type SnapshotManifest struct {
-	ID               string                        `json:"id"`
-	ProjectID        string                        `json:"project_id"`
-	OwnerInstallID   int64                         `json:"owner_install_id,omitempty"`
-	Description      string                        `json:"description,omitempty"`
-	Apps             []string                      `json:"apps"` // sidecar names captured
-	SourceInstallIDs map[string]int64              `json:"source_install_ids,omitempty"`
-	ManagedMCPs      []sdk.RuntimeManagedMCP       `json:"managed_mcps,omitempty"`
-	HasAgent         bool                          `json:"has_agent"`    // agent/ dir present
-	HasCassette      bool                          `json:"has_cassette"` // cassette.json present
-	Subscriptions    []EnvironmentSubscriptionSpec `json:"subscriptions,omitempty"`
-	CreatedAt        time.Time                     `json:"created_at"`
+	ID                  string                        `json:"id"`
+	ProjectID           string                        `json:"project_id"`
+	OwnerInstallID      int64                         `json:"owner_install_id,omitempty"`
+	Description         string                        `json:"description,omitempty"`
+	Apps                []string                      `json:"apps"` // sidecar names captured
+	SourceInstallIDs    map[string]int64              `json:"source_install_ids,omitempty"`
+	ManagedMCPs         []sdk.RuntimeManagedMCP       `json:"managed_mcps,omitempty"`
+	HasAgent            bool                          `json:"has_agent"`    // agent/ dir present
+	HasCassette         bool                          `json:"has_cassette"` // cassette.json present
+	Subscriptions       []EnvironmentSubscriptionSpec `json:"subscriptions,omitempty"`
+	CreatedAt           time.Time                     `json:"created_at"`
+	Clock               *sdk.RuntimeClockState        `json:"clock,omitempty"`
+	HTTPMocks           []HTTPMock                    `json:"http_mocks,omitempty"`
+	IntegrationFixtures []IntegrationFixture          `json:"integration_fixtures,omitempty"`
 }
 
 // SnapshotStore manages snapshot artifacts on disk.
@@ -78,7 +81,10 @@ type CaptureSpec struct {
 	Cassette *Cassette
 	// Subscriptions are logical environment-owned event routes. Raw DB row ids
 	// are intentionally not captured.
-	Subscriptions []EnvironmentSubscriptionSpec
+	Subscriptions       []EnvironmentSubscriptionSpec
+	Clock               *sdk.RuntimeClockState
+	HTTPMocks           []HTTPMock
+	IntegrationFixtures []IntegrationFixture
 }
 
 // Capture writes a new snapshot. Fails if the id already exists.
@@ -95,14 +101,17 @@ func (ss *SnapshotStore) Capture(spec CaptureSpec) (*SnapshotManifest, error) {
 	}
 
 	man := &SnapshotManifest{
-		ID:               spec.ID,
-		ProjectID:        spec.ProjectID,
-		OwnerInstallID:   spec.OwnerInstallID,
-		Description:      spec.Description,
-		SourceInstallIDs: cloneInt64Map(spec.SourceInstallIDs),
-		ManagedMCPs:      append([]sdk.RuntimeManagedMCP(nil), spec.ManagedMCPs...),
-		Subscriptions:    append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
-		CreatedAt:        time.Now(),
+		ID:                  spec.ID,
+		ProjectID:           spec.ProjectID,
+		OwnerInstallID:      spec.OwnerInstallID,
+		Description:         spec.Description,
+		SourceInstallIDs:    cloneInt64Map(spec.SourceInstallIDs),
+		ManagedMCPs:         append([]sdk.RuntimeManagedMCP(nil), spec.ManagedMCPs...),
+		Subscriptions:       append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		CreatedAt:           time.Now(),
+		Clock:               spec.Clock,
+		HTTPMocks:           append([]HTTPMock(nil), spec.HTTPMocks...),
+		IntegrationFixtures: append([]IntegrationFixture(nil), spec.IntegrationFixtures...),
 	}
 
 	if spec.AgentInstanceDir != "" {

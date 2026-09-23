@@ -90,6 +90,8 @@ func (s *Server) handleCallbackRuntimes(w http.ResponseWriter, r *http.Request, 
 		s.handleRuntimeEdge(w, r, runtime, parts[2:])
 	case "snapshots":
 		s.handleRuntimeSnapshots(w, r, runtime, parts[2:])
+	case "clock":
+		s.handleRuntimeClock(w, r, runtime, parts[2:])
 	default:
 		http.NotFound(w, r)
 	}
@@ -231,11 +233,11 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 		}
 		httpMocks := make([]HTTPMock, 0, len(req.HTTPMocks))
 		for _, mock := range req.HTTPMocks {
-			httpMocks = append(httpMocks, HTTPMock{Host: mock.Host, Path: mock.Path, Method: mock.Method, Status: mock.Status, Headers: mock.Headers, Body: mock.Body})
+			httpMocks = append(httpMocks, HTTPMock{Host: mock.Host, Path: mock.Path, Method: mock.Method, Status: mock.Status, Headers: mock.Headers, Body: mock.Body, AvailableAt: mock.AvailableAt, ExpiresAt: mock.ExpiresAt})
 		}
 		fixtures := make([]IntegrationFixture, 0, len(req.IntegrationFixtures))
 		for _, fixture := range req.IntegrationFixtures {
-			fixtures = append(fixtures, IntegrationFixture{App: fixture.App, Tool: fixture.Tool, Status: fixture.Status, Data: fixture.Data})
+			fixtures = append(fixtures, IntegrationFixture{App: fixture.App, Tool: fixture.Tool, Status: fixture.Status, Data: fixture.Data, AvailableAt: fixture.AvailableAt, ExpiresAt: fixture.ExpiresAt})
 		}
 		subscriptions := make([]EnvironmentSubscriptionSpec, 0, len(req.Subscriptions))
 		for _, sub := range req.Subscriptions {
@@ -282,6 +284,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			IntegrationMode:       req.IntegrationMode,
 			Policy:                SandboxPolicy{AllowHostSuffixes: req.AllowHostSuffixes, Mocks: httpMocks},
 			IntegrationFixtures:   fixtures,
+			Clock:                 req.Clock,
 			Subscriptions:         subscriptions,
 		}
 		var runtime *Environment
@@ -924,7 +927,8 @@ func (s *Server) handleRuntimeSnapshots(w http.ResponseWriter, r *http.Request, 
 			sourceInstallIDs[name] = installID
 		}
 	}
-	man, err := s.environments.Snapshots().Capture(CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs()})
+	clockState := runtime.clock.State()
+	man, err := s.environments.Snapshots().Capture(CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs(), Clock: &clockState, HTTPMocks: runtime.httpMocks, IntegrationFixtures: runtime.integrationFixtures})
 	if err != nil {
 		http.Error(w, "snapshot runtime: "+err.Error(), http.StatusBadRequest)
 		return
@@ -1221,11 +1225,11 @@ func (s *Server) handleRuntimeArtifacts(w http.ResponseWriter, r *http.Request, 
 }
 
 func publicRuntimeSnapshot(manifest *SnapshotManifest) sdk.RuntimeSnapshot {
-	return sdk.RuntimeSnapshot{ID: manifest.ID, ProjectID: manifest.ProjectID, Description: manifest.Description, Apps: append([]string(nil), manifest.Apps...), ManagedMCPs: append([]sdk.RuntimeManagedMCP(nil), manifest.ManagedMCPs...), HasAgent: manifest.HasAgent, HasCassette: manifest.HasCassette, CreatedAt: manifest.CreatedAt}
+	return sdk.RuntimeSnapshot{ID: manifest.ID, ProjectID: manifest.ProjectID, Description: manifest.Description, Apps: append([]string(nil), manifest.Apps...), ManagedMCPs: append([]sdk.RuntimeManagedMCP(nil), manifest.ManagedMCPs...), HasAgent: manifest.HasAgent, HasCassette: manifest.HasCassette, CreatedAt: manifest.CreatedAt, Clock: manifest.Clock}
 }
 
 func (s *Server) runtimeSummary(runtime *Environment) sdk.RuntimeSummary {
-	return sdk.RuntimeSummary{ID: runtime.ID, ProjectID: runtime.ProjectID, Status: "running", NetworkMode: sdk.RuntimeNetworkMode(runtime.NetworkMode), IntegrationMode: runtime.IntegrationMode, Apps: s.runtimeApps(runtime), Agents: s.publicRuntimeAgents(runtime), ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), MCPAttachments: publicRuntimeAttachments(runtime.MCPAttachments()), CreatedAt: runtime.createdAt, ExpiresAt: runtime.ExpiresAt()}
+	return sdk.RuntimeSummary{ID: runtime.ID, ProjectID: runtime.ProjectID, Status: "running", NetworkMode: sdk.RuntimeNetworkMode(runtime.NetworkMode), IntegrationMode: runtime.IntegrationMode, Apps: s.runtimeApps(runtime), Agents: s.publicRuntimeAgents(runtime), ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), MCPAttachments: publicRuntimeAttachments(runtime.MCPAttachments()), CreatedAt: runtime.createdAt, ExpiresAt: runtime.ExpiresAt(), Clock: runtime.clock.State()}
 }
 
 func (s *Server) runtimeApps(runtime *Environment) []sdk.RuntimeApp {

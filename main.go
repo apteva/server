@@ -1262,6 +1262,7 @@ func main() {
 	// /environment-mcp — Environment control surface as MCP tools
 	// (create/seed/list/destroy).
 	apiMux.HandleFunc("/environment-mcp", s.handleEnvironmentMCP)
+	apiMux.HandleFunc("/runtime-clock-mcp/", s.handleRuntimeClockMCP)
 	// Helper's normal HTTP management MCP. The app-shaped path makes Core
 	// inject its hidden caller thread identity; the handler resolves that
 	// identity through the server-owned agent_thread_scopes table.
