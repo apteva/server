@@ -16,9 +16,9 @@ import (
 )
 
 // codexModelCatalogClientVersion declares the Codex catalog schema Apteva
-// understands. OpenAI filters models by this value; 0.144.0 is the first
-// schema version that exposes the GPT-5.6 Sol/Terra/Luna family.
-const codexModelCatalogClientVersion = "0.144.0"
+// understands. OpenAI filters models by this value; 0.200.0 exposes the
+// GPT-6 Astra/Sol/Luna family for accounts with access to those models.
+const codexModelCatalogClientVersion = "0.200.0"
 
 var (
 	codexModelCatalogBaseURL  = openAICodexBackendAPIBaseURL
