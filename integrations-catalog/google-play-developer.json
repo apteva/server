@@ -1,7 +1,7 @@
 {
   "slug": "google-play-developer",
   "name": "Google Play Developer",
-  "description": "Google Play Android Publisher API v3 for releases, tracks, store listings and images, testers, reviews, subscriptions, purchases, voided purchases, orders, and account users. Publishing mutations use Google's edit workflow: create an edit, make changes, validate, then commit.",
+  "description": "Google Play Android Publisher API v3 for releases, tracks, store listings and images, testers, reviews, subscriptions, purchases, voided purchases, orders, and account users. Read monthly sales and earnings exports from the developer's private Google Cloud Storage report bucket. Publishing mutations use Google's edit workflow: create an edit, make changes, validate, then commit.",
   "logo": "https://www.google.com/s2/favicons?domain=play.google.com&sz=128",
   "categories": ["mobile", "android", "app-store", "publishing", "subscriptions", "google"],
   "base_url": "https://androidpublisher.googleapis.com/androidpublisher/v3",
@@ -12,12 +12,13 @@
       { "name": "token", "label": "Access Token", "description": "Google OAuth access token with the androidpublisher scope." },
       { "name": "refresh_token", "label": "Refresh Token", "required": false },
       { "name": "expires_in", "label": "Expires In", "required": false, "type": "text" },
-      { "name": "scope", "label": "Scope", "required": false, "type": "text" }
+      { "name": "scope", "label": "Scope", "required": false, "type": "text" },
+      { "name": "report_bucket", "label": "Google Play report bucket ID", "required": false, "type": "text", "description": "Copy the bucket ID (pubsite_prod_rev_...) from Play Console > Download reports > Copy Cloud Storage URI. Needed only for sales and earnings reports." }
     ],
     "oauth2": {
       "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
       "token_url": "https://oauth2.googleapis.com/token",
-      "scopes": ["https://www.googleapis.com/auth/androidpublisher"],
+      "scopes": ["https://www.googleapis.com/auth/androidpublisher", "https://www.googleapis.com/auth/devstorage.read_only"],
       "client_id_required": true,
       "pkce": false,
       "extra_authorize_params": { "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true" }
@@ -81,6 +82,9 @@
     { "name": "list_voided_purchases", "description": "List purchases canceled, refunded, or charged back during a time range.", "method": "GET", "path": "/applications/{packageName}/purchases/voidedpurchases", "query_params": ["startTime", "endTime", "maxResults", "token", "type", "includeQuantityBasedPartialRefund"], "input_schema": { "type": "object", "properties": { "packageName": { "type": "string" }, "startTime": { "type": "string", "description": "Unix epoch milliseconds." }, "endTime": { "type": "string" }, "maxResults": { "type": "integer" }, "token": { "type": "string" }, "type": { "type": "integer", "enum": [0, 1] }, "includeQuantityBasedPartialRefund": { "type": "boolean" } }, "required": ["packageName"] } },
     { "name": "get_order", "description": "Get a Play order by order ID.", "method": "GET", "path": "/applications/{packageName}/orders/{orderId}", "input_schema": { "type": "object", "properties": { "packageName": { "type": "string" }, "orderId": { "type": "string" } }, "required": ["packageName", "orderId"] } },
     { "name": "refund_order", "description": "Refund a subscription or in-app purchase order. Set revoke=true to revoke entitlement as well.", "method": "POST", "path": "/applications/{packageName}/orders/{orderId}:refund", "query_params": ["revoke"], "input_schema": { "type": "object", "properties": { "packageName": { "type": "string" }, "orderId": { "type": "string" }, "revoke": { "type": "boolean" } }, "required": ["packageName", "orderId"] } },
-    { "name": "list_account_users", "description": "List users with access to a Google Play developer account.", "method": "GET", "path": "/developers/{developerId}/users", "query_params": ["pageSize", "pageToken"], "input_schema": { "type": "object", "properties": { "developerId": { "type": "string", "description": "Google Play developer account ID." }, "pageSize": { "type": "integer" }, "pageToken": { "type": "string" } }, "required": ["developerId"] } }
+    { "name": "list_account_users", "description": "List users with access to a Google Play developer account.", "method": "GET", "path": "/developers/{developerId}/users", "query_params": ["pageSize", "pageToken"], "input_schema": { "type": "object", "properties": { "developerId": { "type": "string", "description": "Google Play developer account ID." }, "pageSize": { "type": "integer" }, "pageToken": { "type": "string" } }, "required": ["developerId"] } },
+    { "name": "list_sales_reports", "description": "List monthly estimated-sales ZIP files in the Play Console report bucket. These are buyer-paid amounts including collected taxes, without deducting Google fees, and are not accounting earnings. The bucket requires global View app information permission. Reports arrive several days after activity; follow nextPageToken to list more.", "method": "GET", "base_url": "https://storage.googleapis.com/storage/v1", "path": "/b/{{credential.report_bucket}}/o?prefix=sales%2Fsalesreport_", "query_params": ["pageToken", "maxResults"], "input_schema": { "type": "object", "properties": { "pageToken": { "type": "string" }, "maxResults": { "type": "integer", "minimum": 1, "maximum": 1000 } } } },
+    { "name": "get_sales_report", "description": "Download the raw ZIP/CSV estimated-sales report for a month (YYYYMM). Returns a binary envelope; this JSON-only connector does not parse or aggregate the CSV. Sales amounts include collected taxes and have not had Google fees deducted, so do not use them as payout totals.", "method": "GET", "base_url": "https://storage.googleapis.com/storage/v1", "path": "/b/{{credential.report_bucket}}/o/sales%2Fsalesreport_{year_month}.zip?alt=media", "input_schema": { "type": "object", "properties": { "year_month": { "type": "string", "pattern": "^[0-9]{4}(0[1-9]|1[0-2])$", "description": "Report month, YYYYMM." } }, "required": ["year_month"] } },
+    { "name": "get_earnings_report", "description": "Download the raw ZIP/CSV monthly earnings report for a month (YYYYMM). Returns a binary envelope; this JSON-only connector does not parse or aggregate the CSV. Earnings include transaction, Google fee and currency-conversion rows; reports usually appear the following month. Requires global View financial data permission.", "method": "GET", "base_url": "https://storage.googleapis.com/storage/v1", "path": "/b/{{credential.report_bucket}}/o/earnings%2Fearnings_{year_month}.zip?alt=media", "input_schema": { "type": "object", "properties": { "year_month": { "type": "string", "pattern": "^[0-9]{4}(0[1-9]|1[0-2])$", "description": "Report month, YYYYMM." } }, "required": ["year_month"] } }
   ]
 }
