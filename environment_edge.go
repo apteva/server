@@ -153,6 +153,7 @@ func (c *Cassette) Save(path string) error {
 
 // EnvironmentEdge is the live intercept server. One per Environment.
 type EnvironmentEdge struct {
+	clock    *EnvironmentClock
 	listener net.Listener
 	server   *http.Server
 	policy   SandboxPolicy
@@ -235,7 +236,11 @@ func (e *EnvironmentEdge) handle(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
 		_ = r.Body.Close()
 	}
-	rec := InterceptedCall{Host: host, Path: path, Method: method, ReqBody: truncate(string(body), 1000), Timestamp: time.Now()}
+	at := time.Now().UTC()
+	if e.clock != nil {
+		at = e.clock.Now()
+	}
+	rec := InterceptedCall{Host: host, Path: path, Method: method, ReqBody: truncate(string(body), 1000), Timestamp: time.Now(), LogicalTime: at}
 
 	// 1. Allowlist passthrough.
 	if hostMatchesSuffix(host, e.policy.AllowHostSuffixes) {
@@ -253,7 +258,13 @@ func (e *EnvironmentEdge) handle(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Hand-written mocks.
 	for _, m := range e.policy.Mocks {
-		if mockMatches(m, host, path, method) {
+		if mockMatches(m, host, path, method) && (m.AvailableAt != nil || m.ExpiresAt != nil) && fixtureActive(m.AvailableAt, m.ExpiresAt, at) {
+			e.serveMock(w, m, &rec)
+			return
+		}
+	}
+	for _, m := range e.policy.Mocks {
+		if mockMatches(m, host, path, method) && m.AvailableAt == nil && m.ExpiresAt == nil {
 			e.serveMock(w, m, &rec)
 			return
 		}
@@ -383,7 +394,11 @@ func (e *EnvironmentEdge) forward(r *http.Request, body []byte) (int, http.Heade
 // bodies still needs a MITM CA, so block/replay misses fail loud.
 func (e *EnvironmentEdge) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := strings.SplitN(r.Host, ":", 2)[0]
-	rec := InterceptedCall{Host: host, Path: r.URL.Path, Method: "CONNECT", Timestamp: time.Now()}
+	at := time.Now().UTC()
+	if e.clock != nil {
+		at = e.clock.Now()
+	}
+	rec := InterceptedCall{Host: host, Path: r.URL.Path, Method: "CONNECT", Timestamp: time.Now(), LogicalTime: at}
 	if e.shouldTunnelConnect(host) {
 		dest, err := net.DialTimeout("tcp", r.Host, 5*time.Second)
 		if err != nil {

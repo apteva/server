@@ -209,6 +209,9 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	// the environment-app gateway which brokers the install token; legacy sandbox
 	// apps run tokenless (dev mode) so the agent reaches their MCP directly.
 	mcpServers := []any{}
+	if environment.clock.State().Mode == "manual" {
+		mcpServers = append(mcpServers, sourcePolicy.mcpConfig("environment-clock", fmt.Sprintf("http://127.0.0.1:%s/api/runtime-clock-mcp/%s/%s", s.port, environment.ID, environment.clockToken)))
+	}
 	legacyApps := environment.Apps()
 	for _, name := range s.environmentAgentAppMCPNames(environment, src) {
 		if _, ok := environment.Install(name); ok {

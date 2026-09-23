@@ -86,19 +86,25 @@ type EnvironmentSpec struct {
 
 	// HealthBudget bounds how long each sidecar gets to answer /health
 	// before the create fails. Defaults to 20s.
-	HealthBudget time.Duration
+	HealthBudget  time.Duration
+	Clock         *sdk.RuntimeClockSpec
+	RestoredClock *sdk.RuntimeClockState
 }
 
 // Environment is a live test environment.
 type Environment struct {
-	ID              string
-	ProjectID       string
-	Mode            EdgeMode // legacy alias for NetworkMode
-	NetworkMode     EdgeMode
-	IntegrationMode string
-	ownerInstallID  int64
-	creatorUserID   int64
-	expiresAt       time.Time
+	ID                  string
+	ProjectID           string
+	Mode                EdgeMode // legacy alias for NetworkMode
+	NetworkMode         EdgeMode
+	IntegrationMode     string
+	ownerInstallID      int64
+	creatorUserID       int64
+	expiresAt           time.Time
+	clock               *EnvironmentClock
+	clockToken          string
+	httpMocks           []HTTPMock
+	integrationFixtures []IntegrationFixture
 
 	edge              *EnvironmentEdge
 	server            *Server // back-ref for real installs + teardown (nil for edge-only environments)
@@ -594,6 +600,7 @@ type EnvironmentManager struct {
 	environments   map[string]*Environment
 	creating       map[string]bool
 	creatorUserIDs map[string]int64
+	creatingClocks map[string]*EnvironmentClock
 	dataDir        string
 	snapshots      *SnapshotStore
 	server         *Server // set in NewServer; needed for real (install-backed) environment apps
@@ -624,6 +631,7 @@ func NewEnvironmentManager(dataDir string) *EnvironmentManager {
 		environments:   map[string]*Environment{},
 		creating:       map[string]bool{},
 		creatorUserIDs: map[string]int64{},
+		creatingClocks: map[string]*EnvironmentClock{},
 		dataDir:        dataDir,
 		snapshots:      NewSnapshotStore(dataDir),
 		expiryTimers:   map[string]*time.Timer{},
@@ -649,10 +657,12 @@ func (wm *EnvironmentManager) Snapshots() *SnapshotStore { return wm.snapshots }
 // IntegrationFixture answers one (app, tool) integration call in Environment
 // test mode without hitting the real third-party API.
 type IntegrationFixture struct {
-	App    string `json:"app"`  // AppTemplate.Slug
-	Tool   string `json:"tool"` // AppToolDef.Name
-	Status int    `json:"status"`
-	Data   any    `json:"data"`
+	App         string     `json:"app"`  // AppTemplate.Slug
+	Tool        string     `json:"tool"` // AppToolDef.Name
+	Status      int        `json:"status"`
+	Data        any        `json:"data"`
+	AvailableAt *time.Time `json:"available_at,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
 // RuntimeIntegrationBinding is the generic runtime primitive for creating a
@@ -674,16 +684,38 @@ type RuntimeIntegrationBinding struct {
 // Returns a remove func. Concurrent environments are safe — each is keyed by its
 // own id in environmentInterceptors, and the executor only consults the entry for
 // the call's threaded environment id (from the X-Apteva-Environment-Id header).
-func RegisterEnvironmentInterceptor(environmentID string, fixtures []IntegrationFixture) (remove func()) {
-	idx := make(map[string]IntegrationFixture, len(fixtures))
+func RegisterEnvironmentInterceptor(environmentID string, fixtures []IntegrationFixture, clock ...*EnvironmentClock) (remove func()) {
+	idx := make(map[string][]IntegrationFixture, len(fixtures))
 	for _, f := range fixtures {
-		idx[f.App+"\x00"+f.Tool] = f
+		key := f.App + "\x00" + f.Tool
+		idx[key] = append(idx[key], f)
 	}
 	var fn integrationInterceptorFn = func(app *AppTemplate, tool *AppToolDef, _ map[string]any) (*ExecuteResult, bool) {
-		f, ok := idx[app.Slug+"\x00"+tool.Name]
-		if !ok {
+		at := time.Now().UTC()
+		if len(clock) > 0 {
+			at = clock[0].Now()
+		}
+		var selected *IntegrationFixture
+		for _, f := range idx[app.Slug+"\x00"+tool.Name] {
+			if (f.AvailableAt != nil || f.ExpiresAt != nil) && fixtureActive(f.AvailableAt, f.ExpiresAt, at) {
+				selected = &f
+				break
+			}
+		}
+		if selected == nil {
+			matches := idx[app.Slug+"\x00"+tool.Name]
+			for i := len(matches) - 1; i >= 0; i-- {
+				f := matches[i]
+				if f.AvailableAt == nil && f.ExpiresAt == nil {
+					selected = &f
+					break
+				}
+			}
+		}
+		if selected == nil {
 			return nil, false // not ours → real call proceeds
 		}
+		f := *selected
 		st := f.Status
 		if st == 0 {
 			st = 200
@@ -709,6 +741,15 @@ func (wm *EnvironmentManager) CreateFromSnapshot(spec EnvironmentSpec, snapshotI
 	}
 	if len(spec.Subscriptions) == 0 {
 		spec.Subscriptions = append([]EnvironmentSubscriptionSpec(nil), man.Subscriptions...)
+	}
+	if man.Clock != nil {
+		spec.RestoredClock = man.Clock
+	}
+	if man.HTTPMocks != nil {
+		spec.Policy.Mocks = append([]HTTPMock(nil), man.HTTPMocks...)
+	}
+	if man.IntegrationFixtures != nil {
+		spec.IntegrationFixtures = append([]IntegrationFixture(nil), man.IntegrationFixtures...)
 	}
 	// Seed each declared app with its restored data dir.
 	for i := range spec.Apps {
@@ -760,49 +801,68 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		wm.mu.Lock()
 		delete(wm.creating, spec.ID)
 		delete(wm.creatorUserIDs, spec.ID)
+		delete(wm.creatingClocks, spec.ID)
 		wm.mu.Unlock()
 	}()
 
 	networkMode := normalizeEnvironmentNetworkMode(spec.NetworkMode, spec.Mode)
 	integrationMode := normalizeEnvironmentIntegrationMode(spec.IntegrationMode, spec.Mode)
+	clock, err := newEnvironmentClock(spec.Clock)
+	if spec.RestoredClock != nil {
+		clock, err = clockFromState(*spec.RestoredClock)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := validateTimedFixtures(spec.Policy.Mocks, spec.IntegrationFixtures); err != nil {
+		return nil, err
+	}
+	wm.mu.Lock()
+	wm.creatingClocks[spec.ID] = clock
+	wm.mu.Unlock()
 	edge, err := startEnvironmentEdge(spec.Policy, networkMode, spec.Cassette)
 	if err != nil {
 		return nil, err
 	}
+	edge.clock = clock
 
 	budget := spec.HealthBudget
 	if budget == 0 {
 		budget = 20 * time.Second
 	}
 	w := &Environment{
-		ID:                spec.ID,
-		ProjectID:         spec.ProjectID,
-		Mode:              edge.mode,
-		NetworkMode:       edge.mode,
-		IntegrationMode:   integrationMode,
-		ownerInstallID:    spec.RuntimeOwnerInstallID,
-		creatorUserID:     spec.CreatorUserID,
-		expiresAt:         spec.RuntimeExpiresAt,
-		edge:              edge,
-		server:            wm.server,
-		connectionIDs:     append([]int64(nil), spec.ConnectionIDs...),
-		sourceInstallIDs:  cloneInt64Map(spec.SourceInstallIDs),
-		apps:              map[string]*SandboxAppInstance{},
-		installs:          map[string]*localInstall{},
-		agents:            map[int64]*EnvironmentAgent{},
-		agentAliases:      map[string]int64{},
-		subscriptions:     append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
-		mcpAttachments:    map[string]RuntimeMCPAttachment{},
-		managedMCPs:       map[string]*RuntimeManagedMCP{},
-		managedMCPManager: NewMCPManager(),
-		createdAt:         time.Now(),
+		ID:                  spec.ID,
+		ProjectID:           spec.ProjectID,
+		Mode:                edge.mode,
+		NetworkMode:         edge.mode,
+		IntegrationMode:     integrationMode,
+		ownerInstallID:      spec.RuntimeOwnerInstallID,
+		creatorUserID:       spec.CreatorUserID,
+		expiresAt:           spec.RuntimeExpiresAt,
+		clock:               clock,
+		clockToken:          randomRuntimeToken(24),
+		httpMocks:           append([]HTTPMock(nil), spec.Policy.Mocks...),
+		integrationFixtures: append([]IntegrationFixture(nil), spec.IntegrationFixtures...),
+		edge:                edge,
+		server:              wm.server,
+		connectionIDs:       append([]int64(nil), spec.ConnectionIDs...),
+		sourceInstallIDs:    cloneInt64Map(spec.SourceInstallIDs),
+		apps:                map[string]*SandboxAppInstance{},
+		installs:            map[string]*localInstall{},
+		agents:              map[int64]*EnvironmentAgent{},
+		agentAliases:        map[string]int64{},
+		subscriptions:       append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		mcpAttachments:      map[string]RuntimeMCPAttachment{},
+		managedMCPs:         map[string]*RuntimeManagedMCP{},
+		managedMCPManager:   NewMCPManager(),
+		createdAt:           time.Now(),
 	}
 	removeIntegrationMode := registerEnvironmentIntegrationMode(spec.ID, integrationMode)
 
 	// Register this environment's integration interceptor (if any) before
 	// spawning sidecars, so their first callback already routes correctly.
 	if len(spec.IntegrationFixtures) > 0 {
-		removeFixtures := RegisterEnvironmentInterceptor(spec.ID, spec.IntegrationFixtures)
+		removeFixtures := RegisterEnvironmentInterceptor(spec.ID, spec.IntegrationFixtures, clock)
 		w.removeInterceptor = func() {
 			removeFixtures()
 			removeIntegrationMode()
@@ -821,6 +881,13 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		// Tag the sidecar with its environment id so the SDK forwards
 		// X-Apteva-Environment-Id on platform callbacks → per-environment routing.
 		app.EnvironmentID = spec.ID
+		if clock.State().Mode == "manual" {
+			if app.ExtraEnv == nil {
+				app.ExtraEnv = map[string]string{}
+			}
+			app.ExtraEnv["APTEVA_MANUAL_CLOCK"] = "1"
+			app.ExtraEnv["APTEVA_FAKE_TIME"] = clock.Now().Format(time.RFC3339Nano)
+		}
 		if app.BinaryPath == "" {
 			if wm.ResolveBinary == nil {
 				w.Stop()
@@ -863,6 +930,10 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: prepare app %q bindings: %w", spec.ID, src.Name, bindErr)
 		}
+		if clock.State().Mode == "manual" {
+			env["APTEVA_MANUAL_CLOCK"] = "1"
+			env["APTEVA_FAKE_TIME"] = clock.Now().Format(time.RFC3339Nano)
+		}
 		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, spec.CreatorUserID, env, spec.RestoredAppDataDirs[src.Name], initialBindings, nil)
 		if ierr != nil {
 			w.Stop()
@@ -881,6 +952,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 
 	wm.mu.Lock()
 	delete(wm.creating, spec.ID)
+	delete(wm.creatingClocks, spec.ID)
 	wm.environments[spec.ID] = w
 	if !spec.RuntimeExpiresAt.IsZero() {
 		delay := time.Until(spec.RuntimeExpiresAt)
@@ -1428,6 +1500,16 @@ func (wm *EnvironmentManager) CreatorOwnsScope(id string, userID int64) bool {
 	return ok && creator == userID
 }
 
+func (wm *EnvironmentManager) Clock(id string) (*EnvironmentClock, bool) {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	if w := wm.environments[id]; w != nil {
+		return w.clock, true
+	}
+	c, ok := wm.creatingClocks[id]
+	return c, ok
+}
+
 // List returns a snapshot of all live Environments.
 func (wm *EnvironmentManager) List() []*Environment {
 	wm.mu.Lock()
@@ -1464,6 +1546,7 @@ func (wm *EnvironmentManager) StopAll() {
 	wm.environments = map[string]*Environment{}
 	wm.creating = map[string]bool{}
 	wm.creatorUserIDs = map[string]int64{}
+	wm.creatingClocks = map[string]*EnvironmentClock{}
 	for _, timer := range wm.expiryTimers {
 		timer.Stop()
 	}
