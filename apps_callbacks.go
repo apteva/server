@@ -139,6 +139,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	case "runtimes":
 		s.handleCallbackRuntimes(w, r, parts[1:])
+	case "environment-time":
+		s.handleCallbackEnvironmentTime(w, r)
 	case "platform-info":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)

@@ -14,27 +14,30 @@ import (
 
 // HTTPMock is one declared response in an environment edge rule table.
 type HTTPMock struct {
-	Host    string            `json:"host"`
-	Path    string            `json:"path"`
-	Method  string            `json:"method"`
-	Status  int               `json:"status"`
-	Headers map[string]string `json:"headers"`
-	Body    json.RawMessage   `json:"body"`
+	Host        string            `json:"host"`
+	Path        string            `json:"path"`
+	Method      string            `json:"method"`
+	Status      int               `json:"status"`
+	Headers     map[string]string `json:"headers"`
+	Body        json.RawMessage   `json:"body"`
+	AvailableAt *time.Time        `json:"available_at,omitempty"`
+	ExpiresAt   *time.Time        `json:"expires_at,omitempty"`
 }
 
 // InterceptedCall captures one request handled by an environment edge.
 type InterceptedCall struct {
-	Host      string    `json:"host"`
-	Path      string    `json:"path"`
-	Method    string    `json:"method"`
-	Mocked    bool      `json:"mocked"`
-	Allowed   bool      `json:"allowed"`
-	Blocked   bool      `json:"blocked"`
-	Recorded  bool      `json:"recorded"`
-	ReqBody   string    `json:"req_body,omitempty"`
-	RespBody  string    `json:"resp_body,omitempty"`
-	Status    int       `json:"status"`
-	Timestamp time.Time `json:"ts"`
+	Host        string    `json:"host"`
+	Path        string    `json:"path"`
+	Method      string    `json:"method"`
+	Mocked      bool      `json:"mocked"`
+	Allowed     bool      `json:"allowed"`
+	Blocked     bool      `json:"blocked"`
+	Recorded    bool      `json:"recorded"`
+	ReqBody     string    `json:"req_body,omitempty"`
+	RespBody    string    `json:"resp_body,omitempty"`
+	Status      int       `json:"status"`
+	Timestamp   time.Time `json:"ts"`
+	LogicalTime time.Time `json:"logical_time"`
 }
 
 // SandboxPolicy classifies outbound hosts and supplies deterministic mocks.
