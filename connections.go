@@ -1924,6 +1924,21 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	if err := requestCtx.Err(); err != nil {
 		return nil, err
 	}
+	fallbackTimeout := 30 * time.Second
+	if app != nil && app.Slug == integrationOpenAICodexSlug {
+		fallbackTimeout = 240 * time.Second
+	}
+	cleanInput, timeout, overridden, err := integrationExecutionInput(input, tool, fallbackTimeout)
+	if err != nil {
+		return nil, err
+	}
+	input = cleanInput
+	if overridden {
+		bounded, cancel := context.WithTimeout(requestCtx, timeout)
+		defer cancel()
+		requestCtx = bounded
+	}
+	requestCtx = context.WithValue(requestCtx, integrationToolTimeoutKey{}, timeout)
 
 	maxRetries := 0
 	if tool != nil && tool.RateLimit != nil {
@@ -1990,6 +2005,24 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 
 	if app != nil && app.Slug == integrationOpenAICodexSlug {
 		return executeOpenAICodexIntegrationTool(app, tool, credentials, input, requestCtx)
+	}
+	if app != nil && app.Slug == "openstreetmap-overpass" {
+		fields := normalizeCredentials(credentials)
+		contact := fields["contact_email"]
+		if strings.ContainsAny(contact, " \t\r\n") || !strings.Contains(contact, "@") {
+			return nil, fmt.Errorf("an operator contact email is required for Overpass requests")
+		}
+		endpoint, err := neturl.Parse(fields["overpass_base_url"])
+		if err != nil || endpoint == nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return nil, fmt.Errorf("a valid Overpass HTTPS base URL is required")
+		}
+	}
+	if app != nil && app.Slug == "openstreetmap-nominatim" {
+		configured := normalizeCredentials(credentials)["nominatim_base_url"]
+		endpoint, err := neturl.Parse(configured)
+		if err != nil || endpoint == nil || endpoint.Scheme != "https" || endpoint.Host == "" || strings.EqualFold(endpoint.Hostname(), "nominatim.openstreetmap.org") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return nil, fmt.Errorf("use a self-hosted or licensed Nominatim HTTPS endpoint; the public endpoint cannot be used by this integration")
+		}
 	}
 
 	// Coerce input values to match the tool's schema types.
@@ -2421,13 +2454,7 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		}
 	}
 
-	timeout := 30 * time.Second
-	if tool.TimeoutMS > 0 {
-		timeout = time.Duration(tool.TimeoutMS) * time.Millisecond
-		if timeout > 10*time.Minute {
-			timeout = 10 * time.Minute
-		}
-	}
+	timeout := integrationTimeoutFromContext(requestCtx, tool, 30*time.Second)
 	client, err := integrationHTTPClient(app, credentials, timeout)
 	if err != nil {
 		return nil, err

@@ -124,9 +124,11 @@ type Server struct {
 	integrationsUIDir   string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
 	publicURL           string   // public base URL for webhooks (e.g. "https://agents.example.com")
 	broadcaster         *TelemetryBroadcaster
-	setupToken          string                     // one-time token for first registration (empty after use)
-	regMode             string                     // "open", "locked", "setup" — controls registration
-	instanceSecret      string                     // shared secret for MCP and telemetry auth
+	setupToken          string // one-time token for first registration (empty after use)
+	regMode             string // "open", "locked", "setup" — controls registration
+	instanceSecret      string // shared secret for MCP and telemetry auth
+	helperToolRefsMu    sync.Mutex
+	helperToolRefs      map[string]helperToolRef
 	platformGatewayExec platformGatewayExecuteFunc // test seam for Helper's HTTP management MCP
 	startupIntent       agentLifecycleIntent
 	agentRollouts       *agentRolloutCoordinator

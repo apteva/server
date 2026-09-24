@@ -542,12 +542,14 @@ func (s *Server) applyPlatformHelperMCPConfig(helper *Agent) error {
 	if err := json.NewDecoder(resp.Body).Decode(&live); err != nil {
 		return err
 	}
-	next := make([]any, 0, len(helperConfiguredMCPServers(helper))+2)
+	// The gateway is mandatory for Helper. Recreate its current loopback URL
+	// even if a previous Core config lost or retained a stale entry.
+	next := []any{managementGatewayConfig(helper, "", s.port)}
 	if existing, _ := live["mcp_servers"].([]any); len(existing) > 0 {
 		for _, raw := range existing {
 			entry, _ := raw.(map[string]any)
 			name, _ := entry["name"].(string)
-			if name == "apteva-server" || isServerOwnedOutputMCP(name) {
+			if name != "apteva-server" && isServerOwnedOutputMCP(name) {
 				next = append(next, entry)
 			}
 		}
@@ -758,12 +760,21 @@ func (s *Server) refreshPlatformHelperDirective(helper *Agent) error {
 }
 
 type platformHelperStatusResponse struct {
-	Activated              bool   `json:"activated"`
-	State                  string `json:"state"`
-	ProviderConfigured     bool   `json:"provider_configured"`
-	ConversationsInstalled bool   `json:"conversations_installed"`
-	ConversationsInstallID int64  `json:"conversations_install_id,omitempty"`
-	Agent                  *Agent `json:"agent,omitempty"`
+	Activated              bool                         `json:"activated"`
+	State                  string                       `json:"state"`
+	ProviderConfigured     bool                         `json:"provider_configured"`
+	ConversationsInstalled bool                         `json:"conversations_installed"`
+	ConversationsInstallID int64                        `json:"conversations_install_id,omitempty"`
+	Agent                  *Agent                       `json:"agent,omitempty"`
+	BuiltInIntegrations    []platformBuiltInIntegration `json:"built_in_integrations"`
+}
+
+type platformBuiltInIntegration struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Logo         string `json:"logo"`
+	AutoAttached bool   `json:"auto_attached"`
 }
 
 func sanitizedPlatformHelper(helper *Agent, running bool) *Agent {
@@ -831,6 +842,11 @@ func (s *Server) currentPlatformHelperStatus(userID int64) platformHelperStatusR
 	response := platformHelperStatusResponse{
 		State: "inactive", ProviderConfigured: len(s.GetProviderPool(userID, "")) > 0,
 		ConversationsInstalled: conversationsInstalled, ConversationsInstallID: installID,
+		BuiltInIntegrations: []platformBuiltInIntegration{{
+			ID: "apteva-server", Name: "Apteva Server",
+			Description: "Management tools for Apteva Helper.",
+			Logo:        "/favicon-orange.svg", AutoAttached: true,
+		}},
 	}
 	helper, err := s.store.GetPlatformHelper(userID)
 	if err != nil || !platformHelperActivated(helper) {

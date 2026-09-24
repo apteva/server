@@ -30,6 +30,9 @@ const (
 // seam (openAICodexTokenEndpoint) since it was written.
 var integrationOpenAICodexTokenURL = "https://auth.openai.com/oauth/token"
 
+// Tests replace only the Responses network edge; production uses the Codex API.
+var integrationOpenAICodexResponsesURL = integrationOpenAICodexBackendAPIBaseURL + "/responses"
+
 // Device endpoints are variables so the complete connection lifecycle can be
 // exercised against httptest servers. Production keeps the ChatGPT device-auth
 // endpoints; tests replace only the network edge.
@@ -280,10 +283,7 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	if accessToken == "" {
 		return nil, fmt.Errorf("OpenAI Codex connection is missing access_token")
 	}
-	timeout := 120 * time.Second
-	if tool.TimeoutMS > 0 {
-		timeout = time.Duration(tool.TimeoutMS) * time.Millisecond
-	}
+	timeout := integrationTimeoutFromContext(integrationRequestContext(parents), tool, 240*time.Second)
 	resolvedInput := make(map[string]any, len(input)+1)
 	for key, value := range input {
 		resolvedInput[key] = value
@@ -586,7 +586,7 @@ func callOpenAICodexResponses(ctx context.Context, accessToken, accountID string
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("build request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, integrationOpenAICodexBackendAPIBaseURL+"/responses", bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, integrationOpenAICodexResponsesURL, bytes.NewReader(raw))
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("build request: %w", err)
 	}
@@ -603,15 +603,33 @@ func callOpenAICodexResponses(ctx context.Context, accessToken, accountID string
 	}
 	defer resp.Body.Close()
 	headers := pickForwardableHeaders(resp.Header)
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 10_000_000))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 10_000_001))
+	if readErr != nil {
+		return resp.StatusCode, nil, headers, fmt.Errorf("read Codex response: %w", readErr)
+	}
+	if len(body) > 10_000_000 {
+		return resp.StatusCode, nil, headers, fmt.Errorf("Codex response exceeds 10 MB")
+	}
 	var data any
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 && isOpenAICodexStreamResponse(resp.Header, body) {
-		data = parseOpenAICodexSSE(body)
+		parsed, err := parseOpenAICodexSSE(body)
+		if err != nil {
+			return resp.StatusCode, nil, headers, err
+		}
+		data = parsed
 	} else if err := json.Unmarshal(body, &data); err != nil {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return resp.StatusCode, nil, headers, fmt.Errorf("decode Codex response: %w", err)
+		}
 		data = map[string]any{"raw": string(body)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return resp.StatusCode, data, headers, fmt.Errorf("HTTP %d: %s", resp.StatusCode, summarizeUpstreamError(body))
+	}
+	if object, ok := data.(map[string]any); ok {
+		if status, _ := object["status"].(string); status != "" && status != "completed" {
+			return resp.StatusCode, nil, headers, fmt.Errorf("Codex response %s", status)
+		}
 	}
 	return resp.StatusCode, data, headers, nil
 }
@@ -623,13 +641,14 @@ func isOpenAICodexStreamResponse(header http.Header, body []byte) bool {
 	return bytes.HasPrefix(bytes.TrimSpace(body), []byte("event: "))
 }
 
-func parseOpenAICodexSSE(body []byte) map[string]any {
+func parseOpenAICodexSSE(body []byte) (map[string]any, error) {
 	out := map[string]any{
 		"object": "response",
 	}
 	var text strings.Builder
 	var output []any
 	seenOutput := map[string]bool{}
+	completed := false
 	lines := strings.Split(string(body), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -642,13 +661,15 @@ func parseOpenAICodexSSE(body []byte) map[string]any {
 		}
 		var event map[string]any
 		if err := json.Unmarshal([]byte(raw), &event); err != nil {
-			continue
+			return nil, fmt.Errorf("decode Codex stream event: %w", err)
 		}
 		collectOpenAICodexImageOutput(event, &output, seenOutput)
 		if item, ok := event["item"].(map[string]any); ok {
 			collectOpenAICodexImageOutput(item, &output, seenOutput)
 		}
 		switch event["type"] {
+		case "response.failed", "response.incomplete", "error":
+			return nil, fmt.Errorf("Codex stream ended with %v", event["type"])
 		case "response.output_text.delta":
 			if delta, _ := event["delta"].(string); delta != "" {
 				text.WriteString(delta)
@@ -659,25 +680,34 @@ func parseOpenAICodexSSE(body []byte) map[string]any {
 				text.WriteString(done)
 			}
 		case "response.completed":
-			if response, ok := event["response"].(map[string]any); ok {
-				for k, v := range response {
-					out[k] = v
-				}
-				if items, ok := response["output"].([]any); ok {
-					for _, rawItem := range items {
-						if item, ok := rawItem.(map[string]any); ok {
-							collectOpenAICodexImageOutput(item, &output, seenOutput)
-						}
+			response, ok := event["response"].(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("Codex response.completed event has no response")
+			}
+			if status, _ := response["status"].(string); status != "" && status != "completed" {
+				return nil, fmt.Errorf("Codex response %s", status)
+			}
+			completed = true
+			for k, v := range response {
+				out[k] = v
+			}
+			if items, ok := response["output"].([]any); ok {
+				for _, rawItem := range items {
+					if item, ok := rawItem.(map[string]any); ok {
+						collectOpenAICodexImageOutput(item, &output, seenOutput)
 					}
 				}
 			}
 		}
 	}
+	if !completed {
+		return nil, fmt.Errorf("Codex stream ended without response.completed")
+	}
 	out["output_text"] = strings.TrimSpace(text.String())
 	if len(output) > 0 {
 		out["output"] = output
 	}
-	return out
+	return out, nil
 }
 
 func collectOpenAICodexImageOutput(obj map[string]any, output *[]any, seen map[string]bool) {

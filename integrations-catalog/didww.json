@@ -1,7 +1,7 @@
 {
   "slug": "didww",
   "name": "DIDWW",
-  "description": "DIDWW API v3 for DID coverage and ordering, owned numbers, inbound and outbound SIP trunks, capacity, regulatory resources, emergency services, and CDR exports.",
+  "description": "DIDWW API v3 for DID coverage and ordering, owned numbers, inbound and outbound SIP trunks, capacity, regulatory resources, emergency services, and CDR exports. Live call media and controls run over SIP, not this management API.",
   "logo": "https://www.google.com/s2/favicons?domain=didww.com&sz=128",
   "categories": ["telephony", "voice", "sip", "phone", "communications", "carrier"],
   "base_url": "https://api.didww.com/v3",
@@ -13,11 +13,18 @@
       "Content-Type": "application/vnd.api+json"
     },
     "credential_fields": [
-      { "name": "api_key", "label": "API Token", "description": "DIDWW API token from the user panel.", "type": "password", "required": true }
+      { "name": "api_key", "label": "API Token", "description": "DIDWW API token from the user panel.", "type": "password", "required": true },
+      { "name": "sip_host", "label": "Outbound SIP Host", "description": "DIDWW outbound signaling hostname for the chosen region, such as fra.eu.out.didww.com.", "required": false },
+      { "name": "sip_port", "label": "Outbound SIP TLS Port", "description": "Defaults to 5061.", "required": false },
+      { "name": "sip_transport", "label": "Outbound SIP Transport", "description": "Use TLS; other transports are not accepted by Telephony.", "required": false },
+      { "name": "sip_username", "label": "Outbound SIP Username", "description": "Username of an active DIDWW outbound trunk; separate from the API token.", "required": false },
+      { "name": "sip_password", "label": "Outbound SIP Password", "description": "Password of that outbound trunk.", "type": "password", "required": false },
+      { "name": "sip_media_encryption", "label": "Outbound Media Encryption", "description": "srtp_sdes (default) or disabled; must match the trunk and Telephony SIP gateway policy.", "required": false }
     ]
   },
   "health_check": { "tool": "get_balance" },
   "tools": [
+    { "name": "set_did_voice_trunk", "description": "Assign or clear a DID's inbound voice trunk with an exact JSON:API relationship body; relationship.data may be null to clear it.", "method": "PATCH", "path": "/dids/{id}", "path_params": ["id"], "body_root_param": "body", "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "body": { "type": "object", "description": "JSON:API document with data.type=dids, data.id matching id, and data.relationships.voice_in_trunk.data set to a trunk identifier or null." } }, "required": ["id", "body"] } },
     { "name": "get_balance", "description": "Get prepaid balance and available account credit.", "method": "GET", "path": "/balance", "input_schema": { "type": "object", "properties": {} } },
 
     { "name": "list_countries", "description": "List countries in DIDWW DID inventory.", "method": "GET", "path": "/countries", "query_params": ["include", "page_number", "page_size"], "query_param_aliases": { "page_number": "page[number]", "page_size": "page[size]" }, "input_schema": { "type": "object", "properties": { "include": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } } },

@@ -1,0 +1,72 @@
+{
+  "slug": "openstreetmap-nominatim",
+  "name": "OpenStreetMap Nominatim",
+  "description": "Search, reverse-geocode, and look up OSM features using a self-hosted or licensed Nominatim-compatible API. Requires an operator-supplied endpoint. The public nominatim.openstreetmap.org service cannot be embedded as generic place search in an agent platform under its usage policy.",
+  "logo": "https://www.google.com/s2/favicons?domain=openstreetmap.org&sz=128",
+  "categories": ["maps", "geocoding", "places", "geospatial", "open-data"],
+  "base_url": "{{credential.nominatim_base_url}}",
+  "auth": {
+    "types": ["none"],
+    "headers": { "Accept": "application/json" },
+    "credential_fields": [
+      {
+        "name": "nominatim_base_url",
+        "label": "Nominatim API base URL",
+        "type": "text",
+        "required": true,
+        "description": "HTTPS base URL of your self-hosted or licensed Nominatim-compatible service, without /search or /reverse. Do not use the public nominatim.openstreetmap.org endpoint for this general-purpose integration."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_place",
+      "description": "Search an address or named place. Returns OSM IDs, coordinates, display names, address details and extra tags where available. Nominatim search is for resolving a specific place, not collecting all restaurants in an area; use Overpass for POI discovery.",
+      "method": "GET",
+      "path": "/search?format=jsonv2&addressdetails=1&extratags=1&namedetails=1",
+      "query_params": ["q", "limit", "countrycodes"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "minLength": 2, "description": "Specific place name or address, for example Baba Nahm, Madrid." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20 },
+          "countrycodes": { "type": "string", "description": "Optional comma-separated ISO country codes, for example es or es,pt." }
+        },
+        "required": ["q"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "reverse_geocode",
+      "description": "Resolve a coordinate to its nearest mapped address or place. The nearest result is not proof that a business occupies that point.",
+      "method": "GET",
+      "path": "/reverse?format=jsonv2&addressdetails=1&extratags=1&namedetails=1",
+      "query_params": ["lat", "lon", "zoom"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+          "zoom": { "type": "integer", "minimum": 0, "maximum": 18, "description": "Detail level; 18 requests building-level results." }
+        },
+        "required": ["lat", "lon"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lookup_osm_feature",
+      "description": "Look up an exact OSM node, way or relation by prefixed ID, for example N123, W456 or R789. Returns extra tags where the Nominatim service has indexed them.",
+      "method": "GET",
+      "path": "/lookup?format=jsonv2&addressdetails=1&extratags=1&namedetails=1",
+      "query_params": ["osm_ids"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "osm_ids": { "type": "string", "pattern": "^[NWR][0-9]+$", "description": "One prefixed OSM ID: N for node, W for way, R for relation." }
+        },
+        "required": ["osm_ids"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

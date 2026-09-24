@@ -52,31 +52,15 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 	}
 
 	// Build tool list for MCP response
-	type mcpInputSchema struct {
-		Type       string         `json:"type"`
-		Properties map[string]any `json:"properties,omitempty"`
-		Required   []string       `json:"required,omitempty"`
-	}
-
 	type mcpTool struct {
 		Name        string         `json:"name"`
 		Description string         `json:"description"`
-		InputSchema mcpInputSchema `json:"inputSchema"`
+		InputSchema map[string]any `json:"inputSchema"`
 	}
 
 	var tools []mcpTool
 	for _, t := range app.Tools {
-		schema := mcpInputSchema{Type: "object"}
-		if props, ok := t.InputSchema["properties"].(map[string]any); ok {
-			schema.Properties = props
-		}
-		if req, ok := t.InputSchema["required"].([]any); ok {
-			for _, r := range req {
-				if s, ok := r.(string); ok {
-					schema.Required = append(schema.Required, s)
-				}
-			}
-		}
+		schema := integrationMCPInputSchema(&t)
 		tools = append(tools, mcpTool{
 			Name:        t.Name,
 			Description: fmt.Sprintf("[%s] %s", app.Name, t.Description),

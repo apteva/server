@@ -240,13 +240,7 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 			if allowedSet != nil && !allowedSet[t.Name] {
 				continue
 			}
-			schema := map[string]any{"type": "object"}
-			if props, ok := t.InputSchema["properties"]; ok {
-				schema["properties"] = props
-			}
-			if req, ok := t.InputSchema["required"]; ok {
-				schema["required"] = req
-			}
+			schema := integrationMCPInputSchema(&t)
 			tools = append(tools, map[string]any{
 				"name":        t.Name,
 				"description": fmt.Sprintf("[%s] %s", app.Name, t.Description),

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/components/integrations/IntegrationLogo.tsx"],
+  "sourcesContent": [
+    "import { useState } from \"react\";\n\nexport function IntegrationLogo({ src, name }: { src?: string | null; name: string }) {\n  const [broken, setBroken] = useState(false);\n  return (\n    <span className=\"flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-bg-input text-accent font-bold\" aria-hidden=\"true\">\n      {src && !broken ? <img src={src} alt=\"\" loading=\"lazy\" className=\"h-6 w-6 object-contain\" onError={() => setBroken(true)} /> : name.slice(0, 1).toUpperCase()}\n    </span>\n  );\n}\n\n"
+  ],
+  "mappings": "AAAA,mBAAS,sDAEF,SAAS,CAAe,EAAG,MAAK,QAA+C,CACpF,IAAO,EAAQ,GAAa,EAAS,EAAK,EAC1C,OACE,EAEE,OAFF,CAAM,UAAU,wHAAwH,cAAY,OAApJ,SACG,GAAO,CAAC,EAAS,EAAC,MAAD,CAAK,IAAK,EAAK,IAAI,GAAG,QAAQ,OAAO,UAAU,yBAAyB,QAAS,IAAM,EAAU,EAAI,EAAG,EAAK,EAAK,MAAM,EAAG,CAAC,EAAE,YAAY,EAC5J",
+  "debugId": "1B9E213D133EACDB64756E2164756E21",
+  "names": []
+}

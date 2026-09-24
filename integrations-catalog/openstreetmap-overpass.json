@@ -1,0 +1,69 @@
+{
+  "slug": "openstreetmap-overpass",
+  "name": "OpenStreetMap Overpass",
+  "description": "Read OpenStreetMap points of interest and their mapped tags through Overpass. Find nearby restaurants with website, email, phone, cuisine, address, and opening-hours tags when contributors supplied them. OSM data can be incomplete or stale; verify contact details against the business website. Public Overpass is for modest, occasional queries, not bulk extraction.",
+  "logo": "https://www.google.com/s2/favicons?domain=openstreetmap.org&sz=128",
+  "categories": ["maps", "places", "restaurants", "geospatial", "open-data"],
+  "base_url": "{{credential.overpass_base_url}}",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json",
+      "User-Agent": "Apteva-OpenStreetMap/1.0 ({{contact_email}})"
+    },
+    "credential_fields": [
+      {
+        "name": "contact_email",
+        "label": "Operator contact email",
+        "type": "text",
+        "required": true,
+        "description": "A monitored contact email included in the User-Agent so public Overpass operators can identify the application. No API key is needed."
+      },
+      {
+        "name": "overpass_base_url",
+        "label": "Overpass API base URL",
+        "type": "text",
+        "required": false,
+        "default": "https://overpass-api.de/api",
+        "description": "Defaults to the public overpass-api.de service. Override with your own Overpass /api base URL if you need reliable or frequent queries."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_restaurants_nearby",
+      "description": "Find OSM restaurant nodes, ways and relations near a latitude/longitude. Returns contributor-supplied tags and a center point for ways/relations. Inspect tags.website, tags.contact:website, tags.email, tags.contact:email, tags.phone, tags.cuisine, tags.opening_hours and addr:* when present. Small areas only; do not sweep a city into tiles.",
+      "method": "GET",
+      "path": "/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28nwr%28around%3A{radius}%2C{lat}%2C{lon}%29%5B%22amenity%22%3D%22restaurant%22%5D%3B%29%3Bout%20center%3B",
+      "timeout_ms": 30000,
+      "rate_limit": { "min_interval_ms": 5000, "max_retries": 0 },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90, "description": "Center latitude in decimal degrees." },
+          "lon": { "type": "number", "minimum": -180, "maximum": 180, "description": "Center longitude in decimal degrees." },
+          "radius": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "Search radius in meters, up to 2 km on the public endpoint." }
+        },
+        "required": ["lat", "lon", "radius"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "query_overpass",
+      "description": "Run a small, read-only Overpass QL query. Set [out:json] and a bounded area and timeout in data. Query the public service sparingly and use an OSM extract or your own Overpass instance for systematic collection.",
+      "method": "GET",
+      "path": "/interpreter",
+      "query_params": ["data"],
+      "timeout_ms": 30000,
+      "rate_limit": { "min_interval_ms": 5000, "max_retries": 0 },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "string", "minLength": 1, "maxLength": 5000, "description": "Overpass QL, for example [out:json][timeout:25];nwr(around:500,40.7,-73.9)[amenity=cafe];out center;" }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

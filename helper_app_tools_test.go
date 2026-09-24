@@ -109,6 +109,9 @@ func (f *helperBrokerFixture) search(t *testing.T) string {
 	if len(out.Tools) != 1 || out.Tools[0].Schema == nil {
 		t.Fatalf("missing bounded schema result: %s", text)
 	}
+	if len(out.Tools[0].Reference) != 34 {
+		t.Fatalf("tool reference length=%d, want short opaque handle", len(out.Tools[0].Reference))
+	}
 	return out.Tools[0].Reference
 }
 func TestHelperAppToolsSearchAndCall(t *testing.T) {

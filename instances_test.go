@@ -32,6 +32,40 @@ func TestExtractMCPNamesExcludesPersistedSystemTransportsAfterRestart(t *testing
 	}
 }
 
+func TestMergeServerOwnedMCPsKeepsOneHelperGateway(t *testing.T) {
+	helper := &Agent{Kind: "platform_helper", Config: `{"include_apteva_server":false}`}
+	config := map[string]any{"mcp_servers": []any{
+		map[string]any{"name": "apteva-server", "url": "http://old-one"},
+		map[string]any{"name": "crm"},
+		map[string]any{"name": "apteva-server", "url": "http://old-two"},
+	}}
+	mergeServerOwnedMCPs(helper, config,
+		map[string]any{"name": "apteva-server", "url": "http://current"},
+		map[string]any{"name": "agent-output"},
+		map[string]any{"name": "channels"},
+	)
+	servers, ok := config["mcp_servers"].([]any)
+	if !ok {
+		t.Fatal("mcp_servers is not a list")
+	}
+	count := 0
+	for _, raw := range servers {
+		entry := raw.(map[string]any)
+		if entry["name"] == "apteva-server" {
+			count++
+			if entry["url"] != "http://current" {
+				t.Fatalf("gateway URL = %v, want current URL", entry["url"])
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("gateway count = %d, want 1", count)
+	}
+	if len(servers) != 4 {
+		t.Fatalf("MCP count = %d, want 4 including CRM and system transports", len(servers))
+	}
+}
+
 // helper: register + login (creates user, session cookie set as side effect)
 func registerAndLogin(t *testing.T, s *Server) {
 	t.Helper()

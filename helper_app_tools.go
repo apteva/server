@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -35,22 +33,44 @@ type helperToolRef struct {
 }
 
 func (s *Server) signHelperTool(ref helperToolRef) string {
-	body, _ := json.Marshal(ref)
-	mac := hmac.New(sha256.New, []byte(s.instanceSecret))
-	mac.Write(body)
-	return base64.RawURLEncoding.EncodeToString(body) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	// A short, random handle is easier for a model to copy accurately than a
+	// signed serialization of the full caller, project, and schema context.
+	// The context stays server-side and is rechecked when the handle is used.
+	handle := "r_" + generateToken(16)
+	s.helperToolRefsMu.Lock()
+	defer s.helperToolRefsMu.Unlock()
+	if s.helperToolRefs == nil {
+		s.helperToolRefs = make(map[string]helperToolRef)
+	}
+	now := time.Now().Unix()
+	for key, existing := range s.helperToolRefs {
+		if existing.Expires < now {
+			delete(s.helperToolRefs, key)
+		}
+	}
+	// Bound memory even if a caller searches continuously during the TTL.
+	for len(s.helperToolRefs) >= 8192 {
+		for key := range s.helperToolRefs {
+			delete(s.helperToolRefs, key)
+			break
+		}
+	}
+	s.helperToolRefs[handle] = ref
+	return handle
 }
 func (s *Server) readHelperTool(raw string) (helperToolRef, error) {
 	var ref helperToolRef
-	parts := strings.Split(raw, ".")
-	if len(parts) != 2 || len(raw) > 4096 {
+	if len(raw) != 34 || !strings.HasPrefix(raw, "r_") {
 		return ref, fmt.Errorf("invalid tool reference")
 	}
-	body, e1 := base64.RawURLEncoding.DecodeString(parts[0])
-	sig, e2 := base64.RawURLEncoding.DecodeString(parts[1])
-	mac := hmac.New(sha256.New, []byte(s.instanceSecret))
-	mac.Write(body)
-	if e1 != nil || e2 != nil || !hmac.Equal(sig, mac.Sum(nil)) || json.Unmarshal(body, &ref) != nil || ref.Expires < time.Now().Unix() {
+	s.helperToolRefsMu.Lock()
+	ref, ok := s.helperToolRefs[raw]
+	if ok && ref.Expires < time.Now().Unix() {
+		delete(s.helperToolRefs, raw)
+		ok = false
+	}
+	s.helperToolRefsMu.Unlock()
+	if !ok {
 		return ref, fmt.Errorf("invalid or expired reference; search again")
 	}
 	return ref, nil

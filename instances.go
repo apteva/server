@@ -318,6 +318,47 @@ func managementGatewayConfig(inst *Agent, serverBin, serverPort string) map[stri
 	}
 }
 
+// mergeServerOwnedMCPs is the single attachment path for fresh and adopted
+// cores. Replacing system entries by name keeps one current gateway URL even
+// when a saved config contains an older or duplicate entry.
+func mergeServerOwnedMCPs(inst *Agent, config map[string]any, gateway, output, channels map[string]any) bool {
+	includeGateway := inst.Kind == "platform_helper"
+	includeChannels := true
+	var instCfg map[string]any
+	if inst.Config != "" {
+		_ = json.Unmarshal([]byte(inst.Config), &instCfg)
+	}
+	if v, ok := instCfg["include_apteva_server"].(bool); ok && inst.Kind != "platform_helper" {
+		includeGateway = v
+	}
+	if v, ok := instCfg["include_channels"].(bool); ok {
+		includeChannels = v
+	}
+
+	var entries []any
+	if includeGateway {
+		entries = append(entries, gateway)
+	}
+	if includeChannels {
+		entries = append(entries, output, channels)
+	}
+	if existing, ok := config["mcp_servers"].([]any); ok {
+		for _, raw := range existing {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			name, _ := entry["name"].(string)
+			if name == "apteva-server" || isServerOwnedOutputMCP(name) {
+				continue
+			}
+			entries = append(entries, entry)
+		}
+	}
+	config["mcp_servers"] = entries
+	return includeChannels
+}
+
 // agentOutputMCPConfig is main's central operator-output surface: one mutable
 // status, full Inbox publication, and explicit external notifications. It is
 // always loaded for main and never attached to user conversation threads.
@@ -674,50 +715,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	channelsEntry := channelsMCPConfig(channelsMCP.url())
 	outputEntry := agentOutputMCPConfig(outputMCP.url())
 
-	// Read the opt-in flags for the auto-injected system MCPs. These
-	// live in the instance's DB record (inst.Config JSON blob) rather
-	// than disk config.json — core owns the disk config and drops
-	// unknown fields on save, so any server-only state needs to live
-	// elsewhere. Channels default on; the platform gateway is private
-	// and must be explicitly set by server-owned helper setup.
-	includeGateway := false
-	includeChannels := true
-	{
-		var instCfg map[string]any
-		if inst.Config != "" {
-			json.Unmarshal([]byte(inst.Config), &instCfg)
-		}
-		if v, ok := instCfg["include_apteva_server"].(bool); ok {
-			includeGateway = v
-		}
-		if v, ok := instCfg["include_channels"].(bool); ok {
-			includeChannels = v
-		}
-	}
-
-	// Merge apteva-server and the role-split output servers into existing MCPs.
-	// Preserve all other MCP servers (schedule, social, helpdesk, etc.) that were
-	// added at runtime or manually. Only replace server-owned system entries.
-	var userServers []any
-	if existing, ok := config["mcp_servers"].([]any); ok {
-		for _, s := range existing {
-			if sm, ok := s.(map[string]any); ok {
-				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
-					continue // will be re-added with fresh URLs (if enabled)
-				}
-				userServers = append(userServers, sm)
-			}
-		}
-	}
-	var systemEntries []any
-	if includeGateway {
-		systemEntries = append(systemEntries, gateway)
-	}
-	if includeChannels {
-		systemEntries = append(systemEntries, outputEntry, channelsEntry)
-	}
-	config["mcp_servers"] = append(systemEntries, userServers...)
+	includeChannels := mergeServerOwnedMCPs(inst, config, gateway, outputEntry, channelsEntry)
 	if im.AuthorizeMCPConfig != nil {
 		if err := im.AuthorizeMCPConfig(inst, config); err != nil {
 			ic.Stop()
@@ -1243,41 +1241,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	channelsEntry := channelsMCPConfig(channelsMCP.url())
 	outputEntry := agentOutputMCPConfig(outputMCP.url())
 
-	includeGateway := false
-	includeChannels := true
-	{
-		var instCfg map[string]any
-		if inst.Config != "" {
-			_ = json.Unmarshal([]byte(inst.Config), &instCfg)
-		}
-		if v, ok := instCfg["include_apteva_server"].(bool); ok {
-			includeGateway = v
-		}
-		if v, ok := instCfg["include_channels"].(bool); ok {
-			includeChannels = v
-		}
-	}
-
-	var userServers []any
-	if existing, ok := config["mcp_servers"].([]any); ok {
-		for _, s := range existing {
-			if sm, ok := s.(map[string]any); ok {
-				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
-					continue
-				}
-				userServers = append(userServers, sm)
-			}
-		}
-	}
-	var systemEntries []any
-	if includeGateway {
-		systemEntries = append(systemEntries, gateway)
-	}
-	if includeChannels {
-		systemEntries = append(systemEntries, outputEntry, channelsEntry)
-	}
-	config["mcp_servers"] = append(systemEntries, userServers...)
+	includeChannels := mergeServerOwnedMCPs(inst, config, gateway, outputEntry, channelsEntry)
 	if im.AuthorizeMCPConfig != nil {
 		if err := im.AuthorizeMCPConfig(inst, config); err != nil {
 			ic.Stop()

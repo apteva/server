@@ -14,7 +14,8 @@
       "description": "Create a response through the subscription-backed Codex Responses runtime. Accepts the Responses API request shape: model, input, instructions, tools, text, max_output_tokens, temperature, stream, and store.",
       "method": "POST",
       "path": "/responses",
-      "timeout_ms": 120000,
+      "timeout_ms": 240000,
+      "max_timeout_ms": 600000,
       "input_schema": {
         "type": "object",
         "properties": {
@@ -59,7 +60,8 @@
       "description": "Compatibility wrapper for OpenAI-style chat completions. Converts messages, including multimodal image_url parts, into a Codex Responses request and returns an OpenAI chat-completion shaped response.",
       "method": "POST",
       "path": "/responses",
-      "timeout_ms": 120000,
+      "timeout_ms": 240000,
+      "max_timeout_ms": 600000,
       "input_schema": {
         "type": "object",
         "properties": {
@@ -105,7 +107,8 @@
       "description": "Alias of chat_completion for integrations that declare a vision.describe capability. Pass multimodal chat messages with image_url content parts.",
       "method": "POST",
       "path": "/responses",
-      "timeout_ms": 120000,
+      "timeout_ms": 240000,
+      "max_timeout_ms": 600000,
       "input_schema": {
         "type": "object",
         "properties": {
@@ -133,6 +136,7 @@
       "method": "POST",
       "path": "/responses",
       "timeout_ms": 300000,
+      "max_timeout_ms": 600000,
       "input_schema": {
         "type": "object",
         "properties": {

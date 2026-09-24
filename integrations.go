@@ -644,6 +644,9 @@ type AppToolDef struct {
 	// Capped at 600s server-side to keep a single tool call from holding
 	// a connection open indefinitely. Zero / unset → 30s default.
 	TimeoutMS int `json:"timeout_ms,omitempty"`
+	// MaxTimeoutMS is the upper bound for a caller's optional
+	// _apteva.timeout_ms override. The platform hard cap is 600s.
+	MaxTimeoutMS int `json:"max_timeout_ms,omitempty"`
 
 	// BodyInput names a single input field whose value carries the raw
 	// request body. Required for endpoints that take binary content

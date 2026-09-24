@@ -1,6 +1,11 @@
 package main
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -133,7 +138,10 @@ func TestParseOpenAICodexSSE(t *testing.T) {
 		"data: {\"type\":\"response.output_text.delta\",\"delta\":\" environment\"}\n\n" +
 		"event: response.completed\n" +
 		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.5\",\"usage\":{\"total_tokens\":3}}}\n\n")
-	out := parseOpenAICodexSSE(raw)
+	out, err := parseOpenAICodexSSE(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if out["output_text"] != "hello environment" {
 		t.Fatalf("output_text=%v", out["output_text"])
 	}
@@ -147,7 +155,10 @@ func TestParseOpenAICodexSSE_ImageGenerationOutputItemDone(t *testing.T) {
 		"data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"ig_1\",\"type\":\"image_generation_call\",\"status\":\"completed\",\"revised_prompt\":\"A red square.\",\"result\":\"iVBORw0KGgo=\"}}\n\n" +
 		"event: response.completed\n" +
 		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_img\",\"model\":\"gpt-5.5\"}}\n\n")
-	out := parseOpenAICodexSSE(raw)
+	out, err := parseOpenAICodexSSE(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	images := normalizeOpenAICodexImageGeneration(out, map[string]any{"model": "gpt-5.5"}).(map[string]any)["data"].([]any)
 	if len(images) != 1 {
 		t.Fatalf("images=%#v out=%#v", images, out)
@@ -155,6 +166,76 @@ func TestParseOpenAICodexSSE_ImageGenerationOutputItemDone(t *testing.T) {
 	img := images[0].(map[string]any)
 	if img["b64_json"] != "iVBORw0KGgo=" || img["revised_prompt"] != "A red square." {
 		t.Fatalf("image=%#v", img)
+	}
+}
+
+func TestParseOpenAICodexSSERequiresCompletion(t *testing.T) {
+	for name, body := range map[string]string{
+		"partial text":     "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+		"failed":           "data: {\"type\":\"response.failed\"}\n\n",
+		"incomplete":       "data: {\"type\":\"response.incomplete\"}\n\n",
+		"malformed":        "data: {bad json}\n\n",
+		"empty completion": "data: {\"type\":\"response.completed\"}\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseOpenAICodexSSE([]byte(body)); err == nil {
+				t.Fatal("expected stream error")
+			}
+		})
+	}
+}
+
+func TestCallOpenAICodexResponsesRejectsTruncatedBody(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")
+	}))
+	defer upstream.Close()
+	previous := integrationOpenAICodexResponsesURL
+	integrationOpenAICodexResponsesURL = upstream.URL
+	defer func() { integrationOpenAICodexResponsesURL = previous }()
+	status, _, _, err := callOpenAICodexResponses(context.Background(), "token", "", map[string]any{"model": "gpt-5.5"}, time.Second)
+	if status != 200 || err == nil || !strings.Contains(err.Error(), "read Codex response") {
+		t.Fatalf("status=%d err=%v", status, err)
+	}
+}
+
+func TestCallOpenAICodexResponsesRejectsMissingCompletion(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")
+	}))
+	defer upstream.Close()
+	previous := integrationOpenAICodexResponsesURL
+	integrationOpenAICodexResponsesURL = upstream.URL
+	defer func() { integrationOpenAICodexResponsesURL = previous }()
+	status, _, _, err := callOpenAICodexResponses(context.Background(), "token", "", map[string]any{"model": "gpt-5.5"}, time.Second)
+	if status != 200 || err == nil || !strings.Contains(err.Error(), "response.completed") {
+		t.Fatalf("status=%d err=%v", status, err)
+	}
+}
+
+func TestCodexChatDoesNotReportPartialStreamAsStop(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"half a report\"}\n\n")
+	}))
+	defer upstream.Close()
+	previous := integrationOpenAICodexResponsesURL
+	integrationOpenAICodexResponsesURL = upstream.URL
+	defer func() { integrationOpenAICodexResponsesURL = previous }()
+	app := &AppTemplate{Slug: integrationOpenAICodexSlug}
+	tool := &AppToolDef{Name: "chat_completion", TimeoutMS: 240000}
+	result, err := executeIntegrationTool(app, tool, map[string]string{"access_token": "token"}, map[string]any{
+		"model": "gpt-5.5", "messages": []any{map[string]any{"role": "user", "content": "hello"}},
+	}, "")
+	if err != nil || result == nil || result.Success || result.Status != 200 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if data, ok := result.Data.(map[string]any); !ok || !strings.Contains(data["error"].(string), "response.completed") {
+		t.Fatalf("partial result=%#v", result.Data)
 	}
 }
 
