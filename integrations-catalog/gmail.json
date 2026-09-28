@@ -175,6 +175,20 @@
       }
     },
     {
+      "name": "send_raw_email",
+      "description": "Send a prebuilt RFC 5322 MIME message. raw is base64url encoded; use this when exact headers or attachment-only messages are required.",
+      "method": "POST",
+      "path": "/users/me/messages/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "raw": {"type": "string", "description": "Base64url encoded RFC 5322 MIME message"},
+          "threadId": {"type": "string", "description": "Optional Gmail thread ID for a reply"}
+        },
+        "required": ["raw"]
+      }
+    },
+    {
       "name": "list_messages",
       "description": "List email message IDs matching a query. Returns only message IDs and thread IDs \u2014 use gmail-get-message to fetch full content (subject, body, headers). Supports Gmail search syntax (e.g. 'from:user@example.com', 'is:unread', 'subject:hello', 'newer_than:2d', 'has:attachment')",
       "method": "GET",
@@ -326,6 +340,20 @@
         "default_body_mode": "compact",
         "default_max_chars": 20000,
         "max_chars_limit": 100000
+      }
+    },
+    {
+      "name": "get_raw_message",
+      "description": "Fetch a Gmail message as base64url encoded RFC 5322 MIME for mailbox synchronization and complete attachment processing.",
+      "method": "GET",
+      "path": "/users/me/messages/{messageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {"type": "string", "description": "Gmail message ID"},
+          "format": {"type": "string", "enum": ["raw"], "default": "raw"}
+        },
+        "required": ["messageId", "format"]
       }
     },
     {
