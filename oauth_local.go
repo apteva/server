@@ -806,8 +806,10 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 		http.Error(w, "unknown or expired state", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[OAUTH-CB] state→connection row: conn=%d user=%d slug=%s purpose=%s app_install=%d return_url=%q has_pkce=%t expired=%t",
-		row.ConnectionID, row.UserID, row.AppSlug, row.Purpose, row.AppInstallID, row.ReturnURL, row.PKCEVerifier != "", row.Expired)
+	// App return URLs can contain one-time callback credentials. Keep them out
+	// of logs while retaining enough context to diagnose the OAuth flow.
+	log.Printf("[OAUTH-CB] state→connection row: conn=%d user=%d slug=%s purpose=%s app_install=%d has_return_url=%t has_pkce=%t expired=%t",
+		row.ConnectionID, row.UserID, row.AppSlug, row.Purpose, row.AppInstallID, row.ReturnURL != "", row.PKCEVerifier != "", row.Expired)
 
 	if row.Expired {
 		log.Printf("[OAUTH-CB] state expired conn=%d", row.ConnectionID)
@@ -966,6 +968,8 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 			sep = "&"
 		}
 		dest := fmt.Sprintf("%s%sconn_id=%d&status=ok", row.ReturnURL, sep, row.ConnectionID)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}
