@@ -402,6 +402,7 @@ func TestAuthMiddleware_SocialOAuthHandoffIsOnlyAnonymousAccountRoute(t *testing
 		{http.MethodPost, "/apps/social/accounts/oauth_done?project_id=proj-1", http.StatusUnauthorized},
 		{http.MethodPost, "/apps/social/accounts/start?project_id=proj-1", http.StatusUnauthorized},
 		{http.MethodGet, "/apps/social/accounts/7/pages?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodGet, "/apps/social/accounts/7/oauth_status?project_id=proj-1", http.StatusUnauthorized},
 		{http.MethodPost, "/apps/social/accounts/finalize?project_id=proj-1", http.StatusUnauthorized},
 	} {
 		rec := httptest.NewRecorder()
