@@ -38,7 +38,7 @@
         "properties": {
           "model": {
             "type": "string",
-            "description": "Model ID, e.g. accounts/fireworks/models/kimi-k3. Call list_models for the live set."
+            "description": "Model ID, e.g. accounts/fireworks/models/kimi-k2p6. Call list_models for the live set."
           },
           "messages": {
             "type": "array",

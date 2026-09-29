@@ -630,6 +630,16 @@
     "env": {
       "GOOGLE_API_KEY": "{{credentials.api_key}}"
     },
+    "realtime": {
+      "provider_key": "google-realtime",
+      "default_model": "gemini-3.1-flash-live-preview",
+      "models": [
+        { "id": "gemini-3.1-flash-live-preview", "name": "Gemini 3.1 Flash Live", "available": true },
+        { "id": "gemini-3.8-live", "name": "Gemini 3.8 Live", "available": false },
+        { "id": "gemini-3.8-live-extended-thinking", "name": "Gemini 3.8 Live Extended Thinking", "available": false }
+      ],
+      "voices": ["Kore", "Aoede", "Charon", "Fenrir", "Leda", "Orus", "Puck", "Zephyr"]
+    },
     "model_policy": {
       "purpose": "agent",
       "required_methods": [
