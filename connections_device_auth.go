@@ -289,7 +289,7 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 		resolvedInput[key] = value
 	}
 	if model := strings.TrimSpace(fmt.Sprint(resolvedInput["model"])); model == "" || model == "<nil>" || model == "kimi-k2.6" {
-		model = "gpt-5.5"
+		model = "gpt-6.1-sol"
 		ctx, cancel := context.WithTimeout(integrationRequestContext(parents), 15*time.Second)
 		if models, err := fetchCodexModelCatalog(ctx, accessToken, credentials["account_id"], false); err == nil {
 			model = codexDefaultModel(models, "medium")
@@ -338,7 +338,7 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 func buildOpenAICodexResponsesPayload(input map[string]any) map[string]any {
 	model := strings.TrimSpace(fmt.Sprint(input["model"]))
 	if model == "" || model == "<nil>" || model == "kimi-k2.6" {
-		model = "gpt-5.5"
+		model = "gpt-6.1-sol"
 	}
 	payload := map[string]any{
 		"model": model,
@@ -432,7 +432,7 @@ func openAICodexResponsesModel(raw any) string {
 	model := strings.TrimSpace(fmt.Sprint(raw))
 	if model == "" || model == "<nil>" || model == "kimi-k2.6" ||
 		strings.HasPrefix(model, "gpt-image") || strings.HasPrefix(model, "dall-e") {
-		return "gpt-5.5"
+		return "gpt-6.1-sol"
 	}
 	return model
 }

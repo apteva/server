@@ -6,7 +6,7 @@
       "category": "business",
       "interface_level": "business",
       "name": "Lead-generation business",
-      "description": "Operate lead research, qualification, CRM follow-up, and client reporting.",
+      "description": "A three-agent team for prospect research, outreach preparation, and pipeline operations.",
       "match": [
         "lead generation",
         "lead-gen",
@@ -16,9 +16,9 @@
         "appointment setting"
       ],
       "highlights": [
-        "Research and validate prospects before they enter the pipeline",
-        "Keep outreach, CRM, and appointment context synchronized",
-        "Measure outcomes while holding outbound sends for approval"
+        "Prospect Researcher qualifies contacts; Outreach Specialist prepares campaigns",
+        "Lead Operations owns CRM, appointments, and outcome reporting",
+        "Explicit handoffs keep outbound sends subject to approval"
       ],
       "agents": [
         {
@@ -29,14 +29,45 @@
           "apps": [
             "tasks",
             "crm",
-            "web",
-            "email-checker",
-            "campaigns",
             "analytics",
             "calendar",
-            "bookings"
+            "bookings",
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Research prospects, validate contact data, keep CRM and appointment context accurate, measure outcomes, and track substantial work durably. Draft outreach or campaigns unless explicit sending authority exists."
+          "directive": "Use this project description as your operating context: {{description}}. Own the lead pipeline, appointment context, and outcome reporting. Give Prospect Researcher a target profile and acceptance criteria, then hand qualified records to Outreach Specialist for campaign drafts. Maintain canonical CRM records and consolidate results for the user. Ask before customer contact or booking commitments. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "sales"
+        },
+        {
+          "key": "prospect-researcher",
+          "name": "Prospect Researcher",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "web",
+            "email-checker",
+            "crm",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Research and qualify prospects with attributable sources and validated contact data. Return evidence, fit, contact validity, and uncertainty to Lead Operations Agent; read CRM to avoid duplicates, leaving canonical record changes to Lead Operations. Do not send outreach or book meetings. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "research"
+        },
+        {
+          "key": "outreach-specialist",
+          "name": "Outreach Specialist",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "crm",
+            "campaigns",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Prepare personalized outreach and campaign drafts from qualified prospect records. Return draft references and audience assumptions to Lead Operations Agent. Flag missing research; do not change qualification or CRM ownership. Send or schedule only when explicit operator authority covers the audience and message. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "marketing"
         }
       ],
       "dashboard": [
@@ -44,6 +75,139 @@
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          },
+          {
+            "id": "analytics-analytics-dashboard",
+            "component": "analytics:analytics-dashboard",
+            "size": "half"
+          }
+        ],
+        "agent_overview": {
+          "lead-ops": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "prospect-researcher": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ],
+          "outreach-specialist": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "crm",
+          "title": "Customer data",
+          "description": "Review contacts and pipelines in CRM. Configure Messaging access there if you want to send or receive customer messages.",
+          "required": false
+        },
+        {
+          "app": "analytics",
+          "title": "Analytics sources",
+          "description": "Configure data sources and choose a saved Analytics dashboard for the Home widget.",
+          "required": false
+        },
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        }
       ]
     },
     {
@@ -51,7 +215,7 @@
       "category": "business",
       "interface_level": "business",
       "name": "Professional services",
-      "description": "Coordinate client delivery, preparation, follow-up, and account context.",
+      "description": "A client coordinator and delivery specialist for intake, documents, approvals, and billing preparation.",
       "match": [
         "consulting",
         "agency",
@@ -60,9 +224,9 @@
         "advisory"
       ],
       "highlights": [
-        "Coordinate client work from intake through delivery",
-        "Prepare documents, approvals, signatures, and billing context",
-        "Keep external commitments behind explicit review"
+        "Client Operations owns client context, schedules, and the delivery plan",
+        "Delivery Specialist prepares documents, signature packets, and billing drafts",
+        "One coordinator collects approvals before external commitments"
       ],
       "agents": [
         {
@@ -75,18 +239,130 @@
             "crm",
             "calendar",
             "bookings",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Own client intake, appointment context, delivery priorities, and the client relationship. Assign document and billing preparation to Delivery Specialist with scope, dates, source references, and approval constraints. Consolidate deliverables and request client-facing approval. Do not make booking or client commitments without authority. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "manager"
+        },
+        {
+          "key": "delivery-specialist",
+          "name": "Delivery Specialist",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
             "docs",
             "signatures",
             "billing",
-            "storage"
+            "storage",
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Preserve client and appointment context, prepare and retain professional documents, and track approvals and billing state. Require review before client-facing communication, signatures, invoices, or commitments."
+          "directive": "Use this project description as your operating context: {{description}}. Prepare client deliverables, document revisions, signature packets, and billing drafts from the agreed brief. Preserve source files, versions, and approval state; return deliverable references to Client Operations Agent. Require operator review before sending documents for signature, issuing invoices, or making commitments. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "writer"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "client-ops": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "delivery-specialist": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "crm",
+          "title": "Customer data",
+          "description": "Review contacts and pipelines in CRM. Configure Messaging access there if you want to send or receive customer messages.",
+          "required": false
+        },
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        },
+        {
+          "app": "storage",
+          "title": "File access",
+          "description": "Choose storage locations and review the files this workspace should be able to access.",
+          "required": false
+        }
       ]
     },
     {
@@ -94,7 +370,7 @@
       "category": "business",
       "interface_level": "business",
       "name": "E-commerce",
-      "description": "Monitor products, customers, content, and operational exceptions for an online store.",
+      "description": "A three-agent store team for order operations, product merchandising, and growth analysis.",
       "match": [
         "ecommerce",
         "e-commerce",
@@ -104,9 +380,9 @@
         "orders"
       ],
       "highlights": [
-        "Keep catalog, inventory, orders, and customer context aligned",
-        "Surface stock and fulfillment exceptions",
-        "Prepare storefront and campaign changes for approval"
+        "Commerce Operations owns orders, stock exceptions, and customer context",
+        "Merchandising Specialist prepares catalog and storefront updates",
+        "Store Growth Analyst prepares social drafts and measures performance"
       ],
       "agents": [
         {
@@ -117,20 +393,186 @@
           "apps": [
             "tasks",
             "commerce",
-            "catalog",
             "inventory",
             "orders",
             "crm",
-            "social",
-            "analytics"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Maintain accurate storefront, catalog, stock, order, customer, publishing, and performance context and surface operational exceptions. Ask before pricing, refunds, product publishing, campaign publishing, or customer contact."
+          "directive": "Use this project description as your operating context: {{description}}. Own order operations, inventory exceptions, and customer context. Assign catalog improvements to Merchandising Specialist and campaign analysis to Store Growth Analyst, supplying current stock constraints. Consolidate recommendations and escalate fulfillment problems. Ask before refunds, stock adjustments, customer contact, or consequential store changes. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "operations"
+        },
+        {
+          "key": "merchandising",
+          "name": "Merchandising Specialist",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "commerce",
+            "catalog",
+            "inventory",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Prepare accurate product descriptions, catalog organization, and storefront changes using current stock and product evidence. Read inventory for availability and leave stock or order changes to Commerce Operations Agent. Return proposed changes for review; do not alter prices or publish products without approval. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "design"
+        },
+        {
+          "key": "store-growth",
+          "name": "Store Growth Analyst",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "catalog",
+            "social",
+            "analytics",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Analyze store performance and prepare social campaign drafts using approved product information. Return metrics, evidence, and draft references to Commerce Operations Agent, respecting stock constraints. Do not edit catalog or inventory; request approval before publishing or contacting customers. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "analyst"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          },
+          {
+            "id": "analytics-analytics-dashboard",
+            "component": "analytics:analytics-dashboard",
+            "size": "half"
+          }
+        ],
+        "agent_overview": {
+          "commerce": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "merchandising": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ],
+          "store-growth": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "commerce",
+          "title": "Store setup",
+          "description": "Select or create your store and configure payment and fulfillment services in Commerce.",
+          "required": false
+        },
+        {
+          "app": "crm",
+          "title": "Customer data",
+          "description": "Review contacts and pipelines in CRM. Configure Messaging access there if you want to send or receive customer messages.",
+          "required": false
+        },
+        {
+          "app": "social",
+          "title": "Social accounts",
+          "description": "Connect the social accounts you want to use in Social and review publishing permissions.",
+          "required": false
+        },
+        {
+          "app": "analytics",
+          "title": "Analytics sources",
+          "description": "Configure data sources and choose a saved Analytics dashboard for the Home widget.",
+          "required": false
+        }
       ]
     },
     {
@@ -138,7 +580,7 @@
       "category": "business",
       "interface_level": "business",
       "name": "Local service business",
-      "description": "Handle enquiries, appointment preparation, follow-up, and local business operations.",
+      "description": "An operations coordinator and front-desk specialist for enquiries, appointments, and billing preparation.",
       "match": [
         "local business",
         "clinic",
@@ -149,9 +591,9 @@
         "service business"
       ],
       "highlights": [
-        "Turn enquiries into organized customer and appointment follow-up",
-        "Keep schedules, messaging, and billing context current",
-        "Surface exceptions without making unauthorized commitments"
+        "Business Operations owns customer records, service follow-through, and billing",
+        "Front Desk Specialist prepares enquiry replies and appointment options",
+        "Booking and sending authority remain explicit"
       ],
       "agents": [
         {
@@ -162,18 +604,131 @@
           "apps": [
             "tasks",
             "crm",
+            "billing",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Own customer records, service follow-through, billing preparation, and operational exceptions. Assign enquiries and appointment preparation to Front Desk Specialist. Maintain canonical CRM records from returned outcomes and request missing approvals. Never issue invoices or make customer commitments without configured authority. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "operations"
+        },
+        {
+          "key": "front-desk",
+          "name": "Front Desk Specialist",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "crm",
             "calendar",
             "bookings",
             "messaging",
-            "billing"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Maintain accurate enquiry, customer, appointment, communication, and billing context and surface exceptions. Never confirm bookings, contact customers, or issue invoices without configured authority."
+          "directive": "Use this project description as your operating context: {{description}}. Prepare enquiry replies and appointment options using customer context and current availability. Return proposed or authorized booking outcomes to Business Operations Agent for CRM updates. Recheck availability before an authorized booking; never confirm appointments or contact customers without configured authority. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "support"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "operations": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "front-desk": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "crm",
+          "title": "Customer data",
+          "description": "Review contacts and pipelines in CRM. Configure Messaging access there if you want to send or receive customer messages.",
+          "required": false
+        },
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        },
+        {
+          "app": "messaging",
+          "title": "Messaging channels",
+          "description": "Connect the email or messaging channels you want to use and review sending permissions.",
+          "required": false
+        }
       ]
     },
     {
@@ -181,7 +736,7 @@
       "category": "business",
       "interface_level": "business",
       "name": "Webinar studio",
-      "description": "Host live, scheduled, and replay webinars: registration funnel, reminders, live room with polls and offers, replays, and follow-up.",
+      "description": "A webinar producer and audience specialist covering event delivery, promotion, and follow-up.",
       "match": [
         "webinar",
         "webinars",
@@ -193,9 +748,9 @@
         "virtual summit"
       ],
       "highlights": [
-        "Plan registration, reminders, live delivery, and replay follow-up",
-        "Coordinate promotion across campaigns and social channels",
-        "Report attendance and engagement through the complete event funnel"
+        "Webinar Producer owns registration, delivery, live-room plans, and replays",
+        "Audience Specialist prepares promotion, reminders, and attendee follow-up",
+        "Shared event references keep timing, approvals, and reporting aligned"
       ],
       "agents": [
         {
@@ -204,16 +759,33 @@
           "mode": "cautious",
           "unconscious": true,
           "apps": [
+            "tasks",
+            "webinars",
+            "calendar",
+            "analytics",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Own webinar plans, event configuration, registration health, live-room preparation, and replay readiness. Give Audience Specialist approved event details, registration links, audience constraints, and timing. Monitor attendance and engagement; return an evidence-based event report. Require authority before scheduling events, launching offers, or publishing replays. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "marketing"
+        },
+        {
+          "key": "audience-specialist",
+          "name": "Audience Specialist",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
             "webinars",
             "crm",
             "messaging",
             "campaigns",
-            "calendar",
-            "tasks",
             "social",
-            "analytics"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Plan and run webinars end to end: create events with sensible slots, keep the registration funnel healthy, promote via campaigns and social drafts, make sure reminders are bound and firing, run the live room (polls, scripted offers), publish replays, and report the funnel after each event (registrations, show rate, watch percentage, offer clicks). Follow up no-shows with the replay link. Draft outbound sends for approval unless explicit sending authority exists."
+          "directive": "Use this project description as your operating context: {{description}}. Prepare webinar promotion, registration reminders, and attendee or no-show follow-up from approved event details. Read webinar registration and replay state; leave event changes to Webinar Producer. Return campaign and message draft references, audience coverage, and delivery blockers. Draft outbound sends and social posts unless explicit authority exists; never promise an unavailable replay. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "social"
         }
       ],
       "dashboard": [
@@ -221,6 +793,130 @@
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          },
+          {
+            "id": "analytics-analytics-dashboard",
+            "component": "analytics:analytics-dashboard",
+            "size": "half"
+          }
+        ],
+        "agent_overview": {
+          "webinar-producer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "audience-specialist": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "webinars",
+          "title": "Webinar services",
+          "description": "Configure streaming, registration, and delivery services in Webinars before scheduling an event.",
+          "required": false
+        },
+        {
+          "app": "crm",
+          "title": "Customer data",
+          "description": "Review contacts and pipelines in CRM. Configure Messaging access there if you want to send or receive customer messages.",
+          "required": false
+        },
+        {
+          "app": "messaging",
+          "title": "Messaging channels",
+          "description": "Connect the email or messaging channels you want to use and review sending permissions.",
+          "required": false
+        },
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        },
+        {
+          "app": "social",
+          "title": "Social accounts",
+          "description": "Connect the social accounts you want to use in Social and review publishing permissions.",
+          "required": false
+        },
+        {
+          "app": "analytics",
+          "title": "Analytics sources",
+          "description": "Configure data sources and choose a saved Analytics dashboard for the Home widget.",
+          "required": false
+        }
       ]
     }
   ]

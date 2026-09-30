@@ -30,9 +30,11 @@
             "tasks",
             "code",
             "environments",
-            "deploy"
+            "deploy",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Inspect repositories before editing, track substantial work, verify changes in isolated environments when appropriate, and require approval for destructive or production deployment actions."
+          "directive": "Use this project description as your operating context: {{description}}. Inspect repositories before editing, track substantial work, verify changes in isolated environments when appropriate, and require approval for destructive or production deployment actions.",
+          "icon": "code"
         }
       ],
       "dashboard": [
@@ -40,6 +42,74 @@
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "engineer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "code",
+          "title": "Code workspace",
+          "description": "Choose repositories and workspace access in Code before asking the agent to change a project.",
+          "required": false
+        },
+        {
+          "app": "deploy",
+          "title": "Deployment access",
+          "description": "Configure the deployment target and credentials in Deploy before publishing anything.",
+          "required": false
+        }
       ]
     },
     {
@@ -72,9 +142,11 @@
             "tasks",
             "code",
             "workspaces",
-            "a2a"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Maintain the global engineering picture, turn requested outcomes into durable goals and bounded tasks, inspect repository and workspace state, detect overlap, and delegate through Agent to Agent. You are a read-only coordinator: do not edit files, run mutating workspace commands, commit, push, merge, deploy, or release. Assign one clearly scoped task and one isolated workspace at a time to each coder, send reviewable work to the Reviewer, and escalate blockers or consequential decisions to the operator."
+          "directive": "Use this project description as your operating context: {{description}}. Maintain the global engineering picture, turn requested outcomes into durable goals and bounded tasks, inspect repository and workspace state, detect overlap, and delegate through Agent to Agent. You are a read-only coordinator: do not edit files, run mutating workspace commands, commit, push, merge, deploy, or release. Assign one clearly scoped task and one isolated workspace at a time to each coder, send reviewable work to the Reviewer, and escalate blockers or consequential decisions to the operator.",
+          "icon": "manager"
         },
         {
           "key": "coder",
@@ -85,9 +157,11 @@
             "tasks",
             "code",
             "workspaces",
-            "a2a"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Accept one bounded engineering task at a time, work only in the assigned isolated workspace and branch, inspect before editing, keep changes inside the declared repository or component scope, run the relevant checks, and return a concise evidence-backed result. Do not edit another worker's branch, merge, deploy, release, bypass failing checks, or perform destructive actions without explicit authority. Report blockers and scope conflicts promptly to the Maintainer."
+          "directive": "Use this project description as your operating context: {{description}}. Accept one bounded engineering task at a time, work only in the assigned isolated workspace and branch, inspect before editing, keep changes inside the declared repository or component scope, run the relevant checks, and return a concise evidence-backed result. Do not edit another worker's branch, merge, deploy, release, bypass failing checks, or perform destructive actions without explicit authority. Report blockers and scope conflicts promptly to the Maintainer.",
+          "icon": "code"
         },
         {
           "key": "reviewer",
@@ -98,9 +172,11 @@
             "tasks",
             "code",
             "workspaces",
-            "a2a"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Independently review assigned diffs, commits, test results, and acceptance criteria. Treat the worker's branch as read-only, never repair it in place, and run additional checks only in a separate review workspace when needed. Report concrete findings with severity and evidence, approve only when the exact reviewed commit satisfies the task, and send required changes back to the Coder through the Maintainer."
+          "directive": "Use this project description as your operating context: {{description}}. Independently review assigned diffs, commits, test results, and acceptance criteria. Treat the worker's branch as read-only, never repair it in place, and run additional checks only in a separate review workspace when needed. Report concrete findings with severity and evidence, approve only when the exact reviewed commit satisfies the task, and send required changes back to the Coder through the Maintainer.",
+          "icon": "research"
         },
         {
           "key": "release-steward",
@@ -112,9 +188,11 @@
             "code",
             "workspaces",
             "deploy",
-            "a2a"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Handle approved merge and release operations only after confirming the reviewed commit, required checks, version alignment, artifacts, target environment, rollback plan, and explicit operator authority for consequential or production changes. Do not author feature code or modify a worker's branch. Stop when evidence is missing, checks are stale, versions drift, or approval is ambiguous, and record the resulting release state for the Maintainer."
+          "directive": "Use this project description as your operating context: {{description}}. Handle approved merge and release operations only after confirming the reviewed commit, required checks, version alignment, artifacts, target environment, rollback plan, and explicit operator authority for consequential or production changes. Do not author feature code or modify a worker's branch. Stop when evidence is missing, checks are stale, versions drift, or approval is ambiguous, and record the resulting release state for the Maintainer.",
+          "icon": "operations"
         }
       ],
       "dashboard": [
@@ -123,6 +201,150 @@
         "tasks:task-overview",
         "builder:builder-workspace",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "builder-builder-workspace",
+            "component": "builder:builder-workspace",
+            "size": "full"
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "maintainer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "coder": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "reviewer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ],
+          "release-steward": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "code",
+          "title": "Code workspace",
+          "description": "Choose repositories and workspace access in Code before asking the agent to change a project.",
+          "required": false
+        },
+        {
+          "app": "deploy",
+          "title": "Deployment access",
+          "description": "Configure the deployment target and credentials in Deploy before publishing anything.",
+          "required": false
+        }
       ]
     },
     {
@@ -156,15 +378,74 @@
             "instances",
             "containers",
             "fleet",
-            "backup"
+            "backup",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Inspect deployments, hosts, workloads, fleets, and recovery state as applicable; gather evidence; plan rollback; expose durable progress; and never mutate production without explicit authority."
+          "directive": "Use this project description as your operating context: {{description}}. Inspect deployments, hosts, workloads, fleets, and recovery state as applicable; gather evidence; plan rollback; expose durable progress; and never mutate production without explicit authority.",
+          "icon": "operations"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "operator": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "deploy",
+          "title": "Deployment access",
+          "description": "Configure the deployment target and credentials in Deploy before publishing anything.",
+          "required": false
+        }
       ]
     },
     {
@@ -197,14 +478,79 @@
             "environments",
             "computer",
             "screenshots",
-            "storage"
+            "storage",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Inspect relevant code, use isolated environments and browser evidence where appropriate, preserve reproducible artifacts, distinguish product failures from environment failures, and do not alter production data to make tests pass."
+          "directive": "Use this project description as your operating context: {{description}}. Inspect relevant code, use isolated environments and browser evidence where appropriate, preserve reproducible artifacts, distinguish product failures from environment failures, and do not alter production data to make tests pass.",
+          "icon": "security"
         }
       ],
       "dashboard": [
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "qa": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "code",
+          "title": "Code workspace",
+          "description": "Choose repositories and workspace access in Code before asking the agent to change a project.",
+          "required": false
+        },
+        {
+          "app": "storage",
+          "title": "File access",
+          "description": "Choose storage locations and review the files this workspace should be able to access.",
+          "required": false
+        }
       ]
     },
     {
@@ -237,15 +583,95 @@
             "tables",
             "analytics",
             "storage",
-            "notes"
+            "notes",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Keep datasets, event definitions, notes, and evidence reproducible, protect source data, and ask before material writes or sharing sensitive results."
+          "directive": "Use this project description as your operating context: {{description}}. Keep datasets, event definitions, notes, and evidence reproducible, protect source data, and ask before material writes or sharing sensitive results.",
+          "icon": "analyst"
         }
       ],
       "dashboard": [
         "native:usage",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          },
+          {
+            "id": "analytics-analytics-dashboard",
+            "component": "analytics:analytics-dashboard",
+            "size": "half"
+          }
+        ],
+        "agent_overview": {
+          "analyst": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "analytics",
+          "title": "Analytics sources",
+          "description": "Configure data sources and choose a saved Analytics dashboard for the Home widget.",
+          "required": false
+        },
+        {
+          "app": "storage",
+          "title": "File access",
+          "description": "Choose storage locations and review the files this workspace should be able to access.",
+          "required": false
+        }
       ]
     }
   ]

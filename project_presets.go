@@ -23,6 +23,7 @@ import (
 var projectPresetFiles embed.FS
 
 type ProjectPresetAgent struct {
+	Icon        string   `json:"icon,omitempty"`
 	Key         string   `json:"key"`
 	Name        string   `json:"name"`
 	Directive   string   `json:"directive"`
@@ -31,7 +32,25 @@ type ProjectPresetAgent struct {
 	Apps        []string `json:"apps,omitempty"`
 }
 
+// Preset layouts are portable: agent_key refers to a preset agent, never a database ID.
+type ProjectPresetWidget struct {
+	dashboardWidgetInstance
+	AgentKey string `json:"agent_key,omitempty"`
+}
+type ProjectPresetLayouts struct {
+	Home          []ProjectPresetWidget            `json:"home"`
+	AgentOverview map[string][]ProjectPresetWidget `json:"agent_overview,omitempty"`
+}
+type ProjectPresetConnection struct {
+	App         string `json:"app"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Required    bool   `json:"required,omitempty"`
+}
+
 type ProjectPreset struct {
+	Layouts         *ProjectPresetLayouts     `json:"layouts,omitempty"`
+	Connections     []ProjectPresetConnection `json:"connections,omitempty"`
 	InterfaceLevel  string                    `json:"interface_level,omitempty"`
 	ID              string                    `json:"id"`
 	Kind            string                    `json:"kind,omitempty"`
@@ -177,6 +196,9 @@ func validateProjectPreset(preset ProjectPreset) error {
 		if !validPresetIdentifier(agent.Key) || seenAgents[agent.Key] || agent.Name == "" || agent.Directive == "" || len(agent.Name) > 160 || len(agent.Directive) > 32000 {
 			return fmt.Errorf("preset %q has invalid agent %q", preset.ID, agent.Key)
 		}
+		if agent.Icon != "" && !agentIcons[agent.Icon] {
+			return fmt.Errorf("invalid preset agent icon %q", agent.Icon)
+		}
 		if !validAgentMode(agent.Mode) {
 			return fmt.Errorf("preset %q agent %q has invalid mode %q", preset.ID, agent.Key, agent.Mode)
 		}
@@ -189,7 +211,7 @@ func validateProjectPreset(preset ProjectPreset) error {
 			seenApps[app] = true
 		}
 	}
-	return nil
+	return validatePresetLayouts(preset)
 }
 
 func validPresetIdentifier(value string) bool {
@@ -240,6 +262,7 @@ type ProjectPresetAppPreview struct {
 }
 
 type ProjectPresetAgentPreview struct {
+	Icon          string   `json:"icon,omitempty"`
 	Key           string   `json:"key"`
 	Name          string   `json:"name"`
 	Directive     string   `json:"directive"`
@@ -250,16 +273,17 @@ type ProjectPresetAgentPreview struct {
 }
 
 type ProjectPresetPreview struct {
-	InterfaceLevel string                      `json:"interface_level,omitempty"`
-	Preset         ProjectPreset               `json:"preset"`
-	Planner        string                      `json:"planner"`
-	Confidence     float64                     `json:"confidence"`
-	Project        map[string]string           `json:"project"`
-	Apps           []ProjectPresetAppPreview   `json:"apps"`
-	Agents         []ProjectPresetAgentPreview `json:"agents"`
-	Layout         []dashboardWidgetInstance   `json:"layout"`
-	Warnings       []string                    `json:"warnings"`
-	NextSteps      []string                    `json:"next_steps,omitempty"`
+	AgentLayouts   map[string][]dashboardWidgetInstance `json:"agent_layouts,omitempty"`
+	InterfaceLevel string                               `json:"interface_level,omitempty"`
+	Preset         ProjectPreset                        `json:"preset"`
+	Planner        string                               `json:"planner"`
+	Confidence     float64                              `json:"confidence"`
+	Project        map[string]string                    `json:"project"`
+	Apps           []ProjectPresetAppPreview            `json:"apps"`
+	Agents         []ProjectPresetAgentPreview          `json:"agents"`
+	Layout         []dashboardWidgetInstance            `json:"layout"`
+	Warnings       []string                             `json:"warnings"`
+	NextSteps      []string                             `json:"next_steps,omitempty"`
 }
 
 type projectPresetPlanChoice struct {
@@ -335,7 +359,7 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 	agents := make([]ProjectPresetAgentPreview, 0, len(preset.Agents))
 	for _, spec := range preset.Agents {
 		agent := ProjectPresetAgentPreview{
-			Key: spec.Key, Name: expandPresetTemplate(spec.Name, templateValues),
+			Key: spec.Key, Icon: spec.Icon, Name: expandPresetTemplate(spec.Name, templateValues),
 			Directive: expandPresetTemplate(spec.Directive, templateValues),
 			Mode:      spec.Mode, Unconscious: spec.Unconscious,
 		}
@@ -360,10 +384,12 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 	}
 	layout, layoutWarnings := s.compileProjectPresetDashboardLayout(projectID, preset)
 	warnings = append(warnings, layoutWarnings...)
+	agentLayouts, agentWarnings := s.compilePresetAgentLayouts(projectID, preset)
+	warnings = append(warnings, agentWarnings...)
 	return &ProjectPresetPreview{
 		Preset: preset, Planner: planner, Confidence: confidence, InterfaceLevel: level,
 		Project: map[string]string{"name": project.Name, "description": description, "color": project.Color},
-		Apps:    appPreviews, Agents: agents, Layout: layout, Warnings: warnings,
+		Apps:    appPreviews, Agents: agents, Layout: layout, AgentLayouts: agentLayouts, Warnings: warnings,
 		NextSteps: []string{"Review app access before enabling external actions.", "Preset Home widgets are added automatically and remain editable.", "Create durable tasks only when real work is requested."},
 	}, nil
 }
@@ -448,6 +474,25 @@ func projectPresetApps(preset ProjectPreset) []string {
 			}
 			seen[app] = true
 			apps = append(apps, app)
+		}
+	}
+	if preset.Layouts != nil {
+		all := append([]ProjectPresetWidget(nil), preset.Layouts.Home...)
+		for _, widgets := range preset.Layouts.AgentOverview {
+			all = append(all, widgets...)
+		}
+		for _, widget := range all {
+			app, _, ok := strings.Cut(widget.Component, ":")
+			if ok && app != "native" && !seen[app] {
+				seen[app] = true
+				apps = append(apps, app)
+			}
+		}
+	}
+	for _, setup := range preset.Connections {
+		if !seen[setup.App] {
+			seen[setup.App] = true
+			apps = append(apps, setup.App)
 		}
 	}
 	return apps
@@ -613,6 +658,9 @@ func (s *Server) compileProjectPresetLayout(projectID string, requested []string
 // order, size, and settings. Bundled schema-v1 presets continue through the
 // compact component-list compiler above.
 func (s *Server) compileProjectPresetDashboardLayout(projectID string, preset ProjectPreset) ([]dashboardWidgetInstance, []string) {
+	if preset.Layouts != nil && preset.Layouts.Home != nil {
+		return s.compilePresetWidgets(projectID, preset, "dashboard.home", preset.Layouts.Home)
+	}
 	if len(preset.DashboardLayout) == 0 {
 		return s.compileProjectPresetLayout(projectID, preset.Dashboard)
 	}
@@ -715,7 +763,7 @@ func mergeDashboardWidgetLayouts(current, preset []dashboardWidgetInstance) ([]d
 
 func dashboardWidgetFingerprint(widget dashboardWidgetInstance) string {
 	settings, _ := json.Marshal(widget.Settings)
-	return widget.Component + "\x00" + widget.Size + "\x00" + string(settings)
+	return widget.Component + "\x00" + widget.Size + "\x00" + itoa(widget.AgentID) + "\x00" + string(settings)
 }
 
 func availablePresetWidgetID(preferred, component string, used map[string]bool) string {
@@ -815,10 +863,8 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		return
 	}
 	warnings := append([]string(nil), preview.Warnings...)
-	if err := s.mergeProjectPresetDashboardLayout(getUserID(r), projectID, preview.Layout); err != nil {
-		warnings = append(warnings, "dashboard widgets were not applied: "+err.Error())
-	}
 
+	agentIDs := map[string]int64{}
 	created := []Agent{}
 	existing := []Agent{}
 	for _, agent := range preview.Agents {
@@ -827,17 +873,19 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		if lookupErr == nil {
 			if prior, err := s.store.GetAgentByID(priorID); err == nil {
 				existing = append(existing, *prior)
+				agentIDs[agent.Key] = prior.ID
 				warnings = append(warnings, s.presetExistingAgentWarnings(prior.ID, agent)...)
 				continue
 			}
 		}
 		if current, ok := s.findPresetAgentByName(projectID, agent.Name); ok {
 			existing = append(existing, current)
+			agentIDs[agent.Key] = current.ID
 			warnings = append(warnings, s.presetExistingAgentWarnings(current.ID, agent)...)
 			continue
 		}
 		payload := map[string]any{
-			"name": agent.Name, "directive": agent.Directive, "mode": agent.Mode,
+			"name": agent.Name, "directive": agent.Directive, "mode": agent.Mode, "icon": agent.Icon,
 			"project_id": projectID, "start": true, "unconscious": agent.Unconscious,
 			"bound_app_install_ids": agent.AppInstallIDs,
 			"idempotency_key":       "preset:" + body.PresetID + ":" + agent.Key,
@@ -865,7 +913,9 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 			warnings = append(warnings, agent.Name+": "+creationNotice.Warning)
 		}
 		created = append(created, result)
+		agentIDs[agent.Key] = result.ID
 	}
+	warnings = append(warnings, s.applyPresetLayouts(getUserID(r), projectID, preview, agentIDs)...)
 	if len(created)+len(existing) > 0 {
 		if err := s.rememberOnboardingPreset(getUserID(r), projectID, preview); err != nil {
 			warnings = append(warnings, "Could not save the setup recommendation: "+err.Error())

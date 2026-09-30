@@ -379,6 +379,40 @@ func TestAuthMiddleware_AnonymousNoAuthAppRoute_MethodSpecific(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_SocialOAuthHandoffIsOnlyAnonymousAccountRoute(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 1,
+		AppName:   "social",
+		ProjectID: "proj-1",
+		Manifest: sdk.Manifest{Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{
+			{Prefix: "/"},
+			{Method: http.MethodGet, Prefix: "/accounts/oauth_done", NoAuth: true},
+		}}},
+	})
+	handler := s.authMiddleware(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{http.MethodGet, "/apps/social/accounts/oauth_done?project_id=proj-1", http.StatusNoContent},
+		{http.MethodPost, "/apps/social/accounts/oauth_done?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodPost, "/apps/social/accounts/start?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodGet, "/apps/social/accounts/7/pages?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodGet, "/apps/social/accounts/7/oauth_status?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodPost, "/apps/social/accounts/finalize?project_id=proj-1", http.StatusUnauthorized},
+	} {
+		rec := httptest.NewRecorder()
+		handler(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != tc.status {
+			t.Errorf("anonymous %s %s: status=%d want=%d", tc.method, tc.path, rec.Code, tc.status)
+		}
+	}
+}
+
 func TestAuthMiddleware_AnonymousNoAuthAppRoute_ServeMuxParameter(t *testing.T) {
 	s := newTestServer(t)
 	s.installedApps = NewInstalledAppsRegistry()

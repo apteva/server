@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -103,71 +104,113 @@ func (s *Server) findStoredOAuthClient(userID int64, projectID, slug string) (cl
 	return "", ""
 }
 
-// findStoredOAuthSetup returns the required non-OAuth credentials that an
-// app-initiated OAuth connection must retain. This lets an app reuse deployment
-// configuration such as a Google Ads developer token while the person signing
-// in receives a completely separate access and refresh token.
-func (s *Server) findStoredOAuthSetup(userID int64, projectID string, app *AppTemplate) (map[string]string, error) {
-	required := make([]CredentialField, 0)
-	for _, field := range app.Auth.CredentialFields {
-		isRequired := field.Required == nil || *field.Required
-		if field.Source == "user" && !field.Hidden && isRequired {
-			required = append(required, field)
-		}
-	}
-	if len(required) == 0 {
-		return nil, nil
-	}
+// oauthSetup keeps deployment configuration and its OAuth client together.
+// Account tokens are never copied into another account's authorization flow.
+type oauthSetup struct {
+	ClientID     string
+	ClientSecret string
+	Credentials  map[string]string
+}
 
+func validateOAuthSetupClient(app *AppTemplate, id, secret string) error {
+	requireID, requireSecret := false, false
+	if app.Auth.OAuth1 != nil && containsString(app.Auth.Types, "oauth1") {
+		requireID = app.Auth.OAuth1.ClientIDRequired
+		requireSecret = requireID
+	} else if app.Auth.OAuth2 != nil {
+		requireSecret = app.Auth.OAuth2.ClientSecretRequired
+		requireID = app.Auth.OAuth2.ClientIDRequired || requireSecret
+	}
+	if requireID && strings.TrimSpace(id) == "" {
+		return fmt.Errorf("missing client_id for %s", app.Slug)
+	}
+	if requireSecret && strings.TrimSpace(secret) == "" {
+		return fmt.Errorf("missing client_secret for %s", app.Slug)
+	}
+	return nil
+}
+
+// findStoredOAuthSetup selects an operator-managed setup in this exact project.
+// A complete pending OAuth setup is usable before an account has authorized.
+// Failed flows and app-owned accounts are not shared configuration sources.
+func (s *Server) findStoredOAuthSetup(userID int64, projectID string, app *AppTemplate) (*oauthSetup, error) {
 	conns, err := s.store.ListConnections(userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list OAuth setup connections: %w", err)
 	}
-	for i := len(conns) - 1; i >= 0; i-- {
-		conn := conns[i]
-		if conn.AppSlug != app.Slug || conn.Source != "local" || conn.Status != "active" {
+	// ListConnections has no ordering guarantee and includes global rows.
+	sort.Slice(conns, func(i, j int) bool { return conns[i].ID > conns[j].ID })
+	for _, conn := range conns {
+		if conn.AppSlug != app.Slug || conn.Source != "local" || conn.ProjectID != projectID || isAppOwnedConnection(conn) {
+			continue
+		}
+		if conn.Status != "active" && conn.Status != "pending" {
+			continue
+		}
+		if conn.Status == "pending" && conn.AuthType != "oauth1" && conn.AuthType != "oauth2" {
 			continue
 		}
 		_, encrypted, err := s.store.GetConnection(userID, conn.ID)
-		if err != nil || encrypted == "" {
+		if err != nil {
+			return nil, fmt.Errorf("read OAuth setup: %w", err)
+		}
+		if encrypted == "" {
 			continue
 		}
 		plaintext, err := Decrypt(s.secret, encrypted)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("cannot decrypt saved OAuth setup for %s", app.Slug)
 		}
 		var credentials map[string]string
 		if err := json.Unmarshal([]byte(plaintext), &credentials); err != nil {
+			return nil, fmt.Errorf("invalid saved OAuth setup for %s", app.Slug)
+		}
+		// Empty pending account placeholders do not constitute saved setup.
+		hasSetup := strings.TrimSpace(credentials["client_id"]) != "" || strings.TrimSpace(credentials["client_secret"]) != ""
+		for _, field := range app.Auth.CredentialFields {
+			if field.Source == "user" && !field.Hidden && strings.TrimSpace(credentials[field.Name]) != "" {
+				hasSetup = true
+			}
+		}
+		if !hasSetup {
 			continue
 		}
-		setup := make(map[string]string, len(required))
-		complete := true
-		for _, field := range required {
-			value := strings.TrimSpace(credentials[field.Name])
-			if value == "" {
-				complete = false
-				break
+		// Do not silently switch to an older production setup when the newest
+		// saved sandbox setup is incomplete. Defaults cannot supply a missing
+		// required environment choice on a stored record.
+		for _, field := range app.Auth.CredentialFields {
+			if field.Source == "user" && !field.Hidden && (field.Required == nil || *field.Required) && strings.TrimSpace(credentials[field.Name]) == "" {
+				return nil, fmt.Errorf("%s integration is missing required shared configuration: %s", app.Name, field.Name)
 			}
-			setup[field.Name] = value
 		}
-		if complete {
-			return setup, nil
+		supplemental, err := collectOAuthSupplementalCredentials(app, credentials)
+		if err != nil {
+			return nil, err
 		}
+		setup := &oauthSetup{ClientID: strings.TrimSpace(credentials["client_id"]), ClientSecret: strings.TrimSpace(credentials["client_secret"]), Credentials: supplemental}
+		if err := validateOAuthSetupClient(app, setup.ClientID, setup.ClientSecret); err != nil {
+			return nil, err
+		}
+		return setup, nil
 	}
 
-	labels := make([]string, 0, len(required))
-	for _, field := range required {
-		label := strings.TrimSpace(field.Label)
-		if label == "" {
-			label = field.Name
+	// Environment clients still work for integrations that need no required
+	// project setup. A catalog default alone cannot choose an environment for
+	// an app-initiated connection.
+	for _, field := range app.Auth.CredentialFields {
+		if field.Source == "user" && !field.Hidden && (field.Required == nil || *field.Required) {
+			return nil, fmt.Errorf("%s integration is missing required shared configuration: %s", app.Name, field.Name)
 		}
-		labels = append(labels, label)
 	}
-	return nil, fmt.Errorf(
-		"%s integration is missing required shared configuration: %s",
-		app.Name,
-		strings.Join(labels, ", "),
-	)
+	supplemental, err := collectOAuthSupplementalCredentials(app, nil)
+	if err != nil {
+		return nil, err
+	}
+	setup := &oauthSetup{ClientID: strings.TrimSpace(oauthEnvClientID(app.Slug)), ClientSecret: strings.TrimSpace(oauthEnvClientSecret(app.Slug)), Credentials: supplemental}
+	if err := validateOAuthSetupClient(app, setup.ClientID, setup.ClientSecret); err != nil {
+		return nil, err
+	}
+	return setup, nil
 }
 
 // handleOAuthClientStatus tells the dashboard whether OAuth client credentials
@@ -530,18 +573,23 @@ func pkcePair() (verifier, challenge string, err error) {
 // token so the callback can 302 the browser back into the app's panel
 // instead of rendering the dashboard's auto-close page.
 func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string, supplementalCredentials map[string]string, ownerAppInstallID int64, returnURL string, autoMCP *bool) (*Connection, string, error) {
+	clientID, clientSecret := s.resolveOAuthClient(userID, projectID, app.Slug, explicitClientID, explicitClientSecret)
+	return s.startLocalOAuthResolved(userID, app, connName, projectID, clientID, clientSecret, supplementalCredentials, ownerAppInstallID, returnURL, autoMCP)
+}
+
+// startLocalOAuthResolved never performs a second credential lookup: callers
+// have already selected the client and environment as one configuration.
+func (s *Server) startLocalOAuthResolved(userID int64, app *AppTemplate, connName, projectID, clientID, clientSecret string, supplementalCredentials map[string]string, ownerAppInstallID int64, returnURL string, autoMCP *bool) (*Connection, string, error) {
+	if err := validateOAuthSetupClient(app, clientID, clientSecret); err != nil {
+		return nil, "", err
+	}
 	if app.Auth.OAuth1 != nil && containsString(app.Auth.Types, "oauth1") {
-		return s.startLocalOAuth1(userID, app, connName, projectID, explicitClientID, explicitClientSecret, supplementalCredentials, ownerAppInstallID, returnURL, autoMCP)
+		return s.startLocalOAuth1Resolved(userID, app, connName, projectID, clientID, clientSecret, supplementalCredentials, ownerAppInstallID, returnURL, autoMCP)
 	}
 	if app.Auth.OAuth2 == nil {
 		return nil, "", fmt.Errorf("app %s has no oauth2 config", app.Slug)
 	}
 	cfg := app.Auth.OAuth2
-	clientID, clientSecret := s.resolveOAuthClient(userID, projectID, app.Slug, explicitClientID, explicitClientSecret)
-	if cfg.ClientIDRequired && clientID == "" {
-		return nil, "", fmt.Errorf("missing client_id for %s — set it in the connect form, on a prior connection, or via env var OAUTH_%s_CLIENT_ID",
-			app.Slug, strings.ToUpper(strings.ReplaceAll(app.Slug, "-", "_")))
-	}
 
 	// Create the pending row with every user-supplied supplemental credential
 	// plus any explicit/resolved OAuth client credentials. The callback merges
@@ -806,8 +854,10 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 		http.Error(w, "unknown or expired state", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[OAUTH-CB] state→connection row: conn=%d user=%d slug=%s purpose=%s app_install=%d return_url=%q has_pkce=%t expired=%t",
-		row.ConnectionID, row.UserID, row.AppSlug, row.Purpose, row.AppInstallID, row.ReturnURL, row.PKCEVerifier != "", row.Expired)
+	// App return URLs can contain one-time callback credentials. Keep them out
+	// of logs while retaining enough context to diagnose the OAuth flow.
+	log.Printf("[OAUTH-CB] state→connection row: conn=%d user=%d slug=%s purpose=%s app_install=%d has_return_url=%t has_pkce=%t expired=%t",
+		row.ConnectionID, row.UserID, row.AppSlug, row.Purpose, row.AppInstallID, row.ReturnURL != "", row.PKCEVerifier != "", row.Expired)
 
 	if row.Expired {
 		log.Printf("[OAUTH-CB] state expired conn=%d", row.ConnectionID)
@@ -966,6 +1016,8 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 			sep = "&"
 		}
 		dest := fmt.Sprintf("%s%sconn_id=%d&status=ok", row.ReturnURL, sep, row.ConnectionID)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}

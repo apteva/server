@@ -14,6 +14,10 @@ import (
 // avoid two open dashboard tabs replacing each other's unrelated changes.
 func (s *Server) handleUILayoutSurface(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/ui-layout/projects/")
+	if strings.Count(rest, "/") == 1 && strings.HasSuffix(rest, "/sidebar") {
+		s.handleUILayoutSidebar(w, r, strings.TrimSuffix(rest, "/sidebar"))
+		return
+	}
 	parts := strings.SplitN(rest, "/surfaces/", 2)
 	if len(parts) != 2 || parts[0] == "" || !validUILayoutSurface(parts[1]) {
 		http.Error(w, "invalid UI layout path", http.StatusBadRequest)

@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	sdk "github.com/apteva/app-sdk"
 
@@ -143,6 +145,65 @@ type RegistryEntry struct {
 	Replacement string   `json:"replacement,omitempty"`
 }
 
+// marketplaceSearchScore keeps direct app-name matches ahead of incidental
+// matches in tags or descriptions. Every query term must match somewhere.
+// The dashboard uses the same tiers for installed-app search.
+func marketplaceSearchScore(e RegistryEntry, query string, terms []string) int {
+	name := strings.ToLower(e.Name)
+	displayName := strings.ToLower(e.DisplayName)
+	score := 0
+	switch {
+	case name == query:
+		score = 1_000_000
+	case displayName == query:
+		score = 900_000
+	case strings.HasPrefix(name, query):
+		score = 10_000
+	case strings.HasPrefix(displayName, query):
+		score = 9_000
+	}
+	for _, term := range terms {
+		best := 120 * appSearchMatchStrength(name, term)
+		best = max(best, 120*appSearchMatchStrength(displayName, term))
+		for _, tag := range e.Tags {
+			best = max(best, 60*appSearchMatchStrength(tag, term))
+		}
+		best = max(best, 20*appSearchMatchStrength(e.Description, term))
+		if best == 0 {
+			return 0
+		}
+		score += best
+	}
+	return score
+}
+
+// Strength falls from exact field to prefix, whole word, word prefix, and
+// finally substring. The last tier retains useful partial searches while
+// keeping matches such as "barcode" below a search for the "code" app.
+func appSearchMatchStrength(value, term string) int {
+	value = strings.ToLower(value)
+	switch {
+	case value == term:
+		return 5
+	case strings.HasPrefix(value, term):
+		return 4
+	}
+	for _, word := range strings.FieldsFunc(value, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if word == term {
+			return 3
+		}
+		if strings.HasPrefix(word, term) {
+			return 2
+		}
+	}
+	if strings.Contains(value, term) {
+		return 1
+	}
+	return 0
+}
+
 // Default registry URL used when the operator hasn't overridden it via
 // the APTEVA_APP_REGISTRY_URL env var. Self-hosted deployments can
 // point at their own curated list.
@@ -185,7 +246,8 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "parse registry: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	search := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+	searchTerms := strings.Fields(strings.ToLower(r.URL.Query().Get("q")))
+	search := strings.Join(searchTerms, " ")
 	category := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("category")))
 	if category == "all" {
 		category = ""
@@ -299,19 +361,21 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		if entryCategory == "" {
 			entryCategory = "other"
 		}
-		if search != "" {
-			hay := strings.ToLower(strings.Join(append([]string{
-				e.Name, e.DisplayName, e.Description,
-			}, e.Tags...), " "))
-			if !strings.Contains(hay, search) {
-				continue
-			}
+		if search != "" && marketplaceSearchScore(e, search, searchTerms) == 0 {
+			continue
 		}
 		categoryCounts[entryCategory]++
 		if category != "" && entryCategory != category {
 			continue
 		}
 		filtered = append(filtered, e)
+	}
+	if search != "" {
+		// Sort the entire result set before slicing a page. Stable ties keep
+		// registry order, and an empty search keeps the registry's curation.
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return marketplaceSearchScore(filtered[i], search, searchTerms) > marketplaceSearchScore(filtered[j], search, searchTerms)
+		})
 	}
 	total := len(filtered)
 	pageEntries := filtered
@@ -845,17 +909,18 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 				uiComps := make([]sdk.UIComponent, 0, len(tmpl.UIComponents))
 				for _, c := range tmpl.UIComponents {
 					uiComps = append(uiComps, sdk.UIComponent{
-						Name:            c.Name,
-						Entry:           c.Entry,
-						Slots:           c.Slots,
-						SupportedSizes:  c.SupportedSizes,
-						DefaultSize:     c.DefaultSize,
-						Visibility:      c.Visibility,
-						DashboardScopes: c.DashboardScopes,
-						RefreshTopics:   c.RefreshTopics,
-						PropsSchema:     c.PropsSchema,
-						SettingsSchema:  c.SettingsSchema,
-						PreviewProps:    c.PreviewProps,
+						Name:             c.Name,
+						Entry:            c.Entry,
+						Slots:            c.Slots,
+						SupportedSizes:   c.SupportedSizes,
+						RecommendedViews: c.RecommendedViews,
+						DefaultSize:      c.DefaultSize,
+						Visibility:       c.Visibility,
+						DashboardScopes:  c.DashboardScopes,
+						RefreshTopics:    c.RefreshTopics,
+						PropsSchema:      c.PropsSchema,
+						SettingsSchema:   c.SettingsSchema,
+						PreviewProps:     c.PreviewProps,
 					})
 				}
 				icon := ""
@@ -1441,8 +1506,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 }
 
 // PUT /api/apps/installs/:id/status — operator-side status flip.
-// Used today as the manual "I deployed the sidecar; mount it" trigger.
-// In the orchestrator-driven flow this becomes automatic.
+// Enables/disables an installed app or mounts an externally managed sidecar.
 func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 	parts := strings.SplitN(rest, "/", 2)
@@ -1470,14 +1534,52 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 	}
 	effectiveSidecarURL := strings.TrimSpace(body.SidecarURL)
 	if body.Status == "running" {
-		var localBinPath string
+		var localBinPath, previousStatus string
 		var localPort int64
-		if err := s.store.db.QueryRow(
-			`SELECT COALESCE(local_bin_path, ''), COALESCE(local_port, 0)
+		err := s.store.db.QueryRow(
+			`SELECT COALESCE(local_bin_path, ''), COALESCE(local_port, 0), status
 				   FROM app_installs
 				  WHERE id = ?`,
 			installID,
-		).Scan(&localBinPath, &localPort); err == nil && localBinPath != "" && localPort > 0 {
+		).Scan(&localBinPath, &localPort, &previousStatus)
+		if err == sql.ErrNoRows {
+			http.Error(w, "install not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, "load install: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if previousStatus == "disabled" && localBinPath != "" {
+			// Disabled local installs are not resumed at server startup. Use
+			// the existing cached-runtime restart path before advertising this
+			// install as running again; a DB status flip alone leaves it offline.
+			if s.localApps == nil {
+				http.Error(w, "local app runtime is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if !s.localApps.acquireInstall(installID) {
+				http.Error(w, "app already has an operation in progress", http.StatusConflict)
+				return
+			}
+			defer s.localApps.releaseInstall(installID)
+			// OnMount runs before the health check completes and may call the
+			// platform. A disabled token is intentionally rejected by auth, so
+			// enter the normal pre-running state before spawning the sidecar.
+			// Keep it out of the running registry until readiness succeeds.
+			if _, err := s.store.db.Exec(`UPDATE app_installs SET status='pending', status_message='Starting local runtime' WHERE id=?`, installID); err != nil {
+				http.Error(w, "enable app: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := s.RespawnLocalInstall(installID); err != nil {
+				// Keep Enable available for retry after an unsuccessful start.
+				// Respawn's generic failure path otherwise changes it to error.
+				s.store.db.Exec(`UPDATE app_installs SET status='disabled', status_message='', error_message=? WHERE id=?`, err.Error(), installID)
+				http.Error(w, "enable app: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if localBinPath != "" && localPort > 0 {
 			effectiveSidecarURL = localSidecarURL(localPort)
 		}
 	}

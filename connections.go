@@ -2221,8 +2221,8 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			if binary, _ := env["_binary"].(bool); !binary {
 				return nil, fmt.Errorf("body_binary_param %q must have _binary=true", tool.BodyBinaryParam)
 			}
-			encoded, _ := env["base64"].(string)
-			if encoded == "" {
+			encoded, hasBase64 := env["base64"].(string)
+			if !hasBase64 {
 				return nil, fmt.Errorf("body_binary_param %q must include base64 data", tool.BodyBinaryParam)
 			}
 			bodyBytes, err := base64.StdEncoding.DecodeString(encoded)
@@ -2476,10 +2476,13 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// the TS executor's `maxBinaryBytes` knob; we don't expose a per-tool
 	// override yet because no template needs one.
 	ct := resp.Header.Get("Content-Type")
-	binary := isBinaryContentType(ct)
+	binary := isBinaryContentType(ct) || (tool.ResponseType == "binary" && resp.StatusCode >= 200 && resp.StatusCode < 300)
 	maxBytes := int64(10_000_000)
 	if binary {
 		maxBytes = 200_000_000
+	} else if tool.ResponseTransform != nil && tool.ResponseTransform.Type == "base64_to_binary" && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// JSON carrying encoded files needs space for base64 plus metadata.
+		maxBytes = int64(((maxBase64BinaryBytes+2)/3)*4 + 1024*1024)
 	}
 	hdrs := pickForwardableHeaders(resp.Header)
 	if cl := resp.ContentLength; cl > 0 && cl > maxBytes {
@@ -2521,6 +2524,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		mime := ct
 		if i := strings.Index(mime, ";"); i >= 0 {
 			mime = strings.TrimSpace(mime[:i])
+		}
+		if mime == "" {
+			mime = "application/octet-stream"
 		}
 		data = map[string]any{
 			"_binary":  true,
@@ -2608,13 +2614,16 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			return nil, err
 		}
 		data = transformed
+		if envelope, ok := data.(map[string]any); ok && envelope["_binary"] == true {
+			binary = true
+		}
 	}
 
 	// Strip any fields the tool declared we shouldn't expose. Runs
 	// AFTER response_path so the paths are relative to whatever the
 	// agent actually ends up seeing. Silent no-op on unmatched paths
 	// so a minor upstream schema drift doesn't break the tool.
-	if len(tool.ResponseOmit) > 0 && data != nil {
+	if len(tool.ResponseOmit) > 0 && data != nil && !binary {
 		for _, p := range tool.ResponseOmit {
 			data = omitPath(data, p)
 		}

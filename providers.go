@@ -645,6 +645,8 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 		info := ProviderInfo{
 			Type:              providerKey,
+			ServiceTier:       stringValue(data["service_tier"]),
+			ServiceTiers:      s.serviceTiersForProvider(providerKey),
 			ModelLarge:        normalizeStaleModel(providerKey, stringValue(data["model_large"])),
 			ModelMedium:       normalizeStaleModel(providerKey, stringValue(data["model_medium"])),
 			ModelSmall:        normalizeStaleModel(providerKey, stringValue(data["model_small"])),
@@ -702,10 +704,15 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 				RealtimeVoice: "eve",
 			})
 		case "google":
+			catalog := s.realtimeCatalogForProvider("google")
+			model := "gemini-3.1-flash-live-preview"
+			if catalog != nil && catalog.DefaultModel != "" {
+				model = catalog.DefaultModel
+			}
 			realtimeCompanions = append(realtimeCompanions, ProviderInfo{
-				Type: "google-realtime", ModelLarge: "gemini-3.1-flash-live-preview",
-				ModelMedium: "gemini-3.1-flash-live-preview", ModelSmall: "gemini-3.1-flash-live-preview",
-				RealtimeVoice: "Kore",
+				Type: "google-realtime", ModelLarge: model,
+				ModelMedium: model, ModelSmall: model,
+				RealtimeVoice: "Kore", Realtime: catalog,
 			})
 		}
 	}

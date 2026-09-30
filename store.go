@@ -89,6 +89,8 @@ type Agent struct {
 	ID                  int64     `json:"id"`
 	UserID              int64     `json:"user_id"`
 	Name                string    `json:"name"`
+	Icon                string    `json:"icon"`
+	IconColor           string    `json:"icon_color"`
 	Directive           string    `json:"directive"`
 	Mode                string    `json:"mode"`        // "autonomous" | "cautious" | "learn"
 	Proactivity         int       `json:"proactivity"` // server-owned initiative, 0–100
@@ -644,6 +646,11 @@ func (s *Store) migrate() error {
 			kind TEXT NOT NULL DEFAULT 'user',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS agent_appearances (
+			agent_id INTEGER PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+			icon TEXT NOT NULL DEFAULT 'robot',
+			icon_color TEXT NOT NULL DEFAULT 'accent'
+		);
 		CREATE TABLE IF NOT EXISTS agent_creation_keys (
 			project_id       TEXT NOT NULL DEFAULT '',
 			scope_user_id    INTEGER NOT NULL DEFAULT 0,
@@ -1188,6 +1195,7 @@ func (s *Store) migrate() error {
 		CHECK(interface_level IS NULL OR interface_level IN ('personal', 'business', 'developer'))`)
 	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout TEXT NOT NULL DEFAULT '{}'")
 	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout_revision INTEGER NOT NULL DEFAULT 0")
+	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN product_tours TEXT NOT NULL DEFAULT '{}'")
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS mobile_push_subscriptions (
 			id TEXT PRIMARY KEY,

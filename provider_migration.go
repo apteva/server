@@ -224,7 +224,7 @@ func translateProviderBlob(secret []byte, encrypted string, app *AppTemplate) (m
 // and nothing surfaces.
 var runtimeConfigKeys = []string{
 	"model_large", "model_medium", "model_small",
-	"model_capabilities", "builtin_tools",
+	"model_capabilities", "builtin_tools", "service_tier",
 }
 
 // translateProviderRuntimeConfig lifts the settings half of a provider

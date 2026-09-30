@@ -30,9 +30,11 @@
             "tasks",
             "todo",
             "notes",
-            "calendar"
+            "calendar",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Keep the user's commitments, retained notes, calendar, and substantial delegated work organized; communicate important progress clearly; and ask before consequential external actions."
+          "directive": "Use this project description as your operating context: {{description}}. Keep the user's commitments, retained notes, calendar, and substantial delegated work organized; communicate important progress clearly; and ask before consequential external actions.",
+          "icon": "assistant"
         }
       ],
       "dashboard": [
@@ -40,6 +42,68 @@
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "assistant": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        }
       ]
     },
     {
@@ -71,15 +135,74 @@
             "todo",
             "calendar",
             "pantry",
-            "recipes"
+            "recipes",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Coordinate household work, maintain clear errands and schedules, help track food and meal needs when relevant, surface exceptions, and never make purchases or commitments without approval."
+          "directive": "Use this project description as your operating context: {{description}}. Coordinate household work, maintain clear errands and schedules, help track food and meal needs when relevant, surface exceptions, and never make purchases or commitments without approval.",
+          "icon": "manager"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "coordinator": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        }
       ]
     },
     {
@@ -111,15 +234,74 @@
             "todo",
             "health",
             "notes",
-            "calendar"
+            "calendar",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Support non-clinical wellbeing goals, organize routines, record only user-provided health observations, preserve reflections, and prepare appointments. Do not diagnose, prescribe, or present medical advice as professional care."
+          "directive": "Use this project description as your operating context: {{description}}. Support non-clinical wellbeing goals, organize routines, record only user-provided health observations, preserve reflections, and prepare appointments. Do not diagnose, prescribe, or present medical advice as professional care.",
+          "icon": "planner"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "planner": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        }
       ]
     },
     {
@@ -127,7 +309,7 @@
       "category": "personal",
       "interface_level": "personal",
       "name": "Independent creator",
-      "description": "Organize ideas, a publishing cadence, research, and audience follow-up.",
+      "description": "A creator assistant and media specialist for editorial work, visual assets, and publishing preparation.",
       "match": [
         "creator",
         "newsletter",
@@ -137,9 +319,9 @@
         "content"
       ],
       "highlights": [
-        "Turn ideas and research into organized content drafts",
-        "Prepare channel-specific media and social material",
-        "Learn from audience performance while keeping publishing approval explicit"
+        "Creator Assistant owns ideas, writing, the content plan, and results",
+        "Media Specialist prepares visuals and channel-specific drafts",
+        "The creator approves publication and scheduling"
       ],
       "agents": [
         {
@@ -151,18 +333,147 @@
             "tasks",
             "notes",
             "content",
-            "social",
+            "storage",
+            "analytics",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Own the creator's ideas, editorial plan, article drafts, and performance review. Give Media Specialist a concrete brief, approved copy, references, and intended channels; incorporate returned asset and social draft references. Keep the final editorial decision with the user and ask before publishing or scheduling. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "writer"
+        },
+        {
+          "key": "media-specialist",
+          "name": "Media Specialist",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
             "media-studio",
             "storage",
-            "analytics"
+            "social",
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Capture ideas, draft and manage content, prepare media, organize durable work, and learn from audience performance. Require approval before publishing."
+          "directive": "Use this project description as your operating context: {{description}}. Prepare visual assets and channel-specific social drafts from the approved creative brief. Keep source and output references in Storage and return them to Creator Assistant for editorial review. Respect brand guidance, authorized source material, and any agreed generation budget. Never publish or schedule posts without explicit approval. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "design"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          },
+          {
+            "id": "analytics-analytics-dashboard",
+            "component": "analytics:analytics-dashboard",
+            "size": "half"
+          }
+        ],
+        "agent_overview": {
+          "editor": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ],
+          "media-specialist": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "content",
+          "title": "Publishing destinations",
+          "description": "Choose content destinations and review publishing permissions in Content.",
+          "required": false
+        },
+        {
+          "app": "social",
+          "title": "Social accounts",
+          "description": "Connect the social accounts you want to use in Social and review publishing permissions.",
+          "required": false
+        },
+        {
+          "app": "storage",
+          "title": "File access",
+          "description": "Choose storage locations and review the files this workspace should be able to access.",
+          "required": false
+        },
+        {
+          "app": "analytics",
+          "title": "Analytics sources",
+          "description": "Configure data sources and choose a saved Analytics dashboard for the Home widget.",
+          "required": false
+        }
       ]
     }
   ]

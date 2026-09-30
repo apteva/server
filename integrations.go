@@ -77,6 +77,7 @@ type AppTemplate struct {
 // AppRuntimeConfig declares how a connection's credentials become an
 // agent runtime backend. See runtime_env.go for the template renderer.
 type AppRuntimeConfig struct {
+	ServiceTiers []string `json:"service_tiers,omitempty"`
 	// Role — which runtime pool this app feeds. Only "llm" entries land
 	// in config.json's providers[]; others export env vars only.
 	Role string `json:"role"`
@@ -94,7 +95,24 @@ type AppRuntimeConfig struct {
 	// "subscription_usage" for providers exposing a quota endpoint.
 	Capabilities []string `json:"capabilities,omitempty"`
 	// Optional integration-owned eligibility and live-catalog tier preferences.
-	ModelPolicy *RuntimeModelPolicy `json:"model_policy,omitempty"`
+	ModelPolicy *RuntimeModelPolicy     `json:"model_policy,omitempty"`
+	Realtime    *RuntimeRealtimeCatalog `json:"realtime,omitempty"`
+}
+
+// RuntimeRealtimeCatalog describes voice models independently of the text
+// model policy. Unavailable entries are visible to the dashboard but cannot
+// be selected until their Core protocol support lands.
+type RuntimeRealtimeCatalog struct {
+	ProviderKey  string                 `json:"provider_key"`
+	DefaultModel string                 `json:"default_model"`
+	Models       []RuntimeRealtimeModel `json:"models"`
+	Voices       []string               `json:"voices"`
+}
+
+type RuntimeRealtimeModel struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
 }
 
 type IntegrationURLProperty struct {
@@ -191,17 +209,18 @@ type AppHealthCheck struct {
 // in the agent-facing description — the dashboard's runtime is the
 // authority for prop validation.
 type IntegrationUIComponent struct {
-	Name            string         `json:"name"`
-	Entry           string         `json:"entry"`
-	Slots           []string       `json:"slots,omitempty"`
-	SupportedSizes  []string       `json:"supported_sizes,omitempty"`
-	DefaultSize     string         `json:"default_size,omitempty"`
-	Visibility      string         `json:"visibility,omitempty"`
-	DashboardScopes []string       `json:"dashboard_scopes,omitempty"`
-	RefreshTopics   []string       `json:"refresh_topics,omitempty"`
-	PropsSchema     map[string]any `json:"props_schema,omitempty"`
-	SettingsSchema  map[string]any `json:"settings_schema,omitempty"`
-	PreviewProps    map[string]any `json:"preview_props,omitempty"`
+	Name             string         `json:"name"`
+	Entry            string         `json:"entry"`
+	Slots            []string       `json:"slots,omitempty"`
+	SupportedSizes   []string       `json:"supported_sizes,omitempty"`
+	DefaultSize      string         `json:"default_size,omitempty"`
+	Visibility       string         `json:"visibility,omitempty"`
+	DashboardScopes  []string       `json:"dashboard_scopes,omitempty"`
+	RecommendedViews []string       `json:"recommended_views,omitempty"`
+	RefreshTopics    []string       `json:"refresh_topics,omitempty"`
+	PropsSchema      map[string]any `json:"props_schema,omitempty"`
+	SettingsSchema   map[string]any `json:"settings_schema,omitempty"`
+	PreviewProps     map[string]any `json:"preview_props,omitempty"`
 }
 
 // IntegrationExplorerConfig mirrors @apteva/integrations/src/types.ts.
@@ -475,11 +494,12 @@ type CredentialField struct {
 }
 
 type OAuthConfig struct {
-	AuthorizeURL     string   `json:"authorize_url"`
-	TokenURL         string   `json:"token_url"`
-	Scopes           []string `json:"scopes"`
-	ClientIDRequired bool     `json:"client_id_required"`
-	PKCE             bool     `json:"pkce"`
+	AuthorizeURL         string   `json:"authorize_url"`
+	TokenURL             string   `json:"token_url"`
+	Scopes               []string `json:"scopes"`
+	ClientIDRequired     bool     `json:"client_id_required"`
+	PKCE                 bool     `json:"pkce"`
+	ClientSecretRequired bool     `json:"client_secret_required,omitempty"`
 	// ClientIDParamName overrides the parameter name carrying the client
 	// id on both the authorize-URL build and the token-exchange POST
 	// body. Defaults to "client_id" (the OAuth 2.0 standard). TikTok is
@@ -706,6 +726,8 @@ type AppToolDef struct {
 	// ResponseTransform rewrites provider-specific responses into
 	// agent-friendly output after response_path and before response_omit.
 	ResponseTransform *ResponseTransformDef `json:"response_transform,omitempty"`
+	// Preserve successful downloads as binary envelopes regardless of their MIME type.
+	ResponseType string `json:"response_type,omitempty"`
 
 	// Signing overrides the app-level auth.signers[] chain for this
 	// specific tool. Use when most endpoints share one auth flavor but
@@ -782,6 +804,8 @@ type ResponseTransformDef struct {
 	Source          string            `json:"source,omitempty"`
 	Target          string            `json:"target,omitempty"`
 	Encoding        string            `json:"encoding,omitempty"`
+	MimeType        string            `json:"mime_type,omitempty"`
+	MimeTypeParam   string            `json:"mime_type_param,omitempty"`
 	Fields          map[string]string `json:"fields,omitempty"`
 	BodyModeParam   string            `json:"body_mode_param,omitempty"`
 	MaxCharsParam   string            `json:"max_chars_param,omitempty"`

@@ -3,7 +3,68 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"time"
 )
+
+type agentLastActive struct {
+	AgentID      int64     `json:"agent_id"`
+	LastActiveAt time.Time `json:"last_active_at"`
+}
+
+// One aggregate query gives the fleet cards a useful activity timestamp
+// without fetching telemetry or thread details separately for each agent.
+func (s *Server) handleAgentsLastActive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	project := r.URL.Query().Get("project_id")
+	if project != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, project, ProjectViewer); !ok {
+			return
+		}
+	}
+	agents, err := s.store.ListVisibleAgents(getUserID(r))
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	visible := agents[:0]
+	for _, agent := range agents {
+		if project == "" || agent.ProjectID == project {
+			visible = append(visible, agent)
+		}
+	}
+	if len(visible) == 0 {
+		writeJSON(w, []agentLastActive{})
+		return
+	}
+	ids, args := metricIDs(visible)
+	rows, err := s.store.db.QueryContext(r.Context(), `SELECT agent_id, MAX(time) FROM telemetry WHERE agent_id IN (`+ids+`) AND type IN ('tool.call','tool.result','event.received','thread.done','error') GROUP BY agent_id`, args...)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	out := []agentLastActive{}
+	for rows.Next() {
+		var agentID int64
+		var rawTime string
+		if err := rows.Scan(&agentID, &rawTime); err != nil {
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			return
+		}
+		at, err := parseTime(rawTime)
+		if err == nil {
+			out = append(out, agentLastActive{AgentID: agentID, LastActiveAt: at})
+		}
+	}
+	if rows.Err() != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, out)
+}
 
 // One project history query replaces a request per agent. Stream updates keep
 // the feed live after this initial/cursor-based catch-up.
@@ -48,8 +109,15 @@ func (s *Server) handleProjectActivity(w http.ResponseWriter, r *http.Request) {
 			args = append(args, before)
 		}
 	}
+	types := "'tool.call','tool.result','event.received','thread.done','error'"
+	if r.URL.Query().Get("view") == "runtime" {
+		// The composable activity feed uses the same completed thoughts and
+		// thread events as agent details. Streaming chunks arrive over SSE;
+		// they do not crowd completed records out of the history window.
+		types += ",'llm.done','llm.error','thread.spawn','thread.message','realtime.user','realtime.assistant'"
+	}
 	args = append(args, limit)
-	rows, err := s.store.db.QueryContext(r.Context(), `SELECT id,agent_id,thread_id,type,time,data FROM telemetry WHERE agent_id IN (`+ids+`) AND type IN ('tool.call','tool.result','event.received','thread.done','error')`+condition+` ORDER BY time DESC,id DESC LIMIT ?`, args...)
+	rows, err := s.store.db.QueryContext(r.Context(), `SELECT id,agent_id,thread_id,type,time,data FROM telemetry WHERE agent_id IN (`+ids+`) AND type IN (`+types+`)`+condition+` ORDER BY time DESC,id DESC LIMIT ?`, args...)
 	if err != nil {
 		http.Error(w, "query failed", 500)
 		return

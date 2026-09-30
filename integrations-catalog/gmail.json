@@ -1182,6 +1182,27 @@
       }
     },
     {
+      "name": "download_attachment",
+      "description": "Download attachment bytes as a binary file handle for uploading to another integration. Get messageId, attachmentId and mimeType from get_message attachment metadata. Returns a handle containing the exact bytes instead of inline base64 text; downloads are limited to 25 MiB.",
+      "method": "GET",
+      "path": "/users/me/messages/{messageId}/attachments/{attachmentId}",
+      "response_transform": {
+        "type": "base64_to_binary",
+        "source": "data",
+        "encoding": "base64url",
+        "mime_type_param": "mimeType"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": { "type": "string", "description": "Message containing the attachment." },
+          "attachmentId": { "type": "string", "description": "Attachment ID returned by get_message." },
+          "mimeType": { "type": "string", "description": "Attachment MIME type from get_message. Local metadata, never sent to Gmail. Defaults to application/octet-stream when omitted." }
+        },
+        "required": ["messageId", "attachmentId"]
+      }
+    },
+    {
       "name": "get_attachment",
       "description": "Download an email attachment by message ID and attachment ID. Returns base64-encoded attachment data",
       "method": "GET",

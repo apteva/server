@@ -474,6 +474,8 @@ func (im *AgentManager) PreSeedConfig(instID int64, cfgJSON string) error {
 
 // ProviderInfo holds provider metadata for config.json injection.
 type ProviderInfo struct {
+	ServiceTier         string
+	ServiceTiers        []string
 	AvailableModels     map[string]bool
 	ModelPolicy         *RuntimeModelPolicy
 	ModelSelectionError bool
@@ -482,6 +484,7 @@ type ProviderInfo struct {
 	ModelMedium         string
 	ModelSmall          string
 	RealtimeVoice       string
+	Realtime            *RuntimeRealtimeCatalog
 	BuiltinTools        []string
 	ModelCapabilities   map[string]ProviderModelCapabilities
 }
@@ -1005,6 +1008,9 @@ func buildCoreProviderConfigs(pool []ProviderInfo, configuredDefault string) []m
 			},
 			"default": providerIsDefault(name, defaultProvider, i),
 		}
+		if tier, err := validateServiceTier(name, provider.ServiceTiers, provider.ServiceTier); err == nil && tier != "" {
+			entry["service_tier"] = tier
+		}
 		if provider.RealtimeVoice != "" {
 			entry["realtime_voice"] = provider.RealtimeVoice
 		}
@@ -1046,12 +1052,22 @@ func buildAgentCoreProviderConfigs(pool []ProviderInfo, configJSON string, fallb
 	}
 	pool = eligibleProviderPool(pool)
 	providers := buildCoreProviderConfigs(pool, configuredDefault)
+	applyAgentServiceTiers(providers, pool, savedAgentServiceTiers(configJSON))
+
 	effectiveDefault := effectiveProviderDefault(pool, configuredDefault)
 	model := configuredAgentModelOverride(configJSON, effectiveDefault)
 	if err := validateProviderModel(pool, effectiveDefault, model); err != nil {
 		log.Printf("[RUNTIME-MODELS] ignoring incompatible saved agent override: %v", err)
 	} else {
 		applyAgentModelOverride(providers, effectiveDefault, model)
+	}
+	realtimeProvider, realtimeModel := configuredAgentRealtimeSelection(configJSON)
+	if realtimeProvider != "" || realtimeModel != "" {
+		if provider, selectedModel, err := resolveRealtimeSelection(pool, realtimeProvider, realtimeModel); err != nil {
+			log.Printf("[RUNTIME-MODELS] ignoring incompatible saved realtime choice: %v", err)
+		} else {
+			applyRealtimeSelection(providers, provider, selectedModel)
+		}
 	}
 	return providers
 }
@@ -1108,6 +1124,13 @@ func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, r
 	for _, provider := range providers {
 		name, _ := provider["name"].(string)
 		override := byName[name]
+		if value, sent := override["service_tier"]; sent && value != nil {
+			checked := map[string]string{}
+			if err := mergeAgentServiceTiers(checked, map[string]any{name: value}, pool); err != nil {
+				return nil, "", err
+			}
+			applyAgentServiceTiers([]map[string]any{provider}, pool, checked)
+		}
 		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice"} {
 			if value, ok := override[field]; ok {
 				provider[field] = value
@@ -1115,6 +1138,9 @@ func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, r
 		}
 	}
 	if err := validateProviderModelMaps(pool, providers); err != nil {
+		return nil, "", err
+	}
+	if err := validateRealtimeProviderModelMaps(pool, providers); err != nil {
 		return nil, "", err
 	}
 	return providers, effectiveDefault, nil
@@ -1653,6 +1679,8 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Name        string `json:"name"`
+		Icon        string `json:"icon"`
+		IconColor   string `json:"icon_color"`
 		Directive   string `json:"directive"`
 		Proactivity *int   `json:"proactivity"`
 		Mode        string `json:"mode"`   // "autonomous" | "cautious" | "learn"
@@ -1704,6 +1732,16 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if body.Icon == "" {
+		body.Icon = defaultAgentIcon
+	}
+	if body.IconColor == "" {
+		body.IconColor = defaultAgentIconColor
+	}
+	if !validAgentAppearance(body.Icon, body.IconColor) {
+		http.Error(w, "invalid agent icon or color", http.StatusBadRequest)
 		return
 	}
 	// Multi-user: editor+ on the target project is required to create
@@ -1799,12 +1837,23 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !created {
+		if err := s.store.populateAgentAppearance(inst); err != nil {
+			http.Error(w, "failed to load agent appearance", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, map[string]any{
 			"id": inst.ID, "name": inst.Name, "status": inst.Status,
-			"project_id": inst.ProjectID, "created": false, "idempotent_replay": true,
+			"project_id": inst.ProjectID, "icon": inst.Icon, "icon_color": inst.IconColor,
+			"created": false, "idempotent_replay": true,
 		})
 		return
 	}
+	if err := s.store.updateAgentIdentity(inst.ID, nil, &body.Icon, &body.IconColor); err != nil {
+		_ = s.store.DeleteAgent(userID, inst.ID)
+		http.Error(w, "failed to save agent appearance", http.StatusInternalServerError)
+		return
+	}
+	inst.Icon, inst.IconColor = body.Icon, body.IconColor
 
 	// Write the operator's effective app selection before startup. App
 	// attachments are part of the creation contract: fail and remove the
@@ -1995,19 +2044,23 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		providerEnv, err := s.GetAllProviderEnvVars(userID, inst.ProjectID)
 		if err != nil {
 			writeJSON(w, map[string]any{
-				"id":      inst.ID,
-				"name":    inst.Name,
-				"status":  "stopped",
-				"warning": "agent created but not started: " + err.Error(),
+				"id":         inst.ID,
+				"name":       inst.Name,
+				"icon":       inst.Icon,
+				"icon_color": inst.IconColor,
+				"status":     "stopped",
+				"warning":    "agent created but not started: " + err.Error(),
 			})
 			return
 		}
 		pool := s.GetProviderPool(userID, inst.ProjectID)
 		if len(pool) == 0 {
 			writeJSON(w, map[string]any{
-				"id":     inst.ID,
-				"name":   inst.Name,
-				"status": "stopped",
+				"id":         inst.ID,
+				"name":       inst.Name,
+				"icon":       inst.Icon,
+				"icon_color": inst.IconColor,
+				"status":     "stopped",
 				"warning": "agent created but not started: no LLM provider configured. " +
 					"Add one in Settings → Providers, then click Start.",
 			})
@@ -2053,6 +2106,10 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 		instances, err = s.store.ListVisibleAgents(userID)
 	}
 	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.populateAgentAppearances(instances); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -2112,34 +2169,50 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.enrichAgentRuntime(inst)
+		if err := s.store.populateAgentAppearance(inst); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		restrictAgentConfig(r, inst)
 		writeJSON(w, inst)
 
 	case http.MethodPut, http.MethodPatch:
-		// Rename / metadata edit. The only mutable field for now is name —
-		// directive/mode/config go through /instances/:id/config which also
-		// forwards to the running core. Keep this endpoint narrow on
-		// purpose so renaming a running instance never has to touch the
-		// core process.
+		// Agent identity is server-owned metadata. Editing it does not
+		// mutate core config or wake a running agent.
 		var body struct {
-			Name string `json:"name"`
+			Name      *string `json:"name"`
+			Icon      *string `json:"icon"`
+			IconColor *string `json:"icon_color"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		name := strings.TrimSpace(body.Name)
-		if name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
+		if body.Name == nil && body.Icon == nil && body.IconColor == nil {
+			http.Error(w, "no identity fields provided", http.StatusBadRequest)
 			return
 		}
-		if len(name) > 100 {
-			http.Error(w, "name too long (max 100)", http.StatusBadRequest)
+		if body.Name != nil {
+			name := strings.TrimSpace(*body.Name)
+			if name == "" || len(name) > 100 {
+				http.Error(w, "name must be 1–100 characters", http.StatusBadRequest)
+				return
+			}
+			body.Name = &name
+		}
+		if body.Icon != nil && !agentIcons[*body.Icon] || body.IconColor != nil && !agentIconColors[*body.IconColor] {
+			http.Error(w, "invalid agent icon or color", http.StatusBadRequest)
 			return
 		}
-		inst.Name = name
-		if err := s.store.RenameAgent(inst.ID, inst.Name); err != nil {
+		if err := s.store.updateAgentIdentity(inst.ID, body.Name, body.Icon, body.IconColor); err != nil {
 			http.Error(w, "failed to update instance", http.StatusInternalServerError)
+			return
+		}
+		if body.Name != nil {
+			inst.Name = *body.Name
+		}
+		if err := s.store.populateAgentAppearance(inst); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, inst)
@@ -2688,6 +2761,55 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	serviceConfig := inst.Config
+	if body.Config != "" {
+		serviceConfig = body.Config
+	}
+	serviceOverrides := savedAgentServiceTiers(serviceConfig)
+	servicePatch, servicePatchSent := rawBody["service_tier_overrides"]
+	serviceTiersSent := servicePatchSent
+	if body.Config != "" {
+		var supplied map[string]any
+		if err := json.Unmarshal([]byte(body.Config), &supplied); err != nil {
+			http.Error(w, "invalid config", http.StatusBadRequest)
+			return
+		}
+		if value, exists := supplied["service_tier_overrides"]; exists {
+			patch, ok := value.(map[string]any)
+			if !ok {
+				http.Error(w, "service_tier_overrides must be an object", http.StatusBadRequest)
+				return
+			}
+			if err := mergeAgentServiceTiers(serviceOverrides, patch, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			serviceTiersSent = true
+		}
+	}
+	if servicePatchSent {
+		patch, ok := servicePatch.(map[string]any)
+		if !ok {
+			http.Error(w, "service_tier_overrides must be an object", http.StatusBadRequest)
+			return
+		}
+		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
+		if err := mergeAgentServiceTiers(serviceOverrides, patch, pool); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	for _, provider := range body.Providers {
+		if tier, sent := provider["service_tier"]; sent {
+			name, _ := provider["name"].(string)
+			if err := mergeAgentServiceTiers(serviceOverrides, map[string]any{name: tier}, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			serviceTiersSent = true
+		}
+	}
+
 	effectiveDefault := ""
 	if body.Config != "" {
 		configured := configuredAgentDefaultProvider(body.Config)
@@ -2709,7 +2831,32 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			body.Providers = []map[string]any{{"name": selected, "default": true}}
 		}
 	}
-	if len(body.Providers) > 0 {
+	savedRealtimeProvider, savedRealtimeModel := configuredAgentRealtimeSelection(inst.Config)
+	requestedRealtimeProvider, requestedRealtimeModel := savedRealtimeProvider, savedRealtimeModel
+	_, realtimeProviderSent := rawBody["realtime_provider"]
+	_, realtimeModelSent := rawBody["realtime_model"]
+	if realtimeProviderSent {
+		value, ok := rawBody["realtime_provider"].(string)
+		if !ok {
+			http.Error(w, "realtime_provider must be a string", http.StatusBadRequest)
+			return
+		}
+		requestedRealtimeProvider = strings.TrimSpace(value)
+		if !realtimeModelSent && requestedRealtimeProvider != savedRealtimeProvider {
+			requestedRealtimeModel = ""
+		}
+	}
+	if realtimeModelSent {
+		value, ok := rawBody["realtime_model"].(string)
+		if !ok {
+			http.Error(w, "realtime_model must be a string", http.StatusBadRequest)
+			return
+		}
+		requestedRealtimeModel = strings.TrimSpace(value)
+	}
+	if len(body.Providers) > 0 || realtimeProviderSent || realtimeModelSent || serviceTiersSent {
+		// Core receives its existing providers[] shape; the new agent choice
+		// is server-owned metadata and is translated into that shape below.
 		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
 		configuredDefault := configuredAgentDefaultProvider(inst.Config)
 		if body.Config != "" {
@@ -2729,12 +2876,41 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		applyAgentModelOverride(hydrated, selected, modelOverride)
+		if requestedRealtimeProvider != "" || requestedRealtimeModel != "" {
+			provider, model, err := resolveRealtimeSelection(pool, requestedRealtimeProvider, requestedRealtimeModel)
+			if err != nil {
+				if realtimeProviderSent || realtimeModelSent {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				log.Printf("[RUNTIME-MODELS] ignoring incompatible saved realtime choice: %v", err)
+			} else {
+				applyRealtimeSelection(hydrated, provider, model)
+				if voice, sent := rawBody["realtime_voice"].(string); sent {
+					if err := validateRealtimeVoice(pool, provider, voice); err != nil {
+						http.Error(w, err.Error(), http.StatusBadRequest)
+						return
+					}
+				} else if realtimeProviderSent && requestedRealtimeProvider != savedRealtimeProvider {
+					for _, info := range pool {
+						if providerKeyFromName(info.Type) == provider {
+							rawBody["realtime_voice"] = info.RealtimeVoice
+							break
+						}
+					}
+				}
+			}
+		}
+		applyAgentServiceTiers(hydrated, pool, serviceOverrides)
 		rawBody["providers"] = hydrated
 		effectiveDefault = selected
 	}
 	// model_override is server-owned agent metadata. Core receives the
 	// resulting per-provider model map, not this persistence envelope.
+	delete(rawBody, "service_tier_overrides")
 	delete(rawBody, "model_override")
+	delete(rawBody, "realtime_provider")
+	delete(rawBody, "realtime_model")
 	if body.Mode == "autonomous" && s.store.GetPlatformRole(inst.UserID) != PlatformAdmin {
 		if policy, err := s.loadAccessPolicy(); err != nil || !policy.Capabilities.AutonomousScheduling {
 			body.Mode = "cautious"
@@ -2791,7 +2967,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// Save the validated effective provider rather than relying on whichever
 	// order SQLite or the dashboard happened to return.
-	if effectiveDefault != "" {
+	if effectiveDefault != "" || realtimeProviderSent || realtimeModelSent || serviceTiersSent {
 		var cfg map[string]any
 		if strings.TrimSpace(inst.Config) != "" {
 			if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
@@ -2802,7 +2978,24 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if cfg == nil {
 			cfg = map[string]any{}
 		}
-		cfg["default_provider"] = effectiveDefault
+		if serviceTiersSent {
+			cfg["service_tier_overrides"] = serviceOverrides
+		}
+		if effectiveDefault != "" {
+			cfg["default_provider"] = effectiveDefault
+		}
+		if realtimeProviderSent || realtimeModelSent {
+			if requestedRealtimeProvider == "" {
+				delete(cfg, "realtime_provider")
+			} else {
+				cfg["realtime_provider"] = requestedRealtimeProvider
+			}
+			if requestedRealtimeModel == "" {
+				delete(cfg, "realtime_model")
+			} else {
+				cfg["realtime_model"] = requestedRealtimeModel
+			}
+		}
 		if body.ModelOverride != nil {
 			model := strings.TrimSpace(*body.ModelOverride)
 			if model == "" {

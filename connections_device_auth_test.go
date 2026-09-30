@@ -22,8 +22,8 @@ func TestBuildOpenAICodexResponsesPayload_ChatMultimodal(t *testing.T) {
 			}},
 		},
 	})
-	if payload["model"] != "gpt-5.5" {
-		t.Fatalf("model=%v, want gpt-5.5", payload["model"])
+	if payload["model"] != "gpt-6.1-sol" {
+		t.Fatalf("model=%v, want gpt-6.1-sol", payload["model"])
 	}
 	if payload["instructions"] != "Return JSON." {
 		t.Fatalf("instructions=%v", payload["instructions"])
@@ -74,8 +74,8 @@ func TestBuildOpenAICodexImagePayload(t *testing.T) {
 		"background":         "transparent",
 		"output_compression": 80,
 	})
-	if payload["model"] != "gpt-5.5" {
-		t.Fatalf("model=%v, want gpt-5.5", payload["model"])
+	if payload["model"] != "gpt-6.1-sol" {
+		t.Fatalf("model=%v, want gpt-6.1-sol", payload["model"])
 	}
 	if payload["instructions"] == "" {
 		t.Fatalf("instructions missing: %#v", payload)

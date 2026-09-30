@@ -1546,12 +1546,11 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 	if name == "" {
 		name = app.Name
 	}
-	pid := body.ProjectID
-	if pid == "" {
-		_ = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&pid)
+	userID, pid, ok := s.runtimeCallerProject(w, r, installID, body.ProjectID, ProjectViewer)
+	if !ok {
+		return
 	}
-	userID := getUserID(r)
-	supplementalCredentials, err := s.findStoredOAuthSetup(userID, pid, app)
+	setup, err := s.findStoredOAuthSetup(userID, pid, app)
 	if err != nil {
 		http.Error(w, "oauth start: "+err.Error(), http.StatusBadRequest)
 		return
@@ -1559,9 +1558,9 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 
 	// nil autoMCP — app-install connections always skip auto-MCP via the
 	// owner_app_install_id check; the per-row flag isn't relevant here.
-	conn, authURL, err := s.startLocalOAuth(
+	conn, authURL, err := s.startLocalOAuthResolved(
 		userID, app, name, pid,
-		"", "", supplementalCredentials,
+		setup.ClientID, setup.ClientSecret, setup.Credentials,
 		installID, body.ReturnURL, nil,
 	)
 	if err != nil {

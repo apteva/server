@@ -36,6 +36,7 @@ import (
 // instead of labelling boxes with raw env var names the way the old
 // provider-types form did.
 type RuntimeCatalogEntry struct {
+	ServiceTiers     []string          `json:"service_tiers,omitempty"`
 	Slug             string            `json:"slug"`
 	Name             string            `json:"name"`
 	Description      string            `json:"description"`
@@ -492,6 +493,8 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 
 		info := ProviderInfo{
 			Type:                providerKey,
+			ServiceTier:         stringValue(state["service_tier"]),
+			ServiceTiers:        app.Runtime.ServiceTiers,
 			ModelLarge:          normalizeStaleModel(providerKey, stringValue(state["model_large"])),
 			ModelMedium:         normalizeStaleModel(providerKey, stringValue(state["model_medium"])),
 			ModelSmall:          normalizeStaleModel(providerKey, stringValue(state["model_small"])),
@@ -750,6 +753,7 @@ func (s *Server) runtimeCatalogForRole(role string) []RuntimeCatalogEntry {
 			AuthTypes:        app.Auth.Types,
 			CredentialFields: app.Auth.CredentialFields,
 			Capabilities:     app.Runtime.Capabilities,
+			ServiceTiers:     app.Runtime.ServiceTiers,
 			EnvVars:          sortedEnvNames(app.Runtime.Env),
 		})
 	}

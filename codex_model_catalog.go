@@ -234,9 +234,9 @@ func fetchCodexModelCatalog(ctx context.Context, accessToken, accountID string, 
 
 func codexDefaultModel(models []ModelInfo, tier string) string {
 	preferences := map[string][]string{
-		"large":  {"gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4"},
-		"medium": {"gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4"},
-		"small":  {"gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"},
+		"large":  {"gpt-6.1-sol", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4"},
+		"medium": {"gpt-6.1-sol", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4"},
+		"small":  {"gpt-6.1-sol", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"},
 	}
 	available := make(map[string]bool, len(models))
 	for _, model := range models {

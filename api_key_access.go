@@ -58,7 +58,7 @@ func readOnlyAPIRequestAllowed(r *http.Request) bool {
 	case "/auth/me", "/auth/keys", "/auth/onboarding/status",
 		"/projects", "/agents", "/instances",
 		"/telemetry", "/telemetry/timeline", "/telemetry/stats",
-		"/telemetry/project-activity", "/telemetry/project-stats",
+		"/telemetry/project-activity", "/telemetry/agents-last-active", "/telemetry/project-stats",
 		"/telemetry/project-timeline", "/telemetry/project-tools", "/telemetry/stream",
 		"/settings/server", "/settings/new-agent-provider":
 		return true

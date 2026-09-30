@@ -7,10 +7,10 @@ package main
 // `go build`, and reuses the same spawn/healthcheck/process-tracking
 // machinery from LocalSupervisor.
 //
-// Authors push source — no per-platform release pipeline. The trade-off
-// is a Go toolchain on the host running apteva-server. Resume across
-// restarts re-uses the cached binary; only changes to ref force a
-// rebuild.
+// Authors push source — no per-platform release pipeline. A missing or
+// outdated host Go toolchain is provisioned under Apteva's data directory
+// on demand. Resume across restarts re-uses the cached binary; only changes
+// to ref force a rebuild.
 
 import (
 	"bufio"
@@ -272,6 +272,11 @@ func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifes
 // is a no-op once cached.
 func cloneOrUpdate(srcDir, repo, ref string, sparsePaths ...string) error {
 	repoURL := normalizeRepoURL(repo)
+	if _, err := exec.LookPath("git"); err != nil {
+		// Fresh npx installations need not bring a system Git binary merely
+		// to fetch public GitHub source apps such as Conversations.
+		return clonePublicGitHubArchive(srcDir, repoURL, ref, normalizeSparsePaths(sparsePaths...))
+	}
 	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err == nil {
 		if err := runGitWithRetry(srcDir, "fetch", "--tags", "--force", "origin"); err != nil {
 			// Cache poisoned (different remote, etc.) — wipe and reclone.
@@ -544,7 +549,7 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 	if _, err := os.Stat(filepath.Join(buildDir, "go.mod")); err != nil {
 		return fmt.Errorf("entry dir %q has no go.mod — each kind:source app must be its own Go module", entry)
 	}
-	goBin, err := resolveGoBinary(buildDir, goEnv)
+	goBin, err := resolveGoBinaryWithProgress(buildDir, goEnv, progress)
 	if err != nil {
 		return err
 	}
@@ -709,28 +714,37 @@ func absCacheOf(cacheDir string) string {
 // attempts to download the selected toolchain into Apteva's isolated
 // GOMODCACHE and can fail halfway through materialising it.
 func resolveGoBinary(buildDir string, goEnv []string) (string, error) {
-	bootstrap, err := exec.LookPath("go")
+	return resolveGoBinaryWithProgress(buildDir, goEnv, nil)
+}
+
+func resolveGoBinaryWithProgress(buildDir string, goEnv []string, progress func(string)) (string, error) {
+	return resolveGoBinaryWithInstaller(buildDir, goEnv, progress, ensureManagedGo)
+}
+
+func resolveGoBinaryWithInstaller(buildDir string, goEnv []string, progress func(string), install func(goToolVersion, func(string)) (string, error)) (string, error) {
+	required, err := moduleRequiredGoVersion(buildDir)
 	if err != nil {
-		return "", fmt.Errorf("go toolchain not found on PATH — apteva-server needs Go ≥ 1.22 to build kind:source apps")
+		return "", fmt.Errorf("read app Go requirement: %w", err)
 	}
-	// First capture the toolchain selected for the server's own workspace. A
-	// local checkout commonly has a newer downloaded toolchain than the PATH
-	// bootstrap binary. Starting the app-context resolution with that binary
-	// avoids needlessly selecting (and downloading) the app's minimum patch
-	// version when the already-present server toolchain is newer.
-	selected := resolvedGoRootBinary(bootstrap, "", nil)
-	if selected == "" {
-		selected = bootstrap
+	bootstrap, err := exec.LookPath("go")
+	if err == nil {
+		// A local checkout may already have a newer selected toolchain than
+		// the PATH bootstrap. Preserve that choice and custom wrappers.
+		selected := resolvedGoRootBinary(bootstrap, "", nil)
+		if selected == "" {
+			selected = bootstrap
+		}
+		if version, ok := goBinaryVersion(selected); !ok || version.compare(required) >= 0 {
+			if appSelected := resolvedGoRootBinary(selected, buildDir, goEnv); appSelected != "" {
+				return appSelected, nil
+			}
+			return selected, nil
+		}
 	}
-	// Then let that selected toolchain inspect the app workspace. If the app
-	// genuinely requires something newer it may switch once, using the normal
-	// host module cache rather than the isolated build cache.
-	if appSelected := resolvedGoRootBinary(selected, buildDir, goEnv); appSelected != "" {
-		return appSelected, nil
+	if progress != nil {
+		progress("Installing Go toolchain…")
 	}
-	// Keep source installs working with unusual wrappers that do not implement
-	// `go env GOROOT`; the wrapper may still be fully capable of building.
-	return selected, nil
+	return install(required, progress)
 }
 
 func resolvedGoRootBinary(goBin, dir string, envOverrides []string) string {

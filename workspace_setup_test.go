@@ -147,7 +147,7 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 		t.Fatalf("applied proposal %d %s", proposalResponse.Code, proposalResponse.Body.String())
 	}
 	agents, _ = s.store.ListAgentsInProject("setup-project")
-	if len(agents) != 1 || agents[0].Name != "My lead assistant" || agents[0].Mode != "cautious" {
+	if len(agents) != 3 || agents[0].Name != "My lead assistant" || agents[0].Mode != "cautious" {
 		t.Fatalf("agents %+v", agents)
 	}
 	s.store.RenameAgent(agents[0].ID, "Renamed later")
@@ -157,7 +157,7 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 		Existing []Agent `json:"existing_agents"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &result)
-	if len(result.Created) != 0 || len(result.Existing) != 1 || result.Existing[0].Name != "Renamed later" {
+	if len(result.Created) != 0 || len(result.Existing) != 3 || result.Existing[0].Name != "Renamed later" {
 		t.Fatalf("retry: %s", w.Body.String())
 	}
 	body["agent_overrides"] = []ProjectPresetAgentOverride{{Key: "unknown", Name: "Invalid", Directive: "Do work", Mode: "cautious"}}

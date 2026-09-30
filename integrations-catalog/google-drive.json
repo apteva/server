@@ -139,6 +139,7 @@
       "description": "Download the binary content of a non-Google Workspace file (images, audio, video, PDFs, etc.). For large files, pass start_byte and optionally end_byte to fetch one byte range at a time; end_byte is inclusive, so 0 through 4194303 returns at most 4 MiB. The response headers include Content-Range when Google returns a partial response. For Google Workspace files (Docs, Sheets, Slides), use export_file instead; Google does not support partial downloads for exports.",
       "method": "GET",
       "path": "/drive/v3/files/{fileId}?alt=media",
+      "response_type": "binary",
       "header_transforms": [
         {
           "type": "byte_range",
@@ -201,10 +202,55 @@
       }
     },
     {
+      "name": "create_file_metadata",
+      "description": "Create a file's metadata in Google Drive with a name, MIME type, parent folder, and optional custom properties. Returns the file ID. Then call upload_file_content with that ID and a binary file handle to populate its contents. Optionally use an ID from generate_file_ids to retry creation without duplicating the file.",
+      "method": "POST",
+      "path": "/drive/v3/files",
+      "query_params": ["fields", "supportsAllDrives"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Optional preallocated ID from generate_file_ids." },
+          "name": { "type": "string", "description": "File name, including its extension." },
+          "mimeType": { "type": "string", "description": "File MIME type, such as application/pdf or text/csv." },
+          "parents": { "type": "array", "items": { "type": "string" }, "description": "Destination parent folder ID. A file can have one parent." },
+          "description": { "type": "string" },
+          "appProperties": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Private custom properties for source IDs, deduplication, or other application metadata." },
+          "fields": { "type": "string", "description": "Response fields, such as id,name,mimeType,parents,appProperties." },
+          "supportsAllDrives": { "type": "boolean", "description": "Set true when creating a file in a shared drive." }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "upload_file_content",
+      "description": "Upload or replace the binary content of an existing non-Google-Workspace file. First create_file_metadata to choose its name and destination folder. Pass a binary file handle from another download tool; the handle's MIME type is sent as Content-Type. This is a single-request media upload; resumable uploads are not provided by this tool.",
+      "method": "PATCH",
+      "path": "/upload/drive/v3/files/{fileId}?uploadType=media",
+      "query_params": ["fields", "supportsAllDrives"],
+      "body_binary_param": "file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": { "type": "string", "description": "Existing file ID, typically returned by create_file_metadata." },
+          "file": { "description": "Binary file handle or binary envelope containing the bytes to upload." },
+          "fields": { "type": "string", "description": "Response fields, such as id,name,mimeType,size,md5Checksum,parents." },
+          "supportsAllDrives": { "type": "boolean", "description": "Set true when updating a file in a shared drive." }
+        },
+        "required": ["fileId", "file"]
+      }
+    },
+    {
       "name": "create_folder",
       "description": "Create a new folder in Google Drive",
       "method": "POST",
       "path": "/drive/v3/files",
+      "query_params": ["fields", "supportsAllDrives"],
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["name", "parents"],
+        "constants": { "mimeType": "application/vnd.google-apps.folder" }
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -223,6 +269,14 @@
             "type": "string",
             "description": "Must be application/vnd.google-apps.folder",
             "default": "application/vnd.google-apps.folder"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Response fields, such as id,name,parents."
+          },
+          "supportsAllDrives": {
+            "type": "boolean",
+            "description": "Set true when creating a folder in a shared drive."
           }
         },
         "required": [
@@ -232,9 +286,10 @@
     },
     {
       "name": "update_file",
-      "description": "Update a file's metadata (name, description, starred, etc.) and optionally its content",
+      "description": "Update a file's metadata (name, description, starred, custom properties, or parents). Use upload_file_content to replace binary content.",
       "method": "PATCH",
       "path": "/drive/v3/files/{fileId}",
+      "query_params": ["addParents", "removeParents", "fields", "supportsAllDrives"],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -265,6 +320,19 @@
           "removeParents": {
             "type": "string",
             "description": "Comma-separated parent folder IDs to remove"
+          },
+          "appProperties": {
+            "type": "object",
+            "additionalProperties": { "type": ["string", "null"] },
+            "description": "Private custom properties. Set a property's value to null to remove it."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Response fields to return."
+          },
+          "supportsAllDrives": {
+            "type": "boolean",
+            "description": "Set true when updating a file in a shared drive."
           }
         },
         "required": [
@@ -495,6 +563,7 @@
       "description": "Move a file to a different folder by updating its parents",
       "method": "PATCH",
       "path": "/drive/v3/files/{fileId}",
+      "query_params": ["addParents", "removeParents", "fields", "supportsAllDrives"],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -509,6 +578,14 @@
           "removeParents": {
             "type": "string",
             "description": "Comma-separated list of parent folder IDs to remove"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Response fields to return."
+          },
+          "supportsAllDrives": {
+            "type": "boolean",
+            "description": "Set true when moving a file in a shared drive."
           }
         },
         "required": [
@@ -522,6 +599,7 @@
       "description": "Rename a file or folder in Google Drive",
       "method": "PATCH",
       "path": "/drive/v3/files/{fileId}",
+      "query_params": ["fields", "supportsAllDrives"],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -532,6 +610,14 @@
           "name": {
             "type": "string",
             "description": "New name for the file"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Response fields to return."
+          },
+          "supportsAllDrives": {
+            "type": "boolean",
+            "description": "Set true when renaming a file in a shared drive."
           }
         },
         "required": [

@@ -31,9 +31,11 @@
             "todo",
             "notes",
             "calendar",
-            "docs"
+            "docs",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Turn ambiguous work into priorities, preserve decisions and notes, prepare briefings and documents, maintain durable follow-through, and ask before external commitments."
+          "directive": "Use this project description as your operating context: {{description}}. Turn ambiguous work into priorities, preserve decisions and notes, prepare briefings and documents, maintain durable follow-through, and ask before external commitments.",
+          "icon": "manager"
         }
       ],
       "dashboard": [
@@ -41,6 +43,68 @@
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "chief-of-staff": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        }
       ]
     },
     {
@@ -48,7 +112,7 @@
       "category": "work",
       "interface_level": "business",
       "name": "Sales team",
-      "description": "Research accounts, maintain CRM hygiene, prepare outreach, and surface follow-ups.",
+      "description": "A sales owner and account researcher for qualified opportunities and informed follow-up.",
       "match": [
         "sales",
         "crm",
@@ -58,9 +122,9 @@
         "leads"
       ],
       "highlights": [
-        "Research and qualify accounts before outreach",
-        "Keep CRM and meeting context current",
-        "Draft personalized campaigns and surface the next best follow-up"
+        "Account Researcher validates fit, sources, and contact information",
+        "Sales Agent owns CRM, outreach drafts, and meeting follow-up",
+        "Research hands off with evidence before outreach begins"
       ],
       "agents": [
         {
@@ -71,19 +135,126 @@
           "apps": [
             "tasks",
             "crm",
-            "web",
-            "email-checker",
             "campaigns",
             "calendar",
-            "bookings"
+            "bookings",
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Research accounts, validate contact data, keep CRM and meeting context accurate, and prioritize follow-up. Draft outreach or campaigns unless explicit authority to send exists."
+          "directive": "Use this project description as your operating context: {{description}}. Own the sales pipeline, CRM updates, personalized campaign drafts, and meeting follow-up. Delegate account qualification to Account Researcher with target criteria; use returned evidence to prioritize opportunities. Keep one canonical record per account and ask before sending outreach or committing to meetings. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "sales"
+        },
+        {
+          "key": "account-researcher",
+          "name": "Account Researcher",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "web",
+            "email-checker",
+            "crm",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Research account fit, relevant buying signals, and validated contact information with sources. Read CRM for existing context and return findings to Sales Agent, who owns CRM changes and outreach. Distinguish evidence from inference and do not contact prospects or schedule meetings. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "research"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "sales": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "account-researcher": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "crm",
+          "title": "Customer data",
+          "description": "Review contacts and pipelines in CRM. Configure Messaging access there if you want to send or receive customer messages.",
+          "required": false
+        },
+        {
+          "app": "calendar",
+          "title": "Calendar accounts",
+          "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
+          "required": false
+        }
       ]
     },
     {
@@ -91,7 +262,7 @@
       "category": "work",
       "interface_level": "business",
       "name": "Customer support",
-      "description": "Triage customer issues, prepare reliable responses, and escalate important cases.",
+      "description": "A support owner and issue investigator for triage, grounded answers, and clear escalation.",
       "match": [
         "customer support",
         "helpdesk",
@@ -100,9 +271,9 @@
         "support team"
       ],
       "highlights": [
-        "Triage incoming issues using complete customer context",
-        "Prepare evidence-backed responses",
-        "Escalate uncertainty and important cases without inventing answers"
+        "Support Agent owns ticket triage, customer context, and response drafts",
+        "Support Investigator gathers evidence for complex or recurring issues",
+        "Investigations return to the ticket owner before customer follow-up"
       ],
       "agents": [
         {
@@ -115,15 +286,123 @@
             "tickets",
             "crm",
             "notes",
-            "storage"
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Triage and maintain ticket history, investigate before answering, preserve customer context and evidence, and escalate uncertainty. Never invent product facts or promise unsupported outcomes."
+          "directive": "Use this project description as your operating context: {{description}}. Own ticket triage, customer context, response drafts, and escalation. Resolve documented routine issues directly; assign complex investigations to Support Investigator with the ticket reference and a redacted, sufficient brief. Maintain ticket state and communicate only with configured authority. Never invent product facts or promise unsupported outcomes. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "support"
+        },
+        {
+          "key": "support-investigator",
+          "name": "Support Investigator",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "tickets",
+            "notes",
+            "storage",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Investigate assigned support issues using ticket history, retained knowledge, and authorized evidence files. Return supported findings, uncertainty, proposed troubleshooting, and escalation criteria to Support Agent. Keep working evidence in Notes or Storage; leave customer replies and ticket status changes to Support Agent. Never invent resolutions or expose another customer's data. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "research"
         }
       ],
       "dashboard": [
         "native:inbox",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "support": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "support-investigator": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "crm",
+          "title": "Customer data",
+          "description": "Review contacts and pipelines in CRM. Configure Messaging access there if you want to send or receive customer messages.",
+          "required": false
+        },
+        {
+          "app": "storage",
+          "title": "File access",
+          "description": "Choose storage locations and review the files this workspace should be able to access.",
+          "required": false
+        }
       ]
     },
     {
@@ -131,7 +410,7 @@
       "category": "work",
       "interface_level": "business",
       "name": "Research desk",
-      "description": "Run structured research, preserve evidence, and produce decision-ready synthesis.",
+      "description": "A researcher and independent evidence reviewer for sourced, decision-ready findings.",
       "match": [
         "research",
         "analyst",
@@ -140,9 +419,9 @@
         "due diligence"
       ],
       "highlights": [
-        "Collect attributable evidence from multiple sources",
-        "Structure comparable findings and preserve research notes",
-        "Produce decision-ready synthesis with uncertainty made explicit"
+        "Research Agent gathers sources and prepares the initial synthesis",
+        "Evidence Reviewer checks consequential claims and conflicting evidence",
+        "The final report includes review findings and remaining uncertainty"
       ],
       "agents": [
         {
@@ -155,15 +434,129 @@
             "web",
             "notes",
             "storage",
-            "tables"
+            "tables",
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Conduct evidence-based research, search and extract sources, preserve notes and artifacts, structure comparable evidence when useful, distinguish facts from inference, and report uncertainty and conflicting evidence clearly."
+          "directive": "Use this project description as your operating context: {{description}}. Own the research question, source collection, structured evidence, and final synthesis. Distinguish facts from inference and preserve attributable notes and artifacts. Send consequential claims and source references to Evidence Reviewer for independent checking before finalizing substantial reports; disclose any unavailable review or unresolved disagreement. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "research"
+        },
+        {
+          "key": "evidence-reviewer",
+          "name": "Evidence Reviewer",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "web",
+            "notes",
+            "storage",
+            "tables",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Independently review assigned research claims for source quality, contradictions, missing context, and uncertainty. Check original sources where available; return corrections and evidence references to Research Agent. Do not rewrite the shared report or launch an open-ended parallel investigation; the research owner integrates your review. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "analyst"
         }
       ],
       "dashboard": [
         "native:usage",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "researcher": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ],
+          "evidence-reviewer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "storage",
+          "title": "File access",
+          "description": "Choose storage locations and review the files this workspace should be able to access.",
+          "required": false
+        }
       ]
     },
     {
@@ -171,7 +564,7 @@
       "category": "work",
       "interface_level": "business",
       "name": "YouTube video to blog post",
-      "description": "Turn a YouTube video or supplied transcript into an attributable article draft. Automatic transcription needs a configured provider.",
+      "description": "A content writer and source reviewer turn a video transcript into a checked article draft. Automatic transcription needs a configured provider.",
       "match": [
         "youtube to blog",
         "video to article",
@@ -180,9 +573,9 @@
         "content repurposing"
       ],
       "highlights": [
-        "Use a supplied transcript or configured video transcription",
-        "Transform the source into a structured article without inventing claims",
-        "Create an editable CMS draft with publication held for approval"
+        "Content Repurposing Agent obtains the transcript and writes the CMS draft",
+        "Source Reviewer checks attribution, quotations, and unsupported claims",
+        "Review happens before the draft is presented; publishing requires approval"
       ],
       "agents": [
         {
@@ -195,15 +588,133 @@
             "media-downloader",
             "media",
             "storage",
-            "content"
+            "content",
+            "a2a",
+            "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Given a YouTube URL or supplied transcript, preserve the source link and use the supplied transcript when available. Otherwise probe the source, download authorized source media into project storage, and obtain the transcript through the media app when transcription is configured. Wait for download and transcription jobs to complete; never draft from a title or description alone. If no transcript can be obtained, stop and ask the operator to provide one. Build an attributable article draft that preserves the speaker's meaning, separates source claims from added context, and includes a proposed title, summary, section structure, source link, and SEO description. Create the result as a draft in the content app, asking which site to use if ambiguous. Never publish or schedule without explicit approval."
+          "directive": "Use this project description as your operating context: {{description}}. Given a YouTube URL or supplied transcript, preserve the source link and use the supplied transcript when available. Otherwise probe the source, download authorized source media into project storage, and obtain the transcript through the media app when transcription is configured. Wait for download and transcription jobs to complete; never draft from a title or description alone. If no transcript can be obtained, stop and ask the operator to provide one. Build an attributable article draft that preserves the speaker's meaning, separates source claims from added context, and includes a proposed title, summary, section structure, source link, and SEO description. Create the result as a draft in the content app, asking which site to use if ambiguous. Never publish or schedule without explicit approval. Ask Source Reviewer to check the transcript against the saved article draft before presenting it as ready. Incorporate corrections and disclose unresolved issues or an unavailable review. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "icon": "writer"
+        },
+        {
+          "key": "source-reviewer",
+          "name": "Source Reviewer",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "storage",
+            "content",
+            "a2a",
+            "conversations"
+          ],
+          "directive": "Use this project description as your operating context: {{description}}. Check an assigned article draft against its supplied source transcript and source link. Flag unsupported claims, misleading quotations, missing attribution, and changes to the speaker's meaning. Return a concise review with source passages to Content Repurposing Agent; leave CMS edits to the writer. If the transcript is missing, report the blocker rather than approving from a title or summary. Never publish or schedule content. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "icon": "research"
         }
       ],
       "dashboard": [
         "native:usage",
         "tasks:task-overview",
         "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "full"
+          }
+        ],
+        "agent_overview": {
+          "content-repurposer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ],
+          "source-reviewer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            },
+            {
+              "id": "responses",
+              "component": "native:agent-results",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "storage",
+          "title": "File access",
+          "description": "Choose storage locations and review the files this workspace should be able to access.",
+          "required": false
+        },
+        {
+          "app": "content",
+          "title": "Publishing destinations",
+          "description": "Choose content destinations and review publishing permissions in Content.",
+          "required": false
+        }
       ]
     }
   ]

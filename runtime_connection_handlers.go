@@ -139,6 +139,14 @@ func (s *Server) handleConnectionRuntimeConfig(w http.ResponseWriter, r *http.Re
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
 			return
 		}
+		if value, sent := patch["service_tier"]; sent && value != nil {
+			tier, err := validateServiceTier(app.Runtime.ProviderKey, app.Runtime.ServiceTiers, value)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			patch["service_tier"] = tier
+		}
 		if app.Runtime.ModelPolicy != nil {
 			if err := s.validateRuntimeModelPatch(conn, encrypted, app, current, patch); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -431,19 +439,21 @@ func connectionIDFromPath(path, suffix string) (int64, bool) {
 // the Models settings tab: enough to render the row, choose a primary,
 // and pick models — without ever shipping a credential.
 type runtimeConnectionSummary struct {
-	ID           int64          `json:"id"`
-	Name         string         `json:"name"`
-	AppSlug      string         `json:"app_slug"`
-	AppName      string         `json:"app_name"`
-	AuthType     string         `json:"auth_type"`
-	ProviderKey  string         `json:"provider_key"`
-	Role         string         `json:"role"`
-	ProjectID    string         `json:"project_id"`
-	Scope        string         `json:"scope"`
-	IsPrimary    bool           `json:"is_primary"`
-	Capabilities []string       `json:"capabilities,omitempty"`
-	RuntimeConf  map[string]any `json:"runtime_config"`
-	EnvVars      []string       `json:"env_vars,omitempty"`
+	ServiceTiers []string                `json:"service_tiers,omitempty"`
+	ID           int64                   `json:"id"`
+	Name         string                  `json:"name"`
+	AppSlug      string                  `json:"app_slug"`
+	AppName      string                  `json:"app_name"`
+	AuthType     string                  `json:"auth_type"`
+	ProviderKey  string                  `json:"provider_key"`
+	Role         string                  `json:"role"`
+	ProjectID    string                  `json:"project_id"`
+	Scope        string                  `json:"scope"`
+	IsPrimary    bool                    `json:"is_primary"`
+	Capabilities []string                `json:"capabilities,omitempty"`
+	RuntimeConf  map[string]any          `json:"runtime_config"`
+	Realtime     *RuntimeRealtimeCatalog `json:"realtime,omitempty"`
+	EnvVars      []string                `json:"env_vars,omitempty"`
 }
 
 // handleListRuntimeConnections — GET /api/connections/runtime[?project_id=]
@@ -510,7 +520,9 @@ func (s *Server) handleListRuntimeConnections(w http.ResponseWriter, r *http.Req
 			ProjectID: conn.ProjectID, Scope: scope,
 			IsPrimary:    conn.IsPrimary,
 			Capabilities: app.Runtime.Capabilities,
+			ServiceTiers: app.Runtime.ServiceTiers,
 			RuntimeConf:  config,
+			Realtime:     app.Runtime.Realtime,
 			EnvVars:      sortedEnvNames(app.Runtime.Env),
 		})
 	}

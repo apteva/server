@@ -812,6 +812,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"role":               role,
 		"created_at":         u.CreatedAt.UTC().Format(time.RFC3339),
 		"onboarded":          u.OnboardedAt != nil,
+		"product_tours":      s.store.GetUserProductTours(u.ID),
 		"language":           normalizedDashboardLanguage(s.store.GetUserLanguage(u.ID)),
 		"interface_level":    nil,
 		"ui_layout":          uiLayout,
@@ -865,13 +866,20 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Language       *string         `json:"language"`
-		InterfaceLevel *string         `json:"interface_level"`
-		UILayout       json.RawMessage `json:"ui_layout"`
+		ProductTour    *productTourUpdate `json:"product_tour"`
+		Language       *string            `json:"language"`
+		InterfaceLevel *string            `json:"interface_level"`
+		UILayout       json.RawMessage    `json:"ui_layout"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
+	}
+	if body.ProductTour != nil {
+		if err := s.store.SetUserProductTour(userID, *body.ProductTour); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	if body.Language != nil {
 		language := normalizedDashboardLanguage(*body.Language)

@@ -17,6 +17,8 @@ const projectSetupPresetKind = "project_setup"
 // Dashboard keeps the compact component list used by bundled schema-v1 files;
 // DashboardLayout is the lossless representation used by captured presets.
 type ProjectSetupPresetDefinition struct {
+	Layouts         *ProjectPresetLayouts     `json:"layouts,omitempty"`
+	Connections     []ProjectPresetConnection `json:"connections,omitempty"`
 	InterfaceLevel  string                    `json:"interface_level,omitempty"`
 	Category        string                    `json:"category"`
 	Match           []string                  `json:"match,omitempty"`
@@ -177,7 +179,7 @@ func systemPresetEnvelope(preset ProjectPreset) Preset {
 		ID: preset.ID, Kind: projectSetupPresetKind, Scope: "system", Source: "system",
 		SchemaVersion: 1, Name: preset.Name, Description: preset.Description,
 		Definition: ProjectSetupPresetDefinition{
-			InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
+			Layouts: preset.Layouts, Connections: preset.Connections, DashboardLayout: preset.DashboardLayout, InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
 		},
 	}
 }
@@ -188,7 +190,7 @@ func projectPresetFromEnvelope(preset Preset) ProjectPreset {
 		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID, OwnerProjectID: preset.OwnerProjectID, Revision: preset.Revision,
 		InterfaceLevel: preset.Definition.InterfaceLevel, Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
 		Match: preset.Definition.Match, Highlights: preset.Definition.Highlights, Agents: preset.Definition.Agents,
-		Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout,
+		Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout, Layouts: preset.Definition.Layouts, Connections: preset.Definition.Connections,
 	}
 }
 
@@ -704,6 +706,7 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 	}
 	defer rows.Close()
 	var agents []ProjectPresetAgent
+	agentKeys := map[int64]string{}
 	keys := map[string]int{}
 	for rows.Next() {
 		var id int64
@@ -718,6 +721,8 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 		if keys[base] > 1 {
 			agent.Key += "-" + i64s(int64(keys[base]))
 		}
+		agentKeys[id] = agent.Key
+		_ = s.store.db.QueryRow("SELECT icon FROM agent_appearances WHERE agent_id=?", id).Scan(&agent.Icon)
 		var config map[string]any
 		if json.Unmarshal([]byte(configRaw), &config) == nil {
 			agent.Unconscious, _ = config["unconscious"].(bool)
@@ -742,12 +747,54 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 	}
 	document, _ := s.store.GetUserUILayoutWithRevision(userID)
 	layout := resolvedDashboardHomeLayout(document, body.ProjectID)
-	for i := range layout {
-		layout[i].ID = "captured:" + i64s(int64(i+1))
+	layouts := &ProjectPresetLayouts{Home: portablePresetWidgets(layout, agentKeys), AgentOverview: map[string][]ProjectPresetWidget{}}
+	connections := []ProjectPresetConnection{}
+	seenSetup := map[string]bool{}
+	collectSetup := func(widgets []dashboardWidgetInstance) {
+		for _, widget := range widgets {
+			for _, step := range widget.Setup {
+				key := step.App + ":" + step.Title
+				if !seenSetup[key] {
+					seenSetup[key] = true
+					connections = append(connections, step)
+				}
+			}
+		}
+	}
+	collectSetup(layout)
+	level := s.store.GetUserInterfaceLevel(userID)
+	for id, key := range agentKeys {
+		widgets := resolvedWidgetLayout(document, body.ProjectID, fmt.Sprintf("agent.%d.%s.overview", id, level))
+		if len(widgets) == 0 {
+			widgets = resolvedWidgetLayout(document, body.ProjectID, "dashboard.agent_detail")
+		}
+		if len(widgets) > 0 {
+			portable := portablePresetWidgets(widgets, agentKeys)
+			filtered := []ProjectPresetWidget{}
+			for _, widget := range portable {
+				app, _, _ := strings.Cut(widget.Component, ":")
+				if widget.AgentKey != "" && widget.AgentKey != key {
+					continue
+				}
+				for _, agent := range agents {
+					if agent.Key == key && (app == "native" || containsString(agent.Apps, app)) {
+						filtered = append(filtered, widget)
+						break
+					}
+				}
+			}
+			layouts.AgentOverview[key] = filtered
+			collectSetup(widgets)
+		}
+	}
+	// Preserve the legacy Home representation for older clients, sanitized too.
+	layout = nil
+	for _, widget := range layouts.Home {
+		layout = append(layout, widget.dashboardWidgetInstance)
 	}
 	preset := Preset{Kind: projectSetupPresetKind, Scope: scope, Source: "user", SchemaVersion: 2,
 		Name: name, Description: strings.TrimSpace(body.Description), OwnerProjectID: body.OwnerProjectID,
-		Definition: ProjectSetupPresetDefinition{InterfaceLevel: s.store.GetUserInterfaceLevel(userID), Category: category, Highlights: body.Highlights, Agents: agents, DashboardLayout: layout}}
+		Definition: ProjectSetupPresetDefinition{InterfaceLevel: s.store.GetUserInterfaceLevel(userID), Category: category, Highlights: body.Highlights, Agents: agents, DashboardLayout: layout, Layouts: layouts, Connections: connections}}
 	preset.ID = s.store.availablePresetID(userID, scope, preset.OwnerProjectID, name)
 	if err := validatePresetEnvelope(preset); err != nil {
 		return Preset{}, err
