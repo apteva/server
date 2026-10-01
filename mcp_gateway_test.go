@@ -789,12 +789,22 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
-	if len(all) != 5 {
-		t.Fatalf("expected all 5 MCP servers, got %d: %#v", len(all), all)
+	if len(all) != 6 {
+		t.Fatalf("expected 5 MCP servers plus built-in capability, got %d: %#v", len(all), all)
 	}
 	byID := map[int64]gatewayMCPServer{}
+	builtinCount := 0
 	for _, row := range all {
 		byID[row.ID] = row
+		if row.Source == platformMCPSource {
+			builtinCount++
+			if row.Name != platformMCPName || row.Transport != "http" || row.Status != "running" {
+				t.Fatalf("invalid built-in inventory: %#v", row)
+			}
+		}
+	}
+	if builtinCount != 1 {
+		t.Fatalf("built-in rows=%d, want 1", builtinCount)
 	}
 	if _, ok := byID[globalOperatorMCPID]; ok {
 		t.Fatalf("project-scoped MCP should shadow global MCP with same name, got global row %#v", byID[globalOperatorMCPID])

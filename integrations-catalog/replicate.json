@@ -1,9 +1,9 @@
 {
   "slug": "replicate",
   "name": "Replicate",
-  "description": "Replicate API for running image, video, audio, and ML models via predictions, official-model predictions, deployments, trainings, model discovery, hardware discovery, account inspection, and webhook signing secrets.",
+  "description": "Replicate API for running image, video, audio, and ML models via predictions, official-model predictions, deployments, trainings, model discovery, hardware discovery, account inspection, and webhook signing secrets. Includes domain appraisals using HumbleWorth's published model through the same Replicate credentials.",
   "logo": "https://www.google.com/s2/favicons?domain=replicate.com&sz=128",
-  "categories": ["ai", "ml", "models", "inference", "image-generation", "video-generation", "replicate"],
+  "categories": ["ai", "ml", "models", "inference", "image-generation", "video-generation", "replicate", "domains", "domain-appraisal"],
   "base_url": "https://api.replicate.com/v1",
   "auth": {
     "types": ["bearer"],
@@ -24,6 +24,60 @@
     "tool": "get_account"
   },
   "tools": [
+    {
+      "name": "appraise_domains",
+      "description": "Start a paid domain appraisal using HumbleWorth price-predict-v1 on Replicate. Accepts one domain or up to 2,560 comma-separated names and returns the full prediction envelope. Poll get_prediction until status=succeeded or failed; cancel a running job with cancel_prediction. Output includes auction, marketplace and brokerage estimates in USD; inspect output.error and each valuation error. The pinned model mainly covers English names with sales data through early 2024. Requires Replicate billing; estimates are not guaranteed sale prices. Model docs: https://replicate.com/humbleworth/price-predict-v1/api.",
+      "method": "POST",
+      "path": "/predictions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "One domain or a comma-separated list, e.g. example.com,startup.net. Maximum 2,560 names; omit spaces.",
+            "pattern": "^[^\\s,/:]+\\.[^\\s,/:]+(?:,[^\\s,/:]+\\.[^\\s,/:]+){0,2559}$"
+          },
+          "webhook": {
+            "type": "string",
+            "description": "Optional HTTPS URL for Replicate prediction updates.",
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "webhook_events_filter": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "start",
+                "output",
+                "logs",
+                "completed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "version": "a925db842c707850e4ca7b7e86b217692b0353a9ca05eb028802c4a85db93843"
+        },
+        "include_fields": {
+          "domains": "input.domains",
+          "webhook": "webhook",
+          "webhook_events_filter": "webhook_events_filter"
+        }
+      },
+      "rate_limit": {
+        "min_interval_ms": 0,
+        "max_retries": 0
+      }
+    },
     {
       "name": "search",
       "description": "Search public Replicate models, collections, and docs. Use this to discover image/video model IDs before creating predictions.",

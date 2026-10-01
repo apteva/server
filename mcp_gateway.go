@@ -435,6 +435,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if err != nil {
 				return nil, fmt.Errorf("server not found")
 			}
+			if record.Source == platformMCPSource {
+				return nil, fmt.Errorf("built-in capability is always available")
+			}
 			env := map[string]string{}
 			if encEnv != "" {
 				if plain, err := Decrypt(secret, encEnv); err == nil {
@@ -451,16 +454,38 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 		case "stop_mcp_server":
 			id, _ := parseIntArg(args["id"])
+			record, _, err := store.GetMCPServer(userID, id)
+			if err != nil {
+				return nil, fmt.Errorf("server not found")
+			}
+			if record.Source == platformMCPSource {
+				return nil, fmt.Errorf("detach the built-in capability from an agent instead")
+			}
 			store.UpdateMCPServerStatus(id, "stopped", 0, 0)
 			return map[string]string{"status": "stopped"}, nil
 
 		case "delete_mcp_server":
 			id, _ := parseIntArg(args["id"])
-			store.DeleteMCPServer(userID, id)
+			if err := store.DeleteMCPServer(userID, id); err != nil {
+				return nil, err
+			}
 			return map[string]string{"status": "deleted"}, nil
 
 		case "list_server_tools":
 			id, _ := parseIntArg(args["id"])
+			if record, _, err := store.GetMCPServer(userID, id); err == nil && record.Source == platformMCPSource {
+				list := []any{}
+				query, _ := args["query"].(string)
+				for _, tool := range tools {
+					if projectID != "" && !projectConversationGatewayTools[tool.Name] {
+						continue
+					}
+					if gatewayQueryMatch(query, tool.Name, tool.Description) {
+						list = append(list, map[string]string{"name": tool.Name, "description": gatewayCompactText(tool.Description, gatewayDescriptionSize)})
+					}
+				}
+				return gatewayPage(list, args, "tools")
+			}
 			// For local integrations, get tools from catalog
 			var connID int64
 			store.db.QueryRow("SELECT connection_id FROM mcp_servers WHERE id = ? AND user_id = ?", id, userID).Scan(&connID)
@@ -1148,6 +1173,9 @@ type gatewayMCPServer struct {
 }
 
 func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, args map[string]any, serverPort, instanceSecret string) ([]gatewayMCPServer, error) {
+	if err := store.ensurePlatformMCPInventory(userID); err != nil {
+		return nil, err
+	}
 	_ = serverPort
 	_ = instanceSecret
 	projectID, _ := args["project_id"].(string)
@@ -2043,6 +2071,8 @@ func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, 
 
 func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, instanceSecret string) (map[string]any, error) {
 	switch {
+	case record.Source == platformMCPSource && record.Name == platformMCPName:
+		return managementGatewayConfig(nil, "", serverPort), nil
 	case record.Source == "local" && record.ConnectionID > 0:
 		return map[string]any{
 			"name":      record.Name,
@@ -2139,7 +2169,7 @@ func mcpConfigIdentities(config map[string]any) []string {
 
 func gatewayMCPConfigIsSystem(srv map[string]any) bool {
 	name, _ := srv["name"].(string)
-	return name == "apteva-server" || isServerOwnedOutputMCP(name)
+	return isServerOwnedOutputMCP(name)
 }
 
 func optionalBoolArg(v any) (bool, bool, error) {

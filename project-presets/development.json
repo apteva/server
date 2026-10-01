@@ -138,7 +138,6 @@
           "mode": "cautious",
           "unconscious": true,
           "apps": [
-            "builder",
             "tasks",
             "code",
             "workspaces",
@@ -199,7 +198,6 @@
         "native:usage",
         "native:inbox",
         "tasks:task-overview",
-        "builder:builder-workspace",
         "native:activity"
       ],
       "layouts": {
@@ -224,11 +222,6 @@
               "show_recent": true,
               "recent_limit": 4
             }
-          },
-          {
-            "id": "builder-builder-workspace",
-            "component": "builder:builder-workspace",
-            "size": "full"
           },
           {
             "id": "native-activity",

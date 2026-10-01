@@ -74,15 +74,23 @@ func newHelperBrokerFixture(t *testing.T) *helperBrokerFixture {
 	}
 	return f
 }
-func (f *helperBrokerFixture) request(t *testing.T, name string, args map[string]any) map[string]any {
+func (f *helperBrokerFixture) requestHTTP(t *testing.T, name string, args map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 	args["_apteva_caller_thread"] = f.thread
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}})
-	req := httptest.NewRequest("POST", "/api/apps/apteva-server/mcp", strings.NewReader(string(body)))
+	req := httptest.NewRequest("POST", addQueryParam(platformMCPPath, "mcp_token", platformMCPToken(f.s.instanceSecret, f.agent)), strings.NewReader(string(body)))
 	req.RemoteAddr = "127.0.0.1:42123"
 	req.Header.Set("X-Apteva-Caller-Agent", itoa64(f.agent.ID))
 	rec := httptest.NewRecorder()
 	f.s.handlePlatformMCP(rec, req)
+	return rec
+}
+func (f *helperBrokerFixture) request(t *testing.T, name string, args map[string]any) map[string]any {
+	t.Helper()
+	rec := f.requestHTTP(t, name, args)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("request status=%d: %s", rec.Code, rec.Body.String())
+	}
 	var reply map[string]any
 	if json.Unmarshal(rec.Body.Bytes(), &reply) != nil {
 		t.Fatalf("invalid reply: %s", rec.Body.String())
@@ -171,6 +179,13 @@ func TestHelperAppToolsRecheckRestrictions(t *testing.T) {
 				args["project_id"] = "another"
 			case "reserved":
 				args["_apteva_caller_thread"] = "main"
+			}
+			if kind == "revoked" {
+				rec := f.requestHTTP(t, "app_tool_call", map[string]any{"reference": ref, "arguments": args})
+				if rec.Code != http.StatusForbidden || f.called != 0 {
+					t.Fatalf("revoked project access bypassed: status=%d body=%s", rec.Code, rec.Body.String())
+				}
+				return
 			}
 			result := f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": args})
 			if result["isError"] != true || f.called != 0 {

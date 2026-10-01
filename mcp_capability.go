@@ -67,6 +67,20 @@ func (s *Server) authorizeAgentMCPConfig(inst *Agent, config map[string]any) err
 		}
 		raw, _ := m["url"].(string)
 		u, err := url.Parse(raw)
+		if m["name"] == platformMCPName || (err == nil && u.Path == platformMCPPath) {
+			if err := s.authorizePlatformMCPAgent(inst); err != nil {
+				return err
+			}
+			canonical := managementGatewayConfig(inst, "", s.port)
+			canonical["url"] = addQueryParam(canonical["url"].(string), "mcp_token", platformMCPToken(s.instanceSecret, inst))
+			for key := range m {
+				delete(m, key)
+			}
+			for key, value := range canonical {
+				m[key] = value
+			}
+			continue
+		}
 		if err != nil || u.Port() != s.port || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost") || !strings.HasPrefix(u.Path, "/mcp/") {
 			continue
 		}

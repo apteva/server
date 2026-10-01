@@ -1,13 +1,14 @@
 package main
 
 // platform_mcp.go exposes the existing apteva-server management gateway over
-// the same Streamable HTTP MCP shape used by normal apps. Helper keeps one
-// control-plane MCP on main, while server-validated conversation threads can
-// inherit it with a trusted project default.
+// the same Streamable HTTP MCP shape used by normal apps. Helper always has
+// this capability; other agents opt in through the normal attachment API.
+// Credentials, attachment grants, and project scope are validated on each call.
 
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,8 +54,18 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent, err := s.store.GetAgentByID(agentID)
-	if err != nil || agent == nil || agent.Kind != "platform_helper" {
-		http.Error(w, "platform helper required", http.StatusForbidden)
+	if err != nil || !platformMCPAttached(agent) {
+		http.Error(w, "Apteva Server capability is not attached", http.StatusForbidden)
+		return
+	}
+
+	expected := platformMCPToken(s.instanceSecret, agent)
+	if expected == "" || !hmac.Equal([]byte(r.URL.Query().Get("mcp_token")), []byte(expected)) {
+		http.Error(w, "invalid agent capability", http.StatusUnauthorized)
+		return
+	}
+	if err := s.authorizePlatformMCPAgent(agent); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -64,12 +75,26 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "resolve trusted project context", http.StatusInternalServerError)
 		return
 	}
+	if agent.Kind != "platform_helper" {
+		if projectID != "" && projectID != agent.ProjectID {
+			http.Error(w, "thread belongs to a different project", http.StatusForbidden)
+			return
+		}
+		projectID = agent.ProjectID
+	}
+	if projectID != "" && s.store.GetPlatformRole(agent.UserID) != PlatformAdmin {
+		role, roleErr := s.store.GetProjectRole(projectID, agent.UserID)
+		if roleErr != nil || role.Rank() < ProjectViewer.Rank() {
+			http.Error(w, "project access required", http.StatusForbidden)
+			return
+		}
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
 	if err != nil {
 		http.Error(w, "read MCP request", http.StatusBadRequest)
 		return
 	}
-	if s.handleHelperAppTool(w, r, agent, threadID, projectID, body) {
+	if agent.Kind == "platform_helper" && s.handleHelperAppTool(w, r, agent, threadID, projectID, body) {
 		return
 	}
 	if projectID != "" {
@@ -110,7 +135,21 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(response, &reply) == nil {
 			if result, ok := reply["result"].(map[string]any); ok {
 				list, _ := result["tools"].([]any)
-				result["tools"] = append(list, helperAppToolDefinitions()...)
+				if projectID != "" {
+					filtered := make([]any, 0, len(list))
+					for _, raw := range list {
+						tool, _ := raw.(map[string]any)
+						name, _ := tool["name"].(string)
+						if projectConversationGatewayTools[name] {
+							filtered = append(filtered, raw)
+						}
+					}
+					list = filtered
+				}
+				if agent.Kind == "platform_helper" {
+					list = append(list, helperAppToolDefinitions()...)
+				}
+				result["tools"] = list
 				response, _ = json.Marshal(reply)
 			}
 		}
@@ -152,6 +191,23 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 		target, getErr := s.store.GetAgentByID(id)
 		if getErr != nil || target == nil || target.ProjectID != projectID {
 			return body, fmt.Errorf("target agent is not in the trusted project")
+		}
+	case "list_server_tools":
+		id, parseErr := parseIntArg(args["id"])
+		if parseErr != nil || id <= 0 {
+			return body, fmt.Errorf("id must be a positive integer")
+		}
+		row, lookupErr := s.store.GetMCPServerByIDUnscoped(id)
+		if lookupErr != nil || row == nil || (row.ProjectID != "" && row.ProjectID != projectID) {
+			return body, fmt.Errorf("MCP server is not available in the trusted project")
+		}
+	case "agent_list_activity":
+		if rawID, exists := args["agent_id"]; exists {
+			id, parseErr := parseIntArg(rawID)
+			target, lookupErr := s.store.GetAgentByID(id)
+			if parseErr != nil || lookupErr != nil || target == nil || target.ProjectID != projectID {
+				return body, fmt.Errorf("target agent is not in the trusted project")
+			}
 		}
 	case "apps_upgrade", "apps_uninstall":
 		installID, parseErr := parseInstallIDArg(args)

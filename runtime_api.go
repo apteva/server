@@ -1305,11 +1305,21 @@ func (s *Server) runtimeCatalogApps(projectID string) []sdk.RuntimeCatalogApp {
 }
 
 func (s *Server) runtimeCatalogIntegrations() []sdk.RuntimeCatalogIntegration {
-	out := []sdk.RuntimeCatalogIntegration{}
+	// Built-in capabilities share the public identity catalog consumed by app
+	// tool renderers. This is metadata only; attachment and execution still use
+	// the existing MCP authorization path.
+	out := []sdk.RuntimeCatalogIntegration{{
+		Slug: platformMCPName, Name: platformMCPDisplayName,
+		Description: platformMCPDescription, Logo: platformMCPIconURL,
+		Kind: platformMCPSource,
+	}}
 	if s.catalog == nil {
 		return out
 	}
 	for _, app := range s.catalog.List() {
+		if app.Slug == platformMCPName {
+			continue // The server owns the built-in capability's identity.
+		}
 		logo := ""
 		if app.Logo != nil {
 			logo = *app.Logo

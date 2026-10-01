@@ -1,7 +1,7 @@
 {
   "slug": "api-sports",
   "name": "API-Sports (Football)",
-  "description": "Structured sports data from API-Sports — standings, fixtures, results, head-to-head records, team + player statistics, and injuries. This entry targets API-Football (soccer) — the world's largest sports-betting and prediction market — at the v3 endpoint. API-Sports is organized per-sport on separate hosts (football, basketball, baseball, hockey, F1, MMA, …); the `host` credential lets you repoint this connection to a sister API (e.g. v1.basketball.api-sports.io), though the path schema below matches API-Football v3, so other sports are best served by cloning this entry with their endpoint shape. NOTE: API-Sports does NOT cover tennis — use the tennis-abstract integration for ATP/WTA history. Free tier: ~100 requests/day. Sign up at https://api-sports.io (or via RapidAPI). Direct api-sports.io auth uses the x-apisports-key header.",
+  "description": "API-Football v3 soccer data: leagues, standings, teams, fixtures, head-to-head results, player statistics and injuries. Free tier advertises 100 requests/day. Direct signup: https://dashboard.api-football.com/register . These tools use football routes; use the separate API-Sports Basketball, Baseball, Hockey, Rugby, MMA, Formula 1, or NFL & NCAA integrations for other sports. Odds and statistics do not place bets.",
   "logo": "https://www.google.com/s2/favicons?domain=api-sports.io&sz=128",
   "categories": [
     "sports",
@@ -27,7 +27,7 @@
       {
         "name": "host",
         "label": "API host",
-        "description": "Per-sport API-Sports host. Default is API-Football v3. Other sports: v1.basketball.api-sports.io, v1.baseball.api-sports.io, v1.hockey.api-sports.io, v1.formula-1.api-sports.io, v1.american-football.api-sports.io. The tool paths below assume API-Football v3; sister sports use analogous but not identical paths (e.g. /games instead of /fixtures).",
+        "description": "API-Football v3 host, normally v3.football.api-sports.io. Keep this connection on the football API; use the dedicated per-sport catalog entries for other sports.",
         "default": "v3.football.api-sports.io"
       }
     ]

@@ -286,6 +286,10 @@ func (s *Server) requireMCPServerAccess(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "MCP server not found", http.StatusNotFound)
 		return nil, "", false
 	}
+	if record.Source == platformMCPSource && need.Rank() >= ProjectEditor.Rank() {
+		http.Error(w, "built-in capability is server-managed; use agent capabilities to attach or detach", http.StatusForbidden)
+		return nil, "", false
+	}
 	if record.Source == managedMCPSource {
 		return s.requireManagedMCPAccess(w, r, serverID, need)
 	}

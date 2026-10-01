@@ -43,7 +43,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"containers": true, "fleet": true, "backup": true, "computer": true,
 		"screenshots": true, "signatures": true, "billing": true, "commerce": true,
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
-		"webinars": true, "builder": true, "workspaces": true, "a2a": true,
+		"webinars": true, "workspaces": true, "a2a": true,
 		"media-downloader": true, "media": true,
 	}
 	requiredDomainApps := map[string][]string{
@@ -57,7 +57,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"work-research":                  {"web", "notes", "tables"},
 		"work-youtube-to-blog":           {"media-downloader", "media", "storage", "content"},
 		"development-software":           {"code", "environments", "deploy"},
-		"development-engineering-team":   {"builder", "tasks", "code", "workspaces", "a2a", "deploy"},
+		"development-engineering-team":   {"tasks", "code", "workspaces", "a2a", "deploy"},
 		"development-devops":             {"deploy", "instances", "containers", "backup"},
 		"development-qa":                 {"code", "environments", "computer", "screenshots"},
 		"development-data":               {"tables", "analytics", "storage"},

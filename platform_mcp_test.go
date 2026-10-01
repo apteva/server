@@ -10,8 +10,12 @@ import (
 
 func TestPlatformMCPUsesTrustedConversationProject(t *testing.T) {
 	s := newTestServer(t)
+	s.instanceSecret = "platform-mcp-fixture-secret"
 	user, err := s.store.CreateUser("platform-mcp@test.local", "hash")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.SetPlatformRole(user.ID, PlatformAdmin); err != nil {
 		t.Fatal(err)
 	}
 	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, platformHelperSystemPrompt)
@@ -37,7 +41,7 @@ func TestPlatformMCPUsesTrustedConversationProject(t *testing.T) {
 		return []byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[]}}`), nil
 	}
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents_create","arguments":{"name":"Worker","project_id":"project-forged","_apteva_caller_thread":"` + threadID + `"}}}`
-	req := httptest.NewRequest("POST", "/api/apps/apteva-server/mcp", strings.NewReader(body))
+	req := httptest.NewRequest("POST", addQueryParam(platformMCPPath, "mcp_token", platformMCPToken(s.instanceSecret, helper)), strings.NewReader(body))
 	req.RemoteAddr = "127.0.0.1:43210"
 	req.Header.Set("X-Apteva-Caller-Agent", itoa64(helper.ID))
 	rec := httptest.NewRecorder()
@@ -60,8 +64,12 @@ func TestPlatformMCPUsesTrustedConversationProject(t *testing.T) {
 
 func TestPlatformMCPRejectsCrossProjectAgentTarget(t *testing.T) {
 	s := newTestServer(t)
+	s.instanceSecret = "platform-mcp-fixture-secret"
 	user, err := s.store.CreateUser("platform-mcp-cross@test.local", "hash")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.SetPlatformRole(user.ID, PlatformAdmin); err != nil {
 		t.Fatal(err)
 	}
 	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, platformHelperSystemPrompt)
@@ -81,7 +89,7 @@ func TestPlatformMCPRejectsCrossProjectAgentTarget(t *testing.T) {
 		return nil, nil
 	}
 	body := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agents_update","arguments":{"id":"` + itoa64(target.ID) + `","name":"Wrong","_apteva_caller_thread":"chat-project-a"}}}`
-	req := httptest.NewRequest("POST", "/api/apps/apteva-server/mcp", strings.NewReader(body))
+	req := httptest.NewRequest("POST", addQueryParam(platformMCPPath, "mcp_token", platformMCPToken(s.instanceSecret, helper)), strings.NewReader(body))
 	req.RemoteAddr = "127.0.0.1:43211"
 	req.Header.Set("X-Apteva-Caller-Agent", itoa64(helper.ID))
 	rec := httptest.NewRecorder()
@@ -94,13 +102,13 @@ func TestPlatformMCPRejectsCrossProjectAgentTarget(t *testing.T) {
 	}
 }
 
-func TestManagementGatewayConfigMakesOnlyHelperHTTPSpawnable(t *testing.T) {
+func TestManagementGatewayConfigUsesSharedHTTPTransport(t *testing.T) {
 	helper := managementGatewayConfig(&Agent{ID: 1, UserID: 7, Kind: "platform_helper"}, "/server", "5280")
 	if helper["transport"] != "http" || helper["no_spawn"] == true || !strings.Contains(helper["url"].(string), "/api/apps/apteva-server/mcp") {
 		t.Fatalf("helper gateway=%#v", helper)
 	}
 	ordinary := managementGatewayConfig(&Agent{ID: 2, UserID: 7, Kind: "user"}, "/server", "5280")
-	if ordinary["command"] != "/server" || ordinary["no_spawn"] != true {
+	if ordinary["transport"] != "http" || ordinary["command"] != nil || ordinary["url"] != helper["url"] {
 		t.Fatalf("ordinary gateway=%#v", ordinary)
 	}
 }

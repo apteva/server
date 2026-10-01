@@ -23,6 +23,10 @@ const (
 	agentToolsMCPSurfaceMissing = "mcp_surface_missing"
 	agentToolsScopeMismatch     = "scope_mismatch"
 	agentToolsInvalidRequest    = "invalid_request"
+	// Builder used to self-attach to Apteva Helper. It is discontinued as a
+	// default Helper dependency; keeping this guard prevents older installed
+	// Builder binaries from re-attaching themselves.
+	discontinuedHelperAppName = "builder"
 )
 
 type agentToolsProblem struct {
@@ -100,6 +104,18 @@ func (s *Server) handleCallbackAgentTools(w http.ResponseWriter, r *http.Request
 			writeAgentToolsProblem(w, &agentToolsProblem{
 				status: http.StatusNotFound, code: agentToolsTargetNotFound,
 				message: "target agent was not found in the app installation scope",
+			})
+			return
+		}
+	}
+	if body.AgentKind == sdk.AgentKindPlatformHelper {
+		var callerAppName string
+		_ = s.store.db.QueryRow(`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&callerAppName)
+		if callerAppName == discontinuedHelperAppName {
+			writeAgentToolsProblem(w, &agentToolsProblem{
+				status: http.StatusGone, code: "app_discontinued",
+				message:   "Builder is discontinued and is no longer attached to Apteva Helper",
+				agentKind: body.AgentKind,
 			})
 			return
 		}

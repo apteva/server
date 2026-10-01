@@ -1,0 +1,196 @@
+{
+  "slug": "domainindex",
+  "name": "DomainIndex",
+  "description": "Domain appraisals, price estimates, search metrics, keyword parsing, WHOIS and availability through DomainIndex's documented JSON API. Self-service paid subscriptions provide API access; free Starter does not. Supports batches of up to 1,000 domains and returns USD estimates. Quotas and data freshness depend on the provider. Documentation: https://domainindex.com/api.",
+  "logo": "https://www.google.com/s2/favicons?domain=domainindex.com&sz=128",
+  "categories": [
+    "domains",
+    "domain-appraisal",
+    "market-research"
+  ],
+  "base_url": "https://domainindex.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Register at https://domainindex.com/ and choose a paid API-enabled plan at https://domainindex.com/subscriptions. Copy the key from Account → My API (https://domainindex.com/account/my-api). Starter has no API access.",
+        "type": "password",
+        "required": true
+      }
+    ],
+    "query_params": {
+      "key": "{{api_key}}"
+    }
+  },
+  "tools": [
+    {
+      "name": "appraise_domains",
+      "description": "Return complete USD appraisals and supporting metrics. Preserves the full domain-keyed response.",
+      "method": "GET",
+      "path": "/api.php?action=appraise&mode=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "One domain or up to 1,000 names separated by commas; omit spaces.",
+            "pattern": "^[^\\s,/:]+\\.[^\\s,/:]+(?:,[^\\s,/:]+\\.[^\\s,/:]+){0,999}$"
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "domains": "domain"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_domain_prices",
+      "description": "Return USD price estimates and appraisal permalinks. Preserves the full domain-keyed response.",
+      "method": "GET",
+      "path": "/api.php?action=price&mode=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "One domain or up to 1,000 names separated by commas; omit spaces.",
+            "pattern": "^[^\\s,/:]+\\.[^\\s,/:]+(?:,[^\\s,/:]+\\.[^\\s,/:]+){0,999}$"
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "domains": "domain"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_search_metrics",
+      "description": "Return documented search-volume, CPC and trend data; inspect provider freshness. Preserves the full domain-keyed response.",
+      "method": "GET",
+      "path": "/api.php?action=searches&mode=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "One domain or up to 1,000 names separated by commas; omit spaces.",
+            "pattern": "^[^\\s,/:]+\\.[^\\s,/:]+(?:,[^\\s,/:]+\\.[^\\s,/:]+){0,999}$"
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "domains": "domain"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "detect_keywords",
+      "description": "Parse the keywords in domain names. Preserves the full domain-keyed response.",
+      "method": "GET",
+      "path": "/api.php?action=keyword_detection&mode=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "One domain or up to 1,000 names separated by commas; omit spaces.",
+            "pattern": "^[^\\s,/:]+\\.[^\\s,/:]+(?:,[^\\s,/:]+\\.[^\\s,/:]+){0,999}$"
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "domains": "domain"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_whois",
+      "description": "Retrieve provider WHOIS data; privacy and TLD coverage can limit results. Preserves the full domain-keyed response.",
+      "method": "GET",
+      "path": "/api.php?action=whois&mode=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "One domain or up to 1,000 names separated by commas; omit spaces.",
+            "pattern": "^[^\\s,/:]+\\.[^\\s,/:]+(?:,[^\\s,/:]+\\.[^\\s,/:]+){0,999}$"
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "domains": "domain"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "check_availability",
+      "description": "Retrieve documented TLD availability data. A result does not reserve or register a domain. Preserves the full domain-keyed response.",
+      "method": "GET",
+      "path": "/api.php?action=domain_availability&mode=json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "One domain or up to 1,000 names separated by commas; omit spaces.",
+            "pattern": "^[^\\s,/:]+\\.[^\\s,/:]+(?:,[^\\s,/:]+\\.[^\\s,/:]+){0,999}$"
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "domains": "domain"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 0
+      }
+    }
+  ]
+}

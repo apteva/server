@@ -1,0 +1,412 @@
+{
+  "slug": "bishopi",
+  "name": "Bishopi",
+  "description": "Domain valuations, comparable sales, market trends and domain analysis using Bishopi's self-service API. Requires an API Access subscription and API key; website-only plans are separate. Requests consume credits. Full responses preserve confidence, price distributions, comparable sales and pagination. Official contract: https://documenter.getpostman.com/view/11906748/2sBXwqrqM2.",
+  "logo": "https://www.google.com/s2/favicons?domain=bishopi.io&sz=128",
+  "categories": [
+    "domains",
+    "domain-appraisal",
+    "market-research"
+  ],
+  "base_url": "https://api.bishopi.io",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "Api-Key {{api_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Sign up at https://bishopi.io/ and select an API Access plan at https://bishopi.io/pricing, then obtain your API key from your account. The provider expects Api-Key authentication, not Bearer.",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "appraise_domain",
+      "description": "Estimate market value from comparable sales. Costs 5 credits. Returns USD price percentiles, confidence, TLD match and sample comparables; preserve the complete response.",
+      "method": "GET",
+      "path": "/sales/valuation/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name without a scheme, path, or port, e.g. example.com.",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[^\\s,>/:]+\\.[^\\s,>/:]+$"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1200,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_similar_sales",
+      "description": "Find semantically similar historical domain sales. Costs 10 credits. Embeddings may be cached for 30 days.",
+      "method": "GET",
+      "path": "/sales/similar/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name without a scheme, path, or port, e.g. example.com.",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[^\\s,>/:]+\\.[^\\s,>/:]+$"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum comparable sales, default 20.",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "tld": {
+            "type": "string",
+            "description": "Comma-separated TLDs without dots, e.g. com,io,ai."
+          },
+          "price_min": {
+            "type": "number",
+            "description": "Minimum sale price in USD.",
+            "minimum": 0
+          },
+          "price_max": {
+            "type": "number",
+            "description": "Maximum sale price in USD.",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1200,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "search_sales",
+      "description": "Search historical domain sales with cohort statistics and pagination. At least one narrowing filter is required. Costs 2–25 credits by cohort size, plus 5 for semantic search. Do not combine semantic and sort. Large cohorts may return insight_only instead of pageable rows.",
+      "method": "GET",
+      "path": "/sales/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "SLD keyword filter."
+          },
+          "tld": {
+            "type": "string",
+            "description": "Comma-separated TLDs without dots, e.g. com,io,ai."
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date YYYY-MM-DD; maximum date window is two years.",
+            "format": "date"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date YYYY-MM-DD.",
+            "format": "date"
+          },
+          "price_min": {
+            "type": "number",
+            "description": "Minimum sale price in USD.",
+            "minimum": 0
+          },
+          "price_max": {
+            "type": "number",
+            "description": "Maximum sale price in USD.",
+            "minimum": 0
+          },
+          "length_min": {
+            "type": "integer",
+            "description": "Minimum SLD length.",
+            "minimum": 1
+          },
+          "length_max": {
+            "type": "integer",
+            "description": "Maximum SLD length.",
+            "minimum": 1
+          },
+          "category": {
+            "type": "string",
+            "description": "Category."
+          },
+          "venue": {
+            "type": "string",
+            "description": "Sales venue."
+          },
+          "value_indicator": {
+            "type": "string",
+            "description": "Provider price classification.",
+            "enum": [
+              "hot",
+              "good_value",
+              "overpriced"
+            ]
+          },
+          "semantic": {
+            "type": "string",
+            "description": "Concept to rank by semantic similarity. Omit sort.",
+            "minLength": 2,
+            "maxLength": 200
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order; omit with semantic.",
+            "enum": [
+              "price_asc",
+              "price_desc",
+              "date_asc",
+              "date_desc"
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number.",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Results per page, within provider limits.",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "search"
+            ]
+          },
+          {
+            "required": [
+              "tld"
+            ]
+          },
+          {
+            "required": [
+              "date_from"
+            ]
+          },
+          {
+            "required": [
+              "date_to"
+            ]
+          },
+          {
+            "required": [
+              "price_min"
+            ]
+          },
+          {
+            "required": [
+              "price_max"
+            ]
+          },
+          {
+            "required": [
+              "length_min"
+            ]
+          },
+          {
+            "required": [
+              "length_max"
+            ]
+          },
+          {
+            "required": [
+              "category"
+            ]
+          },
+          {
+            "required": [
+              "venue"
+            ]
+          },
+          {
+            "required": [
+              "semantic"
+            ]
+          }
+        ],
+        "not": {
+          "required": [
+            "semantic",
+            "sort"
+          ]
+        }
+      },
+      "rate_limit": {
+        "min_interval_ms": 1200,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_sales_trends",
+      "description": "Get keywords driving domain sales volume and value by time bucket. Costs 10 credits. Maximum window is 730 days; day granularity requires a window of 90 days or less.",
+      "method": "GET",
+      "path": "/sales/trends/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_from": {
+            "type": "string",
+            "description": "Start date.",
+            "format": "date"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date.",
+            "format": "date"
+          },
+          "granularity": {
+            "type": "string",
+            "description": "Time bucket, default month.",
+            "enum": [
+              "month",
+              "day"
+            ]
+          },
+          "tld": {
+            "type": "string",
+            "description": "Comma-separated TLDs without dots, e.g. com,io,ai."
+          },
+          "price_min": {
+            "type": "number",
+            "description": "Minimum sale price in USD.",
+            "minimum": 0
+          },
+          "price_max": {
+            "type": "number",
+            "description": "Maximum sale price in USD.",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "date_from",
+          "date_to"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1200,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_keyword_sales_trends",
+      "description": "Monthly sale counts, prices and TLD breakdown for a keyword. Costs 15 credits.",
+      "method": "GET",
+      "path": "/sales/keyword/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "SLD keyword, e.g. ai.",
+            "minLength": 1
+          },
+          "months": {
+            "type": "integer",
+            "description": "Lookback months, default 12.",
+            "minimum": 1,
+            "maximum": 36
+          },
+          "tld": {
+            "type": "string",
+            "description": "Comma-separated TLDs without dots, e.g. com,io,ai."
+          },
+          "price_min": {
+            "type": "number",
+            "description": "Minimum sale price in USD.",
+            "minimum": 0
+          },
+          "price_max": {
+            "type": "number",
+            "description": "Maximum sale price in USD.",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "keyword"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1200,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_domain_analysis",
+      "description": "Retrieve Bishopi domain analysis. Costs 15 credits; this is a separate analysis endpoint from valuation.",
+      "method": "GET",
+      "path": "/domain_analysis/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name without a scheme, path, or port, e.g. example.com.",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[^\\s,>/:]+\\.[^\\s,>/:]+$"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1200,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "classify_domain",
+      "description": "Classify a domain as for_sale, developed, parked, available or error. Costs 25 credits; classification does not register a domain.",
+      "method": "GET",
+      "path": "/sales_checker/domains/check/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name without a scheme, path, or port, e.g. example.com.",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[^\\s,>/:]+\\.[^\\s,>/:]+$"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1200,
+        "max_retries": 0
+      }
+    }
+  ]
+}

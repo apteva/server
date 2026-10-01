@@ -327,7 +327,31 @@ func (s *Server) resolvePlatformHelperMCPs(userID int64, ids []int64, strict boo
 // a restart or a deleted integration.
 func (s *Server) ensurePlatformHelperRuntimeConfig(helper *Agent) (bool, error) {
 	before := helper.Config
+	// Builder was an experimental Helper dependency and is discontinued. Older
+	// installs may still contain its derived binding; remove it before compiling
+	// the Helper's capabilities so it cannot contribute skills or MCP tools.
+	var builderDetached bool
+	if result, err := s.store.db.Exec(`DELETE FROM app_agent_bindings
+		WHERE agent_id=? AND install_id IN (
+			SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=?
+		)`, helper.ID, discontinuedHelperAppName); err != nil {
+		return false, fmt.Errorf("remove discontinued Helper app: %w", err)
+	} else if rows, err := result.RowsAffected(); err == nil {
+		builderDetached = rows > 0
+	}
 	ids := helperSelectedGlobalMCPServerIDs(helper)
+	// Older Helper rows also persisted Builder's MCP inventory ID. Drop that
+	// ID from the server-owned selection, otherwise capability compilation would
+	// immediately recreate the discontinued app in the Core config.
+	filteredIDs := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		record, _, err := s.store.GetMCPServer(helper.UserID, id)
+		if err == nil && record != nil && record.Name == discontinuedHelperAppName {
+			continue
+		}
+		filteredIDs = append(filteredIDs, id)
+	}
+	ids = filteredIDs
 	validIDs, selected, err := s.resolvePlatformHelperMCPs(helper.UserID, ids, false)
 	if err != nil {
 		return false, err
@@ -341,7 +365,7 @@ func (s *Server) ensurePlatformHelperRuntimeConfig(helper *Agent) (bool, error) 
 		return false, err
 	}
 	s.ensureEnvironmentMCPOnHelper(helper)
-	return helper.Config != before, nil
+	return helper.Config != before || builderDetached, nil
 }
 
 func helperHasRequiredSystemMCPs(helper *Agent) bool {
@@ -555,7 +579,11 @@ func (s *Server) applyPlatformHelperMCPConfig(helper *Agent) error {
 		}
 	}
 	next = append(next, helperConfiguredMCPServers(helper)...)
-	body, _ := json.Marshal(map[string]any{"mcp_servers": next})
+	payload := map[string]any{"mcp_servers": next}
+	if err := s.authorizeAgentMCPConfig(helper, payload); err != nil {
+		return err
+	}
+	body, _ := json.Marshal(payload)
 	req, err = http.NewRequest(http.MethodPut, configURL, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -843,9 +871,9 @@ func (s *Server) currentPlatformHelperStatus(userID int64) platformHelperStatusR
 		State: "inactive", ProviderConfigured: len(s.GetProviderPool(userID, "")) > 0,
 		ConversationsInstalled: conversationsInstalled, ConversationsInstallID: installID,
 		BuiltInIntegrations: []platformBuiltInIntegration{{
-			ID: "apteva-server", Name: "Apteva Server",
-			Description: "Management tools for Apteva Helper.",
-			Logo:        "/favicon-orange.svg", AutoAttached: true,
+			ID: platformMCPName, Name: platformMCPDisplayName,
+			Description: platformMCPDescription,
+			Logo:        platformMCPIconURL, AutoAttached: true,
 		}},
 	}
 	helper, err := s.store.GetPlatformHelper(userID)

@@ -117,6 +117,9 @@ func (s *Store) CreateMCPServer(userID int64, name, command, args, encryptedEnv,
 }
 
 func (s *Store) CreateMCPServerExt(in MCPServerInput) (*MCPServerRecord, error) {
+	if in.Name == platformMCPName && in.Source != platformMCPSource {
+		return nil, fmt.Errorf("%s is a reserved built-in capability", platformMCPName)
+	}
 	if in.Source == "" {
 		in.Source = "custom"
 	}
@@ -188,7 +191,7 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 		}
 		filtered := servers[:0]
 		for _, srv := range servers {
-			if srv.ProjectID == "" && projectScoped[srv.Name] {
+			if srv.Source != platformMCPSource && srv.ProjectID == "" && projectScoped[srv.Name] {
 				continue
 			}
 			filtered = append(filtered, srv)
@@ -268,6 +271,9 @@ func (s *Store) FindCanonicalMCPServerByConnection(connectionID int64) (*MCPServ
 // existing row. Passing nil or an empty slice clears the filter (all tools
 // are exposed again).
 func (s *Store) UpdateMCPServerAllowedTools(userID, serverID int64, allowed []string) error {
+	if row, _, err := s.GetMCPServer(userID, serverID); err == nil && row.Source == platformMCPSource {
+		return fmt.Errorf("built-in capability tools are server-managed")
+	}
 	allowedJSON := ""
 	if len(allowed) > 0 {
 		b, _ := json.Marshal(allowed)
@@ -371,6 +377,9 @@ func (s *Store) UpdateMCPServerStatus(serverID int64, status string, toolCount, 
 }
 
 func (s *Store) DeleteMCPServer(userID, serverID int64) error {
+	if row, _, err := s.GetMCPServer(userID, serverID); err == nil && row.Source == platformMCPSource {
+		return fmt.Errorf("built-in capabilities cannot be deleted")
+	}
 	_, err := s.db.Exec("DELETE FROM mcp_servers WHERE id = ? AND user_id = ?", serverID, userID)
 	return err
 }
@@ -809,6 +818,10 @@ func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 // GET /mcp-servers
 func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
+	if err := s.store.ensurePlatformMCPInventory(userID); err != nil {
+		http.Error(w, "load built-in capability", http.StatusInternalServerError)
+		return
+	}
 	projectID := r.URL.Query().Get("project_id")
 	includeAppOwned := r.URL.Query().Get("include_app_owned") == "1"
 	servers, err := s.store.ListMCPServers(userID, projectID)
@@ -861,7 +874,9 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 
 	// Update running status
 	for i := range servers {
-		if servers[i].Source == "local" {
+		if servers[i].Source == platformMCPSource {
+			servers[i].Status = "running"
+		} else if servers[i].Source == "local" {
 			// Local integration servers are always "running" — no subprocess needed
 			servers[i].Status = "running"
 		} else if servers[i].Source == "app" {
@@ -912,7 +927,10 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 			es.CreatedVia = connectionCreatedVia(s, srv.ConnectionID)
 			es.OwnerAppInstallID = connectionOwnerInstallID(s, srv.ConnectionID)
 		}
-		if srv.Source == "remote" && srv.URL != "" {
+		if srv.Source == platformMCPSource && srv.Name == platformMCPName {
+			cfg := managementGatewayConfig(nil, "", s.port)
+			es.ProxyConfig = &cfg
+		} else if srv.Source == "remote" && srv.URL != "" {
 			// Hosted MCP endpoint. Cores connect
 			// directly to the upstream URL — we do not proxy.
 			es.ProxyConfig = &map[string]any{
@@ -1073,6 +1091,40 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := record.UserID
 	var tools []mcpToolDef
+	if record.Source == platformMCPSource {
+		projectID := r.URL.Query().Get("project_id")
+		if projectID != "" {
+			if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+				return
+			}
+		}
+		execute := s.platformGatewayExec
+		if execute == nil {
+			execute = s.executePlatformGatewaySubprocess
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		response, err := execute(ctx, userID, projectID, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+		if err != nil {
+			http.Error(w, "management tools unavailable", http.StatusBadGateway)
+			return
+		}
+		var reply struct {
+			Result mcpToolsListResult `json:"result"`
+			Error  *jsonRPCError      `json:"error"`
+		}
+		if err := json.Unmarshal(response, &reply); err != nil || reply.Error != nil {
+			http.Error(w, "invalid management tools response", http.StatusBadGateway)
+			return
+		}
+		for _, tool := range reply.Result.Tools {
+			if projectID == "" || projectConversationGatewayTools[tool.Name] {
+				tools = append(tools, tool)
+			}
+		}
+		writeJSON(w, map[string]any{"tools": tools, "allowed_tools": []string{}, "read_only": true})
+		return
+	}
 	if record != nil && record.Source == "local" && record.ConnectionID > 0 {
 		conn, _, err := s.store.GetConnection(userID, record.ConnectionID)
 		if err == nil {
@@ -1453,6 +1505,10 @@ func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		record = unscoped
+	}
+	if record.Source == platformMCPSource {
+		http.Error(w, "built-in capabilities cannot be deleted; detach them from an agent instead", http.StatusForbidden)
+		return
 	}
 	s.mcpManager.Stop(serverID)
 	if record.Source == "custom" || record.Source == managedMCPSource {

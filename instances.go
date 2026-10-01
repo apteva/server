@@ -300,21 +300,11 @@ func channelsMCPConfig(url string) map[string]any {
 }
 
 func managementGatewayConfig(inst *Agent, serverBin, serverPort string) map[string]any {
-	if inst != nil && inst.Kind == "platform_helper" {
-		return map[string]any{
-			"name":      "apteva-server",
-			"url":       "http://127.0.0.1:" + serverPort + "/api/apps/apteva-server/mcp",
-			"transport": "http",
-			"tool_loading": map[string]any{
-				"default": "deferred",
-			},
-		}
-	}
 	return map[string]any{
-		"name":     "apteva-server",
-		"command":  serverBin,
-		"args":     []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
-		"no_spawn": true,
+		"name":         platformMCPName,
+		"url":          "http://127.0.0.1:" + serverPort + platformMCPPath,
+		"transport":    "http",
+		"tool_loading": map[string]any{"default": "deferred"},
 	}
 }
 
@@ -322,14 +312,11 @@ func managementGatewayConfig(inst *Agent, serverBin, serverPort string) map[stri
 // cores. Replacing system entries by name keeps one current gateway URL even
 // when a saved config contains an older or duplicate entry.
 func mergeServerOwnedMCPs(inst *Agent, config map[string]any, gateway, output, channels map[string]any) bool {
-	includeGateway := inst.Kind == "platform_helper"
+	includeGateway := platformMCPAttached(inst)
 	includeChannels := true
 	var instCfg map[string]any
 	if inst.Config != "" {
 		_ = json.Unmarshal([]byte(inst.Config), &instCfg)
-	}
-	if v, ok := instCfg["include_apteva_server"].(bool); ok && inst.Kind != "platform_helper" {
-		includeGateway = v
 	}
 	if v, ok := instCfg["include_channels"].(bool); ok {
 		includeChannels = v
@@ -2012,7 +1999,12 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		if instCfg == nil {
 			instCfg = map[string]any{}
 		}
-		delete(instCfg, "include_apteva_server")
+		instCfg["include_apteva_server"] = false
+		for _, entry := range mcpMaps(instCfg["mcp_servers"]) {
+			if entry["name"] == platformMCPName {
+				instCfg["include_apteva_server"] = true
+			}
+		}
 		instCfg["include_channels"] = includeChannels
 		if body.Unconscious != nil {
 			instCfg["unconscious"] = *body.Unconscious
@@ -3025,15 +3017,20 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			instCfg = map[string]any{}
 		}
 		hasChannels := false
+		hasPlatform := inst.Kind == "platform_helper"
 		for _, s := range mcpList {
 			if sm, ok := s.(map[string]any); ok {
 				n, _ := sm["name"].(string)
+				if n == platformMCPName {
+					hasPlatform = true
+				}
 				if isServerOwnedOutputMCP(n) {
 					hasChannels = true
 				}
 			}
 		}
 		instCfg["include_channels"] = hasChannels
+		instCfg["include_apteva_server"] = hasPlatform
 		if out, err := json.Marshal(instCfg); err == nil {
 			inst.Config = string(out)
 		}

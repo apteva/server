@@ -1,0 +1,169 @@
+{
+  "slug": "nhl",
+  "name": "NHL API",
+  "description": "Public NHL JSON feeds for scores, schedules, standings, rosters, players and game play-by-play. No signup or API key. This public website API has no published availability guarantee; NHL content terms apply.",
+  "logo": "https://www.google.com/s2/favicons?domain=nhl.com&sz=128",
+  "categories": [
+    "sports",
+    "hockey",
+    "stats"
+  ],
+  "base_url": "https://api-web.nhle.com/v1",
+  "auth": {
+    "types": [
+      "none"
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_schedule",
+      "description": "Get a week of games around YYYY-MM-DD or now.",
+      "method": "GET",
+      "path": "/schedule/{date}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "get_scores",
+      "description": "Get daily games and scores for YYYY-MM-DD or now.",
+      "method": "GET",
+      "path": "/score/{date}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "get_standings",
+      "description": "Get standings for YYYY-MM-DD or now.",
+      "method": "GET",
+      "path": "/standings/{date}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "get_team_schedule",
+      "description": "Get a club season schedule. team is a three-letter code such as TOR; season is YYYYyyyy such as 20252026.",
+      "method": "GET",
+      "path": "/club-schedule-season/{team}/{season}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "season": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "season"
+        ]
+      }
+    },
+    {
+      "name": "get_roster",
+      "description": "Get a team roster; team is a code such as TOR and season is 20252026 or current.",
+      "method": "GET",
+      "path": "/roster/{team}/{season}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "season": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "season"
+        ]
+      }
+    },
+    {
+      "name": "get_player",
+      "description": "Get player.",
+      "method": "GET",
+      "path": "/player/{playerId}/landing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "playerId"
+        ]
+      }
+    },
+    {
+      "name": "get_game_boxscore",
+      "description": "Get game boxscore.",
+      "method": "GET",
+      "path": "/gamecenter/{gameId}/boxscore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gameId"
+        ]
+      }
+    },
+    {
+      "name": "get_game_play_by_play",
+      "description": "Get game play by play.",
+      "method": "GET",
+      "path": "/gamecenter/{gameId}/play-by-play",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gameId"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_schedule",
+    "input": {
+      "date": "now"
+    }
+  }
+}

@@ -1,0 +1,299 @@
+{
+  "slug": "chess-com",
+  "name": "Chess Com Public API",
+  "description": "Free, read-only Published Data API for player ratings, archived games, clubs, tournaments, leaderboards and puzzles. No signup or key. Responses are cached; send requests serially since parallel bursts can be rate limited. Docs: https://www.chess.com/news/view/published-data-api",
+  "logo": "https://www.google.com/s2/favicons?domain=chess.com&sz=128",
+  "categories": [
+    "sports",
+    "chess",
+    "stats"
+  ],
+  "base_url": "https://api.chess.com/pub",
+  "auth": {
+    "types": [
+      "none"
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_player",
+      "description": "Get player.",
+      "method": "GET",
+      "path": "/player/{username}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player_stats",
+      "description": "Get player stats.",
+      "method": "GET",
+      "path": "/player/{username}/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_game_archives",
+      "description": "List game archives.",
+      "method": "GET",
+      "path": "/player/{username}/games/archives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_monthly_games",
+      "description": "Get archived games. year is YYYY and month must be zero-padded MM, e.g. 01.",
+      "method": "GET",
+      "path": "/player/{username}/games/{year}/{month}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "year": {
+            "type": "string",
+            "pattern": "^\\d{4}$"
+          },
+          "month": {
+            "type": "string",
+            "pattern": "^(0[1-9]|1[0-2])$"
+          }
+        },
+        "required": [
+          "username",
+          "year",
+          "month"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_daily_games",
+      "description": "Get current daily correspondence games; this is not a live real-time game stream.",
+      "method": "GET",
+      "path": "/player/{username}/games",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player_clubs",
+      "description": "Get player clubs.",
+      "method": "GET",
+      "path": "/player/{username}/clubs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_club",
+      "description": "Get a club using the URL slug, e.g. chess-com-developer-community.",
+      "method": "GET",
+      "path": "/club/{club_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "club_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "club_id"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_club_members",
+      "description": "Get club members.",
+      "method": "GET",
+      "path": "/club/{club_id}/members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "club_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "club_id"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_tournament",
+      "description": "Get a tournament using its URL slug.",
+      "method": "GET",
+      "path": "/tournament/{tournament_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tournament_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tournament_id"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_leaderboards",
+      "description": "Get leaderboards.",
+      "method": "GET",
+      "path": "/leaderboards",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_daily_puzzle",
+      "description": "Get daily puzzle.",
+      "method": "GET",
+      "path": "/puzzle",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_random_puzzle",
+      "description": "Get random puzzle.",
+      "method": "GET",
+      "path": "/puzzle/random",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_leaderboards"
+  }
+}
