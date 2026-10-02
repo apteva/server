@@ -99,3 +99,17 @@ from captured presentation settings. The destination app may need configuration.
 
 Custom presets still use the existing schema-v2 preset envelope and database;
 bundled schema-v1 files accept these optional additive fields.
+
+## Individual agent templates
+
+The New Agent picker derives its built-in roles from these same bundled presets.
+Each preset agent contributes its name, icon, behavior, instructions, and apps;
+the preset supplies its category and source label. The role's opening sentence
+becomes the card description. Edit the preset agent to update both entry points.
+
+Stable template IDs use `preset:<preset-id>:<agent-key>`. Startup refreshes these
+platform-owned templates. Legacy built-ins are omitted from the picker; existing
+agents and app/user templates are preserved. Selecting a role creates only that
+agent, using the regular app setup flow, without applying workspace layouts or
+creating teammates. Single-agent instructions resolve workspace placeholders and
+clarify that other roles are only available if they actually exist.

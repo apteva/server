@@ -131,6 +131,9 @@ func (s *Server) mobilePushUserRef(userID int64) string {
 }
 
 func (s *Server) handleMobilePushConfig(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.notificationUser(w, r); !ok {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -138,10 +141,15 @@ func (s *Server) handleMobilePushConfig(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, map[string]any{
 		"enabled":                     s.mobilePushRelayURL() != "",
 		"supports_background_refresh": false,
+		"supports_app_notifications":  true,
+		"instance_ref":                s.mobilePushInstanceRef(),
 	})
 }
 
 func (s *Server) handleMobilePushSubscriptions(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.notificationUser(w, r); !ok {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.listMobilePushSubscriptions(w, r)
@@ -153,6 +161,9 @@ func (s *Server) handleMobilePushSubscriptions(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleMobilePushSubscription(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.notificationUser(w, r); !ok {
+		return
+	}
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/mobile/push/subscriptions/"), "/")
 	if rest == "" {
 		http.Error(w, "subscription id required", http.StatusBadRequest)
@@ -636,6 +647,7 @@ func (s *Server) deliverMobilePushCycle(ctx context.Context) error {
 			return err
 		}
 		s.deliverMobilePushSubscription(ctx, &subscriptions[i])
+		s.deliverAppNotificationPush(ctx, &subscriptions[i])
 	}
 	return nil
 }

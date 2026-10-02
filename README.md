@@ -192,6 +192,62 @@ DB-IP Country Lite data is provided by [DB-IP](https://db-ip.com) under the
 `APTEVA_TRUST_PROXY_HEADERS=1` remains available for older, network-isolated
 deployments, but new deployments should use the CIDR-scoped setting.
 
+## Instance domain and HTTPS
+
+Platform administrators can use **Settings → Server → Domain & HTTPS** without
+installing an app. The same setup is available through `apteva https`:
+
+```sh
+apteva https setup agents.example.com --accept-terms
+apteva https setup agents.example.com --cloudflare --connection 12 --accept-terms
+apteva https setup agents.example.com --proxy --trusted-proxies 10.0.0.5/32
+apteva https setup agents.example.com --cert-file chain.pem --key-file key.pem
+apteva https status
+apteva https doctor
+apteva https retry
+apteva https cancel
+```
+
+- **Direct:** native ACME issuance and renewal. Public ports 80/443 must reach the
+  configured listeners. Create the domain's A record and only publish AAAA when
+  IPv6 is reachable.
+- **Cloudflare:** DNS-01 issuance and renewal using an existing administrator-owned
+  Cloudflare connection or `--cloudflare-token-file`. Tokens need Zone Read and
+  DNS Edit. Select Full (strict) in Cloudflare. The optional
+  `--set-cloudflare-strict` explicitly changes the **whole zone** and needs Zone
+  Settings Edit. Apteva creates and cleans up temporary validation TXT records;
+  operators manage A/AAAA records. Delegated challenge CNAMEs are not supported.
+- **Existing proxy/tunnel:** the proxy owns certificates. Preserve Host, forward
+  `X-Forwarded-Proto: https`, and specify its source CIDRs. Loopback is trusted.
+- **Imported certificate:** the key must match, cover the domain and be currently
+  valid. Replacement is manual. Add `--cloudflare-origin` for a proxied Cloudflare
+  Origin CA certificate; that certificate is not browser-trusted directly.
+
+Setup keeps the current public URL until origin and public HTTPS checks succeed.
+Diagnostics run from the server and check every published address; they cannot
+prove reachability from all external networks. `doctor` checks without activating
+an unfinished setup; `retry` completes setup, and `cancel` discards only the
+unfinished configuration. A restart during setup retains it for retry. Automatic
+Cloudflare renewal continues even if a separate domain setup remains unfinished.
+
+Tokens and imported private keys are encrypted in the instance database. Submit
+secrets through HTTPS or run the CLI locally over SSH. Administration requires a
+platform administrator session or private API key; app tokens cannot configure
+instance HTTPS. Use `--data-dir PATH` to target another local instance.
+
+On Linux, a system service can be prepared for low ports with:
+
+```sh
+sudo apteva https prepare-service --system --data-dir /path/to/instance --restart
+```
+
+This installs a scoped systemd drop-in with `CAP_NET_BIND_SERVICE`, preserving
+other capabilities. User services need a proxy or higher local ports with public
+port forwarding (`--http-port 8080 --https-port 8443`). Container deployments must
+publish the required ports. Existing environment-managed ingress listeners are
+reused at their configured ports. The advanced public URL override remains
+available, but changing a URL by itself does not configure TLS.
+
 ## License
 
 MIT

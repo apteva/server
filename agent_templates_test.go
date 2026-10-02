@@ -11,7 +11,7 @@ import (
 	sdk "github.com/apteva/app-sdk"
 )
 
-func TestBuiltinAgentTemplatesExposeHighlightsAndAreReadOnly(t *testing.T) {
+func TestBuiltinAgentTemplatesExposePresetRolesAndAreReadOnly(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
 	if _, err := s.store.db.Exec(`INSERT INTO users(id,email,password_hash,role) VALUES(2,'templates@test.local','hash','user')`); err != nil {
@@ -22,18 +22,23 @@ func TestBuiltinAgentTemplatesExposeHighlightsAndAreReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var github *AgentTemplate
+	var engineer *AgentTemplate
 	for i := range list {
 		if list[i].ID == "github-helper" {
-			github = &list[i]
-			break
+			t.Fatal("legacy built-in template is still offered by the picker")
+		}
+		if list[i].ID == "preset:development-software:engineer" {
+			engineer = &list[i]
 		}
 	}
-	if github == nil || len(github.Highlights) < 2 {
-		t.Fatalf("github template is missing capability highlights: %+v", github)
+	if engineer == nil || engineer.Name != "Software Engineer" || engineer.Category != "development" || engineer.PresetName != "Software project" || len(engineer.Requirements) == 0 {
+		t.Fatalf("preset role is missing from the template catalog: %+v", engineer)
+	}
+	if engineer.Description == "" || strings.Contains(engineer.Directive, "{{") || !strings.Contains(engineer.Directive, "agents that are actually available") {
+		t.Fatalf("single-agent instructions are incomplete: %+v", engineer)
 	}
 
-	req := authedRequest(t, http.MethodPut, "/agent-templates/github-helper", "", map[string]any{
+	req := authedRequest(t, http.MethodPut, "/agent-templates/"+engineer.ID, "", map[string]any{
 		"name": "Changed", "directive": "Changed globally.", "mode": "learn",
 	})
 	req.Header.Set("X-User-ID", "2")

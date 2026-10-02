@@ -71,6 +71,9 @@ func (s *Server) queueAppSubscriptionsWithID(ev AppEvent, publisherID string) (b
 	if err = queueAppEventTargets(tx, ev, key); err != nil {
 		return false, err
 	}
+	if err = s.queueUserNotifications(tx, ev, key); err != nil {
+		return false, err
+	}
 	return false, tx.Commit()
 }
 

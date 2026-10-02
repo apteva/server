@@ -1920,6 +1920,10 @@ func integrationRateLimitCode(value any) string {
 }
 
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, parents ...context.Context) (*ExecuteResult, error) {
+	if containsFileReference(input) {
+		return nil, fileProblem(403, "file_context_required", "unresolved file reference requires an authorized dispatch context")
+	}
+
 	requestCtx := integrationRequestContext(parents)
 	if err := requestCtx.Err(); err != nil {
 		return nil, err

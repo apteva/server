@@ -78,6 +78,10 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(rest, "/")
 
 	switch parts[0] {
+	case "blobs":
+		s.handleCallbackBlobs(w, r)
+	case "file-references":
+		s.handleCallbackFileReferences(w, r, parts[1:])
 	case "event-subscriptions":
 		s.handleCallbackEventSubscriptions(w, r, parts[1:])
 	case "whoami":
@@ -172,8 +176,10 @@ func (s *Server) handleCallbackPlatformInfo(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	writeJSON(w, map[string]any{
-		"public_url": publicURL,
-		"version":    Version,
+		"file_references":         sdk.FileReferencesVersion,
+		"file_reference_dispatch": map[string]bool{"app_mcp": true, "integration_mcp": true, "integration_mcp_thread_header": true, "app_integration_callback": true, "server_blobs": true},
+		"public_url":              publicURL,
+		"version":                 Version,
 	})
 }
 
@@ -874,8 +880,9 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var body struct {
-		Tool  string         `json:"tool"`
-		Input map[string]any `json:"input"`
+		FileScope *sdk.FileReferenceScope `json:"file_scope,omitempty"`
+		Tool      string                  `json:"tool"`
+		Input     map[string]any          `json:"input"`
 	}
 	// 50 MiB is generous enough for typical file-bearing tool calls
 	// (storage.files_upload with a base64 PDF, media uploads, etc.).
@@ -987,6 +994,19 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	var fileCallerContext fileCaller
+	if containsFileReference(executionInput) || body.FileScope != nil {
+		var ok bool
+		fileCallerContext, ok = s.callbackFileCaller(w, r, installID, body.FileScope)
+		if !ok {
+			return
+		}
+		if (conn.ProjectID != "" && conn.ProjectID != body.FileScope.ProjectID) || (delegatedProject != "" && delegatedProject != body.FileScope.ProjectID) {
+			writeFileProblem(w, fileProblem(403, "file_inaccessible", "connection project does not match file scope"))
+			return
+		}
+	}
+
 	// Decrypt + execute. Mirrors handleExecuteTool exactly.
 	plain, err := Decrypt(s.secret, encCreds)
 	if err != nil {
@@ -1002,6 +1022,10 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "delegated provider credentials invalid: "+err.Error(), http.StatusBadGateway)
 		return
 	} else if ok {
+		if containsFileReference(executionInput) {
+			writeFileProblem(w, fileProblem(400, "unsupported_file_argument", "delegated provider tools do not declare file arguments"))
+			return
+		}
 		result, err := s.executeDelegatedProviderToolContext(r.Context(), installID, connID, conn, grant, tool.Name, executionInput)
 		if err != nil {
 			log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
@@ -1046,12 +1070,24 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	if environmentID == "" {
 		environmentID = r.Header.Get("X-Apteva-Environment-Id")
 	}
+	if containsFileReference(ctx.Input) {
+		resolved, releaseFiles, resolveErr := s.resolveFileArguments(r.Context(), ctx.Input, integrationFileSchema(tool), fileCallerContext)
+		if resolveErr != nil {
+			writeFileProblem(w, resolveErr)
+			return
+		}
+		defer releaseFiles()
+		ctx.Input = resolved
+	}
 	if environmentID == "" {
 		err = s.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
 	}
 	var result *ExecuteResult
 	if err == nil {
 		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+	}
+	if err == nil && result != nil && result.Success && fileCallerContext.agentID != 0 {
+		result.Data, err = s.storeToolBlobValue(r.Context(), result.Data, fileCallerContext)
 	}
 	if err != nil {
 		if isAdmissionFailure(err) {

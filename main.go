@@ -176,7 +176,8 @@ type Server struct {
 	// ingressCerts is the server-native ACME manager. It is backed by
 	// the ingress_routes table for host policy and falls back to the
 	// legacy certs app cache for compatibility.
-	ingressCerts *IngressCertManager
+	ingressCerts  *IngressCertManager
+	instanceHTTPS *instanceHTTPSManager
 
 	// In-process edge cache for HostRouter-proxied responses the origin
 	// marked publicly cacheable (Cache-Control: public, max-age>0).
@@ -233,7 +234,8 @@ type Server struct {
 	projectPresetPlanner projectPresetPlannerFunc
 	// Narrow lifecycle seam for Helper activation tests. Production leaves it
 	// nil and starts the real managed Core through ensureMetaAgentRunning.
-	platformHelperStarter func(int64) (*Agent, error)
+	platformHelperStarter         func(int64) (*Agent, error)
+	platformHelperActivationLocks sync.Map
 
 	// Personal and Business share one Conversations dependency. Serialize
 	// preparation so concurrent interface selections cannot duplicate it.
@@ -600,6 +602,7 @@ func main() {
 	quarantined := cloneQuarantineEnabled()
 	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
 	s.installCapabilityMemoryHooks()
+	s.instanceHTTPS = newInstanceHTTPSManager(s)
 	s.ingressCerts = NewIngressCertManager(s)
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
@@ -686,6 +689,7 @@ func main() {
 	// itself lives in the `apteva update` CLI subcommand.
 	apiMux.HandleFunc("/platform-status", s.handlePlatformStatus)
 	apiMux.HandleFunc("/platform-status/refresh", s.handlePlatformStatusRefresh)
+	apiMux.HandleFunc("/platform-update", s.authMiddleware(s.handlePlatformUpdate))
 
 	apiMux.HandleFunc("/auth/status", s.handleAuthStatus)
 	apiMux.HandleFunc("/auth/register", s.handleRegister)
@@ -718,6 +722,8 @@ func main() {
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
 	apiMux.HandleFunc("/auth/onboarding/prepare", s.authMiddleware(s.handlePrepareOnboarding))
 	apiMux.HandleFunc("/auth/onboarding/status", s.authMiddleware(s.handleOnboardingStatus))
+	apiMux.HandleFunc("/notifications", s.authMiddleware(s.handleUserNotifications))
+	apiMux.HandleFunc("/notifications/", s.authMiddleware(s.handleUserNotifications))
 	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
 	apiMux.HandleFunc("/mobile/push/subscriptions", s.authMiddleware(s.handleMobilePushSubscriptions))
 	apiMux.HandleFunc("/mobile/push/subscriptions/", s.authMiddleware(s.handleMobilePushSubscription))
@@ -946,10 +952,12 @@ func main() {
 	// returns effective values to authenticated users with managed connection
 	// identifiers redacted for non-admins. PUT is platform-admin-only.
 	apiMux.HandleFunc("/settings/server", s.authMiddleware(s.handleServerSettings))
+	apiMux.HandleFunc("/settings/public-address", s.authMiddleware(s.handlePublicAddressSettings))
 	apiMux.HandleFunc("/settings/new-agent-provider", s.authMiddleware(s.handleNewAgentProviderSettings))
 	apiMux.HandleFunc("/ingress/routes", s.authMiddleware(s.handleIngressRoutes))
 	apiMux.HandleFunc("/ingress/routes/", s.authMiddleware(s.handleIngressRoute))
 	apiMux.HandleFunc("/ingress/certs", s.authMiddleware(s.handleIngressCerts))
+	apiMux.HandleFunc("/settings/https", s.authMiddleware(s.handleInstanceHTTPS))
 
 	// GET /api/connections/runtime — the Models settings tab's list:
 	// connections whose catalog entry declares a `runtime` block,
@@ -1131,6 +1139,8 @@ func main() {
 			s.handleUpgradeApp(w, r)
 		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodPut:
 			s.handleSetInstallBindings2(w, r)
+		case strings.HasSuffix(path, "/setup"):
+			s.handleAppSetup(w, r)
 		case strings.HasSuffix(path, "/preflight") && r.Method == http.MethodGet:
 			s.handlePreflightInstalled(w, r)
 		case strings.HasSuffix(path, "/tools") && r.Method == http.MethodGet:
@@ -1254,6 +1264,7 @@ func main() {
 
 	apiMux.HandleFunc("/platform/helper", s.authMiddleware(s.handlePlatformHelper))
 	apiMux.HandleFunc("/platform/helper/status", s.authMiddleware(s.handlePlatformHelperStatus))
+	apiMux.HandleFunc("/platform/helper/ensure-default", s.authMiddleware(s.handlePlatformHelperEnsureDefault))
 	apiMux.HandleFunc("/platform/helper/activate", s.authMiddleware(s.handlePlatformHelperActivate))
 	apiMux.HandleFunc("/platform/helper/deactivate", s.authMiddleware(s.handlePlatformHelperDeactivate))
 	apiMux.HandleFunc("/platform/helper/capabilities", s.authMiddleware(s.handlePlatformHelperCapabilities))
@@ -1637,6 +1648,9 @@ func main() {
 	if httpsIngressAddr != "" {
 		listeners = append(listeners, startIngressTLSListener(httpsIngressAddr, drain, s.ingressCerts))
 	}
+	if !quarantined {
+		s.instanceHTTPS.bind(drain, listenAddr, httpIngressAddr, httpsIngressAddr)
+	}
 
 	if quarantined {
 		if err := s.PrepareCloneLocalRuntimes(); err != nil {
@@ -1780,6 +1794,7 @@ func main() {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		s.instanceHTTPS.close(ctx)
 		for _, listener := range listeners {
 			if listener != nil {
 				if err := listener.Shutdown(ctx); err != nil {

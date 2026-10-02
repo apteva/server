@@ -376,6 +376,9 @@ func (s *Server) ingressAllowsCertificate(hostname string) bool {
 	if primary, primaryErr := normalizeIngressHostname(stripHostPort(s.primaryHost)); primaryErr == nil && host == primary {
 		return true
 	}
+	if s.instanceHTTPS != nil && s.instanceHTTPS.allowsHost(host) {
+		return true
+	}
 	var n int
 	_ = s.store.db.QueryRow(`
 		SELECT COUNT(*) FROM ingress_routes

@@ -69,6 +69,23 @@ func (hr *HostRouter) lookup(host string) (RouteHit, bool) {
 }
 
 func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if hr.server != nil && hr.server.instanceHTTPS != nil {
+		n := hr.server.instanceHTTPS
+		if n.serveProbe(w, r) {
+			return
+		}
+		if n.allowsHost(r.Host) {
+			if n.activeHost(r.Host) && !requestIsTLS(r) && !strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+				http.Redirect(w, r, "https://"+stripHostPort(r.Host)+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+				return
+			}
+			if hr.server.ingressCerts != nil && hr.server.ingressCerts.ServeHTTPChallenge(w, r) {
+				return
+			}
+			hr.next.ServeHTTP(w, r)
+			return
+		}
+	}
 	if hr.server != nil && hr.server.ingressCerts != nil && hr.server.ingressCerts.ServeHTTPChallenge(w, r) {
 		return
 	}

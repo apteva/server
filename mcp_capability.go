@@ -103,5 +103,10 @@ func (s *Server) authorizeAgentMCPConfig(inst *Agent, config map[string]any) err
 		}
 		m["url"] = authorizeMCPURL(raw, s.instanceSecret)
 	}
+	for _, entry := range entries {
+		if cfg, ok := entry.(map[string]any); ok {
+			s.authorizeFileReferenceMCPConfig(inst, cfg)
+		}
+	}
 	return nil
 }

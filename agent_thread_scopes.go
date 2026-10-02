@@ -72,8 +72,19 @@ func (s *Store) AgentThreadProjectForUser(userID, agentID int64, threadID string
 }
 
 func (s *Store) DeleteAgentThreadScope(agentID int64, threadID string) error {
-	_, err := s.db.Exec(`DELETE FROM agent_thread_scopes WHERE agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID))
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Core-created threads may have grants without an app-owned scope row.
+	// Reusing an opaque thread ID must never resurrect those grants.
+	for _, table := range []string{"app_file_grants", "server_blob_grants", "agent_thread_scopes"} {
+		if _, err = tx.Exec(`DELETE FROM `+table+` WHERE agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // appMCPThreadProject resolves only the identity that Core and the server's

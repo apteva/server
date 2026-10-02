@@ -22,6 +22,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	sdk "github.com/apteva/app-sdk"
@@ -788,6 +789,7 @@ func (s *Server) refreshPlatformHelperDirective(helper *Agent) error {
 }
 
 type platformHelperStatusResponse struct {
+	DefaultEnabled         bool                         `json:"default_enabled"`
 	Activated              bool                         `json:"activated"`
 	State                  string                       `json:"state"`
 	ProviderConfigured     bool                         `json:"provider_configured"`
@@ -868,7 +870,8 @@ func (s *Server) ensurePlatformHelperConversations(userID int64, allowInstall bo
 func (s *Server) currentPlatformHelperStatus(userID int64) platformHelperStatusResponse {
 	installID, _, conversationsInstalled := s.platformHelperConversationsInstall(userID)
 	response := platformHelperStatusResponse{
-		State: "inactive", ProviderConfigured: len(s.GetProviderPool(userID, "")) > 0,
+		DefaultEnabled: s.store.GetSetting(helperDefaultSettingKey(userID)) != "disabled",
+		State:          "inactive", ProviderConfigured: len(s.GetProviderPool(userID, "")) > 0,
 		ConversationsInstalled: conversationsInstalled, ConversationsInstallID: installID,
 		BuiltInIntegrations: []platformBuiltInIntegration{{
 			ID: platformMCPName, Name: platformMCPDisplayName,
@@ -877,6 +880,9 @@ func (s *Server) currentPlatformHelperStatus(userID int64) platformHelperStatusR
 		}},
 	}
 	helper, err := s.store.GetPlatformHelper(userID)
+	if err == nil && !platformHelperActivated(helper) {
+		response.DefaultEnabled = false
+	}
 	if err != nil || !platformHelperActivated(helper) {
 		return response
 	}
@@ -898,6 +904,45 @@ func (s *Server) handlePlatformHelperStatus(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, s.currentPlatformHelperStatus(getUserID(r)))
 }
 
+func helperDefaultSettingKey(userID int64) string { return fmt.Sprintf("helper_default:%d", userID) }
+
+func (s *Server) lockPlatformHelperActivation(userID int64) func() {
+	value, _ := s.platformHelperActivationLocks.LoadOrStore(userID, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// Dashboard initialization is an explicit POST; status reads remain read-only.
+// Never installs, enables or moves Conversations, and never revives an opt-out.
+func (s *Server) handlePlatformHelperEnsureDefault(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	userID := getUserID(r)
+	if r.Header.Get("X-Apteva-Operator-ID") != itoa(userID) {
+		http.Error(w, "operator session required", 403)
+		return
+	}
+	unlock := s.lockPlatformHelperActivation(userID)
+	defer unlock()
+	status := s.currentPlatformHelperStatus(userID)
+	if cloneQuarantineEnabled() || !status.DefaultEnabled || !status.ConversationsInstalled || !status.ProviderConfigured || status.Activated {
+		writeJSON(w, status)
+		return
+	}
+	installID, mcpID, err := s.ensurePlatformHelperConversations(userID, false)
+	if err == nil {
+		err = s.activatePreparedPlatformHelper(userID, installID, mcpID)
+	}
+	if err != nil {
+		writeJSONStatus(w, 503, map[string]any{"error": err.Error(), "code": "helper_start_failed"})
+		return
+	}
+	writeJSON(w, s.currentPlatformHelperStatus(userID))
+}
+
 func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -914,6 +959,8 @@ func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Req
 		}
 	}
 	userID := getUserID(r)
+	unlock := s.lockPlatformHelperActivation(userID)
+	defer unlock()
 	if len(s.GetProviderPool(userID, "")) == 0 {
 		writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "an LLM provider is required before activating Helper", "code": "provider_required"})
 		return
@@ -934,26 +981,34 @@ func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if err := s.activatePreparedPlatformHelper(userID, installID, conversationsMCPID); err != nil {
+		writeJSONStatus(w, 503, map[string]any{"error": err.Error(), "code": "helper_start_failed"})
+		return
+	}
+	if err := s.store.SetSetting(helperDefaultSettingKey(userID), "enabled"); err != nil {
+		http.Error(w, "save Helper preference", 500)
+		return
+	}
+	writeJSON(w, s.currentPlatformHelperStatus(userID))
+}
+
+func (s *Server) activatePreparedPlatformHelper(userID, installID, conversationsMCPID int64) error {
 	helper, err := s.store.GetOrCreatePlatformHelper(userID, platformHelperSystemPrompt)
 	if err != nil {
-		http.Error(w, "create platform helper: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("create platform helper: %w", err)
 	}
 	setPlatformHelperActivated(helper, true)
 	selected := append(helperSelectedGlobalMCPServerIDs(helper), conversationsMCPID)
 	setHelperSelectedGlobalMCPServerIDs(helper, selected)
 	if _, err := s.ensurePlatformHelperRuntimeConfig(helper); err != nil {
-		http.Error(w, "configure platform helper: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("configure platform helper: %w", err)
 	}
 	if err := s.store.UpdateAgent(helper); err != nil {
-		http.Error(w, "persist platform helper", http.StatusInternalServerError)
-		return
+		return fmt.Errorf("persist platform helper: %w", err)
 	}
 	if _, err := s.store.db.Exec(`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES(?,?,1)
 		ON CONFLICT(install_id,agent_id) DO UPDATE SET enabled=1`, installID, helper.ID); err != nil {
-		http.Error(w, "attach Conversations to platform helper", http.StatusInternalServerError)
-		return
+		return fmt.Errorf("attach Conversations to platform helper: %w", err)
 	}
 	starter := s.platformHelperStarter
 	if starter == nil {
@@ -961,10 +1016,9 @@ func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Req
 	}
 	helper, err = starter(userID)
 	if err != nil {
-		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error(), "code": "helper_start_failed"})
-		return
+		return err
 	}
-	writeJSON(w, s.currentPlatformHelperStatus(userID))
+	return nil
 }
 
 func (s *Server) handlePlatformHelperDeactivate(w http.ResponseWriter, r *http.Request) {
@@ -973,6 +1027,12 @@ func (s *Server) handlePlatformHelperDeactivate(w http.ResponseWriter, r *http.R
 		return
 	}
 	userID := getUserID(r)
+	unlock := s.lockPlatformHelperActivation(userID)
+	defer unlock()
+	if err := s.store.SetSetting(helperDefaultSettingKey(userID), "disabled"); err != nil {
+		http.Error(w, "save Helper preference", 500)
+		return
+	}
 	helper, err := s.store.GetPlatformHelper(userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, s.currentPlatformHelperStatus(userID))

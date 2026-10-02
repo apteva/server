@@ -3334,6 +3334,15 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	// otherwise every dashboard / TUI status reader made the agent
 	// think cli was reachable and caused it to respond there by
 	// default (stranding messages no one would ever see).
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodDelete && strings.HasPrefix(corePath, "/threads/") {
+		threadID := strings.TrimPrefix(corePath, "/threads/")
+		if threadID != "" && !strings.Contains(threadID, "/") {
+			if err := s.store.DeleteAgentThreadScope(inst.ID, threadID); err != nil {
+				http.Error(w, "thread deleted but file grant cleanup failed", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
 	flusher, canFlush := w.(http.Flusher)
 	isSSE := canFlush && resp.Header.Get("Content-Type") == "text/event-stream"
 
@@ -3632,6 +3641,10 @@ func (s *Server) handleStoppedMutation(w http.ResponseWriter, r *http.Request, i
 		})
 		if err != nil {
 			http.Error(w, fmt.Sprintf("persist threads: %v", err), http.StatusInternalServerError)
+			return true
+		}
+		if err := s.store.DeleteAgentThreadScope(inst.ID, tid); err != nil {
+			http.Error(w, "thread deleted but file grant cleanup failed", http.StatusInternalServerError)
 			return true
 		}
 		log.Printf("[THREADS] stopped agent=%d dropped persisted thread %q", inst.ID, tid)

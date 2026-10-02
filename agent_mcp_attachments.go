@@ -176,6 +176,7 @@ func (s *Server) resolveAgentMCPConfigs(userID int64, inst *Agent, ids []int64) 
 			continue
 		}
 		seenNames[name] = true
+		s.authorizeFileReferenceMCPConfig(inst, cfg)
 		selected = append(selected, cfg)
 	}
 	return selected, nil
@@ -252,6 +253,7 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 			refreshed = append(refreshed, entry)
 			continue
 		}
+		s.authorizeFileReferenceMCPConfig(inst, replacement)
 		if !mcpConfigsEqual(entry, replacement) {
 			changed = true
 		}
@@ -344,6 +346,7 @@ func (s *Server) reconcileRunningAgentAppMCP(ctx context.Context, agentID, insta
 		if err != nil {
 			return err
 		}
+		s.authorizeFileReferenceMCPConfig(inst, replacement)
 		desired = mutateMCPServers(current, []map[string]any{replacement}, "add")
 	}
 	if mcpConfigListsEqual(current, desired) {

@@ -1781,8 +1781,9 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 	}
 	roles := s.buildPreflightRoles(manifest, body.ProjectID, userID)
 	writeJSON(w, map[string]any{
-		"manifest": manifest,
-		"roles":    roles,
+		"manifest":       manifest,
+		"setup_features": setupFeatures(manifest),
+		"roles":          roles,
 	})
 }
 
@@ -1831,8 +1832,10 @@ func (s *Server) handlePreflightInstalled(w http.ResponseWriter, r *http.Request
 	roles := s.buildPreflightRoles(&manifest, projectID, userID)
 	writeJSON(w, map[string]any{
 		"manifest":         manifest,
+		"setup_features":   setupFeatures(&manifest),
 		"roles":            roles,
 		"current_bindings": bindingsForInstall(s, installID),
+		"project_id":       projectID,
 	})
 }
 
@@ -1840,6 +1843,7 @@ type installMCPToolInfo struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Annotations map[string]any `json:"annotations,omitempty"`
 	Meta        map[string]any `json:"_meta,omitempty"`
 }
 
@@ -1940,7 +1944,7 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			row.CanCreateNew = false
 			rs, err := s.store.db.Query(
 				`SELECT i.id, a.name,
-				        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name)
+				        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name), COALESCE(i.project_id,'')
 				 FROM app_installs i JOIN apps a ON a.id=i.app_id
 				 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 				projectID,
@@ -1948,12 +1952,12 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			if err == nil {
 				for rs.Next() {
 					var (
-						instID             int64
-						aName, displayName string
+						instID                               int64
+						aName, displayName, candidateProject string
 					)
-					if rs.Scan(&instID, &aName, &displayName) == nil && contains(dep.CompatibleAppNames, aName) {
+					if rs.Scan(&instID, &aName, &displayName, &candidateProject) == nil && contains(dep.CompatibleAppNames, aName) {
 						row.AppCands = append(row.AppCands, preflightAppCandidate{
-							InstallID: instID, AppName: aName, DisplayName: displayName,
+							InstallID: instID, AppName: aName, DisplayName: displayName, ProjectID: candidateProject,
 						})
 					}
 				}
@@ -1974,7 +1978,7 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 		}
 		rs, err := s.store.db.Query(
 			`SELECT i.id, a.name,
-			        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name)
+			        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name), COALESCE(i.project_id,'')
 			 FROM app_installs i JOIN apps a ON a.id=i.app_id
 			 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 			projectID,
@@ -1982,12 +1986,12 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 		if err == nil {
 			for rs.Next() {
 				var (
-					instID             int64
-					aName, displayName string
+					instID                               int64
+					aName, displayName, candidateProject string
 				)
-				if rs.Scan(&instID, &aName, &displayName) == nil && normalizeAppName(aName) == normalizeAppName(dep.Name) {
+				if rs.Scan(&instID, &aName, &displayName, &candidateProject) == nil && normalizeAppName(aName) == normalizeAppName(dep.Name) {
 					row.AppCands = append(row.AppCands, preflightAppCandidate{
-						InstallID: instID, AppName: aName, DisplayName: displayName,
+						InstallID: instID, AppName: aName, DisplayName: displayName, ProjectID: candidateProject,
 					})
 				}
 			}
@@ -2011,6 +2015,7 @@ type preflightIntegrationCandidate struct {
 }
 
 type preflightAppCandidate struct {
+	ProjectID   string `json:"project_id"`
 	InstallID   int64  `json:"install_id"`
 	AppName     string `json:"app_name"`
 	DisplayName string `json:"display_name"`

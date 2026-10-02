@@ -19,6 +19,7 @@ import (
 // Store ownership shares accounting with lightweight Server wrappers used by
 // managed tool paths. Transport accounting never schedules work by installation identity.
 type automaticRuntime struct {
+	fileBytes  int64 // reserved expanded file-reference payloads
 	bodyBytes  int64
 	once       sync.Once
 	controller *admission.Observer

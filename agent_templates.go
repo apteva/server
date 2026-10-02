@@ -3,7 +3,7 @@ package main
 // agent_templates.go — pre-canned starter agent configs for the
 // "build your first agent" wizard. Three sources share one table:
 //
-//   builtin  — seeded inline in store.go's migrate() and read-only through
+//   builtin  — derived from workspace presets and read-only through
 //              the tenant API. New platform defaults ship with the server.
 //   app      — contributed by an installed app via its manifest.
 //              apps_loader upserts on install/upgrade.
@@ -16,6 +16,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -25,11 +26,13 @@ import (
 // Highlights, recommended_apps, and requirements are stored as JSON in the
 // DB and emitted as flat arrays so the dashboard does not have to parse them.
 type AgentTemplate struct {
-	ID        string `json:"id"`
-	UserID    int64  `json:"user_id,omitempty"`
-	Source    string `json:"source"` // "builtin" | "app" | "user"
-	SourceRef string `json:"source_ref,omitempty"`
-	Name      string `json:"name"`
+	ID         string `json:"id"`
+	UserID     int64  `json:"user_id,omitempty"`
+	Source     string `json:"source"` // "builtin" | "app" | "user"
+	SourceRef  string `json:"source_ref,omitempty"`
+	Category   string `json:"category,omitempty"`
+	PresetName string `json:"preset_name,omitempty"`
+	Name       string `json:"name"`
 	// Icon is a short name (e.g. "user", "search", "code") that the
 	// dashboard resolves to a stroked SVG component. Keeps the wire
 	// payload tiny and the rendering consistent with the rest of
@@ -116,450 +119,72 @@ type TemplateLogo struct {
 	Via       string `json:"via,omitempty"`
 }
 
-// builtinAgentTemplates is the canonical shipped set. Seeded at
-// migrate() time via INSERT OR IGNORE — operator edits to existing
-// rows are preserved across upgrades. To roll a new platform-wide
-// version of a template, give it a fresh id ("personal-assistant-v2")
-// so the upgrade-time IGNORE doesn't silently fall back to the old
-// directive.
-//
-// Order in this slice matters only as documentation; SortOrder on
-// each row drives the wizard render. Integration-driven templates
-// (Slack bot, GitHub helper, Sales prospecting, …) lead so the
-// wizard's card grid foregrounds recognisable upstream brands.
-var builtinAgentTemplates = []AgentTemplate{
-	{
-		ID:          "slack-bot",
-		Source:      "builtin",
-		Name:        "Slack bot",
-		Icon:        "message",
-		Description: "Watches the workspace, replies to mentions, summarises threads, posts a daily digest.",
-		Highlights:  []string{"Respond to mentions with relevant channel context", "Summarize active conversations into a daily team digest"},
-		Mode:        "learn",
-		Unconscious: true,
-		SortOrder:   10,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"slack"}, Capabilities: []string{"chat.send"}, Required: true, Reason: "Read channels and reply to mentions."},
-		},
-		Directive: `You are a Slack assistant for this workspace. Watch the channels you have access to for mentions and direct messages.
-
-When mentioned:
-- Read the recent thread context before replying.
-- Reply conversationally, in line with the channel's tone (skim 20 recent messages to calibrate).
-- Brief is better than verbose.
-
-Daily routine:
-- At 9am, summarise yesterday's high-activity threads (≥10 messages) into a one-paragraph digest. Post to a designated channel — ask the operator which one on first run.
-
-Tone: match the team. No formal preambles, no apologies for being a bot.`,
-	},
-	{
-		ID:          "github-helper",
-		Source:      "builtin",
-		Name:        "GitHub helper",
-		Icon:        "github",
-		Description: "Reads pull requests, drafts reviews, flags stale PRs, summarises diffs.",
-		Highlights:  []string{"Turn pull-request diffs into concise risk summaries", "Surface stale reviews and important repository changes"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   15,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"github"}, Capabilities: []string{"repo.read", "pr.comment"}, Required: true, Reason: "Read PRs and post review comments."},
-		},
-		Directive: `You are a GitHub assistant. Watch open pull requests in the repositories you have access to.
-
-For each new PR:
-- Read the diff and the PR description.
-- Note anything that looks like regression risk — test changes, dependency bumps, schema migrations, removed code that other code depends on.
-- Post a one-paragraph summary as a PR comment: what the change does + your read on risk.
-
-Daily:
-- Surface PRs open >5 days with no activity. Post a digest to the designated review channel (ask on first run).
-
-Tone: technical and direct. "Probably fine" is unacceptable — be specific or say you don't know.`,
-	},
-	{
-		ID:          "sales-prospecting",
-		Source:      "builtin",
-		Name:        "Sales prospecting",
-		Icon:        "target",
-		Description: "Cadence outbound emails through Gmail, log every touch into HubSpot, file responses in storage.",
-		Highlights:  []string{"Research contacts and draft personalized outreach", "Track replies, follow-ups, and meetings in the CRM"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   20,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"gmail"}, Capabilities: []string{"email.send", "email.read"}, Required: true, Reason: "Send outbound + read replies."},
-			{Kind: "integration", CompatibleSlugs: []string{"hubspot"}, Capabilities: []string{"contact.read", "contact.write", "activity.log"}, Required: true, Reason: "Read contact records + log every touchpoint."},
-			{Kind: "app", Slug: "storage", Required: false, Reason: "Archive responses + per-contact notes."},
-		},
-		Directive: `You are a sales prospecting assistant. Run outbound + follow-up cadences against contacts you load from HubSpot.
-
-Per contact:
-- Read the HubSpot profile + any prior interactions before composing.
-- Compose one short, specific email. One ask per message. Mention something only this contact would care about.
-- Wait 4 business days for reply before scheduled follow-up. Stop after 3 follow-ups with no response.
-- Log every send, every reply, every meeting booked back into HubSpot as a note on the contact record.
-
-SAFETY: never send the first message in a cadence without showing it to me first. Follow-ups within an approved cadence are pre-approved.
-
-Tone: warm and human. Avoid every cold-email cliché ("hope this finds you well", "circle back", "synergies"). Read like a peer reaching out.`,
-	},
-	{
-		ID:          "customer-support",
-		Source:      "builtin",
-		Name:        "Customer support",
-		Icon:        "life-buoy",
-		Description: "Reads Intercom tickets, checks Stripe subscription state, drafts replies, escalates to Slack.",
-		Highlights:  []string{"Triage customer conversations with account context", "Draft responses and escalate technical or churn risks"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   25,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"intercom"}, Capabilities: []string{"conversation.read", "conversation.write"}, Required: true, Reason: "Read incoming tickets + post replies."},
-			{Kind: "integration", CompatibleSlugs: []string{"stripe"}, Capabilities: []string{"subscription.read", "customer.read"}, Required: true, Reason: "Check subscription state before replying to billing questions."},
-			{Kind: "integration", CompatibleSlugs: []string{"slack"}, Capabilities: []string{"chat.send"}, Required: true, Reason: "Escalate technical issues to the on-call channel."},
-		},
-		Directive: `You are a customer support assistant. Watch Intercom for new conversations.
-
-For each one:
-- Look up the customer in Stripe before replying. Note their plan, next invoice date, payment method status.
-- Billing questions → draft a reply with the relevant subscription details. Show me the draft, send only after confirm.
-- Technical issues → post a summary to the on-call Slack channel + tag @oncall. Reply to the customer with "thanks, our engineering team is on it, ETA Xh".
-- Feature requests → tag the conversation feature-request, file a one-liner in our internal tracker, reply with a thank-you.
-- Churn signals (angry tone, mentions of cancellation, repeated questions) → tag churn-risk and ping me directly in Slack DM.
-
-Tone: warm, brief, acknowledge the customer's frustration before solving.`,
-	},
-	{
-		ID:          "meeting-coordinator",
-		Source:      "builtin",
-		Name:        "Meeting coordinator",
-		Icon:        "calendar",
-		Description: "Schedules across Google Calendar, drafts Gmail invites, posts summaries to Slack.",
-		Highlights:  []string{"Find suitable meeting times across calendars", "Prepare invitations, agendas, and schedule summaries"},
-		Mode:        "learn",
-		Unconscious: true,
-		SortOrder:   30,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"google-calendar"}, Capabilities: []string{"event.read", "event.write"}, Required: true, Reason: "Read availability + create events."},
-			{Kind: "integration", CompatibleSlugs: []string{"gmail"}, Capabilities: []string{"email.send"}, Required: true, Reason: "Draft and send invites."},
-			{Kind: "integration", CompatibleSlugs: []string{"slack"}, Capabilities: []string{"chat.send"}, Required: false, Reason: "Post summaries to a planning channel."},
-		},
-		Directive: `You are a meeting coordinator. Given a "schedule a meeting with X" request:
-
-- Check Google Calendar for mutual availability across the relevant participants.
-- Draft a Gmail invite with three time options spanning the next 5 business days. Send only after I confirm the draft.
-- Once a time is locked: create the calendar event, attach the agenda if one's been drafted, send a confirmation.
-- Optionally post a one-line summary to #planning on Slack ("Booked: chat with Y on Thursday 2pm about Z").
-
-Daily 8am: post tomorrow's full calendar to #planning. Flag conflicts (back-to-back without travel time, double-booked rooms, meetings without agendas).
-
-Tone: short and exact. Times always in the recipient's timezone.`,
-	},
-	{
-		ID:          "devops-bot",
-		Source:      "builtin",
-		Name:        "DevOps bot",
-		Icon:        "git-branch",
-		Description: "Watches GitHub for releases + CI failures, posts to Slack, files Linear issues for security alerts.",
-		Highlights:  []string{"Surface failing CI runs and important release changes", "Coordinate engineering alerts across GitHub, Slack, and Linear"},
-		Mode:        "autonomous",
-		Unconscious: true,
-		SortOrder:   35,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"github"}, Capabilities: []string{"repo.read", "workflow.read", "release.read"}, Required: true, Reason: "Watch releases + CI runs + security alerts."},
-			{Kind: "integration", CompatibleSlugs: []string{"slack"}, Capabilities: []string{"chat.send"}, Required: true, Reason: "Post engineering updates to the team channel."},
-			{Kind: "integration", CompatibleSlugs: []string{"linear"}, Capabilities: []string{"issue.create"}, Required: false, Reason: "File Linear issues from Dependabot alerts."},
-		},
-		Directive: `You are an engineering ops assistant. Watch GitHub for state changes and surface what matters to the team.
-
-Events to act on:
-- New release → post to the engineering Slack channel with the release notes summarised in 2-3 bullets.
-- Failing CI run on the main branch → @-mention the on-call engineer in Slack with a link to the run.
-- Dependabot security alert → file a Linear issue (severity = the alert's severity), tag with security, link from Slack.
-- Force-push on main → red-alert in Slack immediately, no waiting.
-
-Weekly Monday 10am: post a digest of release velocity (commits merged, PRs landed, mean time-to-merge, blocked PRs).
-
-Tone: terse engineering register. Links matter more than prose.`,
-	},
-	{
-		ID:          "site-monitoring",
-		Source:      "builtin",
-		Name:        "Site monitoring",
-		Icon:        "activity",
-		Description: "Watches AWS CloudWatch + S3 metrics, fires PagerDuty for severity, posts to Slack #incidents.",
-		Highlights:  []string{"Summarize infrastructure alerts with operational context", "Escalate actionable incidents and suppress duplicate noise"},
-		Mode:        "autonomous",
-		Unconscious: true,
-		SortOrder:   40,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"aws-s3"}, Capabilities: []string{"metrics.read", "log.read"}, Required: true, Reason: "Read CloudWatch alarms + S3 metrics."},
-			{Kind: "integration", CompatibleSlugs: []string{"pagerduty"}, Capabilities: []string{"incident.create"}, Required: true, Reason: "Page on-call for severity ≥ warning."},
-			{Kind: "integration", CompatibleSlugs: []string{"slack"}, Capabilities: []string{"chat.send"}, Required: true, Reason: "Post to #incidents."},
-		},
-		Directive: `You are an infrastructure monitor. Watch CloudWatch alarms and S3 metrics for the configured services.
-
-For each alarm:
-- Check the metric for context: is this a known issue (recurring, has a runbook), a fresh spike, a sustained trend?
-- Severity ≥ warning → page via PagerDuty with the metric name, the breached threshold, the duration. Post a parallel notice to #incidents in Slack with the same details + a link to the dashboard.
-- Severity info → log to /alerts/<date>.md in storage (one line per event). No paging.
-- Auto-recovered alarms → log only, no paging.
-
-Daily 9am: post a 24h health digest to #incidents — total alarms by severity, top 3 noisiest services, anything that paged overnight.
-
-Never escalate the same alarm twice within 30 minutes (suppress via alarm name).`,
-	},
-	{
-		ID:          "content-distribution",
-		Source:      "builtin",
-		Name:        "Content distribution",
-		Icon:        "share-2",
-		Description: "Reads Notion drafts, formats for LinkedIn + Mailchimp, schedules publication after operator approval.",
-		Highlights:  []string{"Adapt approved source material for multiple channels", "Prepare and schedule publication with per-channel approval"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   45,
-		Requirements: []Requirement{
-			{Kind: "integration", CompatibleSlugs: []string{"notion"}, Capabilities: []string{"page.read", "database.read", "page.update"}, Required: true, Reason: "Read drafts + mark them as published."},
-			{Kind: "integration", CompatibleSlugs: []string{"linkedin"}, Capabilities: []string{"post.create"}, Required: false, Reason: "Cross-post to LinkedIn."},
-			{Kind: "integration", CompatibleSlugs: []string{"mailchimp"}, Capabilities: []string{"campaign.create"}, Required: false, Reason: "Schedule newsletter campaigns."},
-		},
-		Directive: `You are a content distribution assistant. Watch a Notion database for posts marked status=ready.
-
-For each ready post:
-- Format two variants: a LinkedIn version (long-form, ~300 words, one image, hook-driven first line) and a Mailchimp newsletter version (the full post + a CTA at the bottom).
-- Show me both formatted versions side-by-side. Wait for "go" before scheduling.
-- Schedule LinkedIn for next weekday at 10am (or the next available 10am if today is already past). Schedule Mailchimp for Tuesday or Thursday at 11am (the two windows that historically perform best).
-- Once scheduled, mark the Notion entry status=published with timestamps for each surface.
-
-Never publish anything without my explicit go-ahead per surface. "OK" applies to LinkedIn only; ask separately for the newsletter.`,
-	},
-	{
-		ID:          "personal-assistant",
-		Source:      "builtin",
-		Name:        "Personal assistant",
-		Icon:        "user",
-		Description: "Triage email, schedule, remember preferences, draft replies.",
-		Highlights:  []string{"Triage inbox activity and prepare concise summaries", "Draft replies and keep calendar commitments organized"},
-		Mode:        "learn",
-		Unconscious: true,
-		SortOrder:   50,
-		Requirements: []Requirement{
-			{Kind: "app", Slug: "storage", Required: true, Reason: "Draft replies + attachments archive."},
-			{Kind: "app", Slug: "calendar", Required: true, Reason: "Read + write calendar events."},
-			{Kind: "app", Slug: "channel-email", Required: true, Reason: "Send drafted replies."},
-			{Kind: "integration", Role: "smtp", CompatibleSlugs: []string{"gmail", "smtp", "sendgrid"}, Capabilities: []string{"email.send"}, BindTo: &BindTo{App: "channel-email", Role: "smtp"}, Required: true, Reason: "Credentials for outgoing mail."},
-		},
-		Directive: `You are a personal assistant. Keep my inbox triaged, my calendar coherent, my reminders timely.
-
-Daily rhythm:
-- Scan new mail at 8am, 1pm, 5pm local time. Tag, archive obvious noise, surface the rest in a one-paragraph summary at the end of each scan.
-- Draft replies on anything I've handled a similar message for before. Show me the draft, send only after I confirm.
-- Track decisions I make in messages ("Yes, let's do Tuesday") and remember them so I don't have to repeat myself.
-
-Tone: terse, helpful, never apologise for being a bot. Treat the inbox like a queue, not a museum.`,
-	},
-	{
-		ID:          "todo-coach",
-		Source:      "builtin",
-		Name:        "Todo coach",
-		Icon:        "check-square",
-		Description: "Tracks your todos, nudges you on what's slipping, sends a daily plan.",
-		Highlights:  []string{"Turn conversational requests into organized tasks", "Create focused daily plans and surface stalled work"},
-		Mode:        "learn",
-		Unconscious: true,
-		SortOrder:   60,
-		Requirements: []Requirement{
-			{Kind: "app", Slug: "todo", Required: true, Reason: "Source of truth for tasks, lists, snoozes."},
-			{Kind: "app", Slug: "messaging", Required: true, Reason: "Send the morning plan + reminders."},
-		},
-		Directive: `You are a todo coach. The todo app is your source of truth — read it before every nudge, write back every change.
-
-Daily rhythm:
-- 8am: pull the Today list + anything overdue. Send a one-message plan via messaging: 3 priorities, 5 minutes total to read.
-- 6pm: pull what got marked done today. Send a one-line recap + the auto-rollover items for tomorrow.
-
-Conversational quick-add:
-- When I message you a sentence ("write the launch email", "groceries on Saturday"), parse it into a todo with a sensible list/tag/due-date and confirm in one short line ("Added to Today, due Friday").
-
-Stalled-task surfacing:
-- Anything older than 5 days with no edits → mention it in the morning plan with "still on your list?". Never auto-delete; suggest snooze/archive and wait for me.
-
-Tone: encouraging, never preachy. Don't lecture me about productivity.`,
-	},
-	{
-		ID:          "health-logger",
-		Source:      "builtin",
-		Name:        "Health logger",
-		Icon:        "heart-pulse",
-		Description: "Logs weight, sleep, mood, workouts from conversational one-liners. Weekly recap.",
-		Highlights:  []string{"Convert casual updates into structured wellbeing records", "Summarize weekly trends without diagnosis or prescription"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   65,
-		Requirements: []Requirement{
-			{Kind: "app", Slug: "health", Required: true, Reason: "Time-series store for every logged metric."},
-			{Kind: "app", Slug: "messaging", Required: true, Reason: "Send the weekly digest + nudges."},
-		},
-		Directive: `You are a health logging assistant. Capture conversational one-liners into the health app as structured datapoints; surface trends without judgement.
-
-Logging:
-- "weight 78.4" → health_log kind=weight value=78.4 unit=kg.
-- "slept 7.5h" → kind=sleep_hours value=7.5.
-- "ran 5k 26min" → kind=workout subkind=run distance_km=5 duration_min=26.
-- "mood 6/10 tired" → kind=mood value=6 notes="tired".
-- Confirm each log in one short line with the parsed values. Ask for clarification only when the unit is genuinely ambiguous (e.g. "120/80" — assume BP).
-
-Weekly recap (Sundays 8pm):
-- Pull the last 7 days. Compute deltas vs. the prior week for the pinned kinds. Send a short message: what trended up, what trended down, one observation, no prescription.
-
-Never recommend medical decisions. If I describe symptoms, log them and say "noted, see a doctor if it persists" — don't diagnose.`,
-	},
-	{
-		ID:          "crm-assistant",
-		Source:      "builtin",
-		Name:        "CRM assistant",
-		Icon:        "users",
-		Description: "Tracks contacts in the CRM app, drafts follow-ups, sends scheduled touches via messaging.",
-		Highlights:  []string{"Prepare follow-ups using complete relationship history", "Keep contact activity and next actions current"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   70,
-		Requirements: []Requirement{
-			{Kind: "app", Slug: "crm", Required: true, Reason: "Contact store with multi-channel addresses and activity log."},
-			{Kind: "app", Slug: "messaging", Required: true, Reason: "Send drafted follow-ups across email/SMS/WhatsApp."},
-		},
-		Directive: `You are a CRM assistant. Keep the contact records clean, draft follow-ups, send approved touches via messaging. The CRM app's activity log is the source of truth for every interaction — read before sending, write after.
-
-Per follow-up:
-- Pull the contact's activity log + custom attributes before composing.
-- Draft a short, specific message that references the last interaction. Show me the draft. Send only on confirm.
-- After send, append an activity entry with the channel, the gist, and the next suggested follow-up date.
-
-Weekly Monday 9am:
-- Surface contacts with no activity in 30+ days, sorted by importance signals (tags, custom attributes you've learned matter). Send a digest message: "5 contacts to re-engage this week, want me to draft?".
-
-Never bulk-send. One draft, one confirmation, one send. Treat the contact list as a relationship graph, not a mailing list.`,
-	},
-	{
-		ID:          "media-studio-pal",
-		Source:      "builtin",
-		Name:        "Media studio",
-		Icon:        "image",
-		Description: "Generates images, video, audio, and music on request, files them into storage with descriptive names + tags.",
-		Highlights:  []string{"Turn a creative brief into useful media variants", "Organize generated assets for review and reuse"},
-		Mode:        "cautious",
-		Unconscious: false,
-		SortOrder:   75,
-		Requirements: []Requirement{
-			{Kind: "app", Slug: "media-studio", Required: true, Reason: "Generate media via OpenAI/Replicate/ElevenLabs/Suno/Runway/Pika."},
-			{Kind: "app", Slug: "storage", Required: true, Reason: "Save generations as permanent shareable references."},
-		},
-		Directive: `You are a media generation assistant. Take rough briefs, produce variants, file them with descriptive names so they're findable later.
-
-Per request:
-- Ask one clarifying question if anything is genuinely ambiguous (kind, style, aspect ratio, duration). Otherwise dive straight in.
-- For images, generate 3 variants by default. Vary one dimension across the three (style, framing, palette) so the choice is meaningful. For video/audio/music, generate one and iterate from there.
-- Use media_generate with the appropriate kind (image / video / audio_tts / audio_sfx / music).
-- Save each generation to /.media/<kind>/<yyyy-mm>/<short-slug>-<variant>.<ext> in storage. Use the prompt to pick the slug.
-- Reply with thumbnails / players + a one-line description per variant. Wait for me to pick before doing any follow-up edits.
-
-Cost discipline: if I haven't said "more", stop at 3 image variants (or 1 for video/audio/music). If I say "tighter on the second one", regenerate that one — don't reroll the whole batch.
-
-Tone: art-director short. No "Here are some images I generated for you!" preamble.`,
-	},
-	{
-		ID:          "social-poster",
-		Source:      "builtin",
-		Name:        "Social poster",
-		Icon:        "megaphone",
-		Description: "Drafts cross-platform posts, schedules through the Social app, archives drafts in storage.",
-		Highlights:  []string{"Adapt one idea into platform-specific social drafts", "Archive and schedule approved posts without cross-channel ambiguity"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   80,
-		Requirements: []Requirement{
-			{Kind: "app", Slug: "social", Required: true, Reason: "Post to X/Instagram/LinkedIn/TikTok/Reddit/Threads (accounts connect inside the app)."},
-			{Kind: "app", Slug: "storage", Required: true, Reason: "Archive drafts + reference assets."},
-		},
-		Directive: `You are a social media drafting assistant. Connected accounts live inside the social app (X, LinkedIn, Instagram, Threads, etc.) — you don't need separate integration setup. Storage holds drafts and references.
-
-Per post request:
-- Read 3 recent posts from /writing/voice-samples/ in storage before drafting (or whatever folder I've asked you to mirror). Mirror cadence and tone.
-- Produce platform-tailored variants: X (≤280 chars, hook-first), LinkedIn (1-2 short paragraphs, no emoji walls), Instagram caption (1 hook line + body + tags).
-- File the draft set as /.social/<yyyy-mm-dd>-<slug>.md in storage with all variants in one doc.
-- Show me the doc + a per-platform preview. Wait for explicit per-platform "go" before scheduling. "OK" on X doesn't authorise LinkedIn.
-
-Scheduling: weekday 10am local unless I specify otherwise. Never schedule the same content to two platforms within an hour of each other.
-
-Tone: my voice, not corporate-LinkedIn. Stay editorial.`,
-	},
-	{
-		ID:          "research-bot",
-		Source:      "builtin",
-		Name:        "Research bot",
-		Icon:        "search",
-		Description: "Browse, summarise, file findings.",
-		Highlights:  []string{"Research questions using attributable sources", "Preserve concise, reusable findings in project storage"},
-		Mode:        "cautious",
-		Unconscious: true,
-		SortOrder:   55,
-		Requirements: []Requirement{
-			{Kind: "app", Slug: "computer", Required: true, Reason: "Browse the web via headless Chrome."},
-			{Kind: "app", Slug: "storage", Required: true, Reason: "File summaries as markdown notes."},
-		},
-		Directive: `You are a research assistant. Given a question or topic, find and synthesise the best available sources.
-
-Workflow per question:
-- Spend the first 5 minutes scoping: what does "good enough" look like for this question, and which sources are likely authoritative?
-- Browse and read. Take notes as you go — short bullets with a link, not full quotes.
-- Summarise in two layers: a 3-sentence headline answer at the top, then a structured breakdown of evidence with citations underneath.
-- File the summary as a markdown note in storage under /research/<date>-<slug>.md so I can retrieve it later.
-
-Tone: skeptical of single-source claims, comfortable saying "I couldn't find a clear answer."`,
-	},
-	{
-		ID:           "empty",
-		Source:       "builtin",
-		Name:         "Empty",
-		Icon:         "box",
-		Description:  "Start from scratch. I'll write the directive myself.",
-		Mode:         "learn",
-		Unconscious:  false,
-		SortOrder:    999,
-		Requirements: []Requirement{},
-		Directive:    "",
-	},
+// Builtin agent templates are projections of the shipped workspace presets.
+// Keep roles, instructions, behavior and app requirements in one catalog.
+func presetAgentTemplates() ([]AgentTemplate, error) {
+	catalog, err := loadProjectPresetCatalog()
+	if err != nil {
+		return nil, err
+	}
+	out := []AgentTemplate{{
+		ID: "empty", Source: "builtin", Name: "Start from scratch", Icon: "robot",
+		Description: "Define your own role, instructions, and tools.", Mode: "learn",
+		RecommendedApps: []string{}, Requirements: []Requirement{},
+	}}
+	for _, preset := range catalog.Presets {
+		for _, agent := range preset.Agents {
+			// The workspace description is supplied during preset setup, but a single
+			// agent can be created globally. Do not leak template placeholders into it.
+			role := strings.TrimPrefix(agent.Directive, "Use this project description as your operating context: {{description}}. ")
+			description, _, _ := strings.Cut(role, ". ")
+			description = strings.TrimSuffix(description, ".") + "."
+			directive := expandPresetTemplate(role, nil)
+			directive += "\n\nUse the user's instructions and available project context to guide your work. Other roles mentioned above may not exist in this workspace. Collaborate only with agents that are actually available; otherwise handle work within your capabilities or explain what is missing. Never claim to have delegated work to an unavailable agent."
+			requirements := make([]Requirement, 0, len(agent.Apps))
+			for _, slug := range agent.Apps {
+				requirements = append(requirements, Requirement{Kind: "app", Slug: slug, Required: true, Reason: "Used by the " + agent.Name + " role."})
+			}
+			out = append(out, AgentTemplate{
+				ID: "preset:" + preset.ID + ":" + agent.Key, Source: "builtin", SourceRef: preset.ID,
+				Category: preset.Category, PresetName: preset.Name,
+				Name: agent.Name, Icon: agent.Icon, Description: description, Directive: directive,
+				Mode: agent.Mode, Unconscious: agent.Unconscious, RecommendedApps: agent.Apps,
+				Requirements: requirements, SortOrder: len(out),
+			})
+		}
+	}
+	return out, nil
 }
 
-// seedBuiltinTemplates idempotently writes the canonical builtin
-// templates. INSERT OR IGNORE creates each template on first boot; the UPDATE
-// pass refreshes presentation metadata and requirements owned by the catalog.
-func seedBuiltinTemplates(db *sql.DB) {
-	for _, t := range builtinAgentTemplates {
-		highlightsJSON, _ := json.Marshal(t.Highlights)
-		reqJSON, _ := json.Marshal(t.Requirements)
-		if t.Requirements == nil {
-			reqJSON = []byte("[]")
-		}
-		db.Exec(`
-			INSERT OR IGNORE INTO agent_templates
-				(id, user_id, source, source_ref, name, icon, description, highlights,
-				 directive, mode, unconscious, recommended_apps, requirements, sort_order)
-			VALUES (?, NULL, 'builtin', '', ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
-			t.ID, t.Name, t.Icon, t.Description, string(highlightsJSON), t.Directive, t.Mode,
-			boolToInt(t.Unconscious), string(reqJSON), t.SortOrder,
-		)
-		// Platform-owned fields that follow the shipped value on every boot.
-		db.Exec(
-			`UPDATE agent_templates
-			    SET requirements = ?, highlights = ?, icon = ?, sort_order = ?
-			  WHERE id = ? AND source = 'builtin'`,
-			string(reqJSON), string(highlightsJSON), t.Icon, t.SortOrder, t.ID,
-		)
+// Refresh only platform-owned templates. Legacy rows remain addressable for
+// compatibility, but are no longer offered by the picker. Existing agents and
+// user/app templates are unaffected.
+func seedBuiltinTemplates(db *sql.DB) error {
+	templates, err := presetAgentTemplates()
+	if err != nil {
+		return err
 	}
+	for _, t := range templates {
+		appsJSON, _ := json.Marshal(t.RecommendedApps)
+		reqJSON, _ := json.Marshal(t.Requirements)
+		_, err := db.Exec(`
+   INSERT INTO agent_templates
+    (id, user_id, source, source_ref, name, icon, description, directive, mode,
+     unconscious, recommended_apps, requirements, sort_order)
+   VALUES (?, NULL, 'builtin', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT(id) DO UPDATE SET source_ref=excluded.source_ref,
+    name=excluded.name, icon=excluded.icon, description=excluded.description,
+    directive=excluded.directive, mode=excluded.mode, unconscious=excluded.unconscious,
+    recommended_apps=excluded.recommended_apps, requirements=excluded.requirements,
+    sort_order=excluded.sort_order
+   WHERE agent_templates.source='builtin'`,
+			t.ID, t.SourceRef, t.Name, t.Icon, t.Description, t.Directive, t.Mode,
+			boolToInt(t.Unconscious), string(appsJSON), string(reqJSON), t.SortOrder)
+		if err != nil {
+			return fmt.Errorf("seed agent template %s: %w", t.ID, err)
+		}
+	}
+	return nil
 }
 
 // ListAgentTemplates returns every template visible to the user:
@@ -567,6 +192,14 @@ func seedBuiltinTemplates(db *sql.DB) {
 // out. Sorted by (sort_order, name) so the wizard renders in a
 // deterministic order.
 func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
+	builtins, err := presetAgentTemplates()
+	if err != nil {
+		return nil, err
+	}
+	current := make(map[string]bool, len(builtins))
+	for _, t := range builtins {
+		current[t.ID] = true
+	}
 	rows, err := s.db.Query(`
 		SELECT id, COALESCE(user_id, 0), source, source_ref, name, icon,
 		       description, highlights, directive, mode, unconscious, recommended_apps,
@@ -588,6 +221,9 @@ func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 		t, err := scanAgentTemplate(rows)
 		if err != nil {
 			return nil, err
+		}
+		if t.Source == "builtin" && !current[t.ID] {
+			continue
 		}
 		out = append(out, t)
 	}
@@ -787,6 +423,14 @@ func scanAgentTemplate(r rowScanner) (AgentTemplate, error) {
 	}
 	if t.Requirements == nil {
 		t.Requirements = []Requirement{}
+	}
+	if t.Source == "builtin" && strings.HasPrefix(t.ID, "preset:") {
+		if catalog, err := loadProjectPresetCatalog(); err == nil {
+			if preset, ok := catalog.ByID[t.SourceRef]; ok {
+				t.Category = preset.Category
+				t.PresetName = preset.Name
+			}
+		}
 	}
 	t.CreatedAt, _ = parseTime(createdAt)
 	t.UpdatedAt, _ = parseTime(updatedAt)

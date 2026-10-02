@@ -410,8 +410,20 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	//
 	// An absent project_id may only resolve a global install. Picking an
 	// arbitrary project install here would cross tenant boundaries.
+	if tail == sdk.FileReferenceReadPath {
+		http.Error(w, "internal file resolver route", http.StatusForbidden)
+		return
+	}
 	isAppMCPCall := tail == "/mcp" && r.Method == http.MethodPost
 	if isAppMCPCall {
+		if r.URL.Query().Get("file_auth") != "" {
+			agentID, err := s.fileReferenceAgent(r)
+			if err != nil {
+				writeFileToolFailure(w, r, err)
+				return
+			}
+			r.Header.Set("X-Apteva-Caller-Agent", strconv.FormatInt(agentID, 10))
+		}
 		// Core carries the active thread as a hidden tools/call argument. Lift
 		// it into a server-owned header before project routing so a validated
 		// app-spawned thread scope can select a global app safely.
@@ -559,6 +571,12 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if isAppMCPCall {
 		s.applyChannelChatSubjectContext(r)
+		releaseFiles, err := s.resolveAppFileRequest(r, entry)
+		if err != nil {
+			writeFileToolFailure(w, r, err)
+			return
+		}
+		defer releaseFiles()
 	}
 	var asyncReq *appMCPAsyncRequest
 	if tail == "/mcp" && r.Method == http.MethodPost {
@@ -592,6 +610,11 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		// Ordinary app routes are agent/user-facing. Only the authenticated
 		// /apps/callback/apps/:name/call bridge may mint this identity.
+		req.Header.Del(sdk.HeaderFileReadSignature)
+		query := req.URL.Query()
+		query.Del("file_agent")
+		query.Del("file_auth")
+		req.URL.RawQuery = query.Encode()
 		req.Header.Del(sdk.HeaderBoundCallerInstallID)
 		req.Header.Del(sdk.HeaderBoundCallerAppName)
 		req.Header.Del(sdk.HeaderTrustedPrincipal)
@@ -618,11 +641,22 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		setTrustedAppPrincipalHeaders(req, entry.Token, requestPrincipal)
 		req.Header.Set("X-Apteva-App-Install-ID", fmt.Sprintf("%d", entry.InstallID))
 	}
-	if asyncReq != nil {
+	if asyncReq != nil || isAppMCPCall {
 		proxy.ModifyResponse = func(resp *http.Response) error {
-			return s.maybeAugmentAppMCPAsyncResponse(entry, asyncReq, resp)
+			// Convert bytes before any async result inspection buffers or
+			// augments the response. Both consumers see the same handle.
+			if isAppMCPCall {
+				if err := s.storeAppBlobResponse(r, resp); err != nil {
+					return err
+				}
+			}
+			if asyncReq != nil {
+				return s.maybeAugmentAppMCPAsyncResponse(entry, asyncReq, resp)
+			}
+			return nil
 		}
 	}
+
 	proxy.ServeHTTP(w, r)
 }
 

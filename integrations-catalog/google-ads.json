@@ -296,7 +296,7 @@
     },
     {
       "name": "search",
-      "description": "Run a Google Ads Query Language (GAQL) query to search for campaigns, ad groups, ads, keywords, or pull performance metrics. Examples:\n- List campaigns: SELECT campaign.id, campaign.name, campaign.status FROM campaign\n- Campaign performance: SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE segments.date DURING LAST_30_DAYS\n- Ad group performance: SELECT ad_group.name, metrics.clicks, metrics.conversions FROM ad_group WHERE campaign.id = 123\n- Keywords: SELECT ad_group_criterion.keyword.text, metrics.clicks FROM keyword_view WHERE segments.date DURING LAST_7_DAYS\n- Search terms: SELECT search_term_view.search_term, metrics.clicks FROM search_term_view WHERE segments.date DURING LAST_7_DAYS\n- Ads: SELECT ad_group_ad.ad.id, ad_group_ad.ad.responsive_search_ad.headlines FROM ad_group_ad",
+      "description": "Run any valid GAQL query against this customer, including conversion_action, asset, campaign_asset, customer_asset, ad_group_asset, call_view and click_view. Returns Google's complete native response with no campaign-row normalization or field whitelist. Use get_field/search_fields to discover fields and compatibility. Query conversion-action metadata separately from campaign/action metrics and join using the conversion-action resource name. Google calls expose campaign/ad-group attribution, not GCLID or ad ID; click_view exposes GCLID and ad resource names but is not an individual-conversion ledger. click_view requires exactly one segments.date within the last 90 days; GCLIDs are unavailable for App Campaigns for Installs/Pre-registration. Google forwarding-number call reporting must be enabled for call details. Application-owned IDs, phone mappings, qualification rules and match status must be joined by the caller.\n\nExamples (replace IDs/dates for your customer):\n- Daily campaign costs and conversions: SELECT segments.date, campaign.id, campaign.name, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value, metrics.all_conversions, metrics.all_conversions_value FROM campaign WHERE segments.date DURING LAST_30_DAYS\n- Conversion-action definitions: SELECT conversion_action.resource_name, conversion_action.id, conversion_action.name, conversion_action.type, conversion_action.category, conversion_action.origin, conversion_action.status, conversion_action.primary_for_goal, conversion_action.phone_call_duration_seconds FROM conversion_action\n- Campaign/day conversion breakdown: SELECT segments.date, campaign.id, segments.conversion_action, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions, metrics.conversions_value, metrics.all_conversions, metrics.all_conversions_value FROM campaign WHERE segments.date DURING LAST_30_DAYS\n- Campaign phone assets: SELECT campaign.id, campaign.name, campaign_asset.asset, campaign_asset.field_type, campaign_asset.status, asset.id, asset.call_asset.country_code, asset.call_asset.phone_number FROM campaign_asset WHERE campaign_asset.field_type = 'CALL'\n- Google call details: SELECT campaign.id, ad_group.id, call_view.resource_name, call_view.call_status, call_view.call_duration_seconds, call_view.start_call_date_time, call_view.end_call_date_time, call_view.call_tracking_display_location, call_view.type FROM call_view WHERE call_view.start_call_date_time >= '2026-09-01 00:00:00' AND call_view.start_call_date_time < '2026-09-02 00:00:00'\n- Click identifiers for one day: SELECT segments.date, campaign.id, ad_group.id, click_view.resource_name, click_view.gclid, click_view.ad_group_ad FROM click_view WHERE segments.date = '2026-09-01'\n\nKeep daily spend/click totals separate from conversion-action breakdowns to avoid repeating or double-counting totals. metrics.conversions_value/all_conversions_value are currency amounts; metrics.cost_micros is micros. Counts may be fractional and conversion metrics use attribution rules rather than representing individual events. Campaign phone assets alone are not exhaustive: also query customer_asset and ad_group_asset for inherited/account/ad-group call assets. qualified is not a call_view status (statuses are RECEIVED/MISSED/UNKNOWN/UNSPECIFIED); apply your own documented qualification rule or analyze the configured conversion action.",
       "method": "POST",
       "path": "/customers/{customer_id}/googleAds:search",
       "input_schema": {
@@ -304,26 +304,72 @@
         "properties": {
           "customer_id": {
             "type": "string",
-            "description": "Google Ads customer ID (without hyphens, e.g. '1234567890')"
+            "description": "Google Ads customer ID without hyphens. Select the customer using list_accounts."
           },
           "query": {
             "type": "string",
-            "description": "GAQL query string. Example: SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS"
+            "description": "Unrestricted GAQL SELECT query; choose the FROM resource and compatible fields using get_field/search_fields. Use segments.conversion_action to break down campaign conversion metrics; retrieve conversion_action definitions in a separate query. Phone numbers use asset.call_asset.phone_number. call_view reports call details; click_view reports GCLIDs for a single date within 90 days. See the search tool examples."
           },
           "page_token": {
             "type": "string",
-            "description": "Token for fetching next page of results"
+            "description": "Legacy alias for pageToken. Use either spelling, never both; sent to Google as pageToken."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "nextPageToken from the previous response; reuse the identical GAQL query. Do not also provide page_token."
+          },
+          "validateOnly": {
+            "type": "boolean",
+            "description": "Validate the GAQL query without executing it. Use this to check resource/field compatibility."
+          },
+          "searchSettings": {
+            "type": "object",
+            "description": "Native Google Ads SearchSettings. pageSize is unsupported for GoogleAds:search.",
+            "properties": {
+              "omitResults": {
+                "type": "boolean",
+                "description": "Exclude result rows, default false."
+              },
+              "returnSummaryRow": {
+                "type": "boolean",
+                "description": "Include a separate summary row, default false."
+              },
+              "returnTotalResultsCount": {
+                "type": "boolean",
+                "description": "Return total matching rows ignoring LIMIT, default false."
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": [
           "customer_id",
           "query"
-        ]
+        ],
+        "additionalProperties": false,
+        "not": {
+          "required": [
+            "pageToken",
+            "page_token"
+          ]
+        }
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "query",
+          "pageToken",
+          "validateOnly",
+          "searchSettings"
+        ],
+        "include_fields": {
+          "page_token": "pageToken"
+        }
       }
     },
     {
       "name": "search_stream",
-      "description": "Run a GAQL query using streaming — returns all results at once without pagination. Better for large result sets. Same query syntax as google-ads-search.",
+      "description": "Run any valid GAQL query against this customer, including conversion_action, asset, campaign_asset, customer_asset, ad_group_asset, call_view and click_view. Returns Google's complete native response with no campaign-row normalization or field whitelist. Use get_field/search_fields to discover fields and compatibility. Query conversion-action metadata separately from campaign/action metrics and join using the conversion-action resource name. Google calls expose campaign/ad-group attribution, not GCLID or ad ID; click_view exposes GCLID and ad resource names but is not an individual-conversion ledger. click_view requires exactly one segments.date within the last 90 days; GCLIDs are unavailable for App Campaigns for Installs/Pre-registration. Google forwarding-number call reporting must be enabled for call details. Application-owned IDs, phone mappings, qualification rules and match status must be joined by the caller. SearchStream returns an array of response batches without page tokens; preserve each batch, including summary rows and request IDs.",
       "method": "POST",
       "path": "/customers/{customer_id}/googleAds:searchStream",
       "input_schema": {
@@ -331,17 +377,27 @@
         "properties": {
           "customer_id": {
             "type": "string",
-            "description": "Google Ads customer ID (without hyphens)"
+            "description": "Google Ads customer ID without hyphens. Select the customer using list_accounts."
           },
           "query": {
             "type": "string",
-            "description": "GAQL query string"
+            "description": "Unrestricted GAQL SELECT query; choose the FROM resource and compatible fields using get_field/search_fields. Use segments.conversion_action to break down campaign conversion metrics; retrieve conversion_action definitions in a separate query. Phone numbers use asset.call_asset.phone_number. call_view reports call details; click_view reports GCLIDs for a single date within 90 days. See the search tool examples."
+          },
+          "summaryRowSetting": {
+            "type": "string",
+            "enum": [
+              "NO_SUMMARY_ROW",
+              "SUMMARY_ROW_WITH_RESULTS",
+              "SUMMARY_ROW_ONLY"
+            ],
+            "description": "Optional native summary-row mode. Summary rows may arrive in a separate response batch."
           }
         },
         "required": [
           "customer_id",
           "query"
-        ]
+        ],
+        "additionalProperties": false
       }
     },
     {
@@ -895,47 +951,156 @@
     },
     {
       "name": "report_search",
-      "description": "Run a reporting GAQL query. This is an explicit reporting alias for googleAds:search; use metrics.*, segments.*, and date filters in the query.",
+      "description": "Run any valid GAQL query against this customer, including conversion_action, asset, campaign_asset, customer_asset, ad_group_asset, call_view and click_view. Returns Google's complete native response with no campaign-row normalization or field whitelist. Use get_field/search_fields to discover fields and compatibility. Query conversion-action metadata separately from campaign/action metrics and join using the conversion-action resource name. Google calls expose campaign/ad-group attribution, not GCLID or ad ID; click_view exposes GCLID and ad resource names but is not an individual-conversion ledger. click_view requires exactly one segments.date within the last 90 days; GCLIDs are unavailable for App Campaigns for Installs/Pre-registration. Google forwarding-number call reporting must be enabled for call details. Application-owned IDs, phone mappings, qualification rules and match status must be joined by the caller. Paginated reporting alias of search; pass nextPageToken as pageToken. Daily aggregate and conversion-action queries should remain separate.",
       "method": "POST",
       "path": "/customers/{customer_id}/googleAds:search",
       "input_schema": {
         "type": "object",
         "properties": {
           "customer_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Google Ads customer ID without hyphens. Select the customer using list_accounts."
           },
           "query": {
-            "type": "string"
+            "type": "string",
+            "description": "Unrestricted GAQL SELECT query; choose the FROM resource and compatible fields using get_field/search_fields. Use segments.conversion_action to break down campaign conversion metrics; retrieve conversion_action definitions in a separate query. Phone numbers use asset.call_asset.phone_number. call_view reports call details; click_view reports GCLIDs for a single date within 90 days. See the search tool examples."
           },
           "page_token": {
-            "type": "string"
+            "type": "string",
+            "description": "Legacy alias for pageToken. Use either spelling, never both; sent to Google as pageToken."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "nextPageToken from the previous response; reuse the identical GAQL query. Do not also provide page_token."
+          },
+          "validateOnly": {
+            "type": "boolean",
+            "description": "Validate the GAQL query without executing it. Use this to check resource/field compatibility."
+          },
+          "searchSettings": {
+            "type": "object",
+            "description": "Native Google Ads SearchSettings. pageSize is unsupported for GoogleAds:search.",
+            "properties": {
+              "omitResults": {
+                "type": "boolean",
+                "description": "Exclude result rows, default false."
+              },
+              "returnSummaryRow": {
+                "type": "boolean",
+                "description": "Include a separate summary row, default false."
+              },
+              "returnTotalResultsCount": {
+                "type": "boolean",
+                "description": "Return total matching rows ignoring LIMIT, default false."
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": [
           "customer_id",
           "query"
-        ]
+        ],
+        "additionalProperties": false,
+        "not": {
+          "required": [
+            "pageToken",
+            "page_token"
+          ]
+        }
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "query",
+          "pageToken",
+          "validateOnly",
+          "searchSettings"
+        ],
+        "include_fields": {
+          "page_token": "pageToken"
+        }
       }
     },
     {
       "name": "report_search_stream",
-      "description": "Run a reporting GAQL query through searchStream for large report result sets.",
+      "description": "Run any valid GAQL query against this customer, including conversion_action, asset, campaign_asset, customer_asset, ad_group_asset, call_view and click_view. Returns Google's complete native response with no campaign-row normalization or field whitelist. Use get_field/search_fields to discover fields and compatibility. Query conversion-action metadata separately from campaign/action metrics and join using the conversion-action resource name. Google calls expose campaign/ad-group attribution, not GCLID or ad ID; click_view exposes GCLID and ad resource names but is not an individual-conversion ledger. click_view requires exactly one segments.date within the last 90 days; GCLIDs are unavailable for App Campaigns for Installs/Pre-registration. Google forwarding-number call reporting must be enabled for call details. Application-owned IDs, phone mappings, qualification rules and match status must be joined by the caller. SearchStream returns an array of response batches without page tokens; preserve each batch, including summary rows and request IDs.",
       "method": "POST",
       "path": "/customers/{customer_id}/googleAds:searchStream",
       "input_schema": {
         "type": "object",
         "properties": {
           "customer_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Google Ads customer ID without hyphens. Select the customer using list_accounts."
           },
           "query": {
-            "type": "string"
+            "type": "string",
+            "description": "Unrestricted GAQL SELECT query; choose the FROM resource and compatible fields using get_field/search_fields. Use segments.conversion_action to break down campaign conversion metrics; retrieve conversion_action definitions in a separate query. Phone numbers use asset.call_asset.phone_number. call_view reports call details; click_view reports GCLIDs for a single date within 90 days. See the search tool examples."
+          },
+          "summaryRowSetting": {
+            "type": "string",
+            "enum": [
+              "NO_SUMMARY_ROW",
+              "SUMMARY_ROW_WITH_RESULTS",
+              "SUMMARY_ROW_ONLY"
+            ],
+            "description": "Optional native summary-row mode. Summary rows may arrive in a separate response batch."
           }
         },
         "required": [
           "customer_id",
           "query"
-        ]
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_field",
+      "description": "Retrieve Google Ads v23 field or resource metadata: category, dataType, selectable/filterable/sortable, selectableWith, attributeResources, metrics, segments and enumValues where supplied. Use this to discover supported attribution fields and combinations before constructing a GAQL query. Examples: campaign, segments.conversion_action, conversion_action.type, asset.call_asset.phone_number, call_view.call_status, click_view.gclid. This returns metadata, not customer data.",
+      "method": "GET",
+      "path": "/googleAdsFields/{field_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "field_name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
+            "description": "GAQL resource or field name without the googleAdsFields/ prefix."
+          }
+        },
+        "required": [
+          "field_name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_fields",
+      "description": "Discover Google Ads v23 fields and query compatibility using GoogleAdsFieldService. This metadata query has NO FROM clause. Example: SELECT name, category, data_type, selectable, filterable, sortable, selectable_with WHERE name LIKE 'call_view.%'. Another example: SELECT name, category, selectable_with WHERE name IN ('campaign', 'segments.conversion_action', 'metrics.conversions', 'asset.call_asset.phone_number'). Returns all native metadata and pagination; no customer_id is needed.",
+      "method": "POST",
+      "path": "/googleAdsFields:search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Metadata GAQL query: SELECT field metadata followed by optional WHERE/ORDER BY/LIMIT; omit FROM."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "nextPageToken returned by the previous metadata search."
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requested metadata page size; provider may cap it. Unlike GoogleAds:search, GoogleAdsFields:search supports pageSize."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
       }
     }
   ]

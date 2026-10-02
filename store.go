@@ -197,6 +197,18 @@ func NewStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.migrateFileReferences(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.migrateAppSetup(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.migrateUserNotifications(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.migrateSubscriptionOutbox(); err != nil {
 		db.Close()
 		return nil, err
@@ -697,10 +709,8 @@ func (s *Store) migrate() error {
 		-- "build your first agent" wizard. Three sources, sharing one
 		-- table:
 		--   source='builtin'  — shipped by apteva, user_id NULL.
-		--                       Seeded inline below. INSERT OR IGNORE
-		--                       protects operator edits across upgrades;
-		--                       new platform-wide updates ship under a
-		--                       fresh id (e.g. 'personal-assistant-v2').
+		--                       Derived from workspace presets and refreshed
+		--                       on boot. Read-only through the tenant API.
 		--   source='app'      — contributed by an installed app via
 		--                       its manifest. apps_loader upserts these
 		--                       on install/upgrade; uninstall deletes
@@ -783,10 +793,6 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	// Seed the builtin agent templates. Same INSERT-OR-IGNORE pattern
-	// as provider_types — operators can edit shipped rows freely and
-	// upgrades won't trample them. To roll out a new version of a
-	// shipped template, give it a fresh id ('personal-assistant-v2').
 	// Catch-up: rename emoji → icon for DBs created before the
 	// rename. SQLite 3.25+ ALTER COLUMN. Idempotent — if icon
 	// already exists the guard short-circuits.
@@ -841,11 +847,10 @@ func (s *Store) migrate() error {
 	            WHERE status='stopped'
 	              AND (port != 0 OR pid != 0 OR COALESCE(core_api_key,'') != '')`)
 
-	// The canonical builtin set lives next to its Go types in
-	// agent_templates.go. Operator edits to existing rows survive
-	// (INSERT OR IGNORE); platform-owned shape (requirements,
-	// sort_order, icon) gets reapplied each boot.
-	seedBuiltinTemplates(s.db)
+	// Agent starter roles share the bundled workspace preset catalog.
+	if err := seedBuiltinTemplates(s.db); err != nil {
+		return err
+	}
 
 	// onboarded_at: NULL for users who haven't finished the welcome flow.
 	// First-time deploy of this column backfills pre-existing users from
@@ -2912,7 +2917,7 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 }
 
 // GetPlatformHelper returns the singleton platform-owned Helper without
-// creating it. A missing row means the operator has not activated Helper.
+// creating it. A missing row means Helper has not been provisioned.
 func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 	var ag Agent
 	err := s.db.QueryRow(
@@ -2935,7 +2940,7 @@ func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 }
 
 // GetOrCreatePlatformHelper returns the singleton platform-owned meta-agent
-// row for a user, creating it on explicit activation. Read-only dashboard
+// row for a user, creating it during conditional default setup or activation. Read-only dashboard
 // paths use GetPlatformHelper so merely viewing status never creates one.
 //
 // Idempotent: subsequent calls for the same user return the existing
@@ -3398,10 +3403,10 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 	// agents may be deleted by an editor/owner or a platform admin, matching
 	// the HTTP authorization layer.
 	var owner int64
-	var projectID string
+	var projectID, kind string
 	if err := s.db.QueryRow(
-		"SELECT user_id, COALESCE(project_id,'') FROM agents WHERE id = ?", instanceID,
-	).Scan(&owner, &projectID); err != nil {
+		"SELECT user_id, COALESCE(project_id,''), COALESCE(kind,'user') FROM agents WHERE id = ?", instanceID,
+	).Scan(&owner, &projectID, &kind); err != nil {
 		if err == sql.ErrNoRows {
 			return nil // already gone — idempotent
 		}
@@ -3423,6 +3428,11 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		return err
 	}
 	defer tx.Rollback()
+	if kind == "platform_helper" {
+		if _, err := tx.Exec(`INSERT INTO server_settings(key,value) VALUES(?, 'disabled') ON CONFLICT(key) DO UPDATE SET value='disabled', updated_at=datetime('now')`, helperDefaultSettingKey(owner)); err != nil {
+			return err
+		}
+	}
 	stmts := []string{
 		"DELETE FROM telemetry             WHERE agent_id = ?",
 		"DELETE FROM channels              WHERE agent_id = ?",

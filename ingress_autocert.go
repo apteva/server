@@ -30,6 +30,9 @@ func NewIngressCertManager(s *Server) *IngressCertManager {
 	cacheDir := strings.TrimSpace(os.Getenv("APTEVA_ACME_CACHE_DIR"))
 	if cacheDir == "" {
 		base := strings.TrimSpace(os.Getenv("APTEVA_HOME"))
+		if s != nil && s.dataDir != "" {
+			base = s.dataDir
+		}
 		if base == "" {
 			if h, err := os.UserHomeDir(); err == nil && h != "" {
 				base = filepath.Join(h, ".apteva")
@@ -133,6 +136,11 @@ func (m *IngressCertManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Ce
 	name := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hello.ServerName), "."))
 	if name == "" {
 		return nil, errors.New("no SNI")
+	}
+	if m != nil && m.server != nil && m.server.instanceHTTPS != nil {
+		if cert, err := m.server.instanceHTTPS.managedCertificate(name); cert != nil || err != nil {
+			return cert, err
+		}
 	}
 	if m != nil && m.manager != nil && m.server != nil && m.server.ingressAllowsCertificate(name) {
 		cert, err := m.manager.GetCertificate(hello)
