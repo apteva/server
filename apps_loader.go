@@ -580,7 +580,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	var asyncReq *appMCPAsyncRequest
 	if tail == "/mcp" && r.Method == http.MethodPost {
-		asyncReq = s.inspectAppMCPAsyncRequest(entry, r)
+		asyncReq = s.inspectAppMCPAsyncRequest(entry, r, effectiveProjectID)
 	}
 	target, err := url.Parse(entry.SidecarURL)
 	if err != nil {

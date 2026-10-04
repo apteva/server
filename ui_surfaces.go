@@ -252,7 +252,28 @@ func resolvedWidgetLayout(document json.RawMessage, projectID, slot string) []da
 		}
 		layout = append(layout, widget)
 	}
-	return layout
+	return migrateStarterWidgets(layout)
+}
+
+// Retired starter cards now use the app-owned Tasks overview. Existing Tasks
+// widgets take precedence, preserving their configuration and position.
+func migrateStarterWidgets(widgets []dashboardWidgetInstance) []dashboardWidgetInstance {
+	hasTasks := false
+	for _, widget := range widgets {
+		hasTasks = hasTasks || widget.Component == "tasks:task-overview"
+	}
+	result := make([]dashboardWidgetInstance, 0, len(widgets))
+	for _, widget := range widgets {
+		if widget.Component == "native:starter-assignments" {
+			if hasTasks {
+				continue
+			}
+			widget.Component = "tasks:task-overview"
+			hasTasks = true
+		}
+		result = append(result, widget)
+	}
+	return result
 }
 
 func retiredDashboardHomeWidget(component string) bool {

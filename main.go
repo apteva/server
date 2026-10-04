@@ -1224,6 +1224,7 @@ func main() {
 	// enforces loopback, revision token, alias, and project scope.
 	apiMux.HandleFunc("/managed-mcp-runtime/", s.handleManagedMCPRuntimeGateway)
 	apiMux.HandleFunc("/runtime-managed-mcp/", s.handleRuntimeManagedMCPGateway)
+	apiMux.HandleFunc("/runtime-image-responses", s.handleRuntimeImageResponses)
 
 	// Provider routes — reduced to the one endpoint that must outlive
 	// the providers table.

@@ -341,6 +341,529 @@
       ]
     },
     {
+      "id": "development-product-team",
+      "category": "development",
+      "interface_level": "developer",
+      "name": "Software product team",
+      "description": "Build and release a software product with five specialist agents, separate staging and production, and a ready-to-configure release procedure.",
+      "match": [
+        "software product team",
+        "product engineering",
+        "professional software team",
+        "staging production",
+        "release process",
+        "database migrations"
+      ],
+      "highlights": [
+        "Five roles for product, technical review, implementation, QA, and release",
+        "A real draft release procedure and paused team assignment in Processes",
+        "Staging validation and human approval before production promotion",
+        "Separate deployment and database setup with clear configuration guidance"
+      ],
+      "agents": [
+        {
+          "key": "product-lead",
+          "name": "Product Lead",
+          "mode": "cautious",
+          "unconscious": true,
+          "apps": [
+            "tasks",
+            "processes",
+            "a2a",
+            "conversations",
+            "notes"
+          ],
+          "directive": "Define release scope, acceptance criteria, and a clear delivery report. Clarify the requested product outcome and record decisions in Notes. Coordinate with Technical Lead on feasibility; do not edit code or operate deployments. Keep release evidence tied to the exact candidate and distinguish delivered outcomes from open issues. Use this project description as context: {{description}}. Work only on requested outcomes and wait for assignments when idle. Use Tasks for ad hoc work and A2A for bounded collaboration with this project's teammates. When Processes dispatches a step, read run_get and step_get, execute only your assigned step, and report progress and evidence through step_update; follow its worker completion instructions. Processes owns its runs and handoffs: do not copy steps into Tasks or delegate them again through A2A. Never activate or start the shipped procedure without explicit operator authorization. Keep credentials out of messages, task inputs, process parameters, and evidence. App attachments and these instructions do not grant production authority; use configured access and seek approval for consequential changes.",
+          "icon": "planner"
+        },
+        {
+          "key": "technical-lead",
+          "name": "Technical Lead",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "processes",
+            "a2a",
+            "conversations",
+            "code",
+            "workspaces"
+          ],
+          "directive": "Own technical planning, independent code review, and release coordination. Review the exact candidate commit, dependencies, schema migrations, and recovery plan. Keep Developer and QA responsibilities separate. Own the Processes assignment and surface blockers without duplicating its worker dispatch. Do not deploy or approve production on behalf of the human operator. Use this project description as context: {{description}}. Work only on requested outcomes and wait for assignments when idle. Use Tasks for ad hoc work and A2A for bounded collaboration with this project's teammates. When Processes dispatches a step, read run_get and step_get, execute only your assigned step, and report progress and evidence through step_update; follow its worker completion instructions. Processes owns its runs and handoffs: do not copy steps into Tasks or delegate them again through A2A. Never activate or start the shipped procedure without explicit operator authorization. Keep credentials out of messages, task inputs, process parameters, and evidence. App attachments and these instructions do not grant production authority; use configured access and seek approval for consequential changes.",
+          "icon": "manager"
+        },
+        {
+          "key": "developer",
+          "name": "Developer",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "processes",
+            "a2a",
+            "conversations",
+            "code",
+            "workspaces"
+          ],
+          "directive": "Implement scoped product changes in an isolated workspace and prepare a reproducible release candidate. Inspect the repository first, preserve unrelated work, run appropriate checks, and record the exact commit or artifact and migration instructions. Hand evidence to Technical Lead and QA; do not self-approve reviews or change production. Use this project description as context: {{description}}. Work only on requested outcomes and wait for assignments when idle. Use Tasks for ad hoc work and A2A for bounded collaboration with this project's teammates. When Processes dispatches a step, read run_get and step_get, execute only your assigned step, and report progress and evidence through step_update; follow its worker completion instructions. Processes owns its runs and handoffs: do not copy steps into Tasks or delegate them again through A2A. Never activate or start the shipped procedure without explicit operator authorization. Keep credentials out of messages, task inputs, process parameters, and evidence. App attachments and these instructions do not grant production authority; use configured access and seek approval for consequential changes.",
+          "icon": "code"
+        },
+        {
+          "key": "qa-reviewer",
+          "name": "QA / Reviewer",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "processes",
+            "a2a",
+            "conversations",
+            "code",
+            "workspaces"
+          ],
+          "directive": "Independently validate acceptance criteria and release evidence for the exact candidate. Reproduce failures, check regression and migration results in staging, and report concrete pass/fail evidence. Use nonmutating production health checks after release; never run destructive tests against production or silently fix the implementation being reviewed. Use this project description as context: {{description}}. Work only on requested outcomes and wait for assignments when idle. Use Tasks for ad hoc work and A2A for bounded collaboration with this project's teammates. When Processes dispatches a step, read run_get and step_get, execute only your assigned step, and report progress and evidence through step_update; follow its worker completion instructions. Processes owns its runs and handoffs: do not copy steps into Tasks or delegate them again through A2A. Never activate or start the shipped procedure without explicit operator authorization. Keep credentials out of messages, task inputs, process parameters, and evidence. App attachments and these instructions do not grant production authority; use configured access and seek approval for consequential changes.",
+          "icon": "security"
+        },
+        {
+          "key": "release-operator",
+          "name": "Release Operator",
+          "mode": "cautious",
+          "unconscious": false,
+          "apps": [
+            "tasks",
+            "processes",
+            "a2a",
+            "conversations",
+            "code",
+            "workspaces",
+            "deploy",
+            "database"
+          ],
+          "directive": "Manage separate staging and production targets and database resources. Inspect configured grants and targets before acting. Deploy the reviewed artifact to staging, collect migration and recovery evidence, and promote only the exact artifact explicitly approved by the human operator. Stop on missing authority, target ambiguity, failed checks, or stale approval; apply only the approved recovery plan. Use this project description as context: {{description}}. Work only on requested outcomes and wait for assignments when idle. Use Tasks for ad hoc work and A2A for bounded collaboration with this project's teammates. When Processes dispatches a step, read run_get and step_get, execute only your assigned step, and report progress and evidence through step_update; follow its worker completion instructions. Processes owns its runs and handoffs: do not copy steps into Tasks or delegate them again through A2A. Never activate or start the shipped procedure without explicit operator authorization. Keep credentials out of messages, task inputs, process parameters, and evidence. App attachments and these instructions do not grant production authority; use configured access and seek approval for consequential changes.",
+          "icon": "operations"
+        }
+      ],
+      "dashboard": [
+        "native:usage",
+        "conversations:inbox-overview",
+        "tasks:task-overview",
+        "processes:process-overview",
+        "native:activity"
+      ],
+      "layouts": {
+        "home": [
+          {
+            "id": "native-usage",
+            "component": "native:usage",
+            "size": "full"
+          },
+          {
+            "id": "conversations-inbox-overview",
+            "component": "conversations:inbox-overview",
+            "size": "half"
+          },
+          {
+            "id": "tasks-task-overview",
+            "component": "tasks:task-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "recent_limit": 4
+            }
+          },
+          {
+            "id": "processes-process-overview",
+            "component": "processes:process-overview",
+            "size": "half",
+            "settings": {
+              "show_active": true,
+              "show_upcoming": true,
+              "show_recent": true,
+              "row_limit": 4
+            }
+          },
+          {
+            "id": "native-activity",
+            "component": "native:activity",
+            "size": "half"
+          }
+        ],
+        "agent_overview": {
+          "product-lead": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "technical-lead": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "developer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "qa-reviewer": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ],
+          "release-operator": [
+            {
+              "id": "activity",
+              "component": "native:agent-activity",
+              "size": "half"
+            },
+            {
+              "id": "conversations",
+              "component": "conversations:agent-conversations",
+              "size": "half",
+              "settings": {
+                "display_mode": "browser",
+                "composer_layout": "compact",
+                "show_page_context": false
+              }
+            },
+            {
+              "id": "tasks",
+              "component": "tasks:agent-tasks",
+              "size": "half"
+            }
+          ]
+        }
+      },
+      "connections": [
+        {
+          "app": "code",
+          "title": "Repository access",
+          "description": "Choose the product repository and configure the access needed for implementation and independent review.",
+          "required": true
+        },
+        {
+          "app": "workspaces",
+          "title": "Isolated workspaces",
+          "description": "Configure separate development and review workspaces with the required build and validation tools.",
+          "required": true
+        },
+        {
+          "app": "database",
+          "title": "Separate staging and production databases",
+          "description": "Create or select distinct named databases in Database, which manages local SQLite/Pebble databases. Review grants, data isolation, migration handling, and recovery. The preset does not create databases or remote infrastructure.",
+          "required": true
+        },
+        {
+          "app": "deploy",
+          "title": "Staging and production targets",
+          "description": "Configure separate deployment targets and bind the intended databases. Review artifact promotion, health checks, backups, recovery, and production permissions. No deployment runs during preset setup.",
+          "required": true
+        },
+        {
+          "app": "processes",
+          "title": "Configure the release procedure",
+          "description": "Requires Processes 0.16.2 or newer with preset operator support. Review the created draft and paused assignment, fill required resource references, and check role bindings. Explicitly activate both and start only when ready; the human approval step gates production promotion.",
+          "required": true
+        }
+      ],
+      "setup": [
+        {
+          "key": "release-procedure",
+          "app": "processes",
+          "tool": "create",
+          "min_app_version": "0.16.2",
+          "requires_operator": true,
+          "title": "Release to production",
+          "description": "Creates a draft with nine connected steps: scope, candidate, review, staging deployment, QA, human approval, promotion, verification, and report.",
+          "input": {
+            "definition": {
+              "name": "Release to production",
+              "description": "Review a software candidate, validate it in staging, obtain human approval, and release the same artifact to production.",
+              "instructions": "Execute only this reviewed procedure version. Processes dispatches each step to its assigned role and owns the run history; do not duplicate steps in Tasks or A2A. Record evidence at each handoff. Staging and production must use distinct targets and databases with explicitly configured access. Parameters contain resource references, never credentials. A changed candidate invalidates review, staging evidence, and approval: stop and start a newly reviewed run. Stop on failed checks or missing authority. This procedure grants no access by itself.",
+              "required_inputs": "Repository, immutable candidate commit, acceptance criteria, distinct staging/production targets and databases, and a recovery plan/backup reference. Fill assignment parameters and review access before activation.",
+              "completion_criteria": "The approved artifact is deployed and verified in production with evidence for code review, staging validation, human approval, migrations, recovery readiness, and the final release report. Blocked or failed releases must retain their evidence and actual state.",
+              "approval_requirements": "Explicit operator authorization is required to activate the procedure and assignment and start a run. The human operator approval step must be completed for the exact tested artifact and production targets before promotion. No agent may supply that human approval.",
+              "category": "Engineering",
+              "tags": [
+                "release",
+                "staging",
+                "production"
+              ],
+              "parameters": [
+                {
+                  "key": "repository",
+                  "label": "Repository",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "key": "candidate_commit",
+                  "label": "Candidate commit",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "key": "acceptance_criteria",
+                  "label": "Acceptance criteria",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "key": "staging_target",
+                  "label": "Staging deployment target",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "key": "production_target",
+                  "label": "Production deployment target",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "key": "staging_database",
+                  "label": "Staging database",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "key": "production_database",
+                  "label": "Production database",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "key": "rollback_reference",
+                  "label": "Recovery plan / backup reference",
+                  "type": "string",
+                  "required": true
+                }
+              ],
+              "steps": [
+                {
+                  "key": "release_scope",
+                  "name": "Confirm release scope",
+                  "role": "product",
+                  "instructions": "Confirm the requested outcome and acceptance criteria. Identify the repository, immutable candidate commit, staging and production targets, separate database names, and recovery reference from the supplied parameters. Resolve missing or ambiguous inputs with the operator before continuing. Do not invent infrastructure or credentials.",
+                  "expected_output": "Release scope, acceptance criteria, exact candidate identity, and confirmed target/database references."
+                },
+                {
+                  "key": "prepare_candidate",
+                  "name": "Prepare release candidate",
+                  "role": "development",
+                  "instructions": "Inspect the specified commit in an isolated workspace. Prepare a reproducible artifact and record build/check results, dependencies, schema changes, and migration/recovery instructions. Do not introduce unrelated changes. If the candidate must change, stop and have the operator supply a new candidate for a fresh reviewed run.",
+                  "expected_output": "Immutable commit and artifact identity, build/check evidence, change summary, migration plan or explicit no-migration statement.",
+                  "depends_on": [
+                    "release_scope"
+                  ]
+                },
+                {
+                  "key": "review_candidate",
+                  "name": "Review code and recovery plan",
+                  "role": "technical",
+                  "instructions": "Independently review the exact candidate and preparation evidence. Check security-sensitive changes, migration compatibility, staging/production separation, health checks, and rollback/recovery feasibility. Block on issues rather than approving work conditionally without evidence.",
+                  "expected_output": "Review decision for the exact commit/artifact, risks, and a reviewable deployment, migration, and recovery plan.",
+                  "depends_on": [
+                    "prepare_candidate"
+                  ]
+                },
+                {
+                  "key": "deploy_staging",
+                  "name": "Deploy to staging",
+                  "role": "release",
+                  "instructions": "Verify staging target and database identities differ from production. Using configured staging authority, deploy the reviewed artifact and rehearse approved schema changes against staging data only. Record the artifact and deployment identifiers and health checks. Collect current backup/recovery evidence needed for production approval. Do not modify production.",
+                  "expected_output": "Staging deployment reference, exact artifact identity, separate database identity, migration evidence, and production recovery readiness.",
+                  "depends_on": [
+                    "review_candidate"
+                  ]
+                },
+                {
+                  "key": "validate_staging",
+                  "name": "Validate staging",
+                  "role": "quality",
+                  "instructions": "Check the staging deployment against every acceptance criterion and relevant regression cases. Inspect migration rehearsal and recovery evidence, using isolated workspaces and available application checks. Record reproducible failures and block on failed or unverified required checks. Confirm the tested artifact matches the reviewed artifact.",
+                  "expected_output": "Acceptance and regression results, migration/recovery findings, evidence references, and release recommendation tied to the exact artifact.",
+                  "depends_on": [
+                    "deploy_staging"
+                  ]
+                },
+                {
+                  "key": "approve_production",
+                  "name": "Approve production release",
+                  "role": "operator",
+                  "instructions": "Human operator: review scope, independent review, staging results, target/database identities, current recovery evidence, and the deployment/migration plan. Complete this step only to explicitly approve this exact artifact, these production targets, and the recovery plan. Record the approval in the step output; otherwise leave blocked or cancel the run.",
+                  "expected_output": "Explicit human approval identifying the artifact, production target and database, approved migration, recovery plan, and any limits.",
+                  "depends_on": [
+                    "validate_staging"
+                  ]
+                },
+                {
+                  "key": "promote_production",
+                  "name": "Promote approved artifact",
+                  "role": "release",
+                  "instructions": "Read the recorded human approval and confirm it matches the tested artifact, production target, database, and migration/recovery plan. Verify current configured authority and recovery readiness. Deploy that exact artifact and apply only the approved migration. If anything changed or is ambiguous, stop for a new review/approval; do not rebuild a different artifact. On failure, follow the approved recovery plan and report actual state.",
+                  "expected_output": "Production deployment and artifact references, migration result, health checks, and any recovery actions or blockers.",
+                  "depends_on": [
+                    "approve_production"
+                  ]
+                },
+                {
+                  "key": "verify_production",
+                  "name": "Verify production health",
+                  "role": "quality",
+                  "instructions": "Run only authorized nonmutating health and smoke checks. Confirm the deployed artifact and expected behavior against staging evidence. Report failures immediately to Release Operator and Technical Lead; do not run destructive production tests or silently accept an unhealthy release.",
+                  "expected_output": "Production verification evidence, artifact match, health assessment, and any unresolved issues.",
+                  "depends_on": [
+                    "promote_production"
+                  ]
+                },
+                {
+                  "key": "release_report",
+                  "name": "Publish release outcome",
+                  "role": "product",
+                  "instructions": "Summarize the delivered outcome against acceptance criteria, with links or identifiers for the review, staging checks, human approval, production deployment, and final verification. Record open issues and follow-up recommendations. Do not claim success without the prior step evidence.",
+                  "expected_output": "Concise release report with verified outcome, evidence, known issues, and proposed follow-ups.",
+                  "depends_on": [
+                    "verify_production"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "key": "release-team-assignment",
+          "app": "processes",
+          "tool": "assignment_create",
+          "min_app_version": "0.16.2",
+          "requires_operator": true,
+          "title": "Product release team assignment",
+          "description": "Binds the five created agents and a human approver to the release procedure. Paused, unscheduled, and waiting for your repository, candidate, targets, databases, and recovery references.",
+          "input": {
+            "process_id": {
+              "$ref": "steps.release-procedure.id"
+            },
+            "assignment": {
+              "name": "Product release team",
+              "target": "This project: separate staging and production targets",
+              "owner_agent_id": {
+                "$ref": "agents.technical-lead"
+              },
+              "procedure_version": {
+                "$ref": "steps.release-procedure.version"
+              },
+              "follow_latest": false,
+              "roles": {
+                "product": {
+                  "kind": "agent",
+                  "agent_id": {
+                    "$ref": "agents.product-lead"
+                  }
+                },
+                "technical": {
+                  "kind": "agent",
+                  "agent_id": {
+                    "$ref": "agents.technical-lead"
+                  }
+                },
+                "development": {
+                  "kind": "agent",
+                  "agent_id": {
+                    "$ref": "agents.developer"
+                  }
+                },
+                "quality": {
+                  "kind": "agent",
+                  "agent_id": {
+                    "$ref": "agents.qa-reviewer"
+                  }
+                },
+                "release": {
+                  "kind": "agent",
+                  "agent_id": {
+                    "$ref": "agents.release-operator"
+                  }
+                },
+                "operator": {
+                  "kind": "human"
+                }
+              },
+              "parameters": {}
+            }
+          }
+        }
+      ]
+    },
+    {
       "id": "development-devops",
       "category": "development",
       "interface_level": "developer",

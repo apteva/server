@@ -99,6 +99,32 @@ func TestServerBlobEmptyAndUnsupportedArgument(t *testing.T) {
 	}
 }
 
+func TestServerBlobReferencePassthroughAuthorizesWithoutReading(t *testing.T) {
+	s := newTestServer(t)
+	caller := newBlobTestCaller(t, s)
+	handle, err := s.storeServerBlob(context.Background(), caller, "generated.png", "image/png", []byte("png-bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"attachment": handle.Ref}
+	schema := map[string]any{"properties": map[string]any{"attachment": sdk.FileReferencePassthroughSchema("Generated image")}}
+	resolved, release, err := s.resolveFileArguments(context.Background(), args, schema, caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	got, ok := resolved["attachment"].(sdk.FileHandle)
+	if !ok || got.Ref != handle.Ref || got.Filename != handle.Filename || got.MIMEType != handle.MIMEType || got.Size != handle.Size {
+		t.Fatalf("passthrough changed or dropped authoritative handle: %#v", resolved["attachment"])
+	}
+	if args["attachment"] != handle.Ref {
+		t.Fatal("passthrough resolver mutated audit arguments")
+	}
+	if _, ok := resolved["attachment"].(map[string]any); ok {
+		t.Fatal("passthrough unexpectedly expanded bytes")
+	}
+}
+
 func signedBlobRequest(s *Server, caller fileCaller) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/api/apps/files/mcp", nil)
 	query := url.Values{"file_agent": []string{itoa64(caller.agentID)}}

@@ -40,7 +40,7 @@ func (s *Server) handleAgentsLastActive(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ids, args := metricIDs(visible)
-	rows, err := s.store.db.QueryContext(r.Context(), `SELECT agent_id, MAX(time) FROM telemetry WHERE agent_id IN (`+ids+`) AND type IN ('tool.call','tool.result','event.received','thread.done','error') GROUP BY agent_id`, args...)
+	rows, err := s.store.db.QueryContext(r.Context(), `SELECT agent_id, MAX(time) FROM telemetry WHERE agent_id IN (`+ids+`) AND type IN ('llm.start','tool.call','tool.result','event.received','thread.done','error') GROUP BY agent_id`, args...)
 	if err != nil {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
@@ -113,8 +113,11 @@ func (s *Server) handleProjectActivity(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("view") == "runtime" {
 		// The composable activity feed uses the same completed thoughts and
 		// thread events as agent details. Streaming chunks arrive over SSE;
-		// they do not crowd completed records out of the history window.
-		types += ",'llm.done','llm.error','thread.spawn','thread.message','realtime.user','realtime.assistant'"
+		// they do not crowd completed records out of the history window. Keep
+		// llm.start here as well: an event-driven turn can be active between
+		// polls, and without its start record the activity feed appears idle
+		// until the eventual llm.done arrives.
+		types += ",'llm.start','llm.done','llm.error','thread.spawn','thread.message','realtime.user','realtime.assistant'"
 	}
 	args = append(args, limit)
 	rows, err := s.store.db.QueryContext(r.Context(), `SELECT id,agent_id,thread_id,type,time,data FROM telemetry WHERE agent_id IN (`+ids+`) AND type IN (`+types+`)`+condition+` ORDER BY time DESC,id DESC LIMIT ?`, args...)

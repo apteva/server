@@ -247,6 +247,7 @@ func (s *Server) applyBehaviorToLiveWorkers(ctx context.Context, inst *Agent) er
 }
 
 func (s *Server) behaviorMetadata(inst *Agent, out map[string]any) {
+	out["builtin_overrides"] = editableAgentBuiltins(inst.Config)
 	out["mode"] = agentMode(inst.Mode)
 	out["proactivity"] = inst.Proactivity
 	out["controls"] = publicAgentControls(inst)

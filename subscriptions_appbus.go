@@ -21,12 +21,15 @@ package main
 // remains the source app's responsibility.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -326,14 +329,18 @@ func subscriptionPayloadMatches(sub *Subscription, payload json.RawMessage) bool
 		return true
 	}
 	var want map[string]any
-	if err := json.Unmarshal([]byte(sub.MatchJSON), &want); err != nil {
+	wantDecoder := json.NewDecoder(strings.NewReader(sub.MatchJSON))
+	wantDecoder.UseNumber()
+	if err := wantDecoder.Decode(&want); err != nil {
 		return false
 	}
 	if len(want) == 0 {
 		return true
 	}
 	var got map[string]any
-	if err := json.Unmarshal(payload, &got); err != nil {
+	gotDecoder := json.NewDecoder(bytes.NewReader(payload))
+	gotDecoder.UseNumber()
+	if err := gotDecoder.Decode(&got); err != nil {
 		return false
 	}
 	for key, wantValue := range want {
@@ -365,6 +372,9 @@ func jsonScalarEqual(a, b any) bool {
 	switch av := a.(type) {
 	case nil:
 		return b == nil
+	case json.Number:
+		bv, ok := b.(json.Number)
+		return ok && jsonNumbersEqual(av.String(), bv.String())
 	case float64:
 		bv, ok := b.(float64)
 		return ok && av == bv
@@ -376,6 +386,31 @@ func jsonScalarEqual(a, b any) bool {
 		return ok && av == bv
 	}
 	return false
+}
+
+// Compare ordinary decimal/exponent spellings exactly without rounding large
+// identifiers through float64. Bound rational parsing of hostile exponents.
+func jsonNumbersEqual(a, b string) bool {
+	if a == b {
+		return true
+	}
+	for _, value := range []string{a, b} {
+		if len(value) > 128 {
+			return false
+		}
+		if index := strings.IndexAny(value, "eE"); index >= 0 {
+			exponent, err := strconv.ParseInt(value[index+1:], 10, 32)
+			if err != nil || exponent < -1024 || exponent > 1024 {
+				return false
+			}
+		}
+	}
+	x, ok := new(big.Rat).SetString(a)
+	if !ok {
+		return false
+	}
+	y, ok := new(big.Rat).SetString(b)
+	return ok && x.Cmp(y) == 0
 }
 
 // matchTopic — the topic pattern grammar:

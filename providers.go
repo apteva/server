@@ -650,6 +650,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 			ModelLarge:        normalizeStaleModel(providerKey, stringValue(data["model_large"])),
 			ModelMedium:       normalizeStaleModel(providerKey, stringValue(data["model_medium"])),
 			ModelSmall:        normalizeStaleModel(providerKey, stringValue(data["model_small"])),
+			Builtins:          runtimeBuiltins(data),
 			BuiltinTools:      builtinTools,
 			ModelCapabilities: modelCapabilities,
 		}

@@ -85,6 +85,7 @@ type EnvironmentRecord struct {
 }
 
 type Agent struct {
+	Builtins            []AgentBuiltinSummary `json:"builtins,omitempty"`
 	original            *Agent
 	ID                  int64     `json:"id"`
 	UserID              int64     `json:"user_id"`
@@ -208,6 +209,10 @@ func NewStore(path string) (*Store, error) {
 	if err := s.migrateUserNotifications(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if err := s.migrateAsyncSubscriptions(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate async subscriptions: %w", err)
 	}
 	if err := s.migrateSubscriptionOutbox(); err != nil {
 		db.Close()
@@ -704,6 +709,21 @@ func (s *Store) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_presets_catalog
 			ON presets(kind, scope, project_id, user_id, updated_at DESC);
+
+		CREATE TABLE IF NOT EXISTS preset_setup_steps (
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            preset_id TEXT NOT NULL,
+            step_key TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL,
+            result_json TEXT NOT NULL DEFAULT 'null',
+            error TEXT NOT NULL DEFAULT '',
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(project_id, preset_id, step_key)
+        );
+        -- A process restart cannot determine whether a dispatched tool committed.
+        UPDATE preset_setup_steps SET status='uncertain', error='Server restarted during this step; check the app before retrying'
+            WHERE status='running';
 
 		-- agent_templates — pre-canned starter configs surfaced in the
 		-- "build your first agent" wizard. Three sources, sharing one
@@ -1305,6 +1325,9 @@ func (s *Store) migrate() error {
 	// manifest, MCP surface, permissions, or restart behavior.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN manifest_json TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN pending_manifest_json TEXT NOT NULL DEFAULT ''`)
+	// Advanced only when a healthy runtime is activated, not when its bridge
+	// is re-registered. Persists across server restarts and same-version rebuilds.
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN mcp_activation_revision INTEGER NOT NULL DEFAULT 0`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN source TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN repo TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN ref TEXT NOT NULL DEFAULT ''`)

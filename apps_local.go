@@ -723,9 +723,10 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 			return err
 		}
 		manifestJSON, _ := json.Marshal(m)
-		s.store.db.Exec(
+		if _, err := s.store.db.Exec(
 			`UPDATE app_installs SET
 				status='running',
+				mcp_activation_revision=mcp_activation_revision+1,
 				version=?,
 				manifest_json=?,
 				pending_manifest_json='',
@@ -736,7 +737,9 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 				status_message='',
 				error_message=''
 			 WHERE id=?`,
-			m.Version, string(manifestJSON), "static://"+dir, installID)
+			m.Version, string(manifestJSON), "static://"+dir, installID); err != nil {
+			return fmt.Errorf("persist static app activation: %w", err)
+		}
 		s.LoadInstalledApps()
 		s.reconcileAllAppDepBindings()
 		s.RemountStaticApps()
@@ -800,9 +803,10 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	pid := s.localApps.PID(installID)
 	url := localSidecarURL(int64(port))
 	manifestJSON, _ := json.Marshal(m)
-	s.store.db.Exec(
+	if _, err := s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
+			mcp_activation_revision=mcp_activation_revision+1,
 			version=?,
 			manifest_json=?,
 			pending_manifest_json='',
@@ -813,7 +817,9 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		m.Version, string(manifestJSON), pid, binPath, port, url, installID)
+		m.Version, string(manifestJSON), pid, binPath, port, url, installID); err != nil {
+		return fmt.Errorf("persist app activation: %w", err)
+	}
 	s.LoadInstalledApps()
 	s.reconcileAllAppDepBindings()
 	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
@@ -834,17 +840,28 @@ func (s *Server) markInstallRunningOnPreviousVersion(installID int64, cause erro
 	if cause != nil {
 		errMsg = cause.Error()
 	}
-	s.store.db.Exec(
+	// A fixed-port rollback may have restarted the old binary. Treat that as
+	// a new activation too, but leave a still-running old sidecar unchanged.
+	pid := 0
+	if s.localApps != nil {
+		pid = s.localApps.PID(installID)
+	}
+	if _, err := s.store.db.Exec(
 		`UPDATE app_installs
 		    SET status='running',
+		        mcp_activation_revision=mcp_activation_revision + CASE WHEN ? > 0 AND local_pid != ? THEN 1 ELSE 0 END,
+		        local_pid=CASE WHEN ? > 0 THEN ? ELSE local_pid END,
 		        status_message='upgrade failed; previous version still running',
 		        error_message=?,
 		        pending_manifest_json=''
 		  WHERE id=?`,
-		errMsg, installID,
-	)
+		pid, pid, pid, pid, errMsg, installID,
+	); err != nil {
+		log.Printf("[APPS] persist app rollback install=%d: %v", installID, err)
+		return
+	}
 	s.LoadInstalledApps()
-	if err := s.registerAppMCP(installID); err != nil {
+	if err := s.registerAppMCPAfterActivation(installID, appMCPSurfaceSnapshot{}); err != nil {
 		log.Printf("[APPS] register MCP after upgrade rollback install=%d: %v", installID, err)
 	}
 }
@@ -1447,7 +1464,9 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 		return
 	}
 	newPID := s.localApps.PID(id)
-	s.updateLocalInstallRuntime(id, newPID, port)
+	if err := s.updateLocalInstallRuntime(id, newPID, port); err != nil {
+		log.Printf("[APPS-LOCAL] resume runtime install=%d: %v", id, err)
+	}
 }
 
 func portableLocalBinPath(recorded, cacheDir, appName, version string) (string, bool) {
@@ -1580,6 +1599,7 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 	// supervisor doesn't have a tracked pid, so we also kill the DB-
 	// recorded pid as an orphan if the supervisor lost track of it
 	// (server restart between spawn and respawn, etc).
+	oldMCPSurface := s.snapshotAppMCPSurface(installID)
 	_ = s.localApps.Stop(installID)
 	if pid > 0 && processAlive(int(pid)) {
 		killOrphan(int(pid))
@@ -1631,10 +1651,12 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 		return err
 	}
 	newPID := s.localApps.PID(installID)
-	s.updateLocalInstallRuntime(installID, newPID, port)
+	if err := s.updateLocalInstallRuntime(installID, newPID, port); err != nil {
+		return err
+	}
 	s.LoadInstalledApps()
-	if err := s.registerAppMCP(installID); err != nil {
-		log.Printf("[APPS] register MCP after respawn install=%d: %v", installID, err)
+	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
+		return fmt.Errorf("refresh MCP after app respawn: %w", err)
 	}
 	return nil
 }
@@ -1646,10 +1668,11 @@ func localSidecarURL(port int64) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
-func (s *Server) updateLocalInstallRuntime(installID int64, pid int, port int64) {
+func (s *Server) updateLocalInstallRuntime(installID int64, pid int, port int64) error {
 	if _, err := s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
+			mcp_activation_revision=mcp_activation_revision+1,
 			local_pid=?,
 			sidecar_url_override=?,
 			status_message='',
@@ -1657,8 +1680,9 @@ func (s *Server) updateLocalInstallRuntime(installID int64, pid int, port int64)
 		 WHERE id=?`,
 		pid, localSidecarURL(port), installID,
 	); err != nil {
-		log.Printf("[APPS-LOCAL] update runtime install=%d: %v", installID, err)
+		return fmt.Errorf("update runtime install=%d: %w", installID, err)
 	}
+	return nil
 }
 
 // processAlive — best-effort: kill -0 returns nil if the pid exists and

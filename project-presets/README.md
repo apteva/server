@@ -9,7 +9,8 @@ in the server binary; rebuild the server after editing them. Existing
 Use a team where work has distinct ownership or benefits from independent review.
 Lead generation and e-commerce have three roles. Professional services, local
 services, webinars, sales, support, research, video-to-blog, and creator work have
-two. The engineering team retains its four roles. General personal assistance,
+two. The engineering team retains its four roles. The software product team adds
+five roles for product, technical review, development, QA, and release. General personal assistance,
 household planning, wellbeing, executive assistance, software development,
 infrastructure, QA, and data analysis retain one agent.
 
@@ -113,3 +114,142 @@ agents and app/user templates are preserved. Selecting a role creates only that
 agent, using the regular app setup flow, without applying workspace layouts or
 creating teammates. Single-agent instructions resolve workspace placeholders and
 clarify that other roles are only available if they actually exist.
+
+## Optional app setup steps
+
+Presets can include `setup`, an ordered array of calls to existing public app
+MCP tools. For portable presets this lives in `definition.setup`; bundled
+presets use `setup` directly. This is additive to agents, apps, connections, and
+layouts. Existing presets do not acquire any sample content automatically.
+No SDK change or app-specific import endpoint is required. An app must already
+expose a suitable synchronous tool for the resource being created.
+
+Each step has:
+
+- `key`: stable, unique identifier (same rules as agent keys).
+- `app`: target app slug. Included in dependency installation and preview.
+- `tool`: exact, unprefixed public tool name declared in the app manifest.
+- `title`: optional short label shown before applying the preset.
+- `description`: optional explanation of the content being created.
+- `min_app_version`: optional minimum semantic version of the installed app.
+- `requires_operator`: reject delegated app/agent calls when the tool needs an operator.
+- `input`: JSON object conforming to that tool's input schema.
+
+Within inputs, an object containing only `{"$ref":"..."}` resolves a typed value:
+
+- `project.id`: the project receiving this preset.
+- `preset.id` and `step.key`: stable setup identifiers.
+- `step.idempotency_key`: `preset:<preset-id>:<step-key>`; the app must scope it to the project.
+- `agents.<agent-key>`: the actual created or reused agent ID.
+- `steps.<step-key>`: an earlier step's complete result.
+- `steps.<step-key>.<path>`: a result property, with dot-separated object keys
+  or zero-based array indexes. Missing properties fail; no forward references.
+
+References are not string templates: a numeric ID stays numeric. Tool results
+prefer MCP `structuredContent`; otherwise a single JSON text content block is
+parsed. Other content retains the MCP result object. Agent directive template
+expansion remains separate. Root input fields beginning with `_` are reserved
+for trusted server context. Do not embed credentials in a preset.
+
+### Applying and recovery
+
+Apply installs available dependencies, creates/reuses agents, runs setup calls
+in order, then applies layouts. Agent lifecycle follows the existing preset
+behavior; setup steps should provision app records, not start live jobs.
+Calls use the ordinary operator app proxy, with project authorization and a
+trusted app principal. App-only tools and declared asynchronous tools are not
+supported here. This does not bypass connection requirements or external-action
+permissions.
+
+Progress and results are persisted in `preset_setup_steps`, scoped to project,
+preset ID, and step key. Completed steps are skipped on subsequent applies.
+Resolved inputs, tool, app, and installation ID are fingerprinted; changing an
+attempted step blocks automatic replay. Renaming a step or copying the preset
+creates a new execution identity and may create duplicate app data. Reconcile
+existing records first. Capturing a workspace does not export app records or
+invent setup calls. Preset export includes definitions, not execution results.
+
+There is no exactly-once guarantee across app/server failures. A timeout, tool
+error, interrupted response, or server restart during a call leaves an uncertain
+outcome. Apply stops at that step; later steps stay pending. The UI lets the
+operator acknowledge checking the app before retrying that specific step. API
+clients do the same by passing `retry_setup_steps: ["<step-key>"]` to apply.
+Normal apply does not retry uncertain calls. An unchanged completed step never
+runs again, even when explicitly listed for retry. Changed inputs/installations
+cannot be retried through this override.
+
+Preview returns `setup_progress`. Apply returns `setup` progress and
+`status: "needs_attention"` when setup is incomplete; clients must not equate
+HTTP 200 with completed setup. Status values are `pending`, `running`,
+`completed`, `blocked`, and `uncertain`. Results remain internal for references.
+Concurrent applies to a project are rejected. One server process should own a
+database, as with the existing local instance model.
+
+Limits: 50 steps, 64 KiB raw input per step, 64 nesting levels, 256 KiB resolved
+input, 1 MiB tool response, and two minutes per call. Calls are synchronous JSON
+MCP requests; this initial system does not wait for asynchronous app jobs or
+consume SSE tool responses. These constraints make this a small preset setup
+mechanism, not a second runtime workflow system.
+
+## Draft tasks
+
+Customer support provisions its Notes triage/escalation guide and a real
+“Investigate a ticket” draft through Tasks' existing `create` tool. Tasks 3.7.0
+or newer is required. The preset declares `min_app_version` so older installations
+produce an actionable upgrade message before the call.
+
+The draft contains instructions, expected outcome, required ticket reference,
+optional investigation context, and the actual Support Agent ID as
+`suggested_agent_id`. It has no assigned agent, execution thread, or schedule.
+Tasks owns configuration, input validation, agent selection, and starting work.
+The preset's existing Tasks overview widget displays these records.
+
+The setup call requires an authenticated operator. The server signs a
+`preset_operator` subject via the ordinary app proxy after project authorization;
+it does not impersonate an agent. Delegated app users and agents cannot acquire
+this identity through preset input or caller headers.
+
+`idempotency_key: {"$ref":"step.idempotency_key"}` resolves to a stable preset/step
+key. Tasks scopes that key to the project and returns the existing record on
+retry, preserving user edits and its current state. The server also retains its
+normal setup progress and explicit uncertain-call retry behavior.
+
+The preset preview lists this app content after agents and apps. There is no
+separate server assignment store, launch endpoint, or Helper draft card. Existing
+saved starter widgets resolve to the Tasks overview (or disappear if that widget
+is already present). Existing database snapshots are retained but no longer read.
+Reapply Customer support to an existing workspace to provision its actual draft;
+startup does not create tasks automatically.
+
+## Software product team
+
+`development-product-team` adds a separate five-agent preset without changing
+Engineering team. Its normal `setup` calls create a real **Release to production**
+draft in Processes, then a paused, unscheduled assignment pinned to that version.
+Portable references bind the five created agents and a human approval role.
+Nine connected steps cover scope, candidate preparation, review, staging, QA,
+human approval, production promotion, verification, and reporting.
+
+Processes must support the signed `preset_operator` caller for `create` and
+`assignment_create` (minimum version 0.16.2). The compatibility patch is prepared
+separately from the preset; that app version must be released/installed before
+provisioning succeeds. Older apps produce the existing upgrade-required message.
+Only draft creation and paused unscheduled assignment creation are delegated;
+activation, edits, schedules, and execution are not authorized by preset setup.
+
+Required assignment parameters intentionally have no fabricated defaults.
+The operator supplies repository/candidate, acceptance criteria, distinct staging
+and production targets and databases, and recovery references, then explicitly
+activates the procedure and assignment before starting a run. Database manages
+local named SQLite/Pebble databases; the preset does not create infrastructure,
+databases, credentials, or new permission boundaries.
+
+Processes owns procedure runs, workers, handoffs, and evidence. Tasks remains for
+ad hoc work. Home includes the existing Processes overview widget; the saved draft
+and paused assignment are managed in the Processes app. There is no custom server
+workflow engine or special Conversations implementation.
+
+Processes creation tools do not currently offer an idempotency argument. The
+server's durable completed-step receipts prevent ordinary reapply from creating
+duplicates; uncertain outcomes still require inspecting Processes before an
+explicit retry, as described above.

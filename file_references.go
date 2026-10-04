@@ -143,9 +143,10 @@ func (s *Server) handleCallbackFileReferences(w http.ResponseWriter, r *http.Req
 	}
 	var body struct {
 		sdk.RegisterFileReferenceRequest
-		Ref      string `json:"ref"`
-		AgentID  int64  `json:"agent_id"`
-		ThreadID string `json:"thread_id"`
+		Ref      string                  `json:"ref"`
+		AgentID  int64                   `json:"agent_id"`
+		ThreadID string                  `json:"thread_id"`
+		Scope    *sdk.FileReferenceScope `json:"scope"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 	if decoder.Decode(&body) != nil || decoder.Decode(new(any)) != io.EOF {
@@ -228,6 +229,36 @@ func (s *Server) handleCallbackFileReferences(w http.ResponseWriter, r *http.Req
 	switch parts[0] {
 	case "get":
 		writeJSON(w, f.FileReference)
+		return
+	case "read":
+		if body.Scope == nil || body.Scope.AgentID <= 0 || body.Scope.ThreadID == "" {
+			writeFileProblem(w, fileProblem(400, "file_context_required", "agent and thread scope required"))
+			return
+		}
+		caller, ok := s.callbackFileCaller(w, r, installID, body.Scope)
+		if !ok {
+			return
+		}
+		if err = s.authorizeFileRead(f, caller); err != nil {
+			writeFileProblem(w, err)
+			return
+		}
+		var raw []byte
+		if f.serverBlob {
+			err = s.store.db.QueryRowContext(r.Context(), `SELECT data FROM server_blobs WHERE id=?`, f.id).Scan(&raw)
+		} else {
+			var resolved map[string]any
+			resolved, err = s.readReferencedFile(r.Context(), f, caller)
+			if err == nil {
+				encoded, _ := resolved["base64"].(string)
+				raw, err = base64.StdEncoding.DecodeString(encoded)
+			}
+		}
+		if err != nil {
+			writeFileProblem(w, err)
+			return
+		}
+		writeJSON(w, sdk.FileReferenceReadResponse{FileReference: f.FileReference, Data: raw})
 		return
 	case "revoke":
 		if f.serverBlob {
@@ -546,7 +577,8 @@ func (s *Server) resolveFileArguments(ctx context.Context, args map[string]any, 
 			return nil, fileProblem(400, "invalid_file_argument", "file argument nesting exceeds limit")
 		}
 		if ref := referenceValue(value); ref != "" {
-			if shape[sdk.FileReferenceSchemaKey] != true {
+			passthrough := shape[sdk.FileReferencePassthroughSchemaKey] == true
+			if shape[sdk.FileReferenceSchemaKey] != true && !passthrough {
 				return nil, fileProblem(400, "unsupported_file_argument", "this tool argument does not declare file support")
 			}
 			count++
@@ -563,6 +595,13 @@ func (s *Server) resolveFileArguments(ctx context.Context, args map[string]any, 
 			total += f.Size
 			if total > sdk.MaxFileReferenceBytes {
 				return nil, fileProblem(413, "file_too_large", "combined attachments exceed 25 MiB")
+			}
+			if passthrough {
+				// Authorize and canonicalize metadata, but leave the bytes in the
+				// platform-owned store for the destination app to retain as a
+				// reference. This is used by presentation-oriented tools such as
+				// Conversations message attachments.
+				return f.FileReference.Handle(), nil
 			}
 			// Budget covers raw bytes, base64, and encoded proxy copies. No durable
 			// bytes are stored here, and concurrent calls cannot exhaust host RAM.

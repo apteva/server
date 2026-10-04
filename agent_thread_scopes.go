@@ -77,6 +77,14 @@ func (s *Store) DeleteAgentThreadScope(agentID int64, threadID string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if _, err = tx.Exec(`INSERT INTO async_thread_epochs(agent_id,thread_id,epoch) VALUES(?,?,1)
+ ON CONFLICT(agent_id,thread_id) DO UPDATE SET epoch=epoch+1`, agentID, strings.TrimSpace(threadID)); err != nil {
+		return err
+	}
+	// The outbox foreign key removes queued retries in the same transaction.
+	if _, err = tx.Exec(`DELETE FROM subscriptions WHERE kind='ephemeral' AND agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID)); err != nil {
+		return err
+	}
 	// Core-created threads may have grants without an app-owned scope row.
 	// Reusing an opaque thread ID must never resurrect those grants.
 	for _, table := range []string{"app_file_grants", "server_blob_grants", "agent_thread_scopes"} {

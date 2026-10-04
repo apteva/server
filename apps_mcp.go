@@ -20,8 +20,8 @@ package main
 // Lifecycle:
 //   - installFromSource / installLocally / seedBuiltinInstalls →
 //     registerAppMCP
-//   - handleUpgradeApp → registerAppMCP (re-register; URL stable but
-//     allowed_tools may have grown across versions)
+//   - successful runtime activation → registerAppMCPAfterActivation
+//     (revision changes force bound Core connections to reload their catalogs)
 //   - handleUninstallApp → unregisterAppMCP
 //   - server boot → backfillAppMCPs (one-time fixup for installs
 //     created before this bridge existed, plus a safety net for
@@ -80,11 +80,10 @@ func (s *Server) registerAppMCP(installID int64) error {
 }
 
 // registerAppMCPWithSurface writes the agent-facing bridge together with a
-// deterministic capability revision. The revision deliberately excludes the
-// app version: implementation-only upgrades keep the same URL and every live
-// Core continues through the stable proxy without reconnecting. A changed
-// tools/list contract changes the URL, which lets the server use Core's
-// existing atomic MCP reconciliation path without restarting the agent.
+// deterministic capability revision and a persisted activation revision.
+// A tool-contract change OR healthy runtime replacement changes the URL, so
+// Core's atomic reconciliation reloads the connection and its catalog. Ordinary
+// bridge registration preserves the URL, including after a server restart.
 func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfaceSnapshot) error {
 	// Pull everything we need in one query: app row's name, the
 	// install's project, the user who owns it, and the cached
@@ -93,13 +92,15 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 	var (
 		appName, projectID, manifestJSON string
 		installedBy                      int64
+		activationRevision               int64
 	)
 	err := s.store.db.QueryRow(
 		`SELECT a.name, COALESCE(i.project_id, ''), i.installed_by,
-		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
+		        i.mcp_activation_revision
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&appName, &projectID, &installedBy, &manifestJSON)
+	).Scan(&appName, &projectID, &installedBy, &manifestJSON, &activationRevision)
 	if err != nil {
 		return fmt.Errorf("install %d not found: %w", installID, err)
 	}
@@ -136,6 +137,9 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 	capabilityRevision := appMCPCapabilityRevision(surface, tools)
 	mcpURL := fmt.Sprintf("http://127.0.0.1:%s/api/apps/%s/mcp?api_key=%s&install_id=%d&cap_rev=%s",
 		localServerPort(), appName, appToken, installID, capabilityRevision)
+	if activationRevision > 0 {
+		mcpURL += fmt.Sprintf("&activation_rev=%d", activationRevision)
+	}
 
 	// user_id must be a real user. installed_by is 0 for built-ins
 	// + global installs the platform seeded; fall back to user 1
@@ -335,14 +339,18 @@ func (s *Server) storedAppMCPCapabilityRevision(installID int64) (string, bool) 
 	if err != nil {
 		return "", true
 	}
-	return strings.TrimSpace(parsed.Query().Get("cap_rev")), true
+	revision := strings.TrimSpace(parsed.Query().Get("cap_rev"))
+	if activation := strings.TrimSpace(parsed.Query().Get("activation_rev")); activation != "" {
+		revision += ":" + activation
+	}
+	return revision, true
 }
 
 // registerAppMCPAfterActivation refreshes the bridge only after the new
 // sidecar has passed health checks and become the active registry entry. A
-// changed live tool contract invalidates Core's tools/list cache, so reconcile
-// only enabled, bound agents that are currently running. A process restart is
-// reserved for the failure fallback.
+// changed live tool contract or activation revision invalidates Core's
+// tools/list cache, so reconcile only enabled, bound agents that are currently
+// running. A process restart is reserved for the failure fallback.
 func (s *Server) registerAppMCPAfterActivation(installID int64, before appMCPSurfaceSnapshot) error {
 	previousRevision, hadBridge := s.storedAppMCPCapabilityRevision(installID)
 	after := s.snapshotAppMCPSurface(installID)
@@ -351,8 +359,8 @@ func (s *Server) registerAppMCPAfterActivation(installID int64, before appMCPSur
 	}
 	currentRevision, hasBridge := s.storedAppMCPCapabilityRevision(installID)
 	// The live before/after comparison is preferred. The stored content
-	// revision closes the old gap where either snapshot was unavailable and
-	// also upgrades pre-revision bridge rows exactly once.
+	// revision also detects runtime replacements with identical tools and
+	// upgrades pre-revision bridge rows exactly once.
 	changed := appMCPCapabilityChanged(
 		before, after, previousRevision, currentRevision, hadBridge, hasBridge,
 	)

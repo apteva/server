@@ -153,6 +153,29 @@ func (s *Server) handleConnectionRuntimeConfig(w http.ResponseWriter, r *http.Re
 				return
 			}
 		}
+		if value, exists := patch["builtins"]; exists {
+			entries := map[string]*ProviderBuiltin{}
+			for name, cfg := range runtimeBuiltins(current) {
+				copy := cfg
+				entries[name] = &copy
+			}
+			if value == nil {
+				entries = map[string]*ProviderBuiltin{}
+			} else if err := mergeBuiltinPatch(entries, value); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			next := ProviderBuiltins{}
+			for name, cfg := range entries {
+				next[name] = *cfg
+			}
+			validated, err := s.validateProviderBuiltins(r.Context(), app.Runtime.ProviderKey, next)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			patch["builtins"] = validated
+		}
 		for key, value := range patch {
 			// A null clears the key, which is how the dashboard says
 			// "back to the provider default" without inventing a
@@ -171,6 +194,15 @@ func (s *Server) handleConnectionRuntimeConfig(w http.ResponseWriter, r *http.Re
 		if err := s.store.UpdateConnectionRuntimeConfig(connID, string(encoded)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if _, changed := patch["builtins"]; changed {
+			failures := s.reconcileBuiltinDefaults(r.Context(), userID, conn.ProjectID, app.Runtime.ProviderKey)
+			current["builtin_sync"] = map[string]any{"pending": len(failures) > 0, "errors": failures}
+			encoded, _ := json.Marshal(current)
+			if err := s.store.UpdateConnectionRuntimeConfig(connID, string(encoded)); err != nil {
+				http.Error(w, "Defaults saved; could not save application status", http.StatusInternalServerError)
+				return
+			}
 		}
 		writeJSON(w, current)
 	default:
@@ -439,21 +471,23 @@ func connectionIDFromPath(path, suffix string) (int64, bool) {
 // the Models settings tab: enough to render the row, choose a primary,
 // and pick models — without ever shipping a credential.
 type runtimeConnectionSummary struct {
-	ServiceTiers []string                `json:"service_tiers,omitempty"`
-	ID           int64                   `json:"id"`
-	Name         string                  `json:"name"`
-	AppSlug      string                  `json:"app_slug"`
-	AppName      string                  `json:"app_name"`
-	AuthType     string                  `json:"auth_type"`
-	ProviderKey  string                  `json:"provider_key"`
-	Role         string                  `json:"role"`
-	ProjectID    string                  `json:"project_id"`
-	Scope        string                  `json:"scope"`
-	IsPrimary    bool                    `json:"is_primary"`
-	Capabilities []string                `json:"capabilities,omitempty"`
-	RuntimeConf  map[string]any          `json:"runtime_config"`
-	Realtime     *RuntimeRealtimeCatalog `json:"realtime,omitempty"`
-	EnvVars      []string                `json:"env_vars,omitempty"`
+	BuiltinCapabilities []BuiltinDescriptor     `json:"builtin_capabilities,omitempty"`
+	BuiltinUnavailable  string                  `json:"builtin_unavailable,omitempty"`
+	ServiceTiers        []string                `json:"service_tiers,omitempty"`
+	ID                  int64                   `json:"id"`
+	Name                string                  `json:"name"`
+	AppSlug             string                  `json:"app_slug"`
+	AppName             string                  `json:"app_name"`
+	AuthType            string                  `json:"auth_type"`
+	ProviderKey         string                  `json:"provider_key"`
+	Role                string                  `json:"role"`
+	ProjectID           string                  `json:"project_id"`
+	Scope               string                  `json:"scope"`
+	IsPrimary           bool                    `json:"is_primary"`
+	Capabilities        []string                `json:"capabilities,omitempty"`
+	RuntimeConf         map[string]any          `json:"runtime_config"`
+	Realtime            *RuntimeRealtimeCatalog `json:"realtime,omitempty"`
+	EnvVars             []string                `json:"env_vars,omitempty"`
 }
 
 // handleListRuntimeConnections — GET /api/connections/runtime[?project_id=]
@@ -513,7 +547,9 @@ func (s *Server) handleListRuntimeConnections(w http.ResponseWriter, r *http.Req
 		if conn.ProjectID != "" {
 			scope = "project"
 		}
+		descriptors, unavailable := s.builtinDescriptors(app.Runtime.ProviderKey)
 		out = append(out, runtimeConnectionSummary{
+			BuiltinCapabilities: descriptors, BuiltinUnavailable: unavailable,
 			ID: conn.ID, Name: conn.Name,
 			AppSlug: conn.AppSlug, AppName: app.Name, AuthType: conn.AuthType,
 			ProviderKey: app.Runtime.ProviderKey, Role: app.Runtime.Role,

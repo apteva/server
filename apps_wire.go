@@ -1001,6 +1001,15 @@ func (r *serverResolver) RenewRealtimeAudioBridge(inst framework.InstanceInfo, t
 // (the caller's intent, "no live thread by this name", is satisfied
 // either way).
 func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string) error {
+	unlock := lockAsyncThreadDelivery(inst.ID, strings.TrimSpace(threadID))
+	defer unlock()
+	if err := r.killThreadRuntime(inst, threadID); err != nil {
+		return err
+	}
+	return r.srv.store.DeleteAgentThreadScope(inst.ID, threadID)
+}
+
+func (r *serverResolver) killThreadRuntime(inst framework.InstanceInfo, threadID string) error {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" || threadID == "main" {
 		return fmt.Errorf("cannot kill main or empty thread")

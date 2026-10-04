@@ -2146,7 +2146,8 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		requiredPermissionsJSON, _ := json.Marshal(available.Requires.Permissions)
 		oldMCPSurface := s.snapshotAppMCPSurface(installID)
 		if _, err := s.store.db.Exec(
-			`UPDATE app_installs SET version = ?, manifest_json = ?, permissions_json = ? WHERE id = ?`,
+			`UPDATE app_installs SET version = ?, manifest_json = ?, permissions_json = ?,
+			 mcp_activation_revision=mcp_activation_revision+1 WHERE id = ?`,
 			available.Version, availableManifestJSON, string(requiredPermissionsJSON), installID,
 		); err != nil {
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
@@ -2227,7 +2228,7 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Capture the currently active sidecar's agent-visible tools/list before
 	// replacing it. installFromSource swaps the sidecar asynchronously; the
 	// post-activation comparison must retain this pre-upgrade snapshot so
-	// bound running agents restart when a source app changes its MCP surface.
+	// bound running agents refresh after the healthy replacement is activated.
 	oldMCPSurface := s.snapshotAppMCPSurface(installID)
 
 	// Persist the new manifest immediately so the next list call
@@ -2274,7 +2275,8 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		// portable-only skills immediately after an Agent Plugin upgrade.
 		// installFromSource has now activated the healthy replacement.
 		// Refresh the bridge and compare the new live tools/list with the
-		// pre-upgrade snapshot; only agents bound to a changed surface restart.
+		// pre-upgrade snapshot. The activation revision also refreshes identical
+		// surfaces; repeated registration of this activation is idempotent.
 		if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
 			log.Printf("[APPS] register MCP after source upgrade install=%d: %v", installID, err)
 		}

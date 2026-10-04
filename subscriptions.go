@@ -17,6 +17,9 @@ import (
 )
 
 type Subscription struct {
+	SourceInstallID   int64    `json:"source_install_id,omitempty"`
+	AsyncMode         string   `json:"async_mode,omitempty"`
+	TerminalEvents    []string `json:"terminal_events,omitempty"`
 	ID                string   `json:"id"`
 	UserID            int64    `json:"user_id"`
 	AgentID           int64    `json:"instance_id"`
@@ -62,19 +65,27 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 }
 
 func (s *Store) listAppEventSubscriptions(app, project string) ([]*Subscription, error) {
+	return listAppEventSubscriptions(s.db, app, project)
+}
+
+type subscriptionQueryer interface {
+	Query(string, ...any) (*sql.Rows, error)
+}
+
+func listAppEventSubscriptions(db subscriptionQueryer, app, project string) ([]*Subscription, error) {
 	filter := ""
 	var args []any
 	if app != "" {
 		filter = " AND slug>=? AND slug<? AND (project_id='' OR project_id=?)"
 		args = []any{app + ":", app + ";", project}
 	}
-	rows, err := s.db.Query(
+	rows, err := db.Query(
 		`SELECT id, user_id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 			COALESCE(project_id,''), COALESCE(source,'webhook'),
 			COALESCE(last_seq_delivered,0),
 			COALESCE(kind,'user'), COALESCE(match_json,''), COALESCE(wait_group_id,''),
-			COALESCE(expires_at,''), COALESCE(delete_on_match,0)
+			COALESCE(expires_at,''), COALESCE(delete_on_match,0), source_install_id, async_mode, terminal_events
 		 FROM subscriptions
 		 WHERE source = 'app_event'
 		   AND enabled = 1
@@ -88,16 +99,17 @@ func (s *Store) listAppEventSubscriptions(app, project string) ([]*Subscription,
 	for rows.Next() {
 		sub := &Subscription{}
 		var enabled, notifyAgent, deleteOnMatch int
-		var eventsJSON string
+		var eventsJSON, terminalJSON string
 		if err := rows.Scan(
 			&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID,
 			&sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath,
 			&enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
 			&sub.Source, &sub.LastSeqDelivered, &sub.Kind, &sub.MatchJSON,
-			&sub.WaitGroupID, &sub.ExpiresAt, &deleteOnMatch,
+			&sub.WaitGroupID, &sub.ExpiresAt, &deleteOnMatch, &sub.SourceInstallID, &sub.AsyncMode, &terminalJSON,
 		); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(terminalJSON), &sub.TerminalEvents)
 		sub.Enabled = enabled != 0
 		sub.NotifyAgent = notifyAgent != 0
 		sub.DeleteOnMatch = deleteOnMatch != 0
@@ -336,46 +348,12 @@ func hydrateSubscriptionFilters(sub *Subscription) {
 	}
 }
 
-// CreateEphemeralAppEventSubscription creates a hidden, one-shot
+// CreateEphemeralAppEventSubscription creates a hidden, expiring
 // app-event subscription. It is used for async app tool results where
 // the platform should wake the calling agent/thread when a matching
 // app event arrives.
-func (s *Store) CreateEphemeralAppEventSubscription(userID, agentID int64, name, slug, description, threadID, projectID string, events []string, matchJSON, waitGroupID string, expiresAt time.Time) (*Subscription, error) {
-	id := generateID()
-	webhookPath := internalSubscriptionWebhookPath("app-event")
-	expires := ""
-	if !expiresAt.IsZero() {
-		expires = expiresAt.UTC().Format("2006-01-02 15:04:05")
-	}
-	events = compactSubscriptionEvents(events)
-	eventsJSON := ""
-	if len(events) > 0 {
-		if b, merr := json.Marshal(events); merr == nil {
-			eventsJSON = string(b)
-		}
-	}
-	_, err := s.db.Exec(
-		`INSERT INTO subscriptions
-				(id, user_id, agent_id, connection_id, name, slug, description,
-				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
-				 source, delivery, notify_agent, kind, match_json, wait_group_id,
-				 expires_at, delete_on_match)
-			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', 'app_event',
-				 1, 'ephemeral', ?, ?, ?, 1)`,
-		id, userID, agentID, name, slug, description, webhookPath,
-		threadID, projectID, eventsJSON, matchJSON, waitGroupID, expires,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &Subscription{
-		ID: id, UserID: userID, AgentID: agentID, Name: name, Slug: slug,
-		Description: description, WebhookPath: webhookPath, Enabled: true,
-		NotifyAgent: true, ThreadID: threadID, ProjectID: projectID,
-		Events: events, Source: "app_event", Delivery: "app_event", Kind: "ephemeral",
-		MatchJSON: matchJSON, WaitGroupID: waitGroupID, ExpiresAt: expires,
-		DeleteOnMatch: true, CreatedAt: time.Now(),
-	}, nil
+func (s *Store) CreateEphemeralAppEventSubscription(userID, agentID int64, name, slug, description, threadID, projectID string, events []string, matchJSON, waitGroupID string, expiresAt time.Time, options ...asyncSubscriptionOptions) (*Subscription, error) {
+	return s.createAsyncSubscription(userID, agentID, name, slug, description, threadID, projectID, events, matchJSON, waitGroupID, expiresAt, options...)
 }
 
 func (s *Store) DeleteEphemeralSubscriptionWaitGroup(waitGroupID string) error {
@@ -495,8 +473,8 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 
 func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) {
 	var sub Subscription
-	var enabled, notifyAgent int
-	var createdAt, eventsJSON string
+	var enabled, notifyAgent, deleteOnMatch int
+	var createdAt, eventsJSON, terminalJSON string
 	err := s.db.QueryRow(
 		`SELECT id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
@@ -504,7 +482,7 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 			COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
 			COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
 			COALESCE(failure_count,0), COALESCE(last_seq_delivered,0),
-			COALESCE(match_json,''), created_at
+			COALESCE(match_json,''), created_at, kind, COALESCE(expires_at,''), delete_on_match, wait_group_id, source_install_id, async_mode, terminal_events
 		 FROM subscriptions WHERE id = ? AND user_id = ?`,
 		id, userID,
 	).Scan(
@@ -513,11 +491,13 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 		&notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
 		&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
 		&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
-		&sub.LastSeqDelivered, &sub.MatchJSON, &createdAt,
+		&sub.LastSeqDelivered, &sub.MatchJSON, &createdAt, &sub.Kind, &sub.ExpiresAt, &deleteOnMatch, &sub.WaitGroupID, &sub.SourceInstallID, &sub.AsyncMode, &terminalJSON,
 	)
 	if err != nil {
 		return nil, err
 	}
+	sub.DeleteOnMatch = deleteOnMatch != 0
+	_ = json.Unmarshal([]byte(terminalJSON), &sub.TerminalEvents)
 	sub.UserID = userID
 	sub.Enabled = enabled == 1
 	sub.NotifyAgent = notifyAgent == 1

@@ -49,6 +49,7 @@ type ProjectPresetConnection struct {
 }
 
 type ProjectPreset struct {
+	Setup           []ProjectPresetSetupStep  `json:"setup,omitempty"`
 	Layouts         *ProjectPresetLayouts     `json:"layouts,omitempty"`
 	Connections     []ProjectPresetConnection `json:"connections,omitempty"`
 	InterfaceLevel  string                    `json:"interface_level,omitempty"`
@@ -211,6 +212,9 @@ func validateProjectPreset(preset ProjectPreset) error {
 			seenApps[app] = true
 		}
 	}
+	if err := validatePresetSetup(preset); err != nil {
+		return err
+	}
 	return validatePresetLayouts(preset)
 }
 
@@ -273,6 +277,7 @@ type ProjectPresetAgentPreview struct {
 }
 
 type ProjectPresetPreview struct {
+	SetupProgress  []ProjectPresetSetupProgress         `json:"setup_progress,omitempty"`
 	AgentLayouts   map[string][]dashboardWidgetInstance `json:"agent_layouts,omitempty"`
 	InterfaceLevel string                               `json:"interface_level,omitempty"`
 	Preset         ProjectPreset                        `json:"preset"`
@@ -372,6 +377,16 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 		agents = append(agents, agent)
 	}
 
+	if s.installedApps != nil {
+		for _, step := range preset.Setup {
+			if app := s.installedApps.Get(visibleApps[step.App].InstallID); app != nil {
+				if err := presetSetupVersionRequirement(step, app.Manifest.Version); err != nil {
+					warnings = append(warnings, err.Error())
+				}
+			}
+		}
+	}
+
 	if err := applySetupAgentOverrides(agents, request.AgentOverrides); err != nil {
 		return nil, err
 	}
@@ -386,8 +401,13 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 	warnings = append(warnings, layoutWarnings...)
 	agentLayouts, agentWarnings := s.compilePresetAgentLayouts(projectID, preset)
 	warnings = append(warnings, agentWarnings...)
+	setupProgress, err := s.presetSetupProgress(projectID, preset)
+	if err != nil {
+		return nil, fmt.Errorf("load preset setup progress: %w", err)
+	}
 	return &ProjectPresetPreview{
-		Preset: preset, Planner: planner, Confidence: confidence, InterfaceLevel: level,
+		SetupProgress: setupProgress,
+		Preset:        preset, Planner: planner, Confidence: confidence, InterfaceLevel: level,
 		Project: map[string]string{"name": project.Name, "description": description, "color": project.Color},
 		Apps:    appPreviews, Agents: agents, Layout: layout, AgentLayouts: agentLayouts, Warnings: warnings,
 		NextSteps: []string{"Review app access before enabling external actions.", "Preset Home widgets are added automatically and remain editable.", "Create durable tasks only when real work is requested."},
@@ -493,6 +513,12 @@ func projectPresetApps(preset ProjectPreset) []string {
 		if !seen[setup.App] {
 			seen[setup.App] = true
 			apps = append(apps, setup.App)
+		}
+	}
+	for _, step := range preset.Setup {
+		if !seen[step.App] {
+			seen[step.App] = true
+			apps = append(apps, step.App)
 		}
 	}
 	return apps
@@ -783,10 +809,11 @@ func availablePresetWidgetID(preferred, component string, used map[string]bool) 
 }
 
 type ProjectPresetApplyRequest struct {
-	InterfaceLevel string                       `json:"interface_level,omitempty"`
-	AgentOverrides []ProjectPresetAgentOverride `json:"agent_overrides,omitempty"`
-	PresetID       string                       `json:"preset_id"`
-	Description    string                       `json:"description"`
+	RetrySetupSteps []string                     `json:"retry_setup_steps,omitempty"`
+	InterfaceLevel  string                       `json:"interface_level,omitempty"`
+	AgentOverrides  []ProjectPresetAgentOverride `json:"agent_overrides,omitempty"`
+	PresetID        string                       `json:"preset_id"`
+	Description     string                       `json:"description"`
 }
 
 func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request, projectID string) {
@@ -804,12 +831,39 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Serialize applies before creating agents or dispatching any app tools.
+	lock := presetApplyLock(projectID)
+	if !lock.TryLock() {
+		http.Error(w, "A preset is already being applied to this project", http.StatusConflict)
+		return
+	}
+	defer lock.Unlock()
+
 	// Validate the complete request before any installation side effects.
-	if _, err := s.compileProjectPresetPreview(r.Context(), getUserID(r), projectID, ProjectPresetPreviewRequest{
+	initialPreview, err := s.compileProjectPresetPreview(r.Context(), getUserID(r), projectID, ProjectPresetPreviewRequest{
 		PresetID: body.PresetID, Description: body.Description, AgentOverrides: body.AgentOverrides, InterfaceLevel: body.InterfaceLevel,
-	}); err != nil {
+	})
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	retryableKeys := map[string]bool{}
+	for _, step := range initialPreview.Preset.Setup {
+		retryableKeys[step.Key] = true
+	}
+	for _, key := range body.RetrySetupSteps {
+		if !retryableKeys[key] {
+			http.Error(w, "Unknown or duplicate retry_setup_steps key: "+key, http.StatusBadRequest)
+			return
+		}
+		delete(retryableKeys, key)
+	}
+
+	for _, step := range initialPreview.Preset.Setup {
+		if step.RequiresOperator && !isPresetOperator(r) {
+			http.Error(w, "This preset requires a signed-in operator or operator API key to create app content", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Auto-install the preset's missing apps before compiling the
@@ -915,6 +969,12 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		created = append(created, result)
 		agentIDs[agent.Key] = result.ID
 	}
+	setupProgress, setupErr := s.applyPresetSetup(r, projectID, preview.Preset, agentIDs, body.RetrySetupSteps)
+	applyStatus := "applied"
+	if setupErr != nil {
+		applyStatus = "needs_attention"
+		warnings = append(warnings, setupErr.Error())
+	}
 	warnings = append(warnings, s.applyPresetLayouts(getUserID(r), projectID, preview, agentIDs)...)
 	if len(created)+len(existing) > 0 {
 		if err := s.rememberOnboardingPreset(getUserID(r), projectID, preview); err != nil {
@@ -936,7 +996,7 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		warnings = append(warnings, "Could not update the live workspace plan: "+err.Error())
 	}
 	writeJSON(w, map[string]any{
-		"status": "applied", "project_id": projectID, "preset_id": body.PresetID, "interface_level": preview.InterfaceLevel,
+		"status": applyStatus, "setup": setupProgress, "project_id": projectID, "preset_id": body.PresetID, "interface_level": preview.InterfaceLevel,
 		"created_agents": created, "existing_agents": existing, "warnings": warnings,
 	})
 }

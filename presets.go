@@ -17,6 +17,7 @@ const projectSetupPresetKind = "project_setup"
 // Dashboard keeps the compact component list used by bundled schema-v1 files;
 // DashboardLayout is the lossless representation used by captured presets.
 type ProjectSetupPresetDefinition struct {
+	Setup           []ProjectPresetSetupStep  `json:"setup,omitempty"`
 	Layouts         *ProjectPresetLayouts     `json:"layouts,omitempty"`
 	Connections     []ProjectPresetConnection `json:"connections,omitempty"`
 	InterfaceLevel  string                    `json:"interface_level,omitempty"`
@@ -179,7 +180,7 @@ func systemPresetEnvelope(preset ProjectPreset) Preset {
 		ID: preset.ID, Kind: projectSetupPresetKind, Scope: "system", Source: "system",
 		SchemaVersion: 1, Name: preset.Name, Description: preset.Description,
 		Definition: ProjectSetupPresetDefinition{
-			Layouts: preset.Layouts, Connections: preset.Connections, DashboardLayout: preset.DashboardLayout, InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
+			Setup: preset.Setup, Layouts: preset.Layouts, Connections: preset.Connections, DashboardLayout: preset.DashboardLayout, InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
 		},
 	}
 }
@@ -190,7 +191,7 @@ func projectPresetFromEnvelope(preset Preset) ProjectPreset {
 		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID, OwnerProjectID: preset.OwnerProjectID, Revision: preset.Revision,
 		InterfaceLevel: preset.Definition.InterfaceLevel, Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
 		Match: preset.Definition.Match, Highlights: preset.Definition.Highlights, Agents: preset.Definition.Agents,
-		Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout, Layouts: preset.Definition.Layouts, Connections: preset.Definition.Connections,
+		Setup: preset.Definition.Setup, Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout, Layouts: preset.Definition.Layouts, Connections: preset.Definition.Connections,
 	}
 }
 

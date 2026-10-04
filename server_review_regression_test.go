@@ -393,8 +393,17 @@ func TestAuditEventFailureSkippedByCursor(t *testing.T) {
 	first := AppEvent{Seq: 1, App: "audit", Topic: "changed", Data: []byte(`{}`)}
 	d.dispatch(lane, first)
 	d.dispatch(lane, AppEvent{Seq: 2, App: "audit", Topic: "changed", Data: []byte(`{}`)})
-	// A later replay of the failed event should still attempt delivery.
+	// Neither a later event nor an immediate replay may overtake retry backoff.
 	d.dispatch(lane, first)
+	if calls.Load() != 1 {
+		t.Fatalf("failed delivery did not preserve retry ordering: calls=%d", calls.Load())
+	}
+	// Simulate backoff expiry, then replay both events in order.
+	if _, err := s.store.db.Exec("UPDATE app_subscription_outbox SET next_attempt=0 WHERE subscription_id=? AND status='pending'", sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	d.dispatch(lane, first)
+	d.dispatch(lane, AppEvent{Seq: 2, App: "audit", Topic: "changed", Data: []byte(`{}`)})
 	if calls.Load() != 3 {
 		t.Fatalf("failed event became permanently skipped: calls=%d cursor=%d", calls.Load(), sub.LastSeqDelivered)
 	}

@@ -498,6 +498,7 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 			ModelLarge:          normalizeStaleModel(providerKey, stringValue(state["model_large"])),
 			ModelMedium:         normalizeStaleModel(providerKey, stringValue(state["model_medium"])),
 			ModelSmall:          normalizeStaleModel(providerKey, stringValue(state["model_small"])),
+			Builtins:            runtimeBuiltins(state),
 			BuiltinTools:        runtimeBuiltinTools(state),
 			ModelCapabilities:   runtimeModelCapabilities(state),
 			ModelPolicy:         app.Runtime.ModelPolicy,

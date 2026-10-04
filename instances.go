@@ -472,6 +472,7 @@ type ProviderInfo struct {
 	ModelSmall          string
 	RealtimeVoice       string
 	Realtime            *RuntimeRealtimeCatalog
+	Builtins            ProviderBuiltins
 	BuiltinTools        []string
 	ModelCapabilities   map[string]ProviderModelCapabilities
 }
@@ -609,6 +610,14 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 			return err
 		}
 		provArray := buildAgentCoreProviderConfigs(providerPool, inst.Config, defaultProvider)
+		for _, provider := range provArray {
+			if builtins := runtimeBuiltins(provider); len(builtins) > 0 {
+				name, _ := provider["name"].(string)
+				if _, err := (&Server{agents: im}).validateProviderBuiltins(context.Background(), name, builtins); err != nil {
+					return err
+				}
+			}
+		}
 		if selected == "" {
 			for _, info := range providerPool {
 				if info.ModelPolicy != nil {
@@ -1004,6 +1013,9 @@ func buildCoreProviderConfigs(pool []ProviderInfo, configuredDefault string) []m
 		if len(provider.ModelCapabilities) > 0 {
 			entry["model_capabilities"] = provider.ModelCapabilities
 		}
+		if len(provider.Builtins) > 0 {
+			entry["builtins"] = provider.Builtins
+		}
 		if len(provider.BuiltinTools) > 0 {
 			entry["builtin_tools"] = provider.BuiltinTools
 		}
@@ -1040,6 +1052,21 @@ func buildAgentCoreProviderConfigs(pool []ProviderInfo, configJSON string, fallb
 	pool = eligibleProviderPool(pool)
 	providers := buildCoreProviderConfigs(pool, configuredDefault)
 	applyAgentServiceTiers(providers, pool, savedAgentServiceTiers(configJSON))
+	applyAgentBuiltins(providers, savedAgentBuiltins(configJSON))
+	var saved struct {
+		Providers []map[string]any `json:"providers"`
+	}
+	if json.Unmarshal([]byte(configJSON), &saved) == nil {
+		for _, provider := range providers {
+			for _, override := range saved.Providers {
+				if override["name"] == provider["name"] {
+					if value, exists := override["image_generation"]; exists {
+						provider["image_generation"] = value
+					}
+				}
+			}
+		}
+	}
 
 	effectiveDefault := effectiveProviderDefault(pool, configuredDefault)
 	model := configuredAgentModelOverride(configJSON, effectiveDefault)
@@ -1118,7 +1145,7 @@ func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, r
 			}
 			applyAgentServiceTiers([]map[string]any{provider}, pool, checked)
 		}
-		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice"} {
+		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice", "image_generation", "builtins"} {
 			if value, ok := override[field]; ok {
 				provider[field] = value
 			}
@@ -1815,6 +1842,11 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 
 	// Freeze the creation preference even when the agent is created stopped.
 	body.Config = s.applyNewAgentProviderDefault(userID, body.ProjectID, body.Config)
+	body.Config, err = s.prepareAgentBuiltins(r.Context(), body.Config, s.GetProviderPool(userID, body.ProjectID))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	inst, created, err := s.store.CreateAgentIdempotent(
 		userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID, body.IdempotencyKey, optionalProactivity(body.Proactivity),
@@ -2105,8 +2137,21 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	builtinPools := map[string][]ProviderInfo{}
 	// Update running status
 	for i := range instances {
+		key := fmt.Sprintf("%d:%s", instances[i].UserID, instances[i].ProjectID)
+		pool, exists := builtinPools[key]
+		if !exists {
+			pool = s.GetProviderPool(instances[i].UserID, instances[i].ProjectID)
+			builtinPools[key] = pool
+		}
+		summaryAgent := instances[i]
+		if full, err := s.store.GetAgentByID(instances[i].ID); err == nil {
+			summaryAgent.Config = full.Config
+		}
+		populateAgentBuiltinSummary(&summaryAgent, pool)
+		instances[i].Builtins = summaryAgent.Builtins
 		s.enrichAgentRuntime(&instances[i])
 		restrictAgentConfig(r, &instances[i])
 	}
@@ -2160,6 +2205,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		populateAgentBuiltinSummary(inst, s.GetProviderPool(inst.UserID, inst.ProjectID))
 		s.enrichAgentRuntime(inst)
 		if err := s.store.populateAgentAppearance(inst); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -2757,6 +2803,41 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if body.Config != "" {
 		serviceConfig = body.Config
 	}
+	builtinOverrides := editableAgentBuiltins(serviceConfig)
+	builtinPatch, builtinSent := rawBody["builtin_overrides"]
+	if patch, ok := builtinPatch.(map[string]any); ok && len(patch) == 0 {
+		builtinSent = false
+	}
+	if body.Config != "" {
+		normalized, err := s.prepareAgentBuiltins(r.Context(), body.Config, s.GetProviderPool(inst.UserID, inst.ProjectID))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		body.Config = normalized
+		builtinOverrides = editableAgentBuiltins(normalized)
+		builtinSent = true
+	}
+	if builtinPatch != nil {
+		if err := s.mergeAgentBuiltins(r.Context(), builtinOverrides, builtinPatch, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if _, exists := rawBody["builtin_overrides"]; exists {
+		http.Error(w, "builtin_overrides must be an object", http.StatusBadRequest)
+		return
+	}
+	for _, provider := range body.Providers {
+		if value, exists := provider["builtins"]; exists {
+			name, _ := provider["name"].(string)
+			if err := s.mergeAgentBuiltins(r.Context(), builtinOverrides, map[string]any{name: value}, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			delete(provider, "builtins")
+			builtinSent = true
+		}
+	}
 	serviceOverrides := savedAgentServiceTiers(serviceConfig)
 	servicePatch, servicePatchSent := rawBody["service_tier_overrides"]
 	serviceTiersSent := servicePatchSent
@@ -2846,7 +2927,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		requestedRealtimeModel = strings.TrimSpace(value)
 	}
-	if len(body.Providers) > 0 || realtimeProviderSent || realtimeModelSent || serviceTiersSent {
+	if len(body.Providers) > 0 || realtimeProviderSent || realtimeModelSent || serviceTiersSent || builtinSent {
 		// Core receives its existing providers[] shape; the new agent choice
 		// is server-owned metadata and is translated into that shape below.
 		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
@@ -2894,11 +2975,20 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		applyAgentServiceTiers(hydrated, pool, serviceOverrides)
+		preserveAgentLegacyImages(hydrated, body.Providers, serviceConfig)
+		applyAgentBuiltins(hydrated, builtinOverrides)
+		if builtinSent && port > 0 {
+			if _, err := s.liveBuiltinConfig(r.Context(), inst); err != nil {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+		}
 		rawBody["providers"] = hydrated
 		effectiveDefault = selected
 	}
 	// model_override is server-owned agent metadata. Core receives the
 	// resulting per-provider model map, not this persistence envelope.
+	delete(rawBody, "builtin_overrides")
 	delete(rawBody, "service_tier_overrides")
 	delete(rawBody, "model_override")
 	delete(rawBody, "realtime_provider")
@@ -2959,7 +3049,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// Save the validated effective provider rather than relying on whichever
 	// order SQLite or the dashboard happened to return.
-	if effectiveDefault != "" || realtimeProviderSent || realtimeModelSent || serviceTiersSent {
+	if effectiveDefault != "" || realtimeProviderSent || realtimeModelSent || serviceTiersSent || builtinSent {
 		var cfg map[string]any
 		if strings.TrimSpace(inst.Config) != "" {
 			if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
@@ -2969,6 +3059,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg == nil {
 			cfg = map[string]any{}
+		}
+		if builtinSent {
+			removeLegacyAgentImages(cfg)
+			persistAgentBuiltins(cfg, builtinOverrides)
 		}
 		if serviceTiersSent {
 			cfg["service_tier_overrides"] = serviceOverrides
@@ -3256,6 +3350,13 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	port := s.agents.GetPort(inst.ID)
 	corePath := "/" + parts[1]
+	if r.Method == http.MethodDelete && strings.HasPrefix(corePath, "/threads/") {
+		threadID := strings.TrimPrefix(corePath, "/threads/")
+		if threadID != "" && !strings.Contains(threadID, "/") {
+			unlock := lockAsyncThreadDelivery(inst.ID, threadID)
+			defer unlock()
+		}
+	}
 	if (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete) && strings.HasPrefix(corePath, "/threads/") {
 		unlock := s.lockAgentConfig(inst.ID)
 		defer unlock()
@@ -3338,7 +3439,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		threadID := strings.TrimPrefix(corePath, "/threads/")
 		if threadID != "" && !strings.Contains(threadID, "/") {
 			if err := s.store.DeleteAgentThreadScope(inst.ID, threadID); err != nil {
-				http.Error(w, "thread deleted but file grant cleanup failed", http.StatusInternalServerError)
+				http.Error(w, "thread deleted but resource cleanup failed", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -3644,7 +3745,7 @@ func (s *Server) handleStoppedMutation(w http.ResponseWriter, r *http.Request, i
 			return true
 		}
 		if err := s.store.DeleteAgentThreadScope(inst.ID, tid); err != nil {
-			http.Error(w, "thread deleted but file grant cleanup failed", http.StatusInternalServerError)
+			http.Error(w, "thread deleted but resource cleanup failed", http.StatusInternalServerError)
 			return true
 		}
 		log.Printf("[THREADS] stopped agent=%d dropped persisted thread %q", inst.ID, tid)

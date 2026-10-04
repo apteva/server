@@ -28,8 +28,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Presets) != 19 {
-		t.Fatalf("got %d presets, want 19", len(catalog.Presets))
+	if len(catalog.Presets) != 20 {
+		t.Fatalf("got %d presets, want 20", len(catalog.Presets))
 	}
 	counts := map[string]int{}
 	knownApps := map[string]bool{
@@ -45,6 +45,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
 		"webinars": true, "workspaces": true, "a2a": true,
 		"media-downloader": true, "media": true,
+		"database": true, "processes": true,
 	}
 	requiredDomainApps := map[string][]string{
 		"personal-assistant":             {"todo", "notes", "calendar"},
@@ -58,6 +59,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"work-youtube-to-blog":           {"media-downloader", "media", "storage", "content"},
 		"development-software":           {"code", "environments", "deploy"},
 		"development-engineering-team":   {"tasks", "code", "workspaces", "a2a", "deploy"},
+		"development-product-team":       {"tasks", "code", "workspaces", "a2a", "database", "processes", "deploy", "notes"},
 		"development-devops":             {"deploy", "instances", "containers", "backup"},
 		"development-qa":                 {"code", "environments", "computer", "screenshots"},
 		"development-data":               {"tables", "analytics", "storage"},
@@ -111,7 +113,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		}
 	}
 	// Work, development, and business each include a specialist preset.
-	wantCounts := map[string]int{"personal": 4, "work": 5, "development": 5, "business": 5}
+	wantCounts := map[string]int{"personal": 4, "work": 5, "development": 6, "business": 5}
 	for category, want := range wantCounts {
 		if counts[category] != want {
 			t.Fatalf("category %s has %d presets, want %d", category, counts[category], want)

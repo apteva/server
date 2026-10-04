@@ -15,13 +15,14 @@ func (s *Store) migrateSubscriptionOutbox() error {
  subscription_json TEXT NOT NULL,event_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,
  UNIQUE(event_key,subscription_id));
  CREATE INDEX IF NOT EXISTS idx_app_subscriptions_match ON subscriptions(source,enabled,slug,project_id);
+ CREATE INDEX IF NOT EXISTS idx_subscription_outbox_order ON app_subscription_outbox(subscription_id,id,status);
  CREATE INDEX IF NOT EXISTS idx_subscription_outbox_due ON app_subscription_outbox(status,next_attempt)`)
 	return err
 }
 
 func appSubscriptionMatches(sub *Subscription, ev AppEvent) bool {
 	app, pattern, ok := splitAppEventSlug(sub.Slug)
-	return ok && sub.Enabled && app == ev.App && (sub.ProjectID == "" || sub.ProjectID == ev.ProjectID) && appEventSubscriptionTopicMatches(sub, pattern, ev.Topic) && subscriptionPayloadMatches(sub, ev.Data)
+	return ok && sub.Enabled && !subscriptionExpired(sub) && app == ev.App && (sub.SourceInstallID == 0 || sub.SourceInstallID == ev.InstallID) && (sub.ProjectID == ev.ProjectID || (sub.ProjectID == "" && sub.SourceInstallID == 0)) && appEventSubscriptionTopicMatches(sub, pattern, ev.Topic) && subscriptionPayloadMatches(sub, ev.Data)
 }
 
 // Commit all matching deliveries before acknowledging or publishing an emit.
@@ -31,10 +32,6 @@ func (s *Server) queueAppSubscriptions(ev AppEvent) error {
 	return err
 }
 func (s *Server) queueAppSubscriptionsWithID(ev AppEvent, publisherID string) (bool, error) {
-	subs, err := s.store.listAppEventSubscriptions(ev.App, ev.ProjectID)
-	if err != nil {
-		return false, err
-	}
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		return false, err
@@ -59,7 +56,19 @@ func (s *Server) queueAppSubscriptionsWithID(ev AppEvent, publisherID string) (b
 		}
 		key = fmt.Sprintf("%d:%s", ev.InstallID, publisherID)
 	}
-	raw, _ := json.Marshal(ev)
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(`INSERT INTO app_async_event_journal(event_key,source_install_id,project_id,event_json,created_at) VALUES(?,?,?,?,?)`, key, ev.InstallID, ev.ProjectID, string(raw), time.Now().Unix()); err != nil {
+		return false, err
+	}
+	// Read matches in the same transaction as journaling: registration either
+	// sees this event in replay, or publication sees the new subscription.
+	subs, err := listAppEventSubscriptions(tx, ev.App, ev.ProjectID)
+	if err != nil {
+		return false, err
+	}
 	for _, sub := range subs {
 		if appSubscriptionMatches(sub, ev) {
 			snapshot, _ := json.Marshal(sub)
@@ -94,9 +103,14 @@ func (d *AppEventDispatcher) enqueueAndDeliver(sub *Subscription, ev AppEvent) {
 }
 
 func (d *AppEventDispatcher) deliverOutbox(id int64, sub *Subscription, ev AppEvent) {
-	// Multiple wakeups/replays may race. Claim only this row; ordinary fan-out
-	// to independent agents remains parallel. Reset claims on dispatcher boot.
-	result, err := d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='sending' WHERE id=? AND status='pending'", id)
+	unlock := lockAsyncThreadDelivery(sub.AgentID, sub.ThreadID)
+	defer unlock()
+	// Atomically claim the oldest unfinished delivery for this subscription.
+	// Progress cannot overtake another event; independent subscriptions remain parallel.
+	result, err := d.server.store.db.Exec(`UPDATE app_subscription_outbox SET status='sending' WHERE id=? AND status='pending'
+ AND next_attempt<=? AND NOT EXISTS (
+ SELECT 1 FROM app_subscription_outbox earlier WHERE earlier.subscription_id=app_subscription_outbox.subscription_id
+ AND earlier.id<app_subscription_outbox.id AND earlier.status IN ('pending','sending'))`, id, time.Now().UnixMilli())
 	if err != nil {
 		return
 	}
@@ -105,36 +119,89 @@ func (d *AppEventDispatcher) deliverOutbox(id int64, sub *Subscription, ev AppEv
 		return
 	}
 	current, err := d.server.store.GetSubscription(sub.UserID, sub.ID)
-	if err != nil || current == nil || !current.Enabled || current.AgentID != sub.AgentID {
+	if err != nil && err != sql.ErrNoRows {
+		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='pending',next_attempt=? WHERE id=?", time.Now().Add(time.Second).UnixMilli(), id)
+		return
+	}
+	if current == nil || !current.Enabled || current.AgentID != sub.AgentID || current.ThreadID != sub.ThreadID || current.ProjectID != sub.ProjectID || !appSubscriptionMatches(current, ev) {
 		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='canceled' WHERE id=?", id)
 		return
 	}
+	sub = current
+	if sub.Kind == "ephemeral" && sub.SourceInstallID > 0 {
+		valid, err := d.server.store.asyncTargetStillScoped(sub)
+		if err != nil {
+			d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='pending',next_attempt=? WHERE id=?", time.Now().Add(time.Second).UnixMilli(), id)
+			return
+		}
+		if !valid {
+			d.server.store.db.Exec("DELETE FROM subscriptions WHERE id=? AND kind='ephemeral'", sub.ID)
+			return
+		}
+	}
 	ev.deliveryID = fmt.Sprintf("app-subscription-%d", id)
-	err = d.deliver(sub, ev)
+	if sub.Kind == "ephemeral" && sub.SourceInstallID > 0 {
+		var exists bool
+		exists, err = d.server.asyncThreadExists(sub)
+		if err == nil && !exists {
+			if err = d.server.store.DeleteAgentThreadScope(sub.AgentID, sub.ThreadID); err == nil {
+				return
+			}
+		}
+	}
+	if err == nil && subscriptionExpired(sub) {
+		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='canceled' WHERE id=?", id)
+		return
+	}
+	if err == nil {
+		err = d.deliver(sub, ev)
+	}
 	if err != nil {
 		var attempts int
 		d.server.store.db.QueryRow("SELECT attempts FROM app_subscription_outbox WHERE id=?", id).Scan(&attempts)
 		attempts++
 		state := "pending"
-		if attempts >= 12 {
+		if attempts >= 12 && sub.Kind != "ephemeral" {
 			state = "failed"
 		}
 		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status=?,attempts=?,next_attempt=?,last_error=? WHERE id=?", state, attempts, time.Now().Add(agentEventDeliveryBackoff(attempts)).UnixMilli(), truncate(err.Error(), 1000), id)
 		log.Printf("[APP-SUB] delivery sub=%s attempt=%d status=%s: %v", sub.ID, attempts, state, err)
 		return
 	}
-	d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='delivered',last_error='' WHERE id=?", id)
+	// Acknowledge and close atomically. If commit fails, retry the same Core
+	// event_id; never silently leave a terminal notification marked complete.
+	tx, err := d.server.store.db.Begin()
+	if err == nil {
+		_, err = tx.Exec("UPDATE app_subscription_outbox SET status='delivered',last_error='' WHERE id=?", id)
+		if err == nil && subscriptionTerminal(sub, ev.Topic) {
+			if sub.WaitGroupID != "" {
+				_, err = tx.Exec("DELETE FROM subscriptions WHERE kind='ephemeral' AND wait_group_id=?", sub.WaitGroupID)
+			} else {
+				_, err = tx.Exec("DELETE FROM subscriptions WHERE kind='ephemeral' AND id=?", sub.ID)
+			}
+		}
+		if err == nil {
+			err = tx.Commit()
+		} else {
+			tx.Rollback()
+		}
+	}
+	if err != nil {
+		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='pending',next_attempt=? WHERE id=?", time.Now().Add(time.Second).UnixMilli(), id)
+		log.Printf("[APP-SUB] acknowledge sub=%s: %v", sub.ID, err)
+		return
+	}
 	if ev.Seq > 0 {
 		d.markDelivered(sub, ev.Seq)
 	}
-	if sub.DeleteOnMatch {
-		d.server.store.DeleteEphemeralSubscriptionWaitGroup(sub.WaitGroupID)
+	if subscriptionTerminal(sub, ev.Topic) {
 		d.Reconcile()
 	}
 }
 
 func (d *AppEventDispatcher) drainOutbox(ctx context.Context) {
-	rows, err := d.server.store.db.QueryContext(ctx, "SELECT id,subscription_json,event_json FROM app_subscription_outbox WHERE status='pending' AND next_attempt<=? ORDER BY id LIMIT 32", time.Now().UnixMilli())
+	rows, err := d.server.store.db.QueryContext(ctx, `SELECT id,subscription_json,event_json FROM app_subscription_outbox o WHERE status='pending' AND next_attempt<=?
+ AND NOT EXISTS (SELECT 1 FROM app_subscription_outbox earlier WHERE earlier.subscription_id=o.subscription_id AND earlier.id<o.id AND earlier.status IN ('pending','sending')) ORDER BY id LIMIT 32`, time.Now().UnixMilli())
 	if err != nil {
 		return
 	}
@@ -163,7 +230,13 @@ func (d *AppEventDispatcher) wakeOutbox() {
 func (d *AppEventDispatcher) runOutbox(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	lastCleanup := time.Time{}
 	for {
+		if time.Since(lastCleanup) >= time.Minute {
+			d.Reconcile()
+			d.server.store.db.Exec("DELETE FROM app_async_event_journal WHERE id IN (SELECT id FROM app_async_event_journal WHERE created_at<? ORDER BY id LIMIT 10000)", time.Now().Add(-asyncReplayRetention).Unix())
+			lastCleanup = time.Now()
+		}
 		d.drainOutbox(ctx)
 		d.drainAppEventTargets(ctx)
 		d.server.store.db.Exec("DELETE FROM app_subscription_outbox WHERE id IN (SELECT id FROM app_subscription_outbox WHERE status IN ('delivered','canceled') AND created_at<? LIMIT 1000)", time.Now().Add(-7*24*time.Hour).Unix())

@@ -176,10 +176,11 @@ func (s *Server) handleCallbackPlatformInfo(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	writeJSON(w, map[string]any{
-		"file_references":         sdk.FileReferencesVersion,
-		"file_reference_dispatch": map[string]bool{"app_mcp": true, "integration_mcp": true, "integration_mcp_thread_header": true, "app_integration_callback": true, "server_blobs": true},
-		"public_url":              publicURL,
-		"version":                 Version,
+		"async_result_notifications": sdk.AsyncResultCapabilities{Version: 1, Modes: []string{"once", "stream"}, Replay: true, ThreadCleanup: true},
+		"file_references":            sdk.FileReferencesVersion,
+		"file_reference_dispatch":    map[string]bool{"app_mcp": true, "integration_mcp": true, "integration_mcp_thread_header": true, "app_integration_callback": true, "server_blobs": true},
+		"public_url":                 publicURL,
+		"version":                    Version,
 	})
 }
 
@@ -2046,9 +2047,6 @@ func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request
 		log.Printf("[REALTIME-KILL] install=%d agent=%d thread=%q: %v", installID, agentID, threadID, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
-	}
-	if err := s.store.DeleteAgentThreadScope(agentID, threadID); err != nil {
-		log.Printf("[THREAD-SCOPE] delete agent=%d thread=%q: %v", agentID, threadID, err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

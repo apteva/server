@@ -273,7 +273,8 @@
       "highlights": [
         "Support Agent owns ticket triage, customer context, and response drafts",
         "Support Investigator gathers evidence for complex or recurring issues",
-        "Investigations return to the ticket owner before customer follow-up"
+        "Investigations return to the ticket owner before customer follow-up",
+        "Includes an editable triage guide and an Investigate a ticket draft in Tasks"
       ],
       "agents": [
         {
@@ -289,7 +290,7 @@
             "a2a",
             "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Own ticket triage, customer context, response drafts, and escalation. Resolve documented routine issues directly; assign complex investigations to Support Investigator with the ticket reference and a redacted, sufficient brief. Maintain ticket state and communicate only with configured authority. Never invent product facts or promise unsupported outcomes. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
+          "directive": "Use this project description as your operating context: {{description}}. Own ticket triage, customer context, response drafts, and escalation. Resolve documented routine issues directly; assign complex investigations to Support Investigator with the ticket reference and a redacted, sufficient brief. Maintain ticket state and communicate only with configured authority. Never invent product facts or promise unsupported outcomes. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. For ticket work, read the project Notes guide titled \"Customer support: triage and escalation\" and follow its triage, handoff, and escalation guidance alongside configured company policies. If it is missing or conflicts with company policy, ask for clarification. A starter investigation prepares findings and a response draft; it does not authorize sending a reply or changing ticket state.",
           "icon": "support"
         },
         {
@@ -305,7 +306,7 @@
             "a2a",
             "conversations"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Investigate assigned support issues using ticket history, retained knowledge, and authorized evidence files. Return supported findings, uncertainty, proposed troubleshooting, and escalation criteria to Support Agent. Keep working evidence in Notes or Storage; leave customer replies and ticket status changes to Support Agent. Never invent resolutions or expose another customer's data. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
+          "directive": "Use this project description as your operating context: {{description}}. Investigate assigned support issues using ticket history, retained knowledge, and authorized evidence files. Return supported findings, uncertainty, proposed troubleshooting, and escalation criteria to Support Agent. Keep working evidence in Notes or Storage; leave customer replies and ticket status changes to Support Agent. Never invent resolutions or expose another customer's data. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps. For ticket work, read the project Notes guide titled \"Customer support: triage and escalation\" and follow its triage, handoff, and escalation guidance alongside configured company policies. If it is missing or conflicts with company policy, ask for clarification. A starter investigation prepares findings and a response draft; it does not authorize sending a reply or changing ticket state.",
           "icon": "research"
         }
       ],
@@ -402,6 +403,64 @@
           "title": "File access",
           "description": "Choose storage locations and review the files this workspace should be able to access.",
           "required": false
+        }
+      ],
+      "setup": [
+        {
+          "key": "support-triage-guide",
+          "app": "notes",
+          "tool": "notes_create",
+          "title": "Triage and escalation guide",
+          "description": "An editable Notes guide covering ticket triage, investigator handoffs, escalation, and response review.",
+          "input": {
+            "title": "Customer support: triage and escalation",
+            "body": "# Customer support: triage and escalation\n\nAn editable starting guide for this team. Follow the company's documented policies, permissions, and response commitments; this guide does not invent an SLA or grant authority.\n\n## 1. Read the real ticket\nUse the supplied ticket ID or URL to retrieve the ticket in this project. Read its current state, conversation history, customer context, prior troubleshooting, and any linked knowledge. Preserve the exact reference. If access, the ticket, or required facts are missing, ask for them before investigating. Never create a fictional ticket to complete an assignment.\n\n## 2. Triage and record ownership\nThe Support Agent owns the outcome and the Tasks record. Create or reuse one durable task for this investigation, including the exact ticket reference, requested outcome, and constraints. Record issue category, customer impact, urgency supported by evidence, and missing information. Separate confirmed facts from hypotheses. Do not promise response times, refunds, or product behavior without documented authority.\n\n## 3. Investigate or hand off\nUse documented answers for routine issues. For complex or recurring issues, ask the Support Investigator in this project for a bounded investigation with the ticket reference, a minimal redacted brief, relevant evidence, and the required deliverable. Discover the teammate by role if its name has changed. The investigator returns evidence, reproducible findings, uncertainty, and proposed troubleshooting to the owner; it does not send customer replies or change ticket status. Keep the original Tasks work item as the customer-outcome record and link any necessary delegated work rather than duplicating it.\n\n## 4. Escalate with evidence\nEscalate to a human when the issue involves security or possible data exposure, account access, refunds or billing authority, widespread impact, conflicting evidence, or an unsupported resolution. State what is known, what was attempted, what remains unknown, the suggested recipient, and the decision or access needed. Use the configured escalation route; ask if none is defined.\n\n## 5. Prepare a response\nDraft an accurate, concise reply grounded in verified evidence. Include clear next steps and necessary questions. Keep internal diagnostics and other customers' information out of the customer-facing draft. The first investigation assignment is draft-only: do not send a reply, close the ticket, issue a refund, or make account changes without a separate authorized instruction.\n\n## 6. Finish with a useful handoff\nReturn the ticket reference, triage summary, evidence and links, findings and uncertainty, proposed response draft, and any escalation recommendation. Update Tasks at meaningful milestones and record the final result. Mark it blocked or waiting if work still needs an input or decision; do not mark an unresolved dependency complete. Preserve the ticket's real state unless an authorized change is requested.\n",
+            "kind": "guide",
+            "tags": [
+              "customer-support",
+              "triage",
+              "escalation"
+            ],
+            "source": "preset",
+            "metadata": {
+              "preset_id": "work-support"
+            }
+          }
+        },
+        {
+          "key": "support-investigate-ticket-draft",
+          "app": "tasks",
+          "tool": "create",
+          "title": "Investigate a ticket",
+          "description": "A real draft in Tasks, with Support Agent suggested. Add a ticket ID or URL and start it from Tasks when ready; it is initially unassigned and inactive.",
+          "input": {
+            "state": "draft",
+            "title": "Investigate a ticket",
+            "description": "Read the ticket, investigate, and prepare a response draft. Verify the ticket exists and is accessible before acting.",
+            "expected_outcome": "Triage summary, evidence-backed findings, response draft, and escalation recommendation.",
+            "suggested_agent_id": {
+              "$ref": "agents.support"
+            },
+            "inputs": [
+              {
+                "key": "ticket_reference",
+                "label": "Ticket ID or URL",
+                "description": "An existing ticket in this project.",
+                "required": true,
+                "value": ""
+              },
+              {
+                "key": "context",
+                "label": "Focus or context",
+                "description": "Optional questions, customer impact, or troubleshooting already attempted.",
+                "required": false,
+                "value": ""
+              }
+            ],
+            "idempotency_key": "preset:work-support:investigate-ticket"
+          },
+          "min_app_version": "3.7.0",
+          "requires_operator": true
         }
       ]
     },

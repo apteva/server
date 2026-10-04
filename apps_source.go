@@ -846,9 +846,10 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	pid := s.localApps.PID(installID)
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	manifestJSON, _ := json.Marshal(m)
-	s.store.db.Exec(
+	if _, err := s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
+			mcp_activation_revision=mcp_activation_revision+1,
 			version=?,
 			manifest_json=?,
 			pending_manifest_json='',
@@ -859,7 +860,9 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		m.Version, string(manifestJSON), pid, binPath, port, url, installID)
+		m.Version, string(manifestJSON), pid, binPath, port, url, installID); err != nil {
+		return fmt.Errorf("persist source app activation: %w", err)
+	}
 	s.LoadInstalledApps()
 	// A new install becoming running may unblock requires.apps deps
 	// on parent installs that were waiting for it. Walk every running

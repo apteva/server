@@ -1,7 +1,7 @@
 {
   "slug": "apify",
   "name": "Apify",
-  "description": "Web scraping and automation platform. Search actors, run them with JSON input, monitor runs, and retrieve dataset results.",
+  "description": "Web scraping and automation platform. Discover and run actors, retrieve results, create/edit source versions, build and debug actors, and configure Apify Store publication and pricing. Paid listings require Apify seller onboarding and Store eligibility.",
   "logo": "https://www.google.com/s2/favicons?domain=apify.com&sz=128",
   "categories": [
     "scraping",
@@ -16,13 +16,15 @@
       "bearer"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{apiToken}}",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
         "name": "apiToken",
-        "label": "Api Token",
-        "description": "Apify API token (find at console.apify.com/account/integrations)"
+        "label": "API Token",
+        "description": "Apify API token (find at console.apify.com/account/integrations)",
+        "required": true
       }
     ]
   },
@@ -199,6 +201,1571 @@
           "actorId",
           "buildId"
         ]
+      }
+    },
+    {
+      "name": "create_actor",
+      "description": "Create an actor with source versions, metadata and default run options. Upload files including README and actor/input/output schemas, or use a supported repository source. Build and test before publishing. Returns the complete Actor response. Does not itself configure seller billing or payouts.",
+      "method": "POST",
+      "path": "/actors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The identifier of the Actor. Use lowercase letters, numbers, and hyphens. Spaces or special characters aren't allowed. Must be unique across your account."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Short description of the Actor, displayed in Apify Store and Console."
+          },
+          "isPublic": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the Actor is available to users in Apify Store. If `false`, the Actor is private and only visible to you. Prefer creating privately, testing a successful build, and then publishing with update_actor."
+          },
+          "seoTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the Actor to display by search engines such as Google. Can be different from the Actor's name displayed in Apify Store and Console. Recommended length is 40-50 characters."
+          },
+          "seoDescription": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Description of the Actor to display by search engines such as Google. Recommended length is 140-156 characters."
+          },
+          "versions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "versionNumber": {
+                  "type": "string",
+                  "pattern": "^([0-9]|[1-9][0-9])\\.([0-9]|[1-9][0-9])$",
+                  "description": "Source version as MAJOR.MINOR, e.g. 0.1. Each component is 0..99."
+                },
+                "sourceType": {
+                  "type": "string",
+                  "enum": [
+                    "SOURCE_FILES",
+                    "GIT_REPO",
+                    "TARBALL",
+                    "GITHUB_GIST"
+                  ],
+                  "description": "Source location. Provide sourceFiles, gitRepoUrl, tarballUrl or gitHubGistUrl for the selected type."
+                },
+                "envVars": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "required": [
+                          "name"
+                        ],
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "The name of the environment variable."
+                          },
+                          "value": {
+                            "type": "string",
+                            "description": "The value of the environment variable. If `isSecret` is `true`, this value isn't returned by the API."
+                          },
+                          "isSecret": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ],
+                            "description": "Whether the environment variable is encrypted. Secret values aren't returned by the API."
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Environment variables for the version."
+                },
+                "applyEnvVarsToBuild": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Whether to inject the environment variables at build time."
+                },
+                "buildTag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The tag name to apply to a successful build of this version. Can be `null` when the version has no build tag."
+                },
+                "sourceFiles": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "description": "Represents a single file in the Actor's source code.",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "format": {
+                            "type": "string",
+                            "enum": [
+                              "BASE64",
+                              "TEXT"
+                            ],
+                            "description": "Format of the file's content, `TEXT` for plain text and `BASE64` for encoded content."
+                          },
+                          "content": {
+                            "type": "string",
+                            "description": "The contents of the file. Interpreted based on the value of `format`."
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "The path of the file relative to the Actor's root directory."
+                          }
+                        }
+                      },
+                      {
+                        "description": "Represents a folder in the Actor's source code structure. Distinguished from\nSourceCodeFile by the presence of the `folder` property set to `true`.\n",
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "folder"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "The path of the folder relative to the Actor's root directory."
+                          },
+                          "folder": {
+                            "type": "boolean",
+                            "description": "Whether it's a folder. Distinguishes folders from files."
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "description": "Files/folders for SOURCE_FILES. Include Dockerfile, package.json, src/main.js, README.md and .actor/actor.json with input/output/storage schema references as needed. TEXT content is literal text; BASE64 content is encoded bytes. Provide the complete desired file list when updating."
+                },
+                "gitRepoUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "URL of the Git repository to clone the source code from. Applies when the `sourceType` is `GIT_REPO`."
+                },
+                "tarballUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "URL of the tarball to download the source code from. Applies when the `sourceType` is `TARBALL`."
+                },
+                "gitHubGistUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "URL of the GitHub Gist to clone the source code from. Applies when the `sourceType` is `GITHUB_GIST`."
+                }
+              },
+              "required": [
+                "versionNumber",
+                "sourceType"
+              ]
+            },
+            "description": "At least one source version; upload files or specify a Git repository, tarball or GitHub Gist."
+          },
+          "categories": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "A list of categories that best define the Actor. Reflected in Apify Store's search and filtering options."
+          },
+          "defaultRunOptions": {
+            "type": "object",
+            "description": "The default settings applied to an Actor run. Can be overridden elsewhere.",
+            "properties": {
+              "build": {
+                "type": "string",
+                "description": "Which build to run. Either a build tag or a version number."
+              },
+              "timeoutSecs": {
+                "type": "integer",
+                "description": "Timeout in seconds. 0 if no timeout."
+              },
+              "memoryMbytes": {
+                "type": "integer",
+                "description": "In MB, the amount of memory allocated to the run."
+              },
+              "restartOnError": {
+                "type": "boolean",
+                "description": "Whether to automatically restart the run if it fails."
+              },
+              "maxItems": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Maximum number of items the run might produce."
+              },
+              "forcePermissionLevel": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "Determines the permission level that the Actor requires to run. For details, see [Actor permissions](https://docs.apify.com/platform/actors/development/permissions).\n",
+                    "enum": [
+                      "LIMITED_PERMISSIONS",
+                      "FULL_PERMISSIONS"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "actorStandby": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "isEnabled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "Whether standby mode is enabled for the Actor."
+                  },
+                  "desiredRequestsPerActorRun": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Target number of concurrent HTTP requests a single run is configured to handle."
+                  },
+                  "maxRequestsPerActorRun": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Maximum number of concurrent HTTP requests that can be routed to a single run."
+                  },
+                  "idleTimeoutSecs": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "In seconds, how long a run can stay idle without incoming requests before it's terminated."
+                  },
+                  "build": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Which build to run in standby mode. Either a build tag or a version number."
+                  },
+                  "memoryMbytes": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "In MB, the amount of memory allocated to the run."
+                  },
+                  "disableStandbyFieldsOverride": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "If `true`, prevents the standby mode configuration from being overridden elsewhere."
+                  },
+                  "shouldPassActorInput": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "Whether to pass the Actor's input to the standby run. If `false`, the standby runs start with no input."
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The configuration of the Actor's standby mode. For details, see [Standby mode](https://docs.apify.com/platform/actors/development/programming-interface/standby)."
+          },
+          "exampleRunInput": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "description": "Sample input, serialized as a string."
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "description": "MIME type of `body`."
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sample input payload that demonstrates what a typical run input for an Actor looks like. Used when no explicit input for a run is provided."
+          },
+          "isDeprecated": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the Actor is deprecated."
+          }
+        },
+        "required": [
+          "name",
+          "versions"
+        ]
+      },
+      "rate_limit": {
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "update_actor",
+      "description": "Update provided actor fields only: metadata, default run options, source versions, permission level, Store visibility (isPublic), pricing (pricingInfos) and build tags (taggedBuilds). Publishing and paid listings remain subject to Apify Store requirements, seller billing setup and pricing-change rules. Returns complete actor/pricing data; verify effective pricing and publication after updating. https://docs.apify.com/api/v2/act-put",
+      "method": "PUT",
+      "path": "/actors/{actorId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          },
+          "name": {
+            "type": "string",
+            "description": "The identifier of the Actor. Use lowercase letters, numbers, and hyphens. Spaces or special characters aren't allowed. Must be unique across your account."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Short description of the Actor, displayed in Apify Store and Console."
+          },
+          "isPublic": {
+            "type": "boolean",
+            "description": "true publishes to Apify Store; false makes private, subject to Apify restrictions on unpublishing paid actors. Publication requires a successful tagged build, README, display information, monetization, sample output and required schemas/permissions. Configure supported fields/source files here and finish any remaining publishing/profile prerequisites in Console. Recheck get_actor/search_store_actors afterward."
+          },
+          "actorPermissionLevel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Determines the permission level that the Actor requires to run. For details, see [Actor permissions](https://docs.apify.com/platform/actors/development/permissions).\n",
+                "enum": [
+                  "LIMITED_PERMISSIONS",
+                  "FULL_PERMISSIONS"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seoTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the Actor to display by search engines such as Google. Can be different from the Actor's name displayed in Apify Store and Console. Recommended length is 40-50 characters."
+          },
+          "seoDescription": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Description of the Actor to display by search engines such as Google. Recommended length is 140-156 characters."
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "versionNumber": {
+                  "type": "string",
+                  "pattern": "^([0-9]|[1-9][0-9])\\.([0-9]|[1-9][0-9])$",
+                  "description": "Source version as MAJOR.MINOR, e.g. 0.1. Each component is 0..99."
+                },
+                "sourceType": {
+                  "type": "string",
+                  "enum": [
+                    "SOURCE_FILES",
+                    "GIT_REPO",
+                    "TARBALL",
+                    "GITHUB_GIST"
+                  ],
+                  "description": "Source location. Provide sourceFiles, gitRepoUrl, tarballUrl or gitHubGistUrl for the selected type."
+                },
+                "envVars": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "required": [
+                          "name"
+                        ],
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "The name of the environment variable."
+                          },
+                          "value": {
+                            "type": "string",
+                            "description": "The value of the environment variable. If `isSecret` is `true`, this value isn't returned by the API."
+                          },
+                          "isSecret": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ],
+                            "description": "Whether the environment variable is encrypted. Secret values aren't returned by the API."
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Environment variables for the version."
+                },
+                "applyEnvVarsToBuild": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Whether to inject the environment variables at build time."
+                },
+                "buildTag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The tag name to apply to a successful build of this version. Can be `null` when the version has no build tag."
+                },
+                "sourceFiles": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "description": "Represents a single file in the Actor's source code.",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "format": {
+                            "type": "string",
+                            "enum": [
+                              "BASE64",
+                              "TEXT"
+                            ],
+                            "description": "Format of the file's content, `TEXT` for plain text and `BASE64` for encoded content."
+                          },
+                          "content": {
+                            "type": "string",
+                            "description": "The contents of the file. Interpreted based on the value of `format`."
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "The path of the file relative to the Actor's root directory."
+                          }
+                        }
+                      },
+                      {
+                        "description": "Represents a folder in the Actor's source code structure. Distinguished from\nSourceCodeFile by the presence of the `folder` property set to `true`.\n",
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "folder"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "The path of the folder relative to the Actor's root directory."
+                          },
+                          "folder": {
+                            "type": "boolean",
+                            "description": "Whether it's a folder. Distinguishes folders from files."
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "description": "Files/folders for SOURCE_FILES. Include Dockerfile, package.json, src/main.js, README.md and .actor/actor.json with input/output/storage schema references as needed. TEXT content is literal text; BASE64 content is encoded bytes. Provide the complete desired file list when updating."
+                },
+                "gitRepoUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "URL of the Git repository to clone the source code from. Applies when the `sourceType` is `GIT_REPO`."
+                },
+                "tarballUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "URL of the tarball to download the source code from. Applies when the `sourceType` is `TARBALL`."
+                },
+                "gitHubGistUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "URL of the GitHub Gist to clone the source code from. Applies when the `sourceType` is `GITHUB_GIST`."
+                }
+              },
+              "required": [
+                "versionNumber",
+                "sourceType"
+              ]
+            },
+            "description": "An array of `Version` objects. Each object represents a specific version of the Actor's source code: its location, builds, and environment configuration."
+          },
+          "pricingInfos": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "apifyMarginPercentage",
+                        "createdAt",
+                        "startedAt"
+                      ],
+                      "properties": {
+                        "apifyMarginPercentage": {
+                          "type": "number",
+                          "description": "Apify's share of the revenue generated under this pricing info record, as a fraction between 0 and 1. Set by the Apify platform.\n"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "When this pricing info record has been created"
+                        },
+                        "startedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Since when is this pricing info record effective for a given Actor"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "pricingModel",
+                        "pricingPerEvent"
+                      ],
+                      "properties": {
+                        "pricingModel": {
+                          "type": "string",
+                          "const": "PAY_PER_EVENT"
+                        },
+                        "pricingPerEvent": {
+                          "type": "object",
+                          "properties": {
+                            "actorChargeEvents": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "description": "Definition of a single chargeable event for a pay-per-event Actor. Each event is either flat-priced\n(`eventPriceUsd` is set) or tier-priced (`eventTieredPricingUsd` is set); the two are mutually exclusive.\n",
+                                "type": "object",
+                                "required": [
+                                  "eventTitle",
+                                  "eventDescription"
+                                ],
+                                "properties": {
+                                  "eventTitle": {
+                                    "type": "string",
+                                    "description": "Human-readable title shown to users in the billing UI."
+                                  },
+                                  "eventDescription": {
+                                    "type": "string",
+                                    "description": "Human-readable description of what triggers this event."
+                                  },
+                                  "eventPriceUsd": {
+                                    "type": "number",
+                                    "description": "Flat price per event in USD. Present only for non-tiered events. Mutually exclusive with `eventTieredPricingUsd`.\n"
+                                  },
+                                  "eventTieredPricingUsd": {
+                                    "description": "Tiered price-per-event pricing for a single charge event, keyed by subscription tier (e.g. `FREE`, `BRONZE`,\n`SILVER`, `GOLD`, `PLATINUM`, `DIAMOND`). The actual price applied is resolved from the user's tier.\n",
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "description": "A single tier's price-per-event entry.",
+                                      "type": "object",
+                                      "required": [
+                                        "tieredEventPriceUsd"
+                                      ],
+                                      "properties": {
+                                        "tieredEventPriceUsd": {
+                                          "type": "number",
+                                          "description": "Price per event in USD for this tier."
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "isPrimaryEvent": {
+                                    "type": "boolean",
+                                    "description": "Whether this event is the Actor's primary chargeable event."
+                                  },
+                                  "isOneTimeEvent": {
+                                    "type": "boolean",
+                                    "description": "Whether this event can only be charged once per Actor run."
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "minimalMaxTotalChargeUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "apifyMarginPercentage",
+                        "createdAt",
+                        "startedAt"
+                      ],
+                      "properties": {
+                        "apifyMarginPercentage": {
+                          "type": "number",
+                          "description": "Apify's share of the revenue generated under this pricing info record, as a fraction between 0 and 1. Set by the Apify platform.\n"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "When this pricing info record has been created"
+                        },
+                        "startedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Since when is this pricing info record effective for a given Actor"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "pricingModel",
+                        "unitName"
+                      ],
+                      "properties": {
+                        "pricingModel": {
+                          "type": "string",
+                          "const": "PRICE_PER_DATASET_ITEM"
+                        },
+                        "unitName": {
+                          "type": "string",
+                          "description": "Name of the unit that is being charged"
+                        },
+                        "pricePerUnitUsd": {
+                          "type": "number",
+                          "description": "Price per unit in USD. Mutually exclusive with `tieredPricing` - exactly one of the two is present\non a pricing record.\n"
+                        },
+                        "tieredPricing": {
+                          "description": "Tiered price-per-dataset-item pricing, keyed by subscription tier (e.g. `FREE`, `BRONZE`, `SILVER`, `GOLD`,\n`PLATINUM`, `DIAMOND`). The actual price applied to a run is resolved from the user's tier.\n",
+                          "type": "object",
+                          "additionalProperties": {
+                            "description": "A single tier's price-per-dataset-item entry.",
+                            "type": "object",
+                            "required": [
+                              "tieredPricePerUnitUsd"
+                            ],
+                            "properties": {
+                              "tieredPricePerUnitUsd": {
+                                "type": "number",
+                                "description": "Price per unit in USD for this tier."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "apifyMarginPercentage",
+                        "createdAt",
+                        "startedAt"
+                      ],
+                      "properties": {
+                        "apifyMarginPercentage": {
+                          "type": "number",
+                          "description": "Apify's share of the revenue generated under this pricing info record, as a fraction between 0 and 1. Set by the Apify platform.\n"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "When this pricing info record has been created"
+                        },
+                        "startedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Since when is this pricing info record effective for a given Actor"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "pricingModel",
+                        "pricePerUnitUsd",
+                        "trialMinutes"
+                      ],
+                      "properties": {
+                        "pricingModel": {
+                          "type": "string",
+                          "const": "FLAT_PRICE_PER_MONTH"
+                        },
+                        "trialMinutes": {
+                          "type": "integer",
+                          "description": "For how long this Actor can be used for free in trial period"
+                        },
+                        "pricePerUnitUsd": {
+                          "type": "number",
+                          "description": "Monthly flat price in USD"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "apifyMarginPercentage",
+                        "createdAt",
+                        "startedAt"
+                      ],
+                      "properties": {
+                        "apifyMarginPercentage": {
+                          "type": "number",
+                          "description": "Apify's share of the revenue generated under this pricing info record, as a fraction between 0 and 1. Set by the Apify platform.\n"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "When this pricing info record has been created"
+                        },
+                        "startedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Since when is this pricing info record effective for a given Actor"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "pricingModel"
+                      ],
+                      "properties": {
+                        "pricingModel": {
+                          "type": "string",
+                          "const": "FREE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "description": "Native pricing records from the current public API. Get the existing records with get_actor and preserve platform-managed apifyMarginPercentage and createdAt; never invent a margin or rewrite pricing history. startedAt is the effective timestamp. New monetization uses PAY_PER_EVENT; FREE means no developer charge (platform usage may still be billed). Dataset-item and monthly models are legacy and depend on account/actor eligibility. Complete payout/billing information and accept Store terms in Console before monetizing. Significant price changes can take 14 days and are subject to provider restrictions; inspect returned pricingInfos rather than assuming immediate activation. Custom events must be charged inside actor code with the Apify SDK (Actor.charge/Actor.pushData); synthetic apify-actor-start and apify-default-dataset-item events are charged automatically."
+          },
+          "categories": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "A list of categories that best define the Actor. Reflected in Apify Store's search and filtering options."
+          },
+          "defaultRunOptions": {
+            "anyOf": [
+              {
+                "type": "object",
+                "description": "The default settings applied to an Actor run. Can be overridden elsewhere.",
+                "properties": {
+                  "build": {
+                    "type": "string",
+                    "description": "Which build to run. Either a build tag or a version number."
+                  },
+                  "timeoutSecs": {
+                    "type": "integer",
+                    "description": "Timeout in seconds. 0 if no timeout."
+                  },
+                  "memoryMbytes": {
+                    "type": "integer",
+                    "description": "In MB, the amount of memory allocated to the run."
+                  },
+                  "restartOnError": {
+                    "type": "boolean",
+                    "description": "Whether to automatically restart the run if it fails."
+                  },
+                  "maxItems": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Maximum number of items the run might produce."
+                  },
+                  "forcePermissionLevel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "Determines the permission level that the Actor requires to run. For details, see [Actor permissions](https://docs.apify.com/platform/actors/development/permissions).\n",
+                        "enum": [
+                          "LIMITED_PERMISSIONS",
+                          "FULL_PERMISSIONS"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The default settings applied to an Actor run. Can be overridden by the user."
+          },
+          "taggedBuilds": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Patch dictionary of build tags: {\"latest\":{\"buildId\":\"...\"},\"beta\":null}. Only supplied tags change; null removes a tag. Use successful builds.",
+            "additionalProperties": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "The name of the build tag.",
+              "required": [
+                "buildId"
+              ],
+              "properties": {
+                "buildId": {
+                  "type": "string",
+                  "description": "The ID of the build to assign to the tag."
+                }
+              }
+            }
+          },
+          "actorStandby": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "isEnabled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "Whether standby mode is enabled for the Actor."
+                  },
+                  "desiredRequestsPerActorRun": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Target number of concurrent HTTP requests a single run is configured to handle."
+                  },
+                  "maxRequestsPerActorRun": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Maximum number of concurrent HTTP requests that can be routed to a single run."
+                  },
+                  "idleTimeoutSecs": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "In seconds, how long a run can stay idle without incoming requests before it's terminated."
+                  },
+                  "build": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Which build to run in standby mode. Either a build tag or a version number."
+                  },
+                  "memoryMbytes": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "In MB, the amount of memory allocated to the run."
+                  },
+                  "disableStandbyFieldsOverride": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "If `true`, prevents the standby mode configuration from being overridden elsewhere."
+                  },
+                  "shouldPassActorInput": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "Whether to pass the Actor's input to the standby run. If `false`, the standby runs start with no input."
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The configuration of the Actor's standby mode. For details, see [Standby mode](https://docs.apify.com/platform/actors/development/programming-interface/standby)."
+          },
+          "exampleRunInput": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "description": "Sample input, serialized as a string."
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "description": "MIME type of `body`."
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sample input payload that demonstrates what a typical run input for an Actor looks like. Used when no explicit input for a run is provided."
+          },
+          "isDeprecated": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the Actor is deprecated."
+          }
+        },
+        "required": [
+          "actorId"
+        ]
+      },
+      "rate_limit": {
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "list_actor_versions",
+      "description": "List source versions for an actor. Returns the native version list.",
+      "method": "GET",
+      "path": "/actors/{actorId}/versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          }
+        },
+        "required": [
+          "actorId"
+        ]
+      }
+    },
+    {
+      "name": "get_actor_version",
+      "description": "Retrieve a source version, including files, repository configuration and environment-variable metadata. Secret environment values are not returned.",
+      "method": "GET",
+      "path": "/actors/{actorId}/versions/{versionNumber}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          },
+          "versionNumber": {
+            "type": "string",
+            "pattern": "^([0-9]|[1-9][0-9])\\.([0-9]|[1-9][0-9])$",
+            "description": "Source version as MAJOR.MINOR, e.g. 0.1. Each component is 0..99."
+          }
+        },
+        "required": [
+          "actorId",
+          "versionNumber"
+        ]
+      }
+    },
+    {
+      "name": "create_actor_version",
+      "description": "Create a MAJOR.MINOR source version. Supply files or the URL for the selected source type; envVars supports isSecret. Source changes need a new successful build before users run them.",
+      "method": "POST",
+      "path": "/actors/{actorId}/versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          },
+          "versionNumber": {
+            "type": "string",
+            "pattern": "^([0-9]|[1-9][0-9])\\.([0-9]|[1-9][0-9])$",
+            "description": "Source version as MAJOR.MINOR, e.g. 0.1. Each component is 0..99."
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "SOURCE_FILES",
+              "GIT_REPO",
+              "TARBALL",
+              "GITHUB_GIST"
+            ],
+            "description": "Source location. Provide sourceFiles, gitRepoUrl, tarballUrl or gitHubGistUrl for the selected type."
+          },
+          "envVars": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The name of the environment variable."
+                    },
+                    "value": {
+                      "type": "string",
+                      "description": "The value of the environment variable. If `isSecret` is `true`, this value isn't returned by the API."
+                    },
+                    "isSecret": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ],
+                      "description": "Whether the environment variable is encrypted. Secret values aren't returned by the API."
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Environment variables for the version."
+          },
+          "applyEnvVarsToBuild": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether to inject the environment variables at build time."
+          },
+          "buildTag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tag name to apply to a successful build of this version. Can be `null` when the version has no build tag."
+          },
+          "sourceFiles": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "description": "Represents a single file in the Actor's source code.",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "format": {
+                      "type": "string",
+                      "enum": [
+                        "BASE64",
+                        "TEXT"
+                      ],
+                      "description": "Format of the file's content, `TEXT` for plain text and `BASE64` for encoded content."
+                    },
+                    "content": {
+                      "type": "string",
+                      "description": "The contents of the file. Interpreted based on the value of `format`."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "The path of the file relative to the Actor's root directory."
+                    }
+                  }
+                },
+                {
+                  "description": "Represents a folder in the Actor's source code structure. Distinguished from\nSourceCodeFile by the presence of the `folder` property set to `true`.\n",
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "folder"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The path of the folder relative to the Actor's root directory."
+                    },
+                    "folder": {
+                      "type": "boolean",
+                      "description": "Whether it's a folder. Distinguishes folders from files."
+                    }
+                  }
+                }
+              ]
+            },
+            "description": "Files/folders for SOURCE_FILES. Include Dockerfile, package.json, src/main.js, README.md and .actor/actor.json with input/output/storage schema references as needed. TEXT content is literal text; BASE64 content is encoded bytes. Provide the complete desired file list when updating."
+          },
+          "gitRepoUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of the Git repository to clone the source code from. Applies when the `sourceType` is `GIT_REPO`."
+          },
+          "tarballUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of the tarball to download the source code from. Applies when the `sourceType` is `TARBALL`."
+          },
+          "gitHubGistUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of the GitHub Gist to clone the source code from. Applies when the `sourceType` is `GITHUB_GIST`."
+          }
+        },
+        "required": [
+          "actorId",
+          "versionNumber",
+          "sourceType"
+        ]
+      },
+      "rate_limit": {
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "update_actor_version",
+      "description": "Update only supplied source-version fields. The versionNumber identifies the existing version in the URL. Supply the full desired sourceFiles/envVars list when replacing it. Build again to deploy changed source.",
+      "method": "PUT",
+      "path": "/actors/{actorId}/versions/{versionNumber}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          },
+          "versionNumber": {
+            "type": "string",
+            "pattern": "^([0-9]|[1-9][0-9])\\.([0-9]|[1-9][0-9])$",
+            "description": "Source version as MAJOR.MINOR, e.g. 0.1. Each component is 0..99."
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "SOURCE_FILES",
+              "GIT_REPO",
+              "TARBALL",
+              "GITHUB_GIST"
+            ],
+            "description": "Source location. Provide sourceFiles, gitRepoUrl, tarballUrl or gitHubGistUrl for the selected type."
+          },
+          "envVars": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The name of the environment variable."
+                    },
+                    "value": {
+                      "type": "string",
+                      "description": "The value of the environment variable. If `isSecret` is `true`, this value isn't returned by the API."
+                    },
+                    "isSecret": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ],
+                      "description": "Whether the environment variable is encrypted. Secret values aren't returned by the API."
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Environment variables for the version."
+          },
+          "applyEnvVarsToBuild": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether to inject the environment variables at build time."
+          },
+          "buildTag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tag name to apply to a successful build of this version. Can be `null` when the version has no build tag."
+          },
+          "sourceFiles": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "description": "Represents a single file in the Actor's source code.",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "format": {
+                      "type": "string",
+                      "enum": [
+                        "BASE64",
+                        "TEXT"
+                      ],
+                      "description": "Format of the file's content, `TEXT` for plain text and `BASE64` for encoded content."
+                    },
+                    "content": {
+                      "type": "string",
+                      "description": "The contents of the file. Interpreted based on the value of `format`."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "The path of the file relative to the Actor's root directory."
+                    }
+                  }
+                },
+                {
+                  "description": "Represents a folder in the Actor's source code structure. Distinguished from\nSourceCodeFile by the presence of the `folder` property set to `true`.\n",
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "folder"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The path of the folder relative to the Actor's root directory."
+                    },
+                    "folder": {
+                      "type": "boolean",
+                      "description": "Whether it's a folder. Distinguishes folders from files."
+                    }
+                  }
+                }
+              ]
+            },
+            "description": "Files/folders for SOURCE_FILES. Include Dockerfile, package.json, src/main.js, README.md and .actor/actor.json with input/output/storage schema references as needed. TEXT content is literal text; BASE64 content is encoded bytes. Provide the complete desired file list when updating."
+          },
+          "gitRepoUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of the Git repository to clone the source code from. Applies when the `sourceType` is `GIT_REPO`."
+          },
+          "tarballUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of the tarball to download the source code from. Applies when the `sourceType` is `TARBALL`."
+          },
+          "gitHubGistUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of the GitHub Gist to clone the source code from. Applies when the `sourceType` is `GITHUB_GIST`."
+          }
+        },
+        "required": [
+          "actorId",
+          "versionNumber"
+        ]
+      },
+      "rate_limit": {
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "build_actor",
+      "description": "Build a source version into a runnable actor image. Can incur platform usage costs. All build options are query parameters; no request body. Poll get_build and inspect get_log for failures. Tags are applied on success. https://docs.apify.com/api/v2/act-builds-post",
+      "method": "POST",
+      "path": "/actors/{actorId}/builds",
+      "query_params": [
+        "version",
+        "useCache",
+        "betaPackages",
+        "tag",
+        "waitForFinish"
+      ],
+      "body_none": true,
+      "timeout_ms": 65000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          },
+          "version": {
+            "type": "string",
+            "description": "Source version to build, e.g. 0.1."
+          },
+          "useCache": {
+            "type": "boolean",
+            "description": "Use the build cache; Apify default is false."
+          },
+          "betaPackages": {
+            "type": "boolean",
+            "description": "Use beta Apify NPM packages; Apify default is false."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Tag applied on success, e.g. latest. Defaults to the source version buildTag."
+          },
+          "waitForFinish": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 60,
+            "description": "Wait up to 60 seconds for completion; a returned build can still be RUNNING."
+          }
+        },
+        "required": [
+          "actorId",
+          "version"
+        ]
+      },
+      "rate_limit": {
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "list_actor_builds",
+      "description": "List actor builds with offset/limit pagination and native build status data. Default order is ascending start time; use desc=true for newest first.",
+      "method": "GET",
+      "path": "/actors/{actorId}/builds",
+      "query_params": [
+        "offset",
+        "limit",
+        "desc"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "desc": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "actorId"
+        ]
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get complete build details and status. Optional waitForFinish waits up to 60 seconds; keep polling if still transitional. Only SUCCEEDED indicates a usable build.",
+      "method": "GET",
+      "path": "/actor-builds/{buildId}",
+      "query_params": [
+        "waitForFinish"
+      ],
+      "timeout_ms": 65000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "Build ID returned by build_actor or list_actor_builds."
+          },
+          "waitForFinish": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 60,
+            "description": "Wait up to 60 seconds for completion; a returned build can still be RUNNING."
+          }
+        },
+        "required": [
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "abort_build",
+      "description": "Abort a starting or running actor build. Completed builds are unaffected; returns the native build response.",
+      "method": "POST",
+      "path": "/actor-builds/{buildId}/abort",
+      "body_none": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "Build ID returned by build_actor or list_actor_builds."
+          }
+        },
+        "required": [
+          "buildId"
+        ]
+      },
+      "rate_limit": {
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "get_log",
+      "description": "Retrieve the current plain-text logs for an actor build or run without streaming. Use for build errors and runtime diagnostics.",
+      "method": "GET",
+      "path": "/logs/{buildOrRunId}",
+      "query_params": [
+        "raw"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "buildOrRunId": {
+            "type": "string",
+            "description": "Build ID or run ID."
+          },
+          "raw": {
+            "type": "boolean",
+            "description": "Keep ANSI escape codes verbatim when true; default removes them."
+          }
+        },
+        "required": [
+          "buildOrRunId"
+        ]
+      }
+    },
+    {
+      "name": "validate_actor_input",
+      "description": "Validate an input object against the input schema in an actor build without running the actor. An actor without an input schema accepts any object. Native invalid-input errors are returned. https://docs.apify.com/api/v2",
+      "method": "POST",
+      "path": "/actors/{actorId}/validate-input",
+      "query_params": [
+        "build"
+      ],
+      "body_root_param": "input",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. my-user~my-actor. Write tools require ownership or the corresponding actor permission."
+          },
+          "build": {
+            "type": "string",
+            "description": "Build tag or build number; Apify defaults to latest."
+          },
+          "input": {
+            "type": "object",
+            "description": "Input JSON sent directly as the validation request body."
+          }
+        },
+        "required": [
+          "actorId",
+          "input"
+        ]
+      },
+      "rate_limit": {
+        "max_retries": 0
       }
     },
     {
