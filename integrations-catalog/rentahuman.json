@@ -1,7 +1,7 @@
 {
   "slug": "rentahuman",
   "name": "RentAHuman",
-  "description": "AI-native marketplace for discovering and hiring people for physical-world tasks, messaging, bounties, services, escrow, wallet payments, human QA, and event-driven workflows.",
+  "description": "Marketplace for discovering and hiring humans through fixed-price or hourly task bounties, services, escrow, wallet payments, human QA, and webhooks. Percentage-of-sale commission contracts are not a native API pricing type.",
   "logo": "https://www.google.com/s2/favicons?domain=rentahuman.ai&sz=128",
   "categories": [
     "marketplace",
@@ -180,9 +180,9 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Page size, capped by account tier.",
+            "description": "Authenticated REST page size, maximum 100; anonymous callers are capped at 24.",
             "minimum": 1,
-            "maximum": 200
+            "maximum": 100
           },
           "offset": {
             "type": "integer",
@@ -233,7 +233,7 @@
     },
     {
       "name": "get_human",
-      "description": "Get a public human profile, including skills, availability, rate, booking context, and public identity signals.",
+      "description": "Get a public human profile, including skills, availability, rate, booking context, and public identity signals. Preserve workPreferences and languageProficiencySummaries when present; a profile does not confirm agreement to commission-only work.",
       "method": "GET",
       "path": "/humans/{humanId}",
       "input_schema": {
@@ -289,7 +289,7 @@
     },
     {
       "name": "block_human",
-      "description": "Block a human from applying to your bounties or initiating conversations. The reason is private.",
+      "description": "Block a human from future bounty recruitment. Existing accepted assignments remain active; the reason is private.",
       "method": "POST",
       "path": "/humans/blocks",
       "input_schema": {
@@ -326,60 +326,10 @@
         "required": [
           "humanId"
         ]
-      }
-    },
-    {
-      "name": "start_conversation",
-      "description": "Start or reuse an active conversation with a human. Direct messaging is eligibility-gated; posting a bounty remains the default hiring flow.",
-      "method": "POST",
-      "path": "/conversations",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "humanId": {
-            "type": "string",
-            "description": "RentAHuman public human profile ID."
-          },
-          "subject": {
-            "type": "string",
-            "description": "Subject line."
-          },
-          "message": {
-            "type": "string",
-            "description": "Initial moderated message."
-          },
-          "agentName": {
-            "type": "string"
-          },
-          "agentType": {
-            "type": "string",
-            "enum": [
-              "clawdbot",
-              "moltbot",
-              "other"
-            ],
-            "description": "Agent category. Use other for a generic Apteva agent."
-          },
-          "messageType": {
-            "type": "string",
-            "enum": [
-              "text",
-              "task_request",
-              "payment_offer"
-            ],
-            "description": "Message type."
-          },
-          "metadata": {
-            "type": "object",
-            "description": "Structured task or payment metadata."
-          }
-        },
-        "required": [
-          "humanId",
-          "subject",
-          "message"
-        ]
-      }
+      },
+      "query_params": [
+        "humanId"
+      ]
     },
     {
       "name": "list_conversations",
@@ -483,7 +433,7 @@
     },
     {
       "name": "send_message",
-      "description": "Send a moderated message in an existing conversation. Use idempotencyKey when a workflow may retry.",
+      "description": "Send a message in an owned bounty, service-booking, feedback, dispute, or support conversation. Legacy direct threads return HTTP 403. Use idempotencyKey for retry-safe sending.",
       "method": "POST",
       "path": "/conversations/{conversationId}/messages",
       "input_schema": {
@@ -703,9 +653,9 @@
           },
           "spotsAvailable": {
             "type": "integer",
-            "description": "Number of workers needed, 1-500.",
+            "description": "Worker count, up to 2000; provider also limits escrow-funded pools to $10,000.",
             "minimum": 1,
-            "maximum": 500
+            "maximum": 2000
           },
           "identityRequired": {
             "type": "boolean",
@@ -974,6 +924,113 @@
             "description": "Stable retry key. Reusing it within 24 hours returns the original result instead of duplicating the operation.",
             "minLength": 8,
             "maxLength": 128
+          },
+          "micCheckRequired": {
+            "type": "boolean",
+            "description": "Require an applicant microphone check; scores are returned on applications."
+          },
+          "languageProficiencyRequirement": {
+            "type": "object",
+            "properties": {
+              "language": {
+                "type": "string",
+                "enum": [
+                  "en"
+                ]
+              },
+              "minimumCefr": {
+                "type": "string",
+                "enum": [
+                  "A2",
+                  "B1",
+                  "B2",
+                  "C1",
+                  "C2"
+                ]
+              }
+            },
+            "required": [
+              "language",
+              "minimumCefr"
+            ],
+            "description": "Require a provider-scored English speaking level. The provider re-checks this at acceptance."
+          },
+          "autoAccept": {
+            "type": "boolean",
+            "description": "Enable automatic applicant review and acceptance. Provider default is true; set false for manual hiring decisions."
+          },
+          "autoAcceptMinMicScore": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Minimum overall DNSMOS score for automatic microphone screening."
+          },
+          "supportedCountries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Eligible worker countries as ISO codes. Not supported for aiManaged bounties."
+          },
+          "excludedParticipantSourceBountyIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "description": "Exclude people previously accepted on these owned bounties."
+          },
+          "completionWindowHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720,
+            "description": "Completion deadline in hours after worker confirmation, or scheduled start if later."
+          },
+          "startWindowMinutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 1440,
+            "description": "Time allowed to start after seat confirmation or scheduled start."
+          },
+          "scheduledStartAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Future scheduled start including a UTC offset."
+          },
+          "scheduledStartTimeZone": {
+            "type": "string",
+            "description": "IANA time zone; requires scheduledStartAt."
+          },
+          "liveCaptureRequirement": {
+            "type": "string",
+            "enum": [
+              "photo",
+              "video"
+            ],
+            "description": "Require fresh evidence captured with the worker device camera."
+          },
+          "completionQuestions": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "prompt"
+              ]
+            },
+            "description": "Questions the accepted worker answers when submitting evidence."
           }
         },
         "required": [
@@ -1103,8 +1160,11 @@
             "type": "boolean"
           },
           "responseWindowHours": {
-            "type": "number",
-            "description": "Hours before an inactive accepted worker is considered ghosted, 1-720.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Hours before an inactive accepted worker is considered ghosted, 1-720. Pass null to clear.",
             "minimum": 1,
             "maximum": 720
           },
@@ -1373,6 +1433,123 @@
                 "type": "string"
               }
             }
+          },
+          "micCheckRequired": {
+            "type": "boolean",
+            "description": "Require an applicant microphone check; scores are returned on applications."
+          },
+          "languageProficiencyRequirement": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "language": {
+                "type": "string",
+                "enum": [
+                  "en"
+                ]
+              },
+              "minimumCefr": {
+                "type": "string",
+                "enum": [
+                  "A2",
+                  "B1",
+                  "B2",
+                  "C1",
+                  "C2"
+                ]
+              }
+            },
+            "required": [
+              "language",
+              "minimumCefr"
+            ],
+            "description": "Require a provider-scored English speaking level. The provider re-checks this at acceptance. Pass null to remove the requirement."
+          },
+          "autoAccept": {
+            "type": "boolean",
+            "description": "Enable automatic applicant review and acceptance. Provider default is true; set false for manual hiring decisions."
+          },
+          "autoAcceptMinMicScore": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Minimum overall DNSMOS score for automatic microphone screening. Pass null to reset to the provider default."
+          },
+          "supportedCountries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Eligible worker countries as ISO codes. Not supported for aiManaged bounties."
+          },
+          "excludedParticipantSourceBountyIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "description": "Exclude people previously accepted on these owned bounties."
+          },
+          "completionWindowHours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 720,
+            "description": "Completion deadline in hours after worker confirmation, or scheduled start if later. Pass null to clear."
+          },
+          "startWindowMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 5,
+            "maximum": 1440,
+            "description": "Time allowed to start after seat confirmation or scheduled start. Pass null to clear."
+          },
+          "scheduledStartAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Future scheduled start including a UTC offset. Pass null to clear."
+          },
+          "scheduledStartTimeZone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IANA time zone; requires scheduledStartAt. Pass null to clear."
+          },
+          "completionQuestions": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "prompt"
+              ]
+            },
+            "description": "Questions the accepted worker answers when submitting evidence. Editable only before applications exist; use [] to clear."
           }
         },
         "required": [
@@ -1931,7 +2108,7 @@
     },
     {
       "name": "release_payment",
-      "description": "Release an approved escrow to the worker. Optionally bind the operation to an expected application ID to prevent paying the wrong worker.",
+      "description": "Release funds to the worker and approve the canonical pending submission. Ordinary bounty jobs require acknowledgeRelease=true. If a 503 response includes paymentReleased=true, payment already committed; inspect or retry this same escrow rather than creating a new payment.",
       "method": "POST",
       "path": "/escrow/{escrowId}/release",
       "input_schema": {
@@ -1944,6 +2121,10 @@
           "applicationId": {
             "type": "string",
             "description": "Optional escrow/application binding check."
+          },
+          "acknowledgeRelease": {
+            "type": "boolean",
+            "description": "Required as true for ordinary bounty jobs; acknowledges that payout is final. Missing acknowledgment returns HTTP 409."
           }
         },
         "required": [
@@ -2850,6 +3031,109 @@
             "maximum": 200
           }
         }
+      }
+    },
+    {
+      "name": "list_preferred_humans",
+      "description": "List preferred workers. They are notified first for future bounties, QA, and taste runs.",
+      "method": "GET",
+      "path": "/humans/preferred",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "prefer_human",
+      "description": "Prefer a worker for future recruitment. This also removes any block on that person.",
+      "method": "POST",
+      "path": "/humans/preferred",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 280,
+            "description": "Private note."
+          }
+        },
+        "required": [
+          "humanId"
+        ]
+      }
+    },
+    {
+      "name": "unprefer_human",
+      "description": "Remove a worker from the preferred list.",
+      "method": "DELETE",
+      "path": "/humans/preferred",
+      "query_params": [
+        "humanId"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "humanId"
+        ]
+      }
+    },
+    {
+      "name": "stop_qa_run",
+      "description": "Stop intake for one active owned QA run. Existing assignments retain deadlines and approved work remains payable. Recurring schedules continue.",
+      "method": "POST",
+      "path": "/v1/qa/runs/{runId}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId"
+        ]
+      }
+    },
+    {
+      "name": "test_webhook_endpoint",
+      "description": "Queue a signed webhook.test event to an owned endpoint and return its delivery ID.",
+      "method": "POST",
+      "path": "/webhooks/endpoints/{endpointId}/test",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpointId"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook_delivery",
+      "description": "Get a webhook delivery payload and per-attempt history.",
+      "method": "GET",
+      "path": "/webhooks/deliveries/{deliveryId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deliveryId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deliveryId"
+        ]
       }
     }
   ]
