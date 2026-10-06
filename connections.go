@@ -13,8 +13,10 @@ import (
 	"io"
 	"log"
 	"math"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	neturl "net/url"
 	"os"
 	"regexp"
@@ -266,7 +268,10 @@ func buildMultipartRequestBody(tool *AppToolDef, input map[string]any, credentia
 				return nil, "", fmt.Errorf("multipart file %q: %w", inputName, err)
 			}
 			filename := multipartFilename(input, inputName, i, len(values))
-			part, err := writer.CreateFormFile(formName, filename)
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": formName, "filename": filename}))
+			header.Set("Content-Type", multipartFileMIMEType(raw))
+			part, err := writer.CreatePart(header)
 			if err != nil {
 				return nil, "", fmt.Errorf("multipart file field %q: %w", formName, err)
 			}
@@ -311,6 +316,30 @@ func multipartFileValues(v any) []any {
 	}
 }
 
+// multipartFileMIMEType preserves the declared type in file envelopes and data URLs.
+func multipartFileMIMEType(v any) string {
+	candidate := ""
+	switch x := v.(type) {
+	case map[string]any:
+		candidate, _ = x["mimeType"].(string)
+		if candidate == "" {
+			for _, field := range []string{"base64", "data"} {
+				if value, ok := x[field].(string); ok && strings.HasPrefix(value, "data:") {
+					return multipartFileMIMEType(value)
+				}
+			}
+		}
+	case string:
+		if comma := strings.Index(x, ","); strings.HasPrefix(x, "data:") && comma >= 0 {
+			candidate = strings.Split(x[5:comma], ";")[0]
+		}
+	}
+	if mediaType, _, err := mime.ParseMediaType(candidate); err == nil && strings.Contains(mediaType, "/") {
+		return mediaType
+	}
+	return "application/octet-stream"
+}
+
 func decodeMultipartFileValue(v any) ([]byte, error) {
 	switch x := v.(type) {
 	case []byte:
@@ -339,7 +368,14 @@ func decodeMultipartFileValue(v any) ([]byte, error) {
 
 func decodeMultipartFileString(s string) []byte {
 	if idx := strings.Index(s, ","); strings.HasPrefix(s, "data:") && idx >= 0 {
+		metadata := s[:idx]
 		s = s[idx+1:]
+		if !strings.Contains(metadata, ";base64") {
+			if decoded, err := neturl.PathUnescape(s); err == nil {
+				return []byte(decoded)
+			}
+			return []byte(s)
+		}
 	}
 	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
 		return decoded

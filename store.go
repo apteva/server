@@ -116,6 +116,7 @@ type Store struct {
 	db              *sql.DB
 	path            string
 	credentialLocks [64]sync.Mutex
+	apiKeyUsage     *apiKeyUsageTracker
 }
 
 const (
@@ -217,6 +218,10 @@ func NewStore(path string) (*Store, error) {
 	if err := s.migrateSubscriptionOutbox(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if s.apiKeyUsage, err = newAPIKeyUsageTracker(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("start API key usage tracker: %w", err)
 	}
 	return s, nil
 }
@@ -1897,6 +1902,9 @@ func migrateEmptySubscriptionWebhookPaths(db *sql.DB) {
 
 func (s *Store) Close() error {
 	s.automatic.get().Close()
+	if s.apiKeyUsage != nil {
+		s.apiKeyUsage.Close()
+	}
 	return s.db.Close()
 }
 
@@ -2668,21 +2676,22 @@ func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
 }
 
 func (s *Store) getPrivateAPIKeyPrincipal(keyHash string) (*User, string, error) {
+	var keyID int64
 	var access string
 	var u User
 	err := s.db.QueryRow(`
-		SELECT u.id, u.email, u.password_hash, COALESCE(u.role,'user'), COALESCE(k.access,'read_write')
+		SELECT k.id, u.id, u.email, u.password_hash, COALESCE(u.role,'user'), COALESCE(k.access,'read_write')
 		FROM users u JOIN api_keys k ON u.id = k.user_id
 		WHERE k.key_hash = ?
 		  AND COALESCE(k.kind, 'private') = 'private'
 		  AND k.revoked_at IS NULL
 		  AND (k.expires_at IS NULL OR datetime(k.expires_at) > CURRENT_TIMESTAMP)
-	`, keyHash).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &access)
+	`, keyHash).Scan(&keyID, &u.ID, &u.Email, &u.PasswordHash, &u.Role, &access)
 	if err != nil {
 		return nil, "", err
 	}
-	// Update last_used
-	s.db.Exec("UPDATE api_keys SET last_used = CURRENT_TIMESTAMP WHERE key_hash = ?", keyHash)
+	// Usage metadata is best effort; credential validation stays synchronous.
+	s.apiKeyUsage.record(keyID, "", false)
 	return &u, access, nil
 }
 
@@ -2741,7 +2750,7 @@ func (s *Store) GetDelegatedUserAPIKey(keyHash string) (*APIKey, error) {
 }
 
 func (s *Store) MarkAPIKeyUsed(keyID int64, ip string) {
-	_, _ = s.db.Exec("UPDATE api_keys SET last_used = CURRENT_TIMESTAMP, last_used_ip = ? WHERE id = ?", ip, keyID)
+	s.apiKeyUsage.record(keyID, ip, true)
 }
 
 func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {

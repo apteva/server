@@ -54,7 +54,7 @@ func resolveRealtimeSelection(pool []ProviderInfo, providerName, model string) (
 				continue
 			}
 			if !option.Available {
-				return "", "", fmt.Errorf("realtime model %q requires newer Core support", model)
+				return "", "", fmt.Errorf("realtime model %q is unavailable in the integration catalog", model)
 			}
 			return providerKeyFromName(chosen.Type), model, nil
 		}

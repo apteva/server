@@ -60,13 +60,11 @@ func TestPublicClientAppMCP_AllowsScopedActionForProjectInstall(t *testing.T) {
 			seenQueryProjectID, seenQueryInstallID, project.ID)
 	}
 
-	var storedLastUsed string
-	if err := s.store.db.QueryRow("SELECT COALESCE(last_used, '') FROM api_keys WHERE user_id = ?", user.ID).Scan(&storedLastUsed); err != nil {
-		t.Fatalf("query key last_used: %v", err)
+	var keyID int64
+	if err := s.store.db.QueryRow("SELECT id FROM api_keys WHERE user_id = ?", user.ID).Scan(&keyID); err != nil {
+		t.Fatalf("query key ID: %v", err)
 	}
-	if storedLastUsed == "" {
-		t.Fatalf("expected public client key last_used to be updated")
-	}
+	waitForAPIKeyUsage(t, s.store, keyID)
 }
 
 func TestPublicClientAppMCP_FallsBackToGlobalInstallWithTrustedProject(t *testing.T) {

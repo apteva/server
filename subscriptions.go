@@ -786,9 +786,25 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "unknown webhook token", http.StatusNotFound)
 }
 
-// handleSubscriptionWebhook is the delivery path for /webhooks/<token>
-// when the token matches a subscription row. Factored out of the
-// top-level handler so validation and delivery remain isolated.
+func (s *Server) subscriptionHMACSignature(r *http.Request, sub *Subscription) string {
+	// A declared header is authoritative. Do not accept a signature from a
+	// different provider's header when this integration declares its own.
+	if sub.ConnectionID > 0 && s.catalog != nil {
+		if conn, _, err := s.store.GetConnection(sub.UserID, sub.ConnectionID); err == nil && conn != nil {
+			if app := s.catalog.Get(conn.AppSlug); app != nil && app.Webhooks != nil && app.Webhooks.SignatureHeader != "" {
+				return r.Header.Get(app.Webhooks.SignatureHeader)
+			}
+		}
+	}
+	for _, header := range []string{"x-hub-signature-256", "x-signature-256", "x-webhook-signature"} {
+		if signature := r.Header.Get(header); signature != "" {
+			return signature
+		}
+	}
+	return ""
+}
+
+// handleSubscriptionWebhook delivers /webhooks/<token> subscriptions after verification.
 func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Request, sub *Subscription, encSecret string) {
 	if sub == nil {
 		http.Error(w, "subscription not found", http.StatusNotFound)
@@ -825,13 +841,7 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		{
-			sig := r.Header.Get("x-hub-signature-256")
-			if sig == "" {
-				sig = r.Header.Get("x-signature-256")
-			}
-			if sig == "" {
-				sig = r.Header.Get("x-webhook-signature")
-			}
+			sig := s.subscriptionHMACSignature(r, sub)
 			log.Printf("[WEBHOOK] sub %s HMAC check — sig header present=%v", sub.ID, sig != "")
 			if !verifyHMAC(body, sig, secret) {
 				log.Printf("[WEBHOOK] sub %s HMAC verification failed", sub.ID)
@@ -1124,7 +1134,24 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 							log.Printf("[SUB-CREATE] ← %d body_bytes=%d", resp.StatusCode, len(respBody))
 							if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 								autoRegistered = true
-								if reg.IDField != "" {
+								if reg.ResponseSecretField != "" {
+									// Some providers issue the signing secret rather than
+									// accepting the locally generated one in the request.
+									var respData map[string]any
+									parseErr := json.Unmarshal(respBody, &respData)
+									providerSecret := extractJSONStringPath(respData, reg.ResponseSecretField)
+									externalID := extractJSONPath(respData, reg.IDField)
+									if parseErr != nil || providerSecret == "" || (reg.IDField != "" && externalID == "") {
+										autoRegistered = false
+										log.Printf("[SUB-CREATE] provider response lacks required webhook ID or signing secret")
+									} else if encrypted, encryptErr := Encrypt(s.secret, providerSecret); encryptErr != nil {
+										autoRegistered = false
+										log.Printf("[SUB-CREATE] encrypt provider webhook secret failed: %v", encryptErr)
+									} else if _, saveErr := s.store.db.Exec("UPDATE subscriptions SET encrypted_hmac_secret = ?, external_webhook_id = ? WHERE id = ?", encrypted, externalID, sub.ID); saveErr != nil {
+										autoRegistered = false
+										log.Printf("[SUB-CREATE] persist provider webhook credentials failed: %v", saveErr)
+									}
+								} else if reg.IDField != "" {
 									var respData map[string]any
 									if json.Unmarshal(respBody, &respData) == nil {
 										extID := extractJSONPath(respData, reg.IDField)
@@ -1552,7 +1579,21 @@ func resolveCredTemplate(template string, credsJSON string) string {
 	return result
 }
 
-// extractJSONPath extracts a value at a dot-notation path from a map (e.g. "data.id")
+// extractJSONStringPath rejects non-string signing secrets rather than coercing them.
+func extractJSONStringPath(obj map[string]any, path string) string {
+	var current any = obj
+	for _, part := range strings.Split(path, ".") {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current = m[part]
+	}
+	value, _ := current.(string)
+	return value
+}
+
+// extractJSONPath extracts a value at a dot-notation path from a map (e.g. "data.id").
 func extractJSONPath(obj map[string]any, path string) string {
 	parts := strings.Split(path, ".")
 	var current any = obj

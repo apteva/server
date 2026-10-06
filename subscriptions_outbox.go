@@ -227,6 +227,20 @@ func (d *AppEventDispatcher) wakeOutbox() {
 	default:
 	}
 }
+
+const expiredAsyncJournalIDs = `SELECT id FROM app_async_event_journal WHERE created_at<? ORDER BY created_at,id LIMIT ?`
+const asyncJournalCleanupBatchSize = 10000
+
+// The date index bounds selection work to expired rows, including when a large
+// journal contains few or no expired events. Each call deletes only one batch.
+func (s *Store) cleanupAsyncEventJournal(ctx context.Context, cutoff int64) (int64, error) {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM app_async_event_journal WHERE id IN ("+expiredAsyncJournalIDs+")", cutoff, asyncJournalCleanupBatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (d *AppEventDispatcher) runOutbox(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -234,7 +248,9 @@ func (d *AppEventDispatcher) runOutbox(ctx context.Context) {
 	for {
 		if time.Since(lastCleanup) >= time.Minute {
 			d.Reconcile()
-			d.server.store.db.Exec("DELETE FROM app_async_event_journal WHERE id IN (SELECT id FROM app_async_event_journal WHERE created_at<? ORDER BY id LIMIT 10000)", time.Now().Add(-asyncReplayRetention).Unix())
+			if _, err := d.server.store.cleanupAsyncEventJournal(ctx, time.Now().Add(-asyncReplayRetention).Unix()); err != nil && ctx.Err() == nil {
+				log.Printf("[APP-SUB] journal cleanup: %v", err)
+			}
 			lastCleanup = time.Now()
 		}
 		d.drainOutbox(ctx)
