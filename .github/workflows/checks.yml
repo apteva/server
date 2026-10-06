@@ -22,7 +22,6 @@ jobs:
         with:
           repository: apteva/integrations
           path: integrations
-          token: ${{ secrets.REPO_TOKEN }}
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.6'
