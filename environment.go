@@ -108,7 +108,9 @@ type Environment struct {
 	apps              map[string]*SandboxAppInstance
 	installs          map[string]*localInstall    // real installs (AppSrcDirs path), keyed by app name
 	agents            map[int64]*EnvironmentAgent // running agent cores in this environment, keyed by transient agent id
-	agentAliases      map[string]int64            // stable environment-local alias → agent id
+	pendingAgents     map[int64]*EnvironmentAgent // server-owned startup reservations; never exposed as running agents
+	stopped           bool
+	agentAliases      map[string]int64 // stable environment-local alias → agent id
 	subscriptions     []EnvironmentSubscriptionSpec
 	mcpAttachments    map[string]RuntimeMCPAttachment
 	managedMCPs       map[string]*RuntimeManagedMCP
@@ -130,7 +132,7 @@ func (w *Environment) SourceInstallID(appName string) int64 {
 func (w *Environment) AddMCPAttachment(a RuntimeMCPAttachment) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if len(w.agents) > 0 {
+	if w.stopped || len(w.agents) > 0 || len(w.pendingAgents) > 0 {
 		return fmt.Errorf("attach MCP before spawning runtime agents")
 	}
 	if w.mcpAttachments == nil {
@@ -177,7 +179,7 @@ func (w *Environment) AddManagedMCP(mcp *RuntimeManagedMCP) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if len(w.agents) > 0 {
+	if w.stopped || len(w.agents) > 0 || len(w.pendingAgents) > 0 {
 		return fmt.Errorf("attach managed MCP before spawning runtime agents")
 	}
 	if w.managedMCPs == nil {
@@ -362,6 +364,14 @@ func (w *Environment) AttachAgent(a *EnvironmentAgent) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	return w.attachAgentLocked(a)
+}
+
+func (w *Environment) attachAgentLocked(a *EnvironmentAgent) error {
+	if w.stopped || (!w.expiresAt.IsZero() && !time.Now().Before(w.expiresAt)) {
+		return fmt.Errorf("environment is stopped or expired")
+	}
+	alias := a.Alias
 	if w.agents == nil {
 		w.agents = map[int64]*EnvironmentAgent{}
 	}
@@ -376,6 +386,54 @@ func (w *Environment) AttachAgent(a *EnvironmentAgent) error {
 	}
 	w.agents[a.AgentID] = a
 	w.agentAliases[alias] = a.AgentID
+	return nil
+}
+
+// reserveAgent authorizes only a server-created transient agent during startup.
+// Runtime IDs and agent kinds supplied by clients do not create reservations.
+func (w *Environment) reserveAgent(a *EnvironmentAgent) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped || (!w.expiresAt.IsZero() && !time.Now().Before(w.expiresAt)) {
+		return fmt.Errorf("environment is stopped or expired")
+	}
+	if a == nil || a.AgentID <= 0 || a.Alias == "" {
+		return fmt.Errorf("invalid pending environment agent")
+	}
+	if w.agents[a.AgentID] != nil || w.pendingAgents[a.AgentID] != nil {
+		return fmt.Errorf("environment already has agent %d", a.AgentID)
+	}
+	if _, exists := w.agentAliases[a.Alias]; exists {
+		return fmt.Errorf("environment already has an agent with alias %q", a.Alias)
+	}
+	for _, pending := range w.pendingAgents {
+		if pending.Alias == a.Alias {
+			return fmt.Errorf("environment already has an agent with alias %q", a.Alias)
+		}
+	}
+	if w.pendingAgents == nil {
+		w.pendingAgents = map[int64]*EnvironmentAgent{}
+	}
+	w.pendingAgents[a.AgentID] = a
+	return nil
+}
+
+func (w *Environment) releaseAgentReservation(agentID int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.pendingAgents, agentID)
+}
+
+func (w *Environment) activateReservedAgent(a *EnvironmentAgent) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.pendingAgents[a.AgentID] != a {
+		return fmt.Errorf("environment agent startup reservation is no longer active")
+	}
+	if err := w.attachAgentLocked(a); err != nil {
+		return err
+	}
+	delete(w.pendingAgents, a.AgentID)
 	return nil
 }
 
@@ -531,15 +589,20 @@ func (w *Environment) AppDBPath(name string) (string, bool) {
 // Idempotent.
 func (w *Environment) Stop() {
 	w.mu.Lock()
+	w.stopped = true
 	apps := w.apps
 	installs := w.installs
 	agents := make([]*EnvironmentAgent, 0, len(w.agents))
 	for _, a := range w.agents {
 		agents = append(agents, a)
 	}
+	for _, a := range w.pendingAgents {
+		agents = append(agents, a)
+	}
 	w.apps = map[string]*SandboxAppInstance{}
 	w.installs = map[string]*localInstall{}
 	w.agents = map[int64]*EnvironmentAgent{}
+	w.pendingAgents = map[int64]*EnvironmentAgent{}
 	w.agentAliases = map[string]int64{}
 	managedMCPManager := w.managedMCPManager
 	w.managedMCPManager = nil

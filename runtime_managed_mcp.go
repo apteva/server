@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -150,25 +151,69 @@ func (s *Server) handleRuntimeManagedMCPBridge(w http.ResponseWriter, r *http.Re
 		http.NotFound(w, r)
 		return
 	}
-	rest := strings.TrimPrefix(r.URL.Path, "/mcp/runtime/")
-	parts := strings.Split(strings.Trim(rest, "/"), "/")
-	if len(parts) != 2 {
-		http.NotFound(w, r)
-		return
-	}
-	runtimeID, _ := url.PathUnescape(parts[0])
-	token, _ := url.PathUnescape(parts[1])
-	runtime, ok := s.environments.Get(runtimeID)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	mcp := runtime.ManagedMCPByToken(token)
-	if mcp == nil || mcp.Process == nil {
+	_, mcp, err := s.resolveRuntimeManagedMCPPath(r.URL, 0)
+	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	s.serveRuntimeManagedMCP(w, r, mcp)
+}
+
+// resolveRuntimeManagedMCPPath validates the same runtime capability at startup
+// and at dispatch. URL.Path is already decoded; decoding again would allow
+// ambiguous paths. agentID=0 is used only by the capability-token bridge.
+func (s *Server) resolveRuntimeManagedMCPPath(u *url.URL, agentID int64) (*Environment, *RuntimeManagedMCP, error) {
+	if s.environments == nil || !strings.HasPrefix(u.Path, "/mcp/runtime/") {
+		return nil, nil, errors.New("invalid runtime MCP reference")
+	}
+	parts := strings.Split(strings.TrimPrefix(u.Path, "/mcp/runtime/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || parts[0] == "." || parts[0] == ".." {
+		return nil, nil, errors.New("invalid runtime MCP reference")
+	}
+	canonical, _ := url.Parse(s.runtimeManagedMCPURL(parts[0], parts[1]))
+	if u.EscapedPath() != canonical.EscapedPath() {
+		return nil, nil, errors.New("invalid runtime MCP reference")
+	}
+	runtime, ok := s.environments.Get(parts[0])
+	if !ok {
+		return nil, nil, errors.New("runtime MCP is no longer active")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.stopped || (!runtime.expiresAt.IsZero() && !time.Now().Before(runtime.expiresAt)) {
+		return nil, nil, errors.New("runtime MCP is no longer active")
+	}
+	if agentID > 0 && runtime.agents[agentID] == nil && runtime.pendingAgents[agentID] == nil {
+		return nil, nil, errors.New("agent does not belong to this MCP runtime")
+	}
+	for _, mcp := range runtime.managedMCPs {
+		if mcp.Token == parts[1] && mcp.Process != nil && (mcp.Status == "" || mcp.Status == "running") {
+			return runtime, mcp, nil
+		}
+	}
+	return nil, nil, errors.New("invalid runtime MCP capability")
+}
+
+func (s *Server) authorizeRuntimeManagedMCPReference(inst *Agent, u *url.URL) error {
+	if inst == nil || inst.ID <= 0 || inst.Kind != "environment_agent" {
+		return errors.New("runtime MCP requires a server-owned runtime agent")
+	}
+	if u.Scheme != "http" || u.User != nil || u.Port() != s.port || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost") || u.Fragment != "" || u.ForceQuery {
+		return errors.New("runtime MCP must use the server's loopback endpoint")
+	}
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return errors.New("invalid runtime MCP query")
+	}
+	// File caller signatures are refreshed after authorization. They never
+	// grant runtime membership or change the isolated routing destination.
+	for key := range query {
+		if key != "file_agent" && key != "file_auth" {
+			return errors.New("unsupported runtime MCP query")
+		}
+	}
+	_, _, err = s.resolveRuntimeManagedMCPPath(u, inst.ID)
+	return err
 }
 
 func (s *Server) serveRuntimeManagedMCP(w http.ResponseWriter, r *http.Request, mcp *RuntimeManagedMCP) {

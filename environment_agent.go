@@ -16,9 +16,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -199,9 +202,20 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		s.store.DeleteAgent(userID, row.ID)
 		return nil, fmt.Errorf("reload environment agent: %w", err)
 	}
+	var cleanupOnce sync.Once
+	agentID := wAgent.ID
 	teardown := func() {
-		s.stopAgentWithConfigLock(wAgent.ID)
-		s.store.DeleteAgent(userID, wAgent.ID)
+		cleanupOnce.Do(func() {
+			environment.releaseAgentReservation(agentID)
+			s.stopAgentWithConfigLock(agentID)
+			s.store.DeleteAgent(userID, agentID)
+			_ = os.RemoveAll(filepath.Join(s.agents.dataDir, fmt.Sprintf("instance_%d", agentID)))
+		})
+	}
+	wa := &EnvironmentAgent{
+		AgentID: wAgent.ID, SourceAgentID: src.ID, SourceName: src.Name,
+		Alias: alias, Provider: selectedProvider, Model: selectedModel,
+		CreatedAt: time.Now(), cleanup: teardown,
 	}
 
 	// Point mcp_servers at the Environment apps the source agent can actually
@@ -298,6 +312,10 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		teardown()
 		return nil, fmt.Errorf("seed environment agent config: %w", err)
 	}
+	if err := environment.reserveAgent(wa); err != nil {
+		teardown()
+		return nil, fmt.Errorf("reserve environment agent: %w", err)
+	}
 	if _, err := s.startManagedAgent(wAgent, providerEnv, pool); err != nil {
 		teardown()
 		return nil, fmt.Errorf("spawn environment core: %w", err)
@@ -311,19 +329,9 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("persist environment agent runtime state: %w", err)
 	}
 
-	wa := &EnvironmentAgent{
-		AgentID:       wAgent.ID,
-		SourceAgentID: src.ID,
-		SourceName:    src.Name,
-		Alias:         alias,
-		Provider:      selectedProvider,
-		Model:         selectedModel,
-		Port:          s.agents.GetPort(wAgent.ID),
-		CreatedAt:     time.Now(),
-		APIKey:        s.agents.GetCoreAPIKey(wAgent.ID),
-		cleanup:       teardown,
-	}
-	if err := environment.AttachAgent(wa); err != nil {
+	wa.Port = s.agents.GetPort(wAgent.ID)
+	wa.APIKey = s.agents.GetCoreAPIKey(wAgent.ID)
+	if err := environment.activateReservedAgent(wa); err != nil {
 		wa.Stop()
 		return nil, err
 	}

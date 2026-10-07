@@ -789,6 +789,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	log.Printf("[SPAWN] exec %s --headless dir=%s port=%d providerEnvKeys=%v", im.coreCmd, dir, port, providerEnvKeys(providerEnv))
 	if err := cmd.Start(); err != nil {
 		log.Printf("[SPAWN] exec failed: %v", err)
+		ic.Stop()
 		return fmt.Errorf("failed to start core: %w", err)
 	}
 	log.Printf("[SPAWN] core started agent=%d pid=%d port=%d", inst.ID, cmd.Process.Pid, port)

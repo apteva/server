@@ -81,6 +81,12 @@ func (s *Server) authorizeAgentMCPConfig(inst *Agent, config map[string]any) err
 			}
 			continue
 		}
+		if err == nil && (u.Path == "/mcp/runtime" || strings.HasPrefix(u.Path, "/mcp/runtime/")) {
+			if err := s.authorizeRuntimeManagedMCPReference(inst, u); err != nil {
+				return err
+			}
+			continue
+		}
 		if err != nil || u.Port() != s.port || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost") || !strings.HasPrefix(u.Path, "/mcp/") {
 			continue
 		}
