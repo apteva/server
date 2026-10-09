@@ -379,19 +379,34 @@ func (s *Server) fileReferenceCaller(r *http.Request, threadID string) (fileCall
 	return fileCaller{agentID: id, threadID: threadID}, nil
 }
 
-// Source access is identical for app-owned bytes and server blobs associated
-// with an app installation. Moving the bytes must not bypass revocation.
-func (s *Server) authorizeFileSource(installID int64, project string, agentID int64) error {
+// App access is shared by explicit file references and server-managed blobs.
+// The thread-owning app need not declare a file API permission just to receive
+// binary tool outputs. Status, project access and attachment still apply on
+// every access so storage in Server cannot bypass app revocation.
+func (s *Server) authorizeFileAppAccess(installID int64, project string, agentID int64) (*appInstallMetadata, error) {
 	metadata, err := s.appMetadata(installID)
-	if err != nil || metadata.status != "running" || !metadata.permissions[sdk.PermFileReferences] || (metadata.project != "" && metadata.project != project) {
-		return fileProblem(403, "file_inaccessible", "owning app is inaccessible or permission was revoked")
+	if err != nil || metadata.status != "running" || (metadata.project != "" && metadata.project != project) {
+		return nil, fileProblem(403, "file_inaccessible", "owning app is inaccessible")
 	}
 	if s.store.GetPlatformRole(metadata.owner) != PlatformAdmin && s.effectiveRoleOnProject(metadata.owner, project).Rank() < ProjectViewer.Rank() {
-		return fileProblem(403, "file_inaccessible", "owning app no longer has project access")
+		return nil, fileProblem(403, "file_inaccessible", "owning app no longer has project access")
 	}
 	var enabled int
 	if err = s.store.db.QueryRow(`SELECT enabled FROM app_agent_bindings WHERE install_id=? AND agent_id=?`, installID, agentID).Scan(&enabled); err != nil || enabled != 1 {
-		return fileProblem(403, "file_inaccessible", "owning app is no longer attached to this agent")
+		return nil, fileProblem(403, "file_inaccessible", "owning app is no longer attached to this agent")
+	}
+	return metadata, nil
+}
+
+// App-owned file references additionally require the explicit file API
+// permission, including when reading previously registered references.
+func (s *Server) authorizeFileSource(installID int64, project string, agentID int64) error {
+	metadata, err := s.authorizeFileAppAccess(installID, project, agentID)
+	if err != nil {
+		return err
+	}
+	if !metadata.permissions[sdk.PermFileReferences] {
+		return fileProblem(403, "file_inaccessible", "owning app file API permission was revoked")
 	}
 	return nil
 }

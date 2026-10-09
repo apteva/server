@@ -69,9 +69,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "setup_apply", Description: "Apply the workspace preset the user agreed to after preview. Uses the same provisioning as the dashboard, reuses existing agents and reports partial failures. Check warnings and agent status; do not claim success when work remains.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Workspace project ID"}, "preset_id": {Type: "string", Description: "Agreed preset ID"}, "interface_level": {Type: "string", Description: "Agreed interface override: personal, business or developer. Saved for onboarding review; does not change existing preferences."}, "description": {Type: "string", Description: "Agreed setup purpose"}}, Required: []string{"project_id", "preset_id", "description"}}},
 		// Agents
 		{Name: "agents_list", Description: "List compact Apteva agent summaries visible to this user. Results are searchable and paginated and default to the current project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional name/status search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
-		{Name: "agents_get", Description: "Get one Apteva agent without exposing runtime credentials. Long directives are returned in chunks.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "directive_offset": {Type: "integer", Description: "Byte offset for the directive chunk"}, "directive_limit": {Type: "integer", Description: "Directive bytes to return, maximum 8000"}}, Required: []string{"id"}}},
+		{Name: "agents_get", Description: "Get one Apteva agent with actual attached apps and MCP identities, without exposing runtime credentials. Long directives are returned in chunks.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "directive_offset": {Type: "integer", Description: "Byte offset for the directive chunk"}, "directive_limit": {Type: "integer", Description: "Directive bytes to return, maximum 8000"}}, Required: []string{"id"}}},
 		{Name: "agents_create", Description: "Create an idempotent project agent and return a compact receipt. List agents first and reuse a stable idempotency_key.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Structured agent instructions"}, "idempotency_key": {Type: "string", Description: "Stable key for this logical agent"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "start": {Type: "boolean", Description: "Start immediately; defaults true"}, "include_channels": {Type: "boolean", Description: "Attach legacy channel MCPs"}, "unconscious": {Type: "boolean", Description: "Enable background memory"}, "config": {Type: "object", Description: "Optional advanced agent settings"}, "use_default_apps": {Type: "boolean", Description: "Attach default project apps; defaults true"}, "bound_app_install_ids": {Type: "array", Description: "Exact installed-app selection", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach", Items: &toolParam{Type: "integer"}}}, Required: []string{"name", "directive"}}},
-		{Name: "agents_update", Description: "Update agent metadata, directive sections, settings or attached MCP servers and return a compact change receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "object", Description: "Advanced agent settings"}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "set, add, or remove; defaults to set"}}, Required: []string{"id"}}},
+		{Name: "agents_update", Description: "Update agent metadata, settings or actual capabilities. Use top-level bound_app_install_ids from apps_list to attach app tools, including coordination apps plus domain apps; never place attachment IDs in config. Returns verified current capabilities. Does not start a stopped agent.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "object", Description: "Advanced runtime settings only; attachment selectors belong at the top level"}, "bound_app_install_ids": {Type: "array", Description: "App installation IDs from apps_list. Resolves to real MCP attachments. Defaults to additive add when only app IDs are supplied.", Items: &toolParam{Type: "integer"}}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "add, remove, or set for the combined app/MCP selection. Defaults to add for app-only selection; legacy mcp_server_ids defaults to set. Use add to preserve other capabilities"}}, Required: []string{"id"}}},
 		{Name: "agents_start", Description: "Start a stopped agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_stop", Description: "Stop a running agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_send_event", Description: "Send a work instruction to a running Apteva agent through the server's normal Core event delivery. The target must belong to the trusted current project, or project_id must be supplied explicitly when this gateway has no project context. Pass a stable event_id to opt into idempotent delivery and a lifecycle-tracked execution receipt; tracked and untracked events both default to main when thread_id is omitted.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Target agent ID"}, "message": {Type: "string", Description: "Work instruction to deliver"}, "project_id": {Type: "string", Description: "Target project ID. Required when the gateway has no trusted project context."}, "thread_id": {Type: "string", Description: "Optional target thread ID. Defaults to main."}, "event_id": {Type: "string", Description: "Optional stable idempotency key. Reusing it with the same message returns duplicate=true and the same execution_id without waking another turn."}}, Required: []string{"id", "message"}}},
@@ -1417,7 +1417,12 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 				items = append(items, row)
 			}
 		}
-		return gatewayPage(items, args, "apps")
+		page, err := gatewayPage(items, args, "apps")
+		if err != nil {
+			return nil, err
+		}
+		page["agent_usage"] = gatewayAppAttachmentGuidance
+		return page, nil
 
 	case "apps_get":
 		installID, err := parseInstallIDArg(args)
@@ -1649,7 +1654,13 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d", id), nil, &out); err != nil {
 			return nil, err
 		}
-		return compactGatewayAgent(out, true, args), nil
+		result := compactGatewayAgent(out, true, args)
+		capabilities, err := gatewayAgentCapabilities(id, serverAPI, store)
+		if err != nil {
+			return nil, err
+		}
+		result["capabilities"] = capabilities
+		return result, nil
 
 	case "agents_create":
 		agentName, _ := args["name"].(string)
@@ -1726,6 +1737,38 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 
 	case "agents_update":
 		id, _ := parseIntArg(args["id"])
+		// Validate attachment shape before any metadata/config side effect.
+		cfg, hasConfig, err := optionalConfigArg(args["config"])
+		if err != nil {
+			return nil, err
+		}
+		if hasConfig {
+			if err := validateAgentAttachmentSettings(cfg); err != nil {
+				return nil, err
+			}
+		}
+		_, hasMCPIDs := args["mcp_server_ids"]
+		_, hasAppIDs := args["bound_app_install_ids"]
+		serverIDs, err := positiveAttachmentIDs(args["mcp_server_ids"])
+		if err != nil {
+			return nil, fmt.Errorf("mcp_server_ids must contain positive integers: %w", err)
+		}
+		appIDs, err := positiveAttachmentIDs(args["bound_app_install_ids"])
+		if err != nil {
+			return nil, fmt.Errorf("bound_app_install_ids must contain positive integers: %w", err)
+		}
+		action, _ := args["mcp_action"].(string)
+		action = strings.ToLower(strings.TrimSpace(action))
+		if action == "" {
+			if hasMCPIDs {
+				action = "set"
+			} else {
+				action = "add"
+			}
+		}
+		if action != "set" && action != "add" && action != "remove" {
+			return nil, fmt.Errorf("mcp_action must be set, add, or remove")
+		}
 		result := map[string]any{"id": id, "status": "updated"}
 		changed := []string{}
 		if newName, _ := args["name"].(string); strings.TrimSpace(newName) != "" {
@@ -1747,9 +1790,7 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if mode, _ := args["mode"].(string); strings.TrimSpace(mode) != "" {
 			configBody["mode"] = strings.TrimSpace(mode)
 		}
-		if cfg, ok, err := optionalConfigArg(args["config"]); err != nil {
-			return nil, err
-		} else if ok {
+		if hasConfig {
 			configBody["config"] = cfg
 		}
 		if len(configBody) > 0 {
@@ -1763,31 +1804,21 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 				}
 			}
 		}
-		if _, ok := args["mcp_server_ids"]; ok {
+		if hasMCPIDs || hasAppIDs {
 			if store == nil {
 				return nil, fmt.Errorf("store unavailable")
 			}
-			serverIDs, err := parseIntListArg(args["mcp_server_ids"])
-			if err != nil {
-				return nil, fmt.Errorf("mcp_server_ids must be comma-separated IDs")
-			}
-			action, _ := args["mcp_action"].(string)
-			action = strings.ToLower(strings.TrimSpace(action))
-			if action == "" {
-				action = "set"
-			}
-			if action != "set" && action != "add" && action != "remove" {
-				return nil, fmt.Errorf("mcp_action must be set, add, or remove")
-			}
-			out, err := updateAgentMCPServersFromGateway(id, serverIDs, action, projectID, serverAPI, store, selfPath)
+			out, err := updateAgentCapabilitiesFromGateway(id, serverIDs, appIDs, action, serverAPI, store)
 			if err != nil {
 				return nil, err
 			}
+			result["capabilities"] = out
 			result["mcp_servers"] = out
 			changed = append(changed, "mcp_servers")
 		}
+
 		if len(changed) == 0 {
-			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, config, or mcp_server_ids")
+			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, config, bound_app_install_ids, or mcp_server_ids")
 		}
 		result["changed"] = changed
 		return result, nil
@@ -2034,39 +2065,42 @@ func hasGatewayDirectiveEditArgs(args map[string]any) bool {
 }
 
 func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, defaultProjectID string, serverAPI gatewayAPIClient, store *Store, selfPath string) (any, error) {
-	// Attachment mutation belongs to the server API so dashboard and agent
-	// tools share one atomic, project-scoped implementation. In particular,
-	// do not GET + replace the full list here: two callers could otherwise
-	// erase each other's changes.
-	body := map[string]any{
-		"action":         action,
-		"mcp_server_ids": serverIDs,
-	}
+	return updateAgentCapabilitiesFromGateway(agentID, serverIDs, nil, action, serverAPI, store)
+}
+
+func updateAgentCapabilitiesFromGateway(agentID int64, serverIDs, appIDs []int64, action string, api gatewayAPIClient, store *Store) (any, error) {
+	body := map[string]any{"action": action, "mcp_server_ids": serverIDs, "bound_app_install_ids": appIDs}
 	var mutation any
-	if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/agents/%d/mcp-servers", agentID), body, &mutation); err != nil {
+	if err := api.do(http.MethodPost, fmt.Sprintf("/agents/%d/mcp-servers", agentID), body, &mutation); err != nil {
 		return nil, err
 	}
-	var current struct {
-		MCPServers []map[string]any `json:"mcp_servers"`
+	current, err := gatewayAgentCapabilities(agentID, api, store)
+	if err != nil {
+		return nil, fmt.Errorf("attachment mutation succeeded but verification failed: %w", err)
 	}
-	if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d/config", agentID), nil, &current); err != nil {
-		return nil, err
+	actualMCP := map[int64]bool{}
+	for _, id := range current["mcp_server_ids"].([]int64) {
+		actualMCP[id] = true
 	}
-	servers := make([]map[string]any, 0, len(current.MCPServers))
-	for _, config := range current.MCPServers {
-		name, _ := config["name"].(string)
-		if strings.TrimSpace(name) == "" || gatewayMCPConfigIsSystem(config) {
-			continue
+	actualApps := map[int64]bool{}
+	for _, app := range current["apps"].([]map[string]any) {
+		actualApps[app["install_id"].(int64)] = true
+	}
+	for _, selection := range []struct {
+		kind   string
+		ids    []int64
+		actual map[int64]bool
+	}{
+		{"MCP server", serverIDs, actualMCP}, {"app installation", appIDs, actualApps},
+	} {
+		for _, id := range selection.ids {
+			if selection.actual[id] != (action != "remove") {
+				return nil, fmt.Errorf("attachment mutation accepted but current configuration does not verify %s %d for action %s; inspect agents_get before retrying", selection.kind, id, action)
+			}
 		}
-		servers = append(servers, map[string]any{"name": name})
 	}
-	return map[string]any{
-		"id":             agentID,
-		"action":         action,
-		"mcp_server_ids": serverIDs,
-		"mcp_servers":    servers,
-		"count":          len(servers),
-	}, nil
+	current["id"], current["action"] = agentID, action
+	return current, nil
 }
 
 func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, instanceSecret string) (map[string]any, error) {

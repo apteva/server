@@ -2715,6 +2715,16 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON object", http.StatusBadRequest)
 		return
 	}
+	if err := validateAgentAttachmentSettings(body.Config); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, field := range []string{"bound_app_install_ids", "bound_connection_ids", "mcp_server_ids", "mcp_action"} {
+		if _, exists := rawBody[field]; exists {
+			http.Error(w, "use /agents/:id/mcp-servers for attachment selectors", http.StatusBadRequest)
+			return
+		}
+	}
 	if value, exists := rawBody["proactivity"]; exists {
 		n, ok := value.(float64)
 		if !ok || n < 0 || n > 100 || n != float64(int(n)) {
@@ -2756,6 +2766,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	action, hasMCPAction := rawBody["_mcp_action"].(string)
 	if hasMCPAction {
 		rawIDs, ok := rawBody["_mcp_server_ids"].([]any)
+		if rawBody["_mcp_server_ids"] == nil {
+			rawIDs, ok = []any{}, true
+		}
 		if !ok {
 			http.Error(w, "mcp_server_ids must be an array", http.StatusBadRequest)
 			return
@@ -2768,6 +2781,23 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			serverIDs = append(serverIDs, int64(id))
+		}
+		if action != "add" && action != "remove" && action != "set" {
+			http.Error(w, "action must be add, remove, or set", http.StatusBadRequest)
+			return
+		}
+		if value := rawBody["_app_install_ids"]; value != nil {
+			appIDs, err := positiveAttachmentIDs(value)
+			if err != nil {
+				http.Error(w, "bound_app_install_ids must contain positive integers", http.StatusBadRequest)
+				return
+			}
+			appMCPIDs, err := s.resolveAgentAppMCPIDs(inst, appIDs)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			serverIDs = append(serverIDs, appMCPIDs...)
 		}
 		current, err := s.currentAgentMCPServers(inst, port)
 		if err != nil {
@@ -2782,6 +2812,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		rawBody["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(current, selected, action))
 		delete(rawBody, "_mcp_action")
 		delete(rawBody, "_mcp_server_ids")
+		delete(rawBody, "_app_install_ids")
 	} else if _, hasMCPServers := rawBody["mcp_servers"]; !hasMCPServers {
 		// Dashboard and gateway config writes are patch-shaped (directive,
 		// mode, provider selection, reset). Core's config endpoint is not:

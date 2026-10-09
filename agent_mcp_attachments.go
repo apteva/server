@@ -40,8 +40,9 @@ func (s *Server) handleAgentMCPServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Action       string  `json:"action"`
-		MCPServerIDs []int64 `json:"mcp_server_ids"`
+		Action        string  `json:"action"`
+		MCPServerIDs  []int64 `json:"mcp_server_ids"`
+		AppInstallIDs []int64 `json:"bound_app_install_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -57,8 +58,9 @@ func (s *Server) handleAgentMCPServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	encoded, _ := json.Marshal(map[string]any{
-		"_mcp_action":     body.Action,
-		"_mcp_server_ids": body.MCPServerIDs,
+		"_mcp_action":      body.Action,
+		"_mcp_server_ids":  body.MCPServerIDs,
+		"_app_install_ids": body.AppInstallIDs,
 	})
 	r.Method = http.MethodPut
 	r.URL.Path = "/instances/" + strconv.FormatInt(instanceID, 10) + "/config"

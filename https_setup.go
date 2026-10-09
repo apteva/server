@@ -593,7 +593,7 @@ func (n *instanceHTTPSManager) ensureListeners(c instanceHTTPSConfig) error {
 		if err != nil {
 			return fmt.Errorf("cannot listen on HTTPS port %d: %w. Check for another service; on Linux use `sudo apteva https prepare-service --system --data-dir <instance-directory> --restart`, or forward public ports to higher local ports", c.HTTPSPort, err)
 		}
-		srv := &http.Server{Handler: n.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: n.server.ingressCerts.GetCertificate, NextProtos: []string{"h2", "http/1.1", "acme-tls/1"}}}
+		srv := &http.Server{Handler: n.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, TLSConfig: n.server.ingressCerts.TLSConfig()}
 		n.httpsServer = srv
 		n.boundHTTPS = c.HTTPSPort
 		go func() { _ = srv.ServeTLS(listener, "", "") }()

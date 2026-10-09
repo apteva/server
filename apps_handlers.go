@@ -1634,6 +1634,10 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	lock := s.bindingUpdateLock(installID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -1688,6 +1692,11 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	if supportsLiveBindings(manifest) {
+		s.setLiveBindings(w, installID, bindingsForInstall(s, installID), merged)
+		return
+	}
+
 	bj, _ := json.Marshal(merged)
 	if _, err := s.store.db.Exec(
 		`UPDATE app_installs SET integration_bindings = ?, has_pending_options = 0 WHERE id = ?`,

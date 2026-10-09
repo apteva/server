@@ -188,9 +188,42 @@ func TestHelperAppToolsRecheckRestrictions(t *testing.T) {
 				return
 			}
 			result := f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": args})
+			if kind == "revoked" && result["http_status"] != http.StatusForbidden {
+				t.Fatalf("revocation not enforced at ingress: %#v", result)
+			}
 			if result["isError"] != true || f.called != 0 {
 				t.Fatalf("restriction %s bypassed: %v", kind, result)
 			}
 		})
+	}
+}
+
+func TestHelperAppToolSearchUsesAppMetadata(t *testing.T) {
+	f := newHelperBrokerFixture(t)
+	entry := f.s.installedApps.Get(f.install)
+	entry.Manifest.DisplayName = "Customer Service Desk"
+	entry.Manifest.Description = "Investigate onboarding procedures and escalation evidence"
+	for _, query := range []string{"onboarding", "escalation", "customer service"} {
+		result := f.request(t, "app_tool_search", map[string]any{"query": query})
+		if result["isError"] == true {
+			t.Fatalf("metadata search failed: %#v", result)
+		}
+		text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+		var out struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				DisplayName string `json:"app_display_name"`
+				Description string `json:"app_description"`
+			} `json:"tools"`
+		}
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Tools) != 1 || out.Tools[0].Name != "tickets_list" || out.Tools[0].DisplayName != entry.Manifest.DisplayName || out.Tools[0].Description != entry.Manifest.Description {
+			t.Fatalf("app metadata query %q did not discover filtered tools: %s", query, text)
+		}
+		if strings.Contains(text, "internal_secret") {
+			t.Fatal("metadata search exposed private tool")
+		}
 	}
 }

@@ -137,11 +137,37 @@ func (p environmentSourceAgentPolicy) mcpConfig(name, endpoint string) map[strin
 }
 
 func (p environmentSourceAgentPolicy) copyRealtimeConfig(target map[string]any) {
-	for _, key := range []string{"realtime_enabled", "realtime_voice", "realtime_voice_mcp"} {
+	for _, key := range []string{"realtime_enabled", "realtime_provider", "realtime_model", "realtime_voice", "realtime_voice_mcp"} {
 		if value, ok := p.config[key]; ok {
 			target[key] = value
 		}
 	}
+}
+
+// Isolated tests must honor the source's explicit realtime selection. The
+// ordinary provider builder tolerates stale saved choices by falling back;
+// reject those choices here before creating any temporary agent resources.
+func (p environmentSourceAgentPolicy) validateRealtimeSelection(pool []ProviderInfo) error {
+	selection := make(map[string]string, 2)
+	for _, key := range []string{"realtime_provider", "realtime_model"} {
+		value, exists := p.config[key]
+		if !exists || value == nil {
+			continue
+		}
+		text, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("environment realtime configuration: %s must be a string", key)
+		}
+		selection[key] = strings.TrimSpace(text)
+	}
+	provider, model := selection["realtime_provider"], selection["realtime_model"]
+	if provider == "" && model == "" {
+		return nil
+	}
+	if _, _, err := resolveRealtimeSelection(pool, provider, model); err != nil {
+		return fmt.Errorf("environment realtime selection cannot be honored: %w", err)
+	}
+	return nil
 }
 
 // Stop tears the environment-agent down (stops the core, deletes the row).
@@ -188,6 +214,9 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	}
 	directive = withoutAgentControls(directive)
 	sourcePolicy := parseEnvironmentSourceAgentPolicy(src.Config)
+	if err := sourcePolicy.validateRealtimeSelection(pool); err != nil {
+		return nil, err
+	}
 
 	// Transient environment-agent row cloned from the source.
 	row, err := s.store.CreateAgent(userID,

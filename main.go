@@ -81,6 +81,8 @@ func loadOrMintInstanceSecret(store *Store) string {
 }
 
 type Server struct {
+	liveBindingLocks     sync.Map
+	liveBindingWorkers   sync.Map
 	automatic            automaticRuntime
 	store                *Store
 	dbPath               string // path to apteva-server.db on disk (needed for staged restore)
@@ -1137,6 +1139,8 @@ func main() {
 			s.handleSetInstallBindings(w, r)
 		case strings.HasSuffix(path, "/upgrade") && r.Method == http.MethodPost:
 			s.handleUpgradeApp(w, r)
+		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodGet:
+			s.handleGetLiveBindings(w, r)
 		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodPut:
 			s.handleSetInstallBindings2(w, r)
 		case strings.HasSuffix(path, "/setup"):

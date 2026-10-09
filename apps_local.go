@@ -1068,6 +1068,7 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 // before dependents start their OnMount callbacks. Independent installs still
 // resume in parallel, preserving the fast common path.
 func (s *Server) ResumeLocalInstalls() {
+	defer s.resumeLiveBindingUpdates()
 	s.rebuildLocalFixedPortReservations()
 	// We pull `i.version` (what was actually installed) separately from
 	// the install's manifest snapshot — they

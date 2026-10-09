@@ -27,7 +27,7 @@ var projectConversationGatewayTools = map[string]bool{
 	"agents_list": true, "agents_get": true, "agents_create": true,
 	"agents_update": true, "agents_start": true, "agents_stop": true,
 	"agents_send_event": true, "agents_delete": true, "agent_list_activity": true,
-	"apps_list": true, "apps_marketplace": true, "apps_install": true,
+	"apps_list": true, "apps_get": true, "apps_marketplace": true, "apps_install": true,
 	"apps_upgrade": true, "apps_uninstall": true,
 	"list_connections": true, "list_mcp_servers": true, "list_server_tools": true,
 }
@@ -208,6 +208,15 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 			if parseErr != nil || lookupErr != nil || target == nil || target.ProjectID != projectID {
 				return body, fmt.Errorf("target agent is not in the trusted project")
 			}
+		}
+	case "apps_get":
+		installID, parseErr := parseInstallIDArg(args)
+		if parseErr != nil {
+			return body, parseErr
+		}
+		var installProject string
+		if scanErr := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); scanErr != nil || (installProject != "" && installProject != projectID) {
+			return body, fmt.Errorf("target app installation is not available in the trusted project")
 		}
 	case "apps_upgrade", "apps_uninstall":
 		installID, parseErr := parseInstallIDArg(args)

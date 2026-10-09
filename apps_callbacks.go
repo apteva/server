@@ -685,8 +685,13 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)
 			return
 		}
+		if err := s.store.populateAgentAppearance(agent); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, sdk.PlatformInstance{
 			ID: agent.ID, Name: agent.Name, Status: agent.Status,
+			Icon: agent.Icon, IconColor: agent.IconColor,
 			Mode: agent.Mode, ProjectID: agent.ProjectID, DefaultThreadID: "main",
 			AttachedToCaller: s.runtimeContainsInstallAndAgent(installID, agent.ID),
 		})
@@ -1497,6 +1502,7 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		req.Header.Set("X-Apteva-Bound-Caller-Install-ID", strconv.FormatInt(callerInstallID, 10))
 		req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
 	}
+	configureAppClientIP(proxy, r, target.Token)
 	proxy.ServeHTTP(w, r)
 }
 
@@ -2130,13 +2136,20 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 			for _, environmentAgent := range environment.Agents() {
 				status := "stopped"
 				mode := "autonomous"
+				icon, iconColor := defaultAgentIcon, defaultAgentIconColor
 				if agent, err := s.store.GetAgent(getUserID(r), environmentAgent.AgentID); err == nil && agent != nil {
+					if err := s.store.populateAgentAppearance(agent); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					icon, iconColor = agent.Icon, agent.IconColor
 					status = agent.Status
 					mode = agent.Mode
 				}
 				out = append(out, sdk.PlatformInstance{
 					ID: environmentAgent.AgentID, Name: environmentAgent.Alias,
 					Status: status, Mode: mode, ProjectID: environment.ID,
+					Icon: icon, IconColor: iconColor,
 					DefaultThreadID: "main", AttachedToCaller: true,
 				})
 			}
@@ -2172,10 +2185,15 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 			agents = append(agents, *helper)
 		}
 	}
+	if err := s.store.populateAgentAppearances(agents); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	out := make([]sdk.PlatformInstance, 0, len(agents))
 	for _, agent := range agents {
 		out = append(out, sdk.PlatformInstance{
 			ID: agent.ID, Name: agent.Name, Status: agent.Status,
+			Icon: agent.Icon, IconColor: agent.IconColor,
 			Mode: agent.Mode, ProjectID: agent.ProjectID, DefaultThreadID: "main",
 			AttachedToCaller: bound[agent.ID],
 		})

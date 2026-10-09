@@ -21,6 +21,9 @@ import (
 
 // blobScope comes from signed runtime transport or validated app callback
 // scope. A model-supplied project/thread/owner is never used for authorization.
+// An app-owned thread must retain access to its owning app, but automatic
+// tool-output storage does not require that app to use the explicit file API.
+// App callback uploads enforce platform.files.references at their entry point.
 func (s *Server) blobScope(caller fileCaller) (userID int64, project string, installID int64, err error) {
 	if caller.agentID <= 0 || !validTrustedMCPIdentity(caller.threadID) {
 		return 0, "", 0, fileProblem(403, "file_context_required", "trusted agent and thread required")
@@ -47,7 +50,7 @@ func (s *Server) blobScope(caller fileCaller) (userID int64, project string, ins
 		return 0, "", 0, fileProblem(403, "file_inaccessible", "agent owner no longer has project access")
 	}
 	if installID != 0 {
-		if err := s.authorizeFileSource(installID, project, caller.agentID); err != nil {
+		if _, err := s.authorizeFileAppAccess(installID, project, caller.agentID); err != nil {
 			return 0, "", 0, err
 		}
 	}

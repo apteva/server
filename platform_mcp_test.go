@@ -112,3 +112,37 @@ func TestManagementGatewayConfigUsesSharedHTTPTransport(t *testing.T) {
 		t.Fatalf("ordinary gateway=%#v", ordinary)
 	}
 }
+
+func TestPlatformMCPAppDetailsAreAvailableAndProjectScoped(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	for _, project := range []string{"details-project", "details-other"} {
+		if _, err := s.store.db.Exec(`INSERT INTO projects(id,user_id,name,description) VALUES(?,1,?,'')`, project, project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	own := seedAppWithTools(t, s, "own-app", "details-project", []string{"own_get"})
+	global := seedAppWithTools(t, s, "global-app", "", []string{"global_get"})
+	other := seedAppWithTools(t, s, "other-app", "details-other", []string{"other_get"})
+	if !projectConversationGatewayTools["apps_get"] {
+		t.Fatal("apps_get absent from project tools")
+	}
+	for _, tc := range []struct {
+		id      int64
+		allowed bool
+	}{{own, true}, {global, true}, {other, false}, {999999, false}} {
+		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "apps_get", "arguments": map[string]any{"install_id": tc.id, "project_id": "details-other"}}})
+		scoped, err := s.scopeProjectGatewayRequest(body, "details-project")
+		if (err == nil) != tc.allowed {
+			t.Fatalf("installation %d allowed=%v error=%v", tc.id, tc.allowed, err)
+		}
+		if tc.allowed {
+			var rpc map[string]any
+			_ = json.Unmarshal(scoped, &rpc)
+			args := rpc["params"].(map[string]any)["arguments"].(map[string]any)
+			if args["project_id"] != "details-project" {
+				t.Fatalf("forged project scope survived: %#v", args)
+			}
+		}
+	}
+}

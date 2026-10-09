@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -325,12 +327,17 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	}
 	status, data, headers, err := callOpenAICodexResponses(integrationRequestContext(parents), accessToken, credentials["account_id"], payload, timeout)
 	if err != nil {
-		return &ExecuteResult{Success: false, Status: status, Data: map[string]any{"error": err.Error()}, Headers: headers}, nil
+		return &ExecuteResult{Success: false, Status: status, Data: data, Headers: headers}, nil
 	}
+	object, _ := data.(map[string]any)
+	timing := object["timing"]
 	if normalizeChat {
 		data = normalizeOpenAICodexChatCompletion(data, input)
 	} else if normalizeImage {
 		data = normalizeOpenAICodexImageGeneration(data, input)
+	}
+	if object, ok := data.(map[string]any); ok && timing != nil {
+		object["timing"] = timing
 	}
 	return &ExecuteResult{Success: status >= 200 && status < 300, Status: status, Data: data, Headers: headers}, nil
 }
@@ -581,7 +588,43 @@ func extractOpenAICodexIntegrationText(data any) string {
 	return ""
 }
 
-func callOpenAICodexResponses(ctx context.Context, accessToken, accountID string, payload map[string]any, timeout time.Duration) (int, any, map[string]string, error) {
+func callOpenAICodexResponses(ctx context.Context, accessToken, accountID string, payload map[string]any, timeout time.Duration) (status int, data any, headers map[string]string, retErr error) {
+	started := time.Now()
+	var terminalAt time.Time
+	defer func() {
+		timing := map[string]any{"request_duration_ms": float64(time.Since(started)) / float64(time.Millisecond)}
+		if !terminalAt.IsZero() {
+			timing["terminal_event_ms"] = float64(terminalAt.Sub(started)) / float64(time.Millisecond)
+		}
+		if retErr != nil {
+			failure := map[string]any{"error": retErr.Error(), "timing": timing}
+			var streamErr *codexStreamError
+			if errors.As(retErr, &streamErr) {
+				details := streamErr.details
+				for _, name := range []string{"X-Request-Id", "Request-Id"} {
+					if _, exists := details["request_id"]; !exists && headers[name] != "" {
+						details["request_id"] = headers[name]
+					}
+				}
+				hints, _ := details["retry_headers"].(map[string]string)
+				if hints == nil {
+					hints = map[string]string{}
+				}
+				for _, name := range codexRetryHintHeaders {
+					if headers[name] != "" {
+						hints[name] = headers[name]
+					}
+				}
+				if len(hints) > 0 {
+					details["retry_headers"] = hints
+				}
+				failure["error_details"] = details
+			}
+			data = failure
+		} else if object, ok := data.(map[string]any); ok {
+			object["timing"] = timing
+		}
+	}()
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("build request: %w", err)
@@ -602,15 +645,28 @@ func callOpenAICodexResponses(ctx context.Context, accessToken, accountID string
 		return 0, nil, nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	headers := pickForwardableHeaders(resp.Header)
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 10_000_001))
+	headers = codexResponseHeaders(resp.Header)
+	reader := bufio.NewReader(resp.Body)
+	stream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+	if !stream && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		prefix, _ := reader.Peek(24)
+		stream = isOpenAICodexStreamResponse(resp.Header, prefix)
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && stream {
+		parsed, err := parseOpenAICodexSSEReader(reader, func() {
+			if terminalAt.IsZero() {
+				terminalAt = time.Now()
+			}
+		})
+		return resp.StatusCode, parsed, headers, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(reader, 10_000_001))
 	if readErr != nil {
 		return resp.StatusCode, nil, headers, fmt.Errorf("read Codex response: %w", readErr)
 	}
 	if len(body) > 10_000_000 {
 		return resp.StatusCode, nil, headers, fmt.Errorf("Codex response exceeds 10 MB")
 	}
-	var data any
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 && isOpenAICodexStreamResponse(resp.Header, body) {
 		parsed, err := parseOpenAICodexSSE(body)
 		if err != nil {
@@ -624,11 +680,15 @@ func callOpenAICodexResponses(ctx context.Context, accessToken, accountID string
 		data = map[string]any{"raw": string(body)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.StatusCode, data, headers, fmt.Errorf("HTTP %d: %s", resp.StatusCode, summarizeUpstreamError(body))
+		object, _ := data.(map[string]any)
+		return resp.StatusCode, data, headers, codexStreamFailure("http.error", object, fmt.Sprintf("HTTP %d: Codex request failed", resp.StatusCode))
 	}
 	if object, ok := data.(map[string]any); ok {
+		if object["error"] != nil {
+			return resp.StatusCode, nil, headers, codexStreamFailure("response.failed", map[string]any{"response": object}, "Codex response contains an error")
+		}
 		if status, _ := object["status"].(string); status != "" && status != "completed" {
-			return resp.StatusCode, nil, headers, fmt.Errorf("Codex response %s", status)
+			return resp.StatusCode, nil, headers, codexStreamFailure("response."+status, map[string]any{"response": object}, "Codex response "+status)
 		}
 	}
 	return resp.StatusCode, data, headers, nil
@@ -638,54 +698,210 @@ func isOpenAICodexStreamResponse(header http.Header, body []byte) bool {
 	if strings.Contains(header.Get("Content-Type"), "text/event-stream") {
 		return true
 	}
-	return bytes.HasPrefix(bytes.TrimSpace(body), []byte("event: "))
+	return bytes.HasPrefix(bytes.TrimSpace(body), []byte("event:")) || bytes.HasPrefix(bytes.TrimSpace(body), []byte("data:"))
+}
+
+// codexStreamError carries only diagnostic fields, never the response's prompts or output.
+type codexStreamError struct {
+	details map[string]any
+	message string
+}
+
+func (e *codexStreamError) Error() string { return e.message }
+
+func codexStreamFailure(kind string, event map[string]any, fallback string) *codexStreamError {
+	details := map[string]any{"event_type": kind}
+	response, _ := event["response"].(map[string]any)
+	if id, ok := response["id"].(string); ok {
+		details["response_id"] = id
+	}
+	if status, ok := response["status"].(string); ok {
+		details["response_status"] = status
+	}
+	// Prefer the most specific error, falling back to the event-level fields.
+	eventError, _ := event["error"].(map[string]any)
+	responseError, _ := response["error"].(map[string]any)
+	for _, source := range []map[string]any{event, response, eventError, responseError} {
+		for _, key := range []string{"code", "message", "param", "parameter", "request_id", "retry_after", "retry_after_ms", "retry_after_seconds", "retry_at", "reset_at", "reset_after", "reset_after_ms", "reset_after_seconds", "resets_at", "resets_in_seconds", "reset_seconds"} {
+			if value, ok := source[key]; ok {
+				if value == nil && (key == "param" || key == "parameter") {
+					details[key] = nil
+				}
+				switch value.(type) {
+				case string, float64, json.Number, bool:
+					details[key] = value
+				}
+			}
+		}
+	}
+	for _, source := range []map[string]any{event, response, eventError, responseError} {
+		if rawHeaders, ok := source["headers"].(map[string]any); ok {
+			hints := map[string]string{}
+			for key, raw := range rawHeaders {
+				if strings.EqualFold(key, "X-Request-Id") || strings.EqualFold(key, "Request-Id") {
+					if value, ok := raw.(string); ok {
+						details["request_id"] = value
+					}
+				}
+				for _, allowed := range codexRetryHintHeaders {
+					if strings.EqualFold(key, allowed) {
+						if value, ok := raw.(string); ok {
+							hints[allowed] = value
+						}
+					}
+				}
+			}
+			if len(hints) > 0 {
+				details["retry_headers"] = hints
+			}
+		}
+	}
+	for _, source := range []map[string]any{eventError, responseError} {
+		if value, ok := source["type"].(string); ok {
+			details["type"] = value
+		}
+	}
+	if value, ok := event["type"].(string); ok && value != kind && !strings.HasPrefix(value, "response.") {
+		details["type"] = value
+	}
+	for _, source := range []map[string]any{event, response} {
+		if incomplete, ok := source["incomplete_details"].(map[string]any); ok {
+			if reason, ok := incomplete["reason"].(string); ok {
+				details["incomplete_reason"] = reason
+			}
+		}
+	}
+	message, _ := details["message"].(string)
+	if message == "" {
+		message = fallback
+		details["message"] = message
+	}
+	return &codexStreamError{details: details, message: message}
+}
+
+var codexRetryHintHeaders = []string{
+	"Retry-After", "Retry-After-Ms", "X-Retry-After-Ms",
+	"X-RateLimit-Reset-Requests", "X-RateLimit-Reset-Tokens", "X-RateLimit-Reset", "RateLimit-Reset",
+	"X-Codex-Primary-Reset-At", "X-Codex-Secondary-Reset-At",
+}
+
+func codexResponseHeaders(header http.Header) map[string]string {
+	out := pickForwardableHeaders(header)
+	if out == nil {
+		out = map[string]string{}
+	}
+	for _, name := range codexRetryHintHeaders {
+		if value := header.Get(name); value != "" {
+			out[name] = value
+		}
+	}
+	return out
 }
 
 func parseOpenAICodexSSE(body []byte) (map[string]any, error) {
-	out := map[string]any{
-		"object": "response",
-	}
+	return parseOpenAICodexSSEReader(bytes.NewReader(body), nil)
+}
+
+// Parse frames while they arrive so terminal timing does not include the wait for EOF.
+// Successful completion still validates the rest of the stream, including read failures.
+func parseOpenAICodexSSEReader(reader io.Reader, onTerminal func()) (map[string]any, error) {
+	out := map[string]any{"object": "response"}
 	var text strings.Builder
 	var output []any
 	seenOutput := map[string]bool{}
 	completed := false
-	lines := strings.Split(string(body), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "data:") {
-			continue
+	limited := &io.LimitedReader{R: reader, N: 10_000_001}
+	scanner := bufio.NewScanner(limited)
+	scanner.Buffer(make([]byte, 4096), 10_000_001)
+	var frame []string
+	var label string
+	terminal := func() {
+		if onTerminal != nil {
+			onTerminal()
 		}
-		raw := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if raw == "" || raw == "[DONE]" {
-			continue
+	}
+	ids := map[string]any{}
+	failure := func(kind string, event map[string]any, message string) error {
+		err := codexStreamFailure(kind, event, message)
+		for key, value := range ids {
+			if _, exists := err.details[key]; !exists {
+				err.details[key] = value
+			}
+		}
+		return err
+	}
+	process := func() error {
+		if len(frame) == 0 {
+			label = ""
+			return nil
+		}
+		raw := strings.Join(frame, "\n")
+		frame = nil
+		kind := label
+		label = ""
+		if strings.TrimSpace(raw) == "[DONE]" {
+			return nil
 		}
 		var event map[string]any
-		if err := json.Unmarshal([]byte(raw), &event); err != nil {
-			return nil, fmt.Errorf("decode Codex stream event: %w", err)
+		if err := json.Unmarshal([]byte(raw), &event); err != nil || event == nil {
+			if kind == "" {
+				kind = "stream.invalid_event"
+			}
+			return failure(kind, nil, "decode Codex stream event: invalid JSON object")
+		}
+		if requestID, ok := event["request_id"].(string); ok {
+			ids["request_id"] = requestID
+		}
+		if response, ok := event["response"].(map[string]any); ok {
+			if responseID, ok := response["id"].(string); ok {
+				ids["response_id"] = responseID
+			}
+			if requestID, ok := response["request_id"].(string); ok {
+				ids["request_id"] = requestID
+			}
+		}
+		payloadKind, _ := event["type"].(string)
+		if kind == "" {
+			kind = payloadKind
+		}
+		if kind == "" {
+			return failure("stream.invalid_event", nil, "decode Codex stream event: missing event type")
+		}
+		if kind != payloadKind && payloadKind != "" && kind != "error" {
+			return failure(kind, nil, "decode Codex stream event: conflicting event types")
 		}
 		collectOpenAICodexImageOutput(event, &output, seenOutput)
 		if item, ok := event["item"].(map[string]any); ok {
 			collectOpenAICodexImageOutput(item, &output, seenOutput)
 		}
-		switch event["type"] {
+		switch kind {
 		case "response.failed", "response.incomplete", "error":
-			return nil, fmt.Errorf("Codex stream ended with %v", event["type"])
+			terminal()
+			return failure(kind, event, "Codex stream ended with "+kind)
 		case "response.output_text.delta":
-			if delta, _ := event["delta"].(string); delta != "" {
-				text.WriteString(delta)
+			delta, ok := event["delta"].(string)
+			if !ok {
+				return failure(kind, nil, "decode Codex stream event: delta must be text")
 			}
+			text.WriteString(delta)
 		case "response.output_text.done":
-			if done, _ := event["text"].(string); done != "" {
-				text.Reset()
-				text.WriteString(done)
+			done, ok := event["text"].(string)
+			if !ok {
+				return failure(kind, nil, "decode Codex stream event: done text must be text")
 			}
+			text.Reset()
+			text.WriteString(done)
 		case "response.completed":
+			terminal()
 			response, ok := event["response"].(map[string]any)
 			if !ok {
-				return nil, fmt.Errorf("Codex response.completed event has no response")
+				return failure(kind, nil, "Codex response.completed event has no response")
 			}
-			if status, _ := response["status"].(string); status != "" && status != "completed" {
-				return nil, fmt.Errorf("Codex response %s", status)
+			if status, exists := response["status"]; exists && status != "completed" {
+				return failure(kind, event, "Codex response has non-completed status")
+			}
+			if response["error"] != nil {
+				return failure(kind, event, "Codex completed response contains an error")
 			}
 			completed = true
 			for k, v := range response {
@@ -699,9 +915,36 @@ func parseOpenAICodexSSE(body []byte) (map[string]any, error) {
 				}
 			}
 		}
+		return nil
+	}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if err := process(); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		field, value, _ := strings.Cut(line, ":")
+		value = strings.TrimPrefix(value, " ")
+		switch field {
+		case "event":
+			label = value
+		case "data":
+			frame = append(frame, value)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, failure("stream.read_error", nil, "read Codex response: "+err.Error())
+	}
+	if limited.N <= 0 {
+		return nil, failure("stream.too_large", nil, "Codex response exceeds 10 MB")
+	}
+	if err := process(); err != nil {
+		return nil, err
 	}
 	if !completed {
-		return nil, fmt.Errorf("Codex stream ended without response.completed")
+		return nil, failure("stream.missing_completion", nil, "Codex stream ended without response.completed")
 	}
 	out["output_text"] = strings.TrimSpace(text.String())
 	if len(output) > 0 {

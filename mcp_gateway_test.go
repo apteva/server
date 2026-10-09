@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +29,19 @@ func newGatewayAgentAPITestServer(s *Server) *httptest.Server {
 			r.URL.Path = "/instances/" + strings.TrimPrefix(r.URL.Path, "/agents/")
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/instances/")
+		// Match the production item router's resource/role check.
+		agentID, err := strconv.ParseInt(strings.SplitN(path, "/", 2)[0], 10, 64)
+		if err != nil {
+			http.Error(w, "invalid agent id", http.StatusBadRequest)
+			return
+		}
+		need := ProjectViewer
+		if r.Method != http.MethodGet {
+			need = ProjectEditor
+		}
+		if _, ok := s.requireAgentAccess(w, r, agentID, need); !ok {
+			return
+		}
 		switch {
 		case strings.HasSuffix(path, "/config"):
 			s.handleUpdateConfig(w, r)
@@ -43,7 +57,10 @@ func newGatewayAgentAPITestServer(s *Server) *httptest.Server {
 	}))
 	root := http.NewServeMux()
 	root.Handle("/api/", http.StripPrefix("/api", apiMux))
-	return httptest.NewServer(root)
+	ts := httptest.NewServer(root)
+	parsed, _ := url.Parse(ts.URL)
+	s.port = parsed.Port()
+	return ts
 }
 
 func newGatewayAppAPITestServer(s *Server) *httptest.Server {
@@ -873,5 +890,30 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 
 	if _, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "bogus"}, "5280", s.instanceSecret); err == nil {
 		t.Fatalf("expected invalid kind to return an error")
+	}
+}
+
+func TestGatewayAppDiscoveryExplainsAttachmentAndPreservesDescription(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	install := seedAppWithTools(t, s, "processes", "", []string{"processes_get"})
+	ts := newGatewayAppAPITestServer(s)
+	defer ts.Close()
+	client := gatewayAPIClient{baseURL: ts.URL + "/api", userID: 1, instanceSecret: s.instanceSecret}
+	list, err := handleGatewayAppTool("apps_list", map[string]any{}, "", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := list.(map[string]any)
+	if !strings.Contains(page["agent_usage"].(string), "bound_app_install_ids") {
+		t.Fatalf("list missing attachment guidance: %#v", list)
+	}
+	detail, err := handleGatewayAppTool("apps_get", map[string]any{"install_id": install}, "", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := detail.(map[string]any)
+	if row["description"] != "Test app for processes" || !strings.Contains(row["agent_usage"].(string), "coordination") {
+		t.Fatalf("app discovery lost description or guidance: %#v", row)
 	}
 }

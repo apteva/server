@@ -145,10 +145,12 @@ func (s *Server) helperOperatorScope(r *http.Request, agent *Agent, thread, proj
 }
 
 type helperAppCandidate struct {
-	Install    int64
-	App        string
-	Tools      map[string]bool
-	SearchText string
+	Install     int64
+	App         string
+	DisplayName string
+	Description string
+	Tools       map[string]bool
+	SearchText  string
 }
 
 func (s *Server) helperAppCandidates(project string) ([]helperAppCandidate, error) {
@@ -171,7 +173,9 @@ func (s *Server) helperAppCandidates(project string) ([]helperAppCandidate, erro
 		var names []string
 		_ = json.Unmarshal([]byte(allowed), &names)
 		c.Tools = map[string]bool{}
-		c.SearchText = strings.ToLower(c.App)
+		c.DisplayName = entry.Manifest.DisplayName
+		c.Description = entry.Manifest.Description
+		c.SearchText = strings.ToLower(c.App + " " + c.DisplayName + " " + c.Description)
 		for _, tool := range agentVisibleMCPTools(entry.Manifest.Provides.MCPTools) {
 			for _, name := range names {
 				if tool.Name == name {
@@ -288,7 +292,7 @@ func (s *Server) handleHelperAppTool(w http.ResponseWriter, r *http.Request, age
 				description, _ := tool["description"].(string)
 				score := 0
 				for _, word := range words {
-					if strings.Contains(strings.ToLower(c.App+" "+name+" "+description), word) {
+					if strings.Contains(strings.ToLower(c.App+" "+c.DisplayName+" "+c.Description+" "+name+" "+description), word) {
 						score++
 					}
 				}
@@ -296,7 +300,7 @@ func (s *Server) handleHelperAppTool(w http.ResponseWriter, r *http.Request, age
 					continue
 				}
 				ref := s.signHelperTool(helperToolRef{agent.ID, thread, project, c.Install, name, helperSchemaHash(tool), time.Now().Add(15 * time.Minute).Unix()})
-				hits = append(hits, hit{score, map[string]any{"app": c.App, "installation_id": c.Install, "name": name, "description": description, "inputSchema": tool["inputSchema"], "annotations": tool["annotations"], "reference": ref}})
+				hits = append(hits, hit{score, map[string]any{"app": c.App, "app_display_name": c.DisplayName, "app_description": gatewayCompactText(c.Description, gatewayDescriptionSize), "installation_id": c.Install, "name": name, "description": description, "inputSchema": tool["inputSchema"], "annotations": tool["annotations"], "reference": ref}})
 			}
 		}
 		sort.SliceStable(hits, func(i, j int) bool { return hits[i].score > hits[j].score })

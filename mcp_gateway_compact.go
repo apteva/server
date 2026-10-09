@@ -148,6 +148,9 @@ func compactGatewayApp(value any, detail bool) map[string]any {
 			}
 		}
 	}
+	if detail {
+		out["agent_usage"] = gatewayAppAttachmentGuidance
+	}
 	out["scope"] = "project"
 	if strings.TrimSpace(fmt.Sprint(row["project_id"])) == "" {
 		out["scope"] = "global"

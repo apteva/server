@@ -168,6 +168,20 @@ func (s *Server) PushSkillToInstance(instanceID int64, sk Skill) error {
 		// Re-push: target the supersede at the slug's current active
 		// record, whatever its id happens to be.
 		payload.ID = activeID
+	} else {
+		// A detached skill's deterministic ID may already be tombstoned.
+		// Reattachment must create a fresh record rather than trying to
+		// revive an ID that Core's journal permanently deleted.
+		records, err := journalReadAll(filepath.Join(s.agents.instanceDir(instanceID), "memory.jsonl"))
+		if err != nil {
+			return err
+		}
+		for _, record := range records {
+			if record.ID == payload.ID || record.IDTarget == payload.ID || record.Supersedes == payload.ID {
+				payload.ID = newServerULID()
+				break
+			}
+		}
 	}
 	if s.agents.IsRunning(instanceID) {
 		return s.pushPayloadHTTP(instanceID, payload)
