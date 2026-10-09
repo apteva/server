@@ -1497,6 +1497,7 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		req.Header.Set("X-Apteva-Bound-Caller-Install-ID", strconv.FormatInt(callerInstallID, 10))
 		req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
 	}
+	configureAppClientIP(proxy, r, target.Token)
 	proxy.ServeHTTP(w, r)
 }
 

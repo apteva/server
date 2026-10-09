@@ -22,6 +22,11 @@ jobs:
         with:
           repository: apteva/integrations
           path: integrations
+      - name: Checkout Core for managed MCP startup test
+        uses: actions/checkout@v4
+        with:
+          repository: apteva/core
+          path: core
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.6'

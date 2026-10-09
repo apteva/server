@@ -1624,5 +1624,6 @@ func (s *Server) handleRuntimeMCPGateway(w http.ResponseWriter, r *http.Request)
 		}
 		req.Header.Set("Authorization", "Bearer "+appToken)
 	}
+	configureAppClientIP(proxy, r, appToken)
 	proxy.ServeHTTP(w, r)
 }

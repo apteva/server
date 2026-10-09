@@ -197,6 +197,7 @@ func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit Rou
 			req.Header.Set("X-Forwarded-Proto", "http")
 		}
 	}
+	configureAppClientIP(proxy, r, hr.resolveAppToken(hit))
 	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, err error) {
 		log.Printf("[host-router] proxy %s → %s: %v", hit.Hostname, target, err)
 		http.Error(rw, "backend unreachable: "+err.Error(), http.StatusBadGateway)
