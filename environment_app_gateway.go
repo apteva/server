@@ -110,6 +110,7 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 			req.Header.Set("X-Apteva-Project-ID", environmentID)
 		}
 	}
+	configureAppClientIP(proxy, r, token)
 	proxy.ServeHTTP(w, r)
 }
 
@@ -200,6 +201,7 @@ func (s *Server) proxyEnvironmentInstall(w http.ResponseWriter, r *http.Request,
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Del("X-Apteva-Operator-ID")
 	}
+	configureAppClientIP(proxy, r, token)
 	proxy.ServeHTTP(w, r)
 }
 

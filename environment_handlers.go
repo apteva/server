@@ -1368,6 +1368,7 @@ func (s *Server) proxyToEnvironmentApp(w http.ResponseWriter, r *http.Request, e
 			req.URL.Path = tail
 			// Legacy in-environment sidecars run in dev mode, so no token is needed.
 		}
+		configureAppClientIP(proxy, r, "")
 		proxy.ServeHTTP(w, r)
 		return
 	}
@@ -1393,6 +1394,7 @@ func (s *Server) proxyToEnvironmentApp(w http.ResponseWriter, r *http.Request, e
 		req.URL.Path = tail
 		req.Header.Set("Authorization", "Bearer "+appToken)
 	}
+	configureAppClientIP(proxy, r, appToken)
 	proxy.ServeHTTP(w, r)
 }
 
@@ -1587,6 +1589,7 @@ func (s *Server) proxyToEnvironmentCore(w http.ResponseWriter, r *http.Request, 
 			req.Header.Set("Authorization", "Bearer "+wa.APIKey)
 		}
 	}
+	configureAppClientIP(proxy, r, "")
 	proxy.ServeHTTP(w, r)
 }
 
