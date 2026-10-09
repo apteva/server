@@ -1,13 +1,16 @@
 {
   "slug": "mistral",
   "name": "Mistral AI",
-  "description": "MCP server for Mistral AI - chat, embeddings, code (codestral), and fine-tuning",
+  "description": "Mistral AI chat, embeddings, code completion and OCR/document extraction for PDFs and images.",
   "logo": "https://www.google.com/s2/favicons?domain=mistral.ai&sz=128",
   "categories": [
     "ai",
     "llm",
     "embeddings",
-    "code"
+    "code",
+    "ocr",
+    "document-ai",
+    "data-extraction"
   ],
   "base_url": "https://api.mistral.ai/v1",
   "auth": {
@@ -120,6 +123,357 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      }
+    },
+    {
+      "name": "process_ocr",
+      "description": "Extract text and document structure from a PDF/document or image using Mistral OCR. Accepts remote URLs, base64 data URLs or an existing uploaded file ID. Supports zero-based page selection, Markdown/HTML tables, header/footer extraction, image extraction, content blocks, confidence scores and JSON-schema annotations. Returns the complete native response, including pages[].markdown, images/tables, annotations, model and usage_info. Uses the existing Mistral API key. See https://docs.mistral.ai/api/endpoint/ocr .",
+      "method": "POST",
+      "path": "/ocr",
+      "headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "mistral-ocr-latest",
+            "description": "OCR model to use. Provide mistral-ocr-latest, or an explicit supported version such as mistral-ocr-2512 to control version and cost. Model-specific options may require newer versions."
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "default": "file",
+                    "const": "file"
+                  },
+                  "file_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "file_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "default": "document_url",
+                    "const": "document_url"
+                  },
+                  "document_url": {
+                    "type": "string"
+                  },
+                  "document_name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The filename of the document"
+                  }
+                },
+                "required": [
+                  "document_url"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "default": "image_url",
+                    "const": "image_url"
+                  },
+                  "image_url": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "url": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "low",
+                                  "auto",
+                                  "high"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "url"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "image_url"
+                ],
+                "additionalProperties": false,
+                "description": "{\"type\":\"image_url\",\"image_url\":\"data:image/png;base64,iVBORw0\"}"
+              }
+            ],
+            "description": "One document: {type:'document_url', document_url:'https://...'} for PDFs/documents, {type:'image_url', image_url:'https://...'} for images, or {type:'file', file_id:'...'} for an existing Mistral upload. URL fields also accept base64 data URLs such as data:application/pdf;base64,... or data:image/png;base64,... . Remote URLs must be accessible to Mistral."
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Specific pages to process. Accepts a list of integers or a string of comma-separated numbers and ranges (e.g. '0,1,2' or '0-5' or '0,2-4'). Page numbers start from 0."
+          },
+          "include_image_base64": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Include image URLs in response"
+          },
+          "image_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max images to extract"
+          },
+          "image_min_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Minimum height and width of image to extract"
+          },
+          "bbox_annotation_format": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "json_schema"
+                    ]
+                  },
+                  "json_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "schema": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "strict": {
+                        "type": "boolean",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "schema"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Structured annotation output. Use type: json_schema and json_schema with name, schema, optional strict and description.",
+                "required": [
+                  "type",
+                  "json_schema"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured output class for extracting useful information from each extracted bounding box / image from document. Only json_schema is valid for this field"
+          },
+          "document_annotation_format": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "json_schema"
+                    ]
+                  },
+                  "json_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "schema": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "strict": {
+                        "type": "boolean",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "schema"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Structured annotation output. Use type: json_schema and json_schema with name, schema, optional strict and description.",
+                "required": [
+                  "type",
+                  "json_schema"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured output class for extracting useful information from the entire document. Only json_schema is valid for this field"
+          },
+          "document_annotation_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional prompt to guide the model in extracting structured output from the entire document. A document_annotation_format must be provided."
+          },
+          "table_format": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "markdown",
+                  "html"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "extract_header": {
+            "type": "boolean",
+            "description": "Extract the page header into the response's `header` field and remove it from the markdown content",
+            "default": false
+          },
+          "extract_footer": {
+            "type": "boolean",
+            "description": "Extract the page footer into the response's `footer` field and remove it from the markdown content",
+            "default": false
+          },
+          "include_blocks": {
+            "type": "boolean",
+            "description": "Return paragraph-level bounding boxes for all content blocks in the response",
+            "default": true
+          },
+          "confidence_scores_granularity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "word",
+                  "page",
+                  "block"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Granularity for confidence scores: 'page' (aggregate only), 'word' (per-word scores), or 'block' (per-block scores). Defaults to None (no confidence scores) to keep response payload small."
+          }
+        },
+        "required": [
+          "document",
+          "model"
+        ],
+        "additionalProperties": false
       }
     }
   ],

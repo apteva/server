@@ -1761,6 +1761,34 @@
           "objectId"
         ]
       }
+    },
+    {
+      "name": "mobile_app_list",
+      "description": "List applications this ad account can advertise, with app-install tracking and advertisable app events. Meta app IDs differ from store IDs.",
+      "method": "GET",
+      "path": "/{adAccountId}/advertisable_applications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,app_install_tracked,object_store_urls,advertisable_app_events"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100
+          },
+          "after": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
     }
   ]
 }

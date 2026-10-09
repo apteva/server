@@ -249,6 +249,14 @@
     {
       "name": "post_conversion_events", "description": "Send server-side conversion events for a Reddit pixel/action source.", "method": "POST", "path": "/pixels/{pixel_id}/conversion_events",
       "input_schema": {"type": "object", "properties": {"pixel_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["pixel_id", "data"]}
+    },
+    {
+      "name": "list_apps", "description": "List mobile apps associated with this advertiser account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/apps", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer", "default": 200}, "page.token": {"type": "string"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
+    },
+    {
+      "name": "app_last_fired_at", "description": "Get authoritative last-received timestamps for mobile app conversion events.", "method": "GET", "path": "/apps/{app_id}/last_fired_at_report",
+      "input_schema": {"type": "object", "properties": {"app_id": {"type": "string"}}, "required": ["app_id"]}
     }
   ]
 }

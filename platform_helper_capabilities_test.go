@@ -180,22 +180,33 @@ func TestGenericAgentConfigCannotReplacePlatformHelperMCPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create helper: %v", err)
 	}
-	for name, body := range map[string]string{
-		"top-level MCP list":     `{"mcp_servers":[{"name":"project-leak","transport":"http","url":"http://example.test/mcp"}]}`,
-		"legacy config envelope": `{"config":"{\"mcp_servers\":[{\"name\":\"project-leak\",\"transport\":\"http\",\"url\":\"http://example.test/mcp\"}]}"}`,
+	for _, tc := range []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{"top-level MCP list", `{"mcp_servers":[{"name":"project-leak","transport":"http","url":"http://example.test/mcp"}]}`, http.StatusForbidden},
+		{"legacy config envelope", `{"config":"{\"mcp_servers\":[{\"name\":\"project-leak\",\"transport\":\"http\",\"url\":\"http://example.test/mcp\"}]}"}`, http.StatusBadRequest},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(
 				http.MethodPut,
 				fmt.Sprintf("/instances/%d/config", helper.ID),
-				strings.NewReader(body),
+				strings.NewReader(tc.body),
 			)
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-User-ID", fmt.Sprint(userID))
 			rec := httptest.NewRecorder()
 			s.handleUpdateConfig(rec, req)
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("response=%d body=%s", rec.Code, rec.Body.String())
+			if rec.Code != tc.status {
+				t.Fatalf("response=%d want=%d body=%s", rec.Code, tc.status, rec.Body.String())
+			}
+			saved, err := s.store.GetAgentByID(helper.ID)
+			if err != nil {
+				t.Fatalf("reload helper: %v", err)
+			}
+			if saved.Config != helper.Config {
+				t.Fatalf("rejected request changed helper config: %s", saved.Config)
 			}
 		})
 	}
