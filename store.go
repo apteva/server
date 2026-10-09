@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -117,6 +118,8 @@ type Store struct {
 	path            string
 	credentialLocks [64]sync.Mutex
 	apiKeyUsage     *apiKeyUsageTracker
+	// Invalidates live app telemetry eligibility after committed agent changes.
+	agentEligibilityRevision atomic.Uint64
 }
 
 const (
@@ -2561,7 +2564,11 @@ func (s *Store) DeleteUser(userID int64) error {
 			return fmt.Errorf("%s: %w", q, err)
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.agentEligibilityRevision.Add(1)
+	return nil
 }
 
 // DeleteSessionsForUser is the unconditional sibling of
@@ -2816,6 +2823,7 @@ func (s *Store) CreateAgent(userID int64, name, directive, mode, config, project
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
+	s.agentEligibilityRevision.Add(1)
 	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Proactivity: level, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
 }
 
@@ -2887,6 +2895,7 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 	if err := tx.Commit(); err != nil {
 		return nil, false, err
 	}
+	s.agentEligibilityRevision.Add(1)
 	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Proactivity: level, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, true, nil
 }
 
@@ -3009,6 +3018,7 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
+	s.agentEligibilityRevision.Add(1)
 	return s.GetAgentByID(id)
 }
 
@@ -3166,6 +3176,9 @@ func (s *Store) UpdateAgent(inst *Agent) error {
 	args = append(args, inst.ID)
 	_, err := s.db.Exec("UPDATE agents SET "+strings.Join(set, ",")+" WHERE id=?", args...)
 	if err == nil {
+		if inst.original == nil || inst.ProjectID != inst.original.ProjectID {
+			s.agentEligibilityRevision.Add(1)
+		}
 		inst.rememberOriginal()
 	}
 	return err
@@ -3480,7 +3493,11 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 			return fmt.Errorf("delete instance %d: %s: %w", instanceID, q, err)
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.agentEligibilityRevision.Add(1)
+	return nil
 }
 
 // --- Projects ---

@@ -706,7 +706,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 			})
 		case "google":
 			catalog := s.realtimeCatalogForProvider("google")
-			model := "gemini-3.1-flash-live-preview"
+			model := "gemini-3.8-live"
 			if catalog != nil && catalog.DefaultModel != "" {
 				model = catalog.DefaultModel
 			}

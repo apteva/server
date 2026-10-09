@@ -1625,5 +1625,5 @@ func (s *Server) handleRuntimeMCPGateway(w http.ResponseWriter, r *http.Request)
 		req.Header.Set("Authorization", "Bearer "+appToken)
 	}
 	configureAppClientIP(proxy, r, appToken)
-	proxy.ServeHTTP(w, r)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "runtime_app", App: entry.AppName, InstallID: entry.InstallID})
 }

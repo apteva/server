@@ -222,7 +222,7 @@ func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit Rou
 		cw.finalize()
 		return
 	}
-	proxy.ServeHTTP(w, r)
+	hr.server.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "hostname", Hostname: hit.Hostname})
 }
 
 // resolveTarget returns the backend URL to proxy to. For ordinary

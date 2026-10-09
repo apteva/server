@@ -1369,7 +1369,7 @@ func (s *Server) proxyToEnvironmentApp(w http.ResponseWriter, r *http.Request, e
 			// Legacy in-environment sidecars run in dev mode, so no token is needed.
 		}
 		configureAppClientIP(proxy, r, "")
-		proxy.ServeHTTP(w, r)
+		s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "environment_app", App: appName})
 		return
 	}
 	inst, ok := environment.Install(appName)
@@ -1395,7 +1395,7 @@ func (s *Server) proxyToEnvironmentApp(w http.ResponseWriter, r *http.Request, e
 		req.Header.Set("Authorization", "Bearer "+appToken)
 	}
 	configureAppClientIP(proxy, r, appToken)
-	proxy.ServeHTTP(w, r)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "environment_app", App: appName, InstallID: inst.InstallID})
 }
 
 type spawnEnvironmentAgentRequest struct {
@@ -1590,7 +1590,7 @@ func (s *Server) proxyToEnvironmentCore(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 	configureAppClientIP(proxy, r, "")
-	proxy.ServeHTTP(w, r)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "environment_core"})
 }
 
 func (s *Server) handleEnvironmentSnapshots(w http.ResponseWriter, r *http.Request) {

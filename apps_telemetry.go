@@ -22,7 +22,7 @@ package main
 //   - ownership    — only agents owned by the install's acting user,
 //     scoped to the install's project when it has one (the same rule
 //     callbackAgentForInstall applies to thread spawns). Refreshed
-//     periodically so newly created agents join a live stream.
+//     before the next event after an agent is created or its scope changes.
 //   - thread prefix (?thread_prefix=chat-) — optional, so a
 //     conversation app never receives other threads' content.
 
@@ -36,9 +36,9 @@ import (
 	sdk "github.com/apteva/app-sdk"
 )
 
-// telemetryOwnedAgentsRefresh is how often the eligible-agent set is
-// recomputed on a live stream. Agents created after subscribe join
-// within this window.
+// telemetryOwnedAgentsRefresh is a fallback for changes outside the agent
+// store methods (for example an install's project scope). Agent creation
+// invalidates the cache immediately and never waits for this ticker.
 var telemetryOwnedAgentsRefresh = 60 * time.Second
 
 type telemetryFilter struct {
@@ -86,7 +86,7 @@ func (s *Server) ownedAgentIDsForInstall(userID, installID int64) (map[int64]boo
 		var id int64
 		var project string
 		if err := rows.Scan(&id, &project); err != nil {
-			continue
+			return nil, err
 		}
 		if installProject != "" && project != installProject {
 			continue
@@ -132,13 +132,33 @@ func (s *Server) handleCallbackTelemetry(w http.ResponseWriter, r *http.Request,
 		filter.agentID = id
 	}
 
+	// Attach before the eligibility query and the readiness flush, so events
+	// arriving while the stream is being initialized are queued for filtering.
+	ch := s.broadcaster.SubscribeAll()
+	defer s.broadcaster.UnsubscribeAll(ch)
+
 	userID := getUserID(r)
+	// Read the revision BEFORE the query. A concurrent commit during the query
+	// must still cause a refresh before the next event is filtered.
+	ownedRevision := s.store.agentEligibilityRevision.Load()
 	owned, err := s.ownedAgentIDsForInstall(userID, installID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	filter.ownedAgents = owned
+	refreshOwned := func() bool {
+		revision := s.store.agentEligibilityRevision.Load()
+		next, err := s.ownedAgentIDsForInstall(userID, installID)
+		if err != nil {
+			// End the stream rather than applying stale access decisions. The
+			// consumer can reconnect and run the normal permission checks.
+			return false
+		}
+		filter.ownedAgents = next
+		ownedRevision = revision
+		return true
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -148,9 +168,6 @@ func (s *Server) handleCallbackTelemetry(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	flusher.Flush()
-
-	ch := s.broadcaster.SubscribeAll()
-	defer s.broadcaster.UnsubscribeAll(ch)
 
 	refresh := time.NewTicker(telemetryOwnedAgentsRefresh)
 	defer refresh.Stop()
@@ -162,8 +179,8 @@ func (s *Server) handleCallbackTelemetry(w http.ResponseWriter, r *http.Request,
 		case <-r.Context().Done():
 			return
 		case <-refresh.C:
-			if next, err := s.ownedAgentIDsForInstall(userID, installID); err == nil {
-				filter.ownedAgents = next
+			if !refreshOwned() {
+				return
 			}
 		case <-heartbeat.C:
 			// Comment line keeps proxies from idling the connection out;
@@ -172,6 +189,12 @@ func (s *Server) handleCallbackTelemetry(w http.ResponseWriter, r *http.Request,
 			flusher.Flush()
 		case ev, open := <-ch:
 			if !open {
+				return
+			}
+			// An atomic revision check avoids per-token DB queries. Recompute
+			// through the same ownership/project checks after a committed
+			// change, before considering even the new agent's first event.
+			if s.store.agentEligibilityRevision.Load() != ownedRevision && !refreshOwned() {
 				return
 			}
 			if !filter.allows(ev) {

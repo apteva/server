@@ -151,7 +151,11 @@ func (s *Store) DeleteProjectCascade(projectID string) error {
 	if _, err := tx.Exec(`DELETE FROM projects WHERE id=?`, projectID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.agentEligibilityRevision.Add(1)
+	return nil
 }
 
 func (s *Server) deleteProjectCompletely(projectID string) error {

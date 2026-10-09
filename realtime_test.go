@@ -89,7 +89,7 @@ func TestGetProviderPoolInjectsRealtimeBesideGoogle(t *testing.T) {
 	pool := s.GetProviderPool(1)
 	for _, provider := range pool {
 		if provider.Type == "google-realtime" {
-			if provider.ModelLarge != "gemini-3.1-flash-live-preview" || provider.ModelSmall != "gemini-3.1-flash-live-preview" || provider.RealtimeVoice != "Kore" {
+			if provider.ModelLarge != "gemini-3.8-live" || provider.ModelMedium != "gemini-3.8-live" || provider.ModelSmall != "gemini-3.8-live" || provider.RealtimeVoice != "Kore" {
 				t.Fatalf("Google realtime provider = %#v", provider)
 			}
 			return
@@ -161,10 +161,12 @@ func TestCallbackReachableBaseURLUsesIncomingHostForLoopbackFallback(t *testing.
 
 func TestRealtimeAudioProxyAuthenticatesAndPreservesFrameTypes(t *testing.T) {
 	authSeen := make(chan string, 1)
+	callSeen := make(chan string, 1)
 	querySeen := make(chan url.Values, 1)
 	coreUpgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	coreServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authSeen <- r.Header.Get("Authorization")
+		callSeen <- r.Header.Get(proxyCallIDHeader)
 		querySeen <- r.URL.Query()
 		conn, err := coreUpgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -193,7 +195,7 @@ func TestRealtimeAudioProxyAuthenticatesAndPreservesFrameTypes(t *testing.T) {
 	proxyServer := httptest.NewServer(http.HandlerFunc(s.handleRealtimeAudioProxy))
 	defer proxyServer.Close()
 	proxyURL := "ws" + strings.TrimPrefix(proxyServer.URL, "http") + "/?agent_id=42&thread=voice-1&token=single-use"
-	client, _, err := websocket.DefaultDialer.Dial(proxyURL, nil)
+	client, _, err := websocket.DefaultDialer.Dial(proxyURL, http.Header{proxyCallIDHeader: {"call-test-42"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,6 +220,9 @@ func TestRealtimeAudioProxyAuthenticatesAndPreservesFrameTypes(t *testing.T) {
 
 	if got := <-authSeen; got != "Bearer core-secret" {
 		t.Fatalf("core auth = %q", got)
+	}
+	if got := <-callSeen; got != "call-test-42" {
+		t.Fatalf("core call correlation = %q", got)
 	}
 	query := <-querySeen
 	if query.Get("thread") != "voice-1" || query.Get("token") != "single-use" {
@@ -319,7 +324,7 @@ func TestRealtimeAudioProxyPropagatesGracefulClientClose(t *testing.T) {
 	proxyServer := httptest.NewServer(http.HandlerFunc(s.handleRealtimeAudioProxy))
 	defer proxyServer.Close()
 	proxyURL := "ws" + strings.TrimPrefix(proxyServer.URL, "http") + "/?agent_id=42&thread=voice-client-close&token=single-use"
-	client, _, err := websocket.DefaultDialer.Dial(proxyURL, nil)
+	client, _, err := websocket.DefaultDialer.Dial(proxyURL, http.Header{proxyCallIDHeader: {"call-client-close"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,6 +350,21 @@ func TestRealtimeAudioProxyPropagatesGracefulClientClose(t *testing.T) {
 		closeEvent.CloseReason != "caller finished" ||
 		closeEvent.TransportCategory != "websocket_close" {
 		t.Fatalf("close telemetry = %#v", closeEvent)
+	}
+	if closeEvent.CallID != "call-client-close" || closeEvent.ConnectionID == "" ||
+		len(closeEvent.Directions) != 2 || !strings.Contains(closeEvent.TransportError, "caller finished") ||
+		closeEvent.StartedAt.IsZero() || closeEvent.ObservedAt.Before(closeEvent.StartedAt) {
+		t.Fatalf("missing correlated termination details = %#v", closeEvent)
+	}
+	seen := map[string]bool{}
+	for _, direction := range closeEvent.Directions {
+		seen[direction.Direction] = true
+		if direction.Error == "" || direction.EndedAt.IsZero() {
+			t.Fatalf("lost direction termination = %#v", direction)
+		}
+	}
+	if !seen["client_to_core"] || !seen["core_to_client"] {
+		t.Fatalf("missing bridge direction = %#v", seen)
 	}
 }
 

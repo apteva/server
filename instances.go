@@ -2760,6 +2760,35 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Advanced config updates are patches. Replacing the saved object here
+	// would discard the creation provider pin on an unrelated settings edit,
+	// causing provider hydration and the next start to select pool[0].
+	if body.Config != "" {
+		saved := map[string]any{}
+		if strings.TrimSpace(inst.Config) != "" {
+			if err := json.Unmarshal([]byte(inst.Config), &saved); err != nil {
+				http.Error(w, "invalid stored agent config", http.StatusInternalServerError)
+				return
+			}
+		}
+		if saved == nil {
+			saved = map[string]any{}
+		}
+		var patch map[string]any
+		// validateAgentAttachmentSettings already validated the incoming object.
+		_ = json.Unmarshal([]byte(body.Config), &patch)
+		for key, value := range patch {
+			saved[key] = value
+		}
+		merged, err := json.Marshal(saved)
+		if err != nil {
+			http.Error(w, "encode agent config", http.StatusInternalServerError)
+			return
+		}
+		body.Config = string(merged)
+		rawBody["config"] = body.Config
+	}
+
 	// The public additive MCP endpoint is rewritten to these internal fields
 	// before entering this handler. Resolve inventory ids and merge them while
 	// the same per-agent lock used by every other config update is held.

@@ -658,7 +658,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configureAppClientIP(proxy, r, entry.Token)
-	proxy.ServeHTTP(w, r)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "app", App: entry.AppName, InstallID: entry.InstallID})
 }
 
 func appProxyRouteIsNoAuth(entry *InstalledApp, path, method string) bool {

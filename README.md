@@ -192,6 +192,28 @@ DB-IP Country Lite data is provided by [DB-IP](https://db-ip.com) under the
 `APTEVA_TRUST_PROXY_HEADERS=1` remains available for older, network-isolated
 deployments, but new deployments should use the CIDR-scoped setting.
 
+## WebSocket transport telemetry
+
+The realtime audio bridge emits `realtime.proxy.opened`,
+`realtime.proxy.direction.closed`, `realtime.proxy.closed`, and
+`realtime.proxy.failed`. App, hostname, runtime, and environment WebSocket
+proxies emit the corresponding `proxy.websocket.*` events; rejected backend
+handshakes emit `proxy.websocket.rejected`. Failed ping or half-close operations
+emit `*.control.error`.
+
+Events are persisted in telemetry and logged with `[WS-PROXY]`. Correlate them
+by `connection_id` and `call_id`: reconnects get a new connection ID while keeping
+the call ID. Telephony supplies `X-Apteva-Call-ID` on its audio bridge requests
+and authenticated carrier/softphone upgrade responses.
+
+Each direction records its end timestamp, bytes forwarded, operation, error
+text and type, and error category. Realtime events also include WebSocket close
+codes, messages forwarded, close-relay errors, and the existing ping/pong
+snapshot. `after_first_termination` separates the first observed termination
+from subsequent errors, and `directions_complete` reports whether both copy
+loops have finished. Events include UTC start/observation timestamps and elapsed
+milliseconds. Frame payloads, bridge URLs, and authorization tokens are excluded.
+
 ## Instance domain and HTTPS
 
 Platform administrators can use **Settings → Server → Domain & HTTPS** without
