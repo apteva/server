@@ -176,11 +176,16 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	query.Set("token", token)
 	coreURL.RawQuery = query.Encode()
 	trace := newWebsocketProxyTrace(s, r, "realtime.proxy", agentID, threadID, websocketProxyMetadata{Proxy: "realtime_audio"})
+	stopWatch := trace.watch(r)
+	defer stopWatch()
 	header := http.Header{"Authorization": []string{"Bearer " + coreKey}}
+	header.Set(proxyConnectionIDHeader, trace.id)
+	w.Header().Set(proxyConnectionIDHeader, trace.id)
 	if trace.callID != "" {
 		header.Set(proxyCallIDHeader, trace.callID)
 	}
 	coreConn, response, err := websocket.DefaultDialer.Dial(coreURL.String(), header)
+	trace.adoptResponse(response)
 	if err != nil {
 		status := http.StatusBadGateway
 		if response != nil && (response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusUnauthorized) {
@@ -197,17 +202,25 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		http.Error(w, "audio bridge rejected", status)
 		return
 	}
-	defer coreConn.Close()
+	trace.setCloser("backend", coreConn)
+	defer func() { trace.requestClose("backend", "close", "", ""); _ = coreConn.Close() }()
 
-	clientConn, err := realtimeProxyUpgrader.Upgrade(w, r, nil)
+	clientConn, err := realtimeProxyUpgrader.Upgrade(w, r, http.Header{proxyConnectionIDHeader: {trace.id}})
 	if err != nil {
 		trace.emit("failed", time.Now(), map[string]any{"stage": "client_upgrade", "error": proxyTransportError(err), "category": realtimeProxyErrorCategory(err)})
 		return
 	}
-	defer clientConn.Close()
+	trace.setCloser("client", clientConn)
+	defer func() { trace.requestClose("client", "close", "", ""); _ = clientConn.Close() }()
 	startedAt := time.Now()
-	trace.startedAt = startedAt
 	trace.open()
+	for leg, conn := range map[string]*websocket.Conn{"client": clientConn, "backend": coreConn} {
+		conn.SetCloseHandler(func(code int, reason string) error {
+			trace.observeIO(leg, "read", 0, &websocket.CloseError{Code: code, Text: reason}, 0)
+			trace.requestClose(leg, "close_frame", "peer_close_ack", "")
+			return conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, ""), time.Now().Add(time.Second))
+		})
+	}
 	clientConn.SetReadLimit(realtimeProxyMaxMessageBytes)
 	coreConn.SetReadLimit(realtimeProxyMaxMessageBytes)
 	refreshDeadline := func(conn *websocket.Conn) {
@@ -267,13 +280,30 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		}
 		for {
 			_ = src.SetReadDeadline(time.Now().Add(2 * time.Minute))
+			readStart := time.Now()
 			messageType, payload, err := src.ReadMessage()
+			leg := "client"
+			if srcSide == "core" {
+				leg = "backend"
+			}
+			trace.observeIO(leg, "read", len(payload), err, time.Since(readStart))
 			if err != nil {
 				finish("read", srcSide, err, dst)
 				return
 			}
 			_ = dst.SetWriteDeadline(time.Now().Add(15 * time.Second))
-			if err := dst.WriteMessage(messageType, payload); err != nil {
+			writeStart := time.Now()
+			err = dst.WriteMessage(messageType, payload)
+			leg = "client"
+			if dstSide == "core" {
+				leg = "backend"
+			}
+			written := len(payload)
+			if err != nil {
+				written = 0
+			}
+			trace.observeIO(leg, "write", written, err, time.Since(writeStart))
+			if err != nil {
 				finish("write", dstSide, err, src)
 				return
 			}
@@ -288,6 +318,11 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	first := <-done
 	close(pingDone)
 	code, reason := realtimeProxyCloseDetails(first.err)
+	peerLeg := "client"
+	if first.peer == coreConn {
+		peerLeg = "backend"
+	}
+	trace.requestClose(peerLeg, "close_frame", "other_leg_terminated", "")
 	relayErr := first.peer.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(code, reason),
@@ -298,8 +333,7 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	case <-time.After(time.Second):
 		// A peer may never acknowledge the relayed close. Unblock the other
 		// direction and retain its real termination error before reporting.
-		_ = clientConn.Close()
-		_ = coreConn.Close()
+		trace.closeConnections("other_leg_terminated")
 		<-done
 	}
 	trace.emit("closed", time.Now(), map[string]any{

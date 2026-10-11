@@ -119,21 +119,23 @@ type Server struct {
 	// agentSkillLocks serializes reconciliation of app-owned skill memories for
 	// one agent. App attachment changes, app upgrades, and startup repair can
 	// otherwise race and create parallel supersede chains for the same skill.
-	agentSkillLocks     sync.Map // agent id -> *sync.Mutex
-	port                string   // server port for telemetry callback
-	dataDir             string   // data directory for downloads, etc.
-	appsDir             string   // path to integration app definitions
-	integrationsUIDir   string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
-	publicURL           string   // public base URL for webhooks (e.g. "https://agents.example.com")
-	broadcaster         *TelemetryBroadcaster
-	setupToken          string // one-time token for first registration (empty after use)
-	regMode             string // "open", "locked", "setup" — controls registration
-	instanceSecret      string // shared secret for MCP and telemetry auth
-	helperToolRefsMu    sync.Mutex
-	helperToolRefs      map[string]helperToolRef
-	platformGatewayExec platformGatewayExecuteFunc // test seam for Helper's HTTP management MCP
-	startupIntent       agentLifecycleIntent
-	agentRollouts       *agentRolloutCoordinator
+	agentSkillLocks         sync.Map // agent id -> *sync.Mutex
+	port                    string   // server port for telemetry callback
+	dataDir                 string   // data directory for downloads, etc.
+	appsDir                 string   // path to integration app definitions
+	integrationsUIDir       string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
+	publicURL               string   // public base URL for webhooks (e.g. "https://agents.example.com")
+	proxyTelemetryOnce      sync.Once
+	proxyTelemetryCollector *proxyTelemetryCollector
+	broadcaster             *TelemetryBroadcaster
+	setupToken              string // one-time token for first registration (empty after use)
+	regMode                 string // "open", "locked", "setup" — controls registration
+	instanceSecret          string // shared secret for MCP and telemetry auth
+	helperToolRefsMu        sync.Mutex
+	helperToolRefs          map[string]helperToolRef
+	platformGatewayExec     platformGatewayExecuteFunc // test seam for Helper's HTTP management MCP
+	startupIntent           agentLifecycleIntent
+	agentRollouts           *agentRolloutCoordinator
 	// apps holds the loaded Apteva Apps registry. Apps attach to
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
@@ -1737,6 +1739,7 @@ func main() {
 	go func() {
 		defer close(shutdownDone)
 		sig := <-sigCh
+		s.shutdownWebsocketProxies()
 		stopRuntimeMonitor()
 		s.ready.Store(false)
 		drain.begin()
@@ -1799,6 +1802,11 @@ func main() {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		defer func() {
+			flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer flushCancel()
+			s.stopProxyTelemetry(flushCtx)
+		}()
 		s.instanceHTTPS.close(ctx)
 		for _, listener := range listeners {
 			if listener != nil {

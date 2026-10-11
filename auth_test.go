@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,6 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { store.Close() })
 	// Reset rate limiters for clean test state
 	loginLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
 	registerLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
@@ -30,7 +30,7 @@ func newTestServer(t *testing.T) *Server {
 	publicClientRateBuckets = map[int64]publicClientRateBucket{}
 	publicClientRateMu.Unlock()
 
-	return &Server{
+	s := &Server{
 		store:          store,
 		agents:         NewAgentManager(t.TempDir(), "echo"),
 		broadcaster:    NewTelemetryBroadcaster(),
@@ -38,6 +38,14 @@ func newTestServer(t *testing.T) *Server {
 		instanceSecret: "test-secret",
 		secret:         bytes.Repeat([]byte{0x42}, 32),
 	}
+	t.Cleanup(func() {
+		s.shutdownWebsocketProxies()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.stopProxyTelemetry(ctx)
+		store.Close()
+	})
+	return s
 }
 
 func postJSON(t *testing.T, handler http.HandlerFunc, body any) *httptest.ResponseRecorder {
