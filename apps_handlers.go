@@ -1106,6 +1106,14 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := validateAppRuntimeCompatibility(manifest, Version); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if manifest.Runtime.ActivationStrategy == sdk.ActivationExclusive && os.Getenv("APTEVA_APPS_REMOTE") != "" {
+		http.Error(w, "exclusive activation requires the local app supervisor", http.StatusBadRequest)
+		return
+	}
 	if info, ok := deprecatedApp(manifest.Name); ok {
 		displayName := manifest.DisplayName
 		if displayName == "" {
@@ -1493,8 +1501,9 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	if s.localApps != nil {
 		if err := s.localApps.Stop(installID); err != nil {
 			log.Printf("[APPS] uninstall committed but process stop failed install=%d: %v", installID, err)
+		} else {
+			s.localApps.ReleaseFixedPorts(installID)
 		}
-		s.localApps.ReleaseFixedPorts(installID)
 	}
 	for _, skill := range pendingSkills {
 		s.sweepSkillFromProject(sweepUserID, sweepProjectID, skill.id, skill.slug, "app uninstalled")
@@ -2212,6 +2221,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if live.Version == "" {
 		http.Error(w, "upstream manifest has no version", http.StatusBadGateway)
+		return
+	}
+	if err := validateAppRuntimeCompatibility(live, Version); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if missing := missingRequiredPermissions(approvedPermissions, live.Requires.Permissions); len(missing) > 0 {

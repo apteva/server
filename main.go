@@ -1563,6 +1563,8 @@ func main() {
 		cacheBase = abs
 	}
 	s.localApps = NewLocalSupervisor(cacheBase)
+	s.localApps.beforeExclusiveStop = s.markExclusiveActivationUnavailable
+	s.localApps.afterExclusiveSpawn = s.recordExclusiveActivationPID
 	s.RegisterBuiltinApps()
 
 	// Move legacy `providers` rows onto `connections` (providers/

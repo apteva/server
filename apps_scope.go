@@ -274,8 +274,9 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 // today. If a second consumer shows up, move to apps_local.go and
 // give it a real signature.
 func (s *Server) restartInstallSidecar(installID int64) error {
-	// Best-effort stop. Stop is idempotent — "not running" is OK.
-	_ = s.localApps.Stop(installID)
+	if err := s.localApps.Stop(installID); err != nil {
+		return fmt.Errorf("stop before scope restart: %w", err)
+	}
 
 	// Re-read the install row + fan out via the existing resume
 	// helper. We don't reuse ResumeLocalInstalls (which scans the

@@ -45,21 +45,25 @@ type fixedPortReservation struct {
 // verified rollback needs more than the pid and primary HTTP port previously
 // stored in localProc.
 type activationSpec struct {
-	startupTimeout  time.Duration
-	databaseUpgrade string
-	installID       int64
-	appName         string
-	binPath         string
-	httpPort        int
-	env             map[string]string
-	healthPath      string
-	probeHost       string
-	fixedPorts      []fixedRuntimePort
+	activationStrategy string
+	startupTimeout     time.Duration
+	databaseUpgrade    string
+	installID          int64
+	appName            string
+	binPath            string
+	httpPort           int
+	env                map[string]string
+	healthPath         string
+	probeHost          string
+	fixedPorts         []fixedRuntimePort
 }
 
 func newActivationSpec(installID int64, m *sdk.Manifest, binPath string, httpPort int, env map[string]string) (activationSpec, error) {
 	if m == nil {
 		return activationSpec{}, errors.New("activation manifest required")
+	}
+	if err := validateAppRuntimeCompatibility(m, Version); err != nil {
+		return activationSpec{}, err
 	}
 	if m.Runtime.StartupTimeoutSeconds < 0 || m.Runtime.StartupTimeoutSeconds > 3600 {
 		return activationSpec{}, errors.New("invalid startup timeout")
@@ -84,16 +88,17 @@ func newActivationSpec(installID int64, m *sdk.Manifest, binPath string, httpPor
 		runtimeEnv["APTEVA_APP_DRAIN_TOKEN"] = rand.Text()
 	}
 	return activationSpec{
-		startupTimeout:  time.Duration(m.Runtime.StartupTimeoutSeconds) * time.Second,
-		databaseUpgrade: m.Runtime.DatabaseUpgrade,
-		installID:       installID,
-		appName:         m.Name,
-		binPath:         binPath,
-		httpPort:        httpPort,
-		env:             runtimeEnv,
-		healthPath:      healthPath,
-		probeHost:       probeHost,
-		fixedPorts:      ports,
+		activationStrategy: m.Runtime.ActivationStrategy,
+		startupTimeout:     time.Duration(m.Runtime.StartupTimeoutSeconds) * time.Second,
+		databaseUpgrade:    m.Runtime.DatabaseUpgrade,
+		installID:          installID,
+		appName:            m.Name,
+		binPath:            binPath,
+		httpPort:           httpPort,
+		env:                runtimeEnv,
+		healthPath:         healthPath,
+		probeHost:          probeHost,
+		fixedPorts:         ports,
 	}, nil
 }
 
@@ -312,10 +317,19 @@ func (sup *LocalSupervisor) ReleaseFixedPorts(installID int64) {
 // the committed manifest's ownership. It is idempotent and covers failures in
 // clone/download/compile that occur before activate creates its own lease.
 func (sup *LocalSupervisor) DiscardPendingFixedPorts(installID int64) {
+	// An unconfirmed stop must retain ownership of the candidate's listeners.
+	live := sup.currentProc(installID)
+	livePorts := map[fixedPortKey]struct{}{}
+	if live != nil {
+		livePorts = fixedPortSet(live.spec.fixedPorts)
+	}
 	sup.portMu.Lock()
 	committed := sup.installFixedPorts[installID]
 	for key, owner := range sup.fixedPorts {
 		if owner.installID != installID {
+			continue
+		}
+		if _, held := livePorts[key]; held {
 			continue
 		}
 		if _, keep := committed[key]; !keep {
@@ -328,12 +342,13 @@ func (sup *LocalSupervisor) DiscardPendingFixedPorts(installID int64) {
 type activationError struct {
 	cause              error
 	rollbackVerified   bool
+	rollbackRestarted  bool
 	rollbackFailureErr error
 }
 
 func (e *activationError) Error() string {
 	if e.rollbackFailureErr != nil {
-		return fmt.Sprintf("%v; previous version restart failed: %v; committed database changes were not restored", e.cause, e.rollbackFailureErr)
+		return fmt.Sprintf("%v; previous version recovery failed: %v; committed database changes were not restored", e.cause, e.rollbackFailureErr)
 	}
 	return e.cause.Error() + "; binary fallback does not restore committed database changes"
 }
@@ -345,12 +360,23 @@ func activationRollbackVerified(err error) bool {
 	return errors.As(err, &activationErr) && activationErr.rollbackVerified
 }
 
+func (sup *LocalSupervisor) previousVersionStillReady(installID int64, err error) bool {
+	var activationErr *activationError
+	if errors.As(err, &activationErr) {
+		// The candidate may have become healthy after its failed deadline.
+		// Only the activation transaction knows which version was restored.
+		return activationErr.rollbackVerified
+	}
+	return sup.verifyCurrentProc(installID, 5*time.Second)
+}
+
 func requiresExclusiveActivation(old *localProc, next activationSpec) bool {
-	return len(next.fixedPorts) > 0 || (old != nil && len(old.spec.fixedPorts) > 0)
+	return next.activationStrategy == sdk.ActivationExclusive || len(next.fixedPorts) > 0 ||
+		(old != nil && (old.spec.activationStrategy == sdk.ActivationExclusive || len(old.spec.fixedPorts) > 0))
 }
 
 // activate keeps ordinary HTTP-only sidecars on the existing blue-green path.
-// Any old or new fixed host port makes the activation exclusive: OLD is stopped
+// An exclusive policy or old/new fixed host port requires exclusive activation: OLD is stopped
 // only after NEW is fully prepared, then NEW is started and verified. Failure
 // restarts and verifies OLD before the caller is allowed to report rollback.
 func (sup *LocalSupervisor) activate(next activationSpec, deadline time.Duration) error {
@@ -369,25 +395,42 @@ func (sup *LocalSupervisor) activate(next activationSpec, deadline time.Duration
 
 	exclusive := requiresExclusiveActivation(old, next)
 	if exclusive && old != nil {
-		old = sup.takeCurrentProc(next.installID)
-		if old != nil {
-			terminateProc(old, 5*time.Second)
+		if sup.beforeExclusiveStop != nil {
+			if err := sup.beforeExclusiveStop(next.installID); err != nil {
+				lease.rollback()
+				return &activationError{cause: err, rollbackVerified: sup.verifyCurrentProc(next.installID, 5*time.Second)}
+			}
+		}
+		if err := sup.Stop(next.installID); err != nil {
+			lease.rollback()
+			return &activationError{cause: fmt.Errorf("stop previous process: %w", err), rollbackVerified: sup.verifyCurrentProc(next.installID, 5*time.Second)}
 		}
 	}
 
 	if err := sup.spawn(next); err != nil {
 		if exclusive {
-			return sup.rollbackExclusiveActivation(old, lease, err, deadline)
+			return sup.rollbackExclusiveActivation(old, lease, err)
 		}
 		lease.rollback()
 		verified := sup.verifyCurrentProc(next.installID, 5*time.Second)
 		return &activationError{cause: err, rollbackVerified: verified}
 	}
 
-	if err := sup.waitReady(next, deadline); err != nil {
-		_ = sup.Stop(next.installID)
+	var readyErr error
+	if exclusive && old != nil && sup.afterExclusiveSpawn != nil {
+		readyErr = sup.afterExclusiveSpawn(next.installID, sup.PID(next.installID))
+	}
+	if readyErr == nil {
+		readyErr = sup.waitReady(next, deadline)
+	}
+	if err := readyErr; err != nil {
+		if stopErr := sup.Stop(next.installID); stopErr != nil {
+			// Do not release the candidate's ports or start OLD over a process
+			// whose exit has not been confirmed.
+			return &activationError{cause: err, rollbackFailureErr: fmt.Errorf("stop failed replacement: %w", stopErr)}
+		}
 		if exclusive {
-			return sup.rollbackExclusiveActivation(old, lease, err, deadline)
+			return sup.rollbackExclusiveActivation(old, lease, err)
 		}
 		restored := sup.rollbackToOld(next.installID)
 		lease.rollback()
@@ -399,34 +442,40 @@ func (sup *LocalSupervisor) activate(next activationSpec, deadline time.Duration
 	return nil
 }
 
-func (sup *LocalSupervisor) rollbackExclusiveActivation(old *localProc, lease *fixedPortLease, cause error, deadline time.Duration) error {
+func (sup *LocalSupervisor) rollbackExclusiveActivation(old *localProc, lease *fixedPortLease, cause error) error {
 	lease.rollback()
 	if old == nil {
 		return &activationError{cause: cause}
 	}
 	oldSpec := old.spec.clone()
+	// The previous version may legitimately need more time than the candidate.
+	deadline := 30 * time.Second
+	if oldSpec.startupTimeout > 0 {
+		deadline = oldSpec.startupTimeout
+	}
 	if err := sup.spawn(oldSpec); err != nil {
 		return &activationError{cause: cause, rollbackFailureErr: err}
 	}
-	if err := sup.waitReady(oldSpec, deadline); err != nil {
-		_ = sup.Stop(oldSpec.installID)
+	var readyErr error
+	if sup.afterExclusiveSpawn != nil {
+		readyErr = sup.afterExclusiveSpawn(oldSpec.installID, sup.PID(oldSpec.installID))
+	}
+	if readyErr == nil {
+		readyErr = sup.waitReady(oldSpec, deadline)
+	}
+	if err := readyErr; err != nil {
+		if stopErr := sup.Stop(oldSpec.installID); stopErr != nil {
+			err = errors.Join(err, fmt.Errorf("stop failed rollback: %w", stopErr))
+		}
 		return &activationError{cause: cause, rollbackFailureErr: err}
 	}
-	return &activationError{cause: cause, rollbackVerified: true}
+	return &activationError{cause: cause, rollbackVerified: true, rollbackRestarted: true}
 }
 
 func (sup *LocalSupervisor) currentProc(installID int64) *localProc {
 	sup.mu.Lock()
 	defer sup.mu.Unlock()
 	return sup.procs[installID]
-}
-
-func (sup *LocalSupervisor) takeCurrentProc(installID int64) *localProc {
-	sup.mu.Lock()
-	p := sup.procs[installID]
-	delete(sup.procs, installID)
-	sup.mu.Unlock()
-	return p
 }
 
 func (sup *LocalSupervisor) verifyCurrentProc(installID int64, deadline time.Duration) bool {

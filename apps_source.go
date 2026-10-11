@@ -83,6 +83,9 @@ func humaniseBuildLine(line string) string {
 // caller can persist a human-readable status message — passing nil
 // is fine.
 func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, env map[string]string, progress func(string)) (port int, binPath string, err error) {
+	if err := validateAppRuntimeCompatibility(m, Version); err != nil {
+		return 0, "", err
+	}
 	binPath, err = sup.BuildFromSourceBinary(m, progress)
 	if err != nil {
 		return 0, "", err
@@ -245,6 +248,9 @@ func (sup *LocalSupervisor) spawnBuiltSource(installID int64, m *sdk.Manifest, s
 // source.entry (or "."). extraGoEnv lets the caller inject build env (e.g.
 // GOWORK pointing at a temp workspace so the local app-sdk overlay applies).
 func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifest, localSrcDir string, goEnv []string, env map[string]string, progress func(string)) (port int, binPath string, err error) {
+	if err := validateAppRuntimeCompatibility(m, Version); err != nil {
+		return 0, "", err
+	}
 	// localSrcDir already points at the app's module dir (where go.mod
 	// lives), so entry is always "." — unlike a git source whose entry is
 	// relative to the repo root (e.g. "mcp/social").
@@ -822,7 +828,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		// serving, or during activation after a verified rollback. Preserve
 		// status='running' only after checking OLD's HTTP and fixed TCP
 		// readiness; process existence alone is not sufficient evidence.
-		if activationRollbackVerified(err) || s.localApps.verifyCurrentProc(installID, 5*time.Second) {
+		if s.localApps.previousVersionStillReady(installID, err) {
 			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
 			s.store.db.Exec(

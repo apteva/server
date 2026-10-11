@@ -146,6 +146,7 @@ func TestFixedPortFailedRollbackIsNotReportedAsRunning(t *testing.T) {
 	// The running OLD stays healthy, but its captured restart specification is
 	// made unhealthy to model a previous binary that can no longer recover.
 	sup.currentProc(22).spec.env["TEST_SIDECAR_FAIL_HEALTH"] = "1"
+	sup.currentProc(22).spec.startupTimeout = 500 * time.Millisecond
 
 	badSpec := localSidecarSpec(t, 22, "mqtt", copyFixtureBinary(t, bin, "v2"), fixedPort, map[string]string{
 		"TEST_SIDECAR_ID":          "new",
@@ -303,6 +304,7 @@ func buildLocalSidecarFixture(t *testing.T) string {
 	dir := t.TempDir()
 	source := `package main
 import (
+  "encoding/json"
   "fmt"
   "net"
   "net/http"
@@ -318,6 +320,10 @@ func event(kind string) {
   if err == nil { fmt.Fprintf(f, "%s %s\n", kind, os.Getenv("TEST_SIDECAR_ID")); f.Close() }
 }
 func main() {
+  // Model application-configured listeners, absent from runtime.ports.
+  var config map[string]string
+  json.Unmarshal([]byte(os.Getenv("APTEVA_APP_CONFIG")), &config)
+  for k,v := range config { if os.Getenv(k) == "" { os.Setenv(k,v) } }
   var fixed net.Listener
   if raw := os.Getenv("TEST_SIDECAR_FIXED_PORT"); raw != "" {
     var err error

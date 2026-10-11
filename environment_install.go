@@ -18,6 +18,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -63,6 +64,9 @@ func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int6
 	}
 	if m.Name == "" {
 		return nil, fmt.Errorf("manifest has no name")
+	}
+	if err := validateAppRuntimeCompatibility(m, Version); err != nil {
+		return nil, err
 	}
 
 	// 2. Reuse the catalog row without changing it. Environment installs must
@@ -198,7 +202,10 @@ func (s *Server) deleteEnvironmentInstall(installID int64) {
 	var appName, appSource string
 	_ = s.store.db.QueryRow(`SELECT i.app_id, a.name, COALESCE(a.source,'')
 		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&appID, &appName, &appSource)
-	_ = s.localApps.Stop(installID)
+	if err := s.localApps.Stop(installID); err != nil {
+		log.Printf("[ENVIRONMENT] stop install=%d before removal: %v", installID, err)
+		return
+	}
 	s.localApps.ReleaseFixedPorts(installID)
 	if s.installedApps != nil {
 		s.installedApps.Remove(installID)
