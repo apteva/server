@@ -386,16 +386,25 @@
           "configurationId": {
             "type": "string",
             "format": "uuid"
+          },
+          "environment": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per-run environment overrides. Signing credentials belong in secret variable groups."
           }
         },
         "required": [
-          "commitId"
+          "commitId",
+          "environment"
         ]
       },
       "query_params": [
         "workflowId",
         "configurationId"
-      ]
+      ],
+      "body_root_param": "environment"
     },
     {
       "name": "get_build_queue_item",
@@ -4926,6 +4935,59 @@
         "versionCode",
         "minDuration",
         "maxDuration"
+      ]
+    },
+    {
+      "name": "update_build_configuration",
+      "description": "Update a build configuration, preserving existing settings when attaching signing variable groups. Fetch get_build_configuration first.",
+      "method": "PUT",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/profiles/{profileId}/configurations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "profileId",
+          "configuration"
+        ]
+      },
+      "body_root_param": "configuration"
+    },
+    {
+      "name": "get_last_commit",
+      "description": "Get the latest adapter repository commit by branch and profile.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/commits/last-commit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "branchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "branchId",
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "branchId",
+        "profileId"
       ]
     }
   ]

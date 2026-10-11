@@ -1,0 +1,1227 @@
+{
+  "slug": "xcode-cloud",
+  "name": "Xcode Cloud",
+  "description": "Manage Xcode Cloud products, workflows, Git references, build runs, actions, issues, test results, and artifacts through the App Store Connect API. Start an existing workflow or rebuild a run. Configure the product, repository access, signing, and distribution workflow in Xcode/App Store Connect first.",
+  "logo": "https://www.google.com/s2/favicons?domain=developer.apple.com&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "mobile",
+    "ios",
+    "builds"
+  ],
+  "base_url": "https://api.appstoreconnect.apple.com/v1",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "signers": [
+      {
+        "name": "app_store_connect_jwt"
+      }
+    ],
+    "credential_fields": [
+      {
+        "name": "issuer_id",
+        "label": "Issuer ID",
+        "type": "text",
+        "required": true,
+        "description": "App Store Connect team API key issuer ID from Users and Access > Integrations."
+      },
+      {
+        "name": "key_id",
+        "label": "Key ID",
+        "type": "text",
+        "required": true,
+        "description": "ID of a team App Store Connect API key with access to Xcode Cloud."
+      },
+      {
+        "name": "private_key",
+        "label": "API Private Key (.p8)",
+        "type": "multiline_password",
+        "required": true,
+        "description": "Full AuthKey_<KEY_ID>.p8 PEM contents. The existing App Store Connect signer generates short-lived ES256 JWTs automatically."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_products",
+      "description": "List accessible Xcode Cloud products. Product IDs differ from App Store app IDs. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciProducts",
+      "query_params": [
+        "filter[productType]",
+        "filter[app]",
+        "fields[ciProducts]",
+        "fields[apps]",
+        "fields[bundleIds]",
+        "fields[scmRepositories]",
+        "limit",
+        "include",
+        "limit[primaryRepositories]",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter[productType]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'productType'"
+          },
+          "filter[app]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s) of related 'app'"
+          },
+          "fields[ciProducts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciProducts"
+          },
+          "fields[apps]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type apps"
+          },
+          "fields[bundleIds]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type bundleIds"
+          },
+          "fields[scmRepositories]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmRepositories"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "limit[primaryRepositories]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related primaryRepositories returned (when they are included)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Get one Xcode Cloud product. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciProducts/{product_id}",
+      "query_params": [
+        "fields[ciProducts]",
+        "fields[apps]",
+        "fields[bundleIds]",
+        "fields[scmRepositories]",
+        "include",
+        "limit[primaryRepositories]"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciProducts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciProducts"
+          },
+          "fields[apps]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type apps"
+          },
+          "fields[bundleIds]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type bundleIds"
+          },
+          "fields[scmRepositories]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmRepositories"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "limit[primaryRepositories]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related primaryRepositories returned (when they are included)"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "list_workflows",
+      "description": "List the workflows configured for one Xcode Cloud product. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciProducts/{product_id}/workflows",
+      "query_params": [
+        "fields[ciWorkflows]",
+        "fields[ciProducts]",
+        "fields[scmRepositories]",
+        "fields[ciXcodeVersions]",
+        "fields[ciMacOsVersions]",
+        "limit",
+        "include",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciWorkflows]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciWorkflows"
+          },
+          "fields[ciProducts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciProducts"
+          },
+          "fields[scmRepositories]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmRepositories"
+          },
+          "fields[ciXcodeVersions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciXcodeVersions"
+          },
+          "fields[ciMacOsVersions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciMacOsVersions"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "get_workflow",
+      "description": "Get workflow actions, start conditions, repository, Xcode version, and signing/distribution configuration. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciWorkflows/{workflow_id}",
+      "query_params": [
+        "fields[ciWorkflows]",
+        "fields[ciProducts]",
+        "fields[scmRepositories]",
+        "fields[ciXcodeVersions]",
+        "fields[ciMacOsVersions]",
+        "include"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciWorkflows]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciWorkflows"
+          },
+          "fields[ciProducts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciProducts"
+          },
+          "fields[scmRepositories]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmRepositories"
+          },
+          "fields[ciXcodeVersions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciXcodeVersions"
+          },
+          "fields[ciMacOsVersions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciMacOsVersions"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "workflow_id"
+        ]
+      }
+    },
+    {
+      "name": "list_product_build_runs",
+      "description": "List build runs for a product. Use sort=-number for newest first. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciProducts/{product_id}/buildRuns",
+      "query_params": [
+        "filter[builds]",
+        "sort",
+        "fields[ciBuildRuns]",
+        "fields[builds]",
+        "fields[ciWorkflows]",
+        "fields[ciProducts]",
+        "fields[scmGitReferences]",
+        "fields[scmPullRequests]",
+        "limit",
+        "include",
+        "limit[builds]",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "filter[builds]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s) of related 'builds'"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of sort expressions; resources will be sorted as specified"
+          },
+          "fields[ciBuildRuns]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciBuildRuns"
+          },
+          "fields[builds]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type builds"
+          },
+          "fields[ciWorkflows]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciWorkflows"
+          },
+          "fields[ciProducts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciProducts"
+          },
+          "fields[scmGitReferences]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmGitReferences"
+          },
+          "fields[scmPullRequests]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmPullRequests"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "limit[builds]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related builds returned (when they are included)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "list_workflow_build_runs",
+      "description": "List build runs for an existing workflow. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciWorkflows/{workflow_id}/buildRuns",
+      "query_params": [
+        "filter[builds]",
+        "sort",
+        "fields[ciBuildRuns]",
+        "fields[builds]",
+        "fields[ciWorkflows]",
+        "fields[ciProducts]",
+        "fields[scmGitReferences]",
+        "fields[scmPullRequests]",
+        "limit",
+        "include",
+        "limit[builds]",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "filter[builds]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s) of related 'builds'"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of sort expressions; resources will be sorted as specified"
+          },
+          "fields[ciBuildRuns]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciBuildRuns"
+          },
+          "fields[builds]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type builds"
+          },
+          "fields[ciWorkflows]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciWorkflows"
+          },
+          "fields[ciProducts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciProducts"
+          },
+          "fields[scmGitReferences]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmGitReferences"
+          },
+          "fields[scmPullRequests]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmPullRequests"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "limit[builds]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related builds returned (when they are included)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "workflow_id"
+        ]
+      }
+    },
+    {
+      "name": "get_build_run",
+      "description": "Poll executionProgress and completionStatus for one run. COMPLETE is terminal; inspect completionStatus for success or failure. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciBuildRuns/{build_run_id}",
+      "query_params": [
+        "fields[ciBuildRuns]",
+        "fields[builds]",
+        "fields[ciWorkflows]",
+        "fields[ciProducts]",
+        "fields[scmGitReferences]",
+        "fields[scmPullRequests]",
+        "include",
+        "limit[builds]"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_run_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciBuildRuns]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciBuildRuns"
+          },
+          "fields[builds]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type builds"
+          },
+          "fields[ciWorkflows]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciWorkflows"
+          },
+          "fields[ciProducts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciProducts"
+          },
+          "fields[scmGitReferences]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmGitReferences"
+          },
+          "fields[scmPullRequests]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmPullRequests"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "limit[builds]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related builds returned (when they are included)"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "build_run_id"
+        ]
+      }
+    },
+    {
+      "name": "list_build_actions",
+      "description": "List build, test, analyze, or archive actions in a run. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciBuildRuns/{build_run_id}/actions",
+      "query_params": [
+        "fields[ciBuildActions]",
+        "fields[ciBuildRuns]",
+        "limit",
+        "include",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_run_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciBuildActions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciBuildActions"
+          },
+          "fields[ciBuildRuns]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciBuildRuns"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "build_run_id"
+        ]
+      }
+    },
+    {
+      "name": "get_build_action",
+      "description": "Get the status and details of one build action. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciBuildActions/{action_id}",
+      "query_params": [
+        "fields[ciBuildActions]",
+        "fields[ciBuildRuns]",
+        "include"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciBuildActions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciBuildActions"
+          },
+          "fields[ciBuildRuns]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciBuildRuns"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action_id"
+        ]
+      }
+    },
+    {
+      "name": "list_build_artifacts",
+      "description": "List downloadable artifacts such as build logs and test results for one action. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciBuildActions/{action_id}/artifacts",
+      "query_params": [
+        "fields[ciArtifacts]",
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciArtifacts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciArtifacts"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action_id"
+        ]
+      }
+    },
+    {
+      "name": "get_artifact",
+      "description": "Get artifact metadata and its provider downloadUrl. Use download_artifact to retrieve that URL. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciArtifacts/{artifact_id}",
+      "query_params": [
+        "fields[ciArtifacts]"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciArtifacts]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciArtifacts"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "artifact_id"
+        ]
+      }
+    },
+    {
+      "name": "list_build_issues",
+      "description": "List compilation, analysis, and test issues for one action. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciBuildActions/{action_id}/issues",
+      "query_params": [
+        "fields[ciIssues]",
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciIssues]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciIssues"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action_id"
+        ]
+      }
+    },
+    {
+      "name": "list_test_results",
+      "description": "List individual test results from one action. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciBuildActions/{action_id}/testResults",
+      "query_params": [
+        "fields[ciTestResults]",
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[ciTestResults]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type ciTestResults"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action_id"
+        ]
+      }
+    },
+    {
+      "name": "list_processed_builds",
+      "description": "List the App Store Connect builds produced by a run. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/ciBuildRuns/{build_run_id}/builds",
+      "query_params": [
+        "filter[version]",
+        "filter[expired]",
+        "filter[processingState]",
+        "filter[betaAppReviewSubmission.betaReviewState]",
+        "filter[usesNonExemptEncryption]",
+        "filter[preReleaseVersion.version]",
+        "filter[preReleaseVersion.platform]",
+        "filter[buildAudienceType]",
+        "filter[preReleaseVersion]",
+        "filter[app]",
+        "filter[betaGroups]",
+        "filter[appStoreVersion]",
+        "filter[id]",
+        "exists[usesNonExemptEncryption]",
+        "sort",
+        "fields[builds]",
+        "fields[preReleaseVersions]",
+        "fields[betaTesters]",
+        "fields[betaGroups]",
+        "fields[betaBuildLocalizations]",
+        "fields[appEncryptionDeclarations]",
+        "fields[betaAppReviewSubmissions]",
+        "fields[apps]",
+        "fields[buildBetaDetails]",
+        "fields[appStoreVersions]",
+        "fields[buildIcons]",
+        "fields[buildBundles]",
+        "fields[buildUploads]",
+        "limit",
+        "include",
+        "limit[individualTesters]",
+        "limit[betaGroups]",
+        "limit[betaBuildLocalizations]",
+        "limit[icons]",
+        "limit[buildBundles]",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_run_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "filter[version]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'version'"
+          },
+          "filter[expired]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'expired'"
+          },
+          "filter[processingState]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'processingState'"
+          },
+          "filter[betaAppReviewSubmission.betaReviewState]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'betaAppReviewSubmission.betaReviewState'"
+          },
+          "filter[usesNonExemptEncryption]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'usesNonExemptEncryption'"
+          },
+          "filter[preReleaseVersion.version]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'preReleaseVersion.version'"
+          },
+          "filter[preReleaseVersion.platform]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'preReleaseVersion.platform'"
+          },
+          "filter[buildAudienceType]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by attribute 'buildAudienceType'"
+          },
+          "filter[preReleaseVersion]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s) of related 'preReleaseVersion'"
+          },
+          "filter[app]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s) of related 'app'"
+          },
+          "filter[betaGroups]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s) of related 'betaGroups'"
+          },
+          "filter[appStoreVersion]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s) of related 'appStoreVersion'"
+          },
+          "filter[id]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s)"
+          },
+          "exists[usesNonExemptEncryption]": {
+            "type": "boolean",
+            "description": "filter by attribute 'usesNonExemptEncryption'"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of sort expressions; resources will be sorted as specified"
+          },
+          "fields[builds]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type builds"
+          },
+          "fields[preReleaseVersions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type preReleaseVersions"
+          },
+          "fields[betaTesters]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type betaTesters"
+          },
+          "fields[betaGroups]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type betaGroups"
+          },
+          "fields[betaBuildLocalizations]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type betaBuildLocalizations"
+          },
+          "fields[appEncryptionDeclarations]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type appEncryptionDeclarations"
+          },
+          "fields[betaAppReviewSubmissions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type betaAppReviewSubmissions"
+          },
+          "fields[apps]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type apps"
+          },
+          "fields[buildBetaDetails]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type buildBetaDetails"
+          },
+          "fields[appStoreVersions]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type appStoreVersions"
+          },
+          "fields[buildIcons]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type buildIcons"
+          },
+          "fields[buildBundles]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type buildBundles"
+          },
+          "fields[buildUploads]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type buildUploads"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "limit[individualTesters]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related individualTesters returned (when they are included)"
+          },
+          "limit[betaGroups]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related betaGroups returned (when they are included)"
+          },
+          "limit[betaBuildLocalizations]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related betaBuildLocalizations returned (when they are included)"
+          },
+          "limit[icons]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related icons returned (when they are included)"
+          },
+          "limit[buildBundles]": {
+            "type": "integer",
+            "maximum": 50,
+            "description": "maximum number of related buildBundles returned (when they are included)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "build_run_id"
+        ]
+      }
+    },
+    {
+      "name": "list_repositories",
+      "description": "List connected source-control repositories; repository access must be configured first. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/scmRepositories",
+      "query_params": [
+        "filter[id]",
+        "fields[scmRepositories]",
+        "fields[scmProviders]",
+        "fields[scmGitReferences]",
+        "limit",
+        "include",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter[id]": {
+            "type": "string",
+            "description": "Comma-separated values. filter by id(s)"
+          },
+          "fields[scmRepositories]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmRepositories"
+          },
+          "fields[scmProviders]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmProviders"
+          },
+          "fields[scmGitReferences]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmGitReferences"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_git_references",
+      "description": "List branch/tag resource IDs. Use the returned ID, rather than a branch name, when starting a build. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/scmRepositories/{repository_id}/gitReferences",
+      "query_params": [
+        "fields[scmGitReferences]",
+        "fields[scmRepositories]",
+        "limit",
+        "include",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[scmGitReferences]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmGitReferences"
+          },
+          "fields[scmRepositories]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmRepositories"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "repository_id"
+        ]
+      }
+    },
+    {
+      "name": "list_pull_requests",
+      "description": "List source-control pull-request resource IDs for starting a pull-request build. For pagination, use the cursor from links.next.",
+      "method": "GET",
+      "path": "/scmRepositories/{repository_id}/pullRequests",
+      "query_params": [
+        "fields[scmPullRequests]",
+        "fields[scmRepositories]",
+        "limit",
+        "include",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "string",
+            "description": "the id of the requested resource"
+          },
+          "fields[scmPullRequests]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmPullRequests"
+          },
+          "fields[scmRepositories]": {
+            "type": "string",
+            "description": "Comma-separated values. the fields to include for returned resources of type scmRepositories"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200,
+            "description": "maximum resources per page"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated values. comma-separated list of relationships to include"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor from links.next; do not derive it from a page number."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "repository_id"
+        ]
+      }
+    },
+    {
+      "name": "start_build",
+      "description": "Start an existing Xcode Cloud workflow for exactly one branch/tag or pull request. List Git references or pull requests first to obtain Apple resource IDs. This runs the workflow and consumes Xcode Cloud usage.",
+      "method": "POST",
+      "path": "/ciBuildRuns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string"
+          },
+          "git_reference_id": {
+            "type": "string",
+            "description": "scmGitReferences resource ID, not a branch name."
+          },
+          "pull_request_id": {
+            "type": "string",
+            "description": "scmPullRequests resource ID."
+          },
+          "clean": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "git_reference_id"
+            ],
+            "not": {
+              "required": [
+                "pull_request_id"
+              ]
+            }
+          },
+          {
+            "required": [
+              "pull_request_id"
+            ],
+            "not": {
+              "required": [
+                "git_reference_id"
+              ]
+            }
+          }
+        ]
+      },
+      "request_transform": {
+        "type": "json_api",
+        "resource_type": "ciBuildRuns",
+        "attributes": [
+          "clean"
+        ],
+        "relationships": {
+          "workflow": {
+            "source": "workflow_id",
+            "resource_type": "ciWorkflows"
+          },
+          "sourceBranchOrTag": {
+            "source": "git_reference_id",
+            "resource_type": "scmGitReferences"
+          },
+          "pullRequest": {
+            "source": "pull_request_id",
+            "resource_type": "scmPullRequests"
+          }
+        }
+      }
+    },
+    {
+      "name": "rebuild",
+      "description": "Rebuild an existing Xcode Cloud run using its original workflow and source reference. This starts a new run and consumes build usage.",
+      "method": "POST",
+      "path": "/ciBuildRuns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_run_id": {
+            "type": "string"
+          },
+          "clean": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "build_run_id"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_api",
+        "resource_type": "ciBuildRuns",
+        "attributes": [
+          "clean"
+        ],
+        "relationships": {
+          "buildRun": {
+            "source": "build_run_id",
+            "resource_type": "ciBuildRuns"
+          }
+        }
+      }
+    },
+    {
+      "name": "download_artifact",
+      "description": "Download the exact downloadUrl returned by get_artifact. Apple API signing and credentials are disabled for the artifact host.",
+      "method": "GET",
+      "path": "{download_url}",
+      "signing": {
+        "signers": []
+      },
+      "omit_auth_headers": [
+        "Authorization",
+        "Content-Type",
+        "Accept"
+      ],
+      "response_type": "binary",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "description": "Provider-returned artifact downloadUrl."
+          }
+        },
+        "required": [
+          "download_url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_products",
+    "input": {
+      "limit": 1
+    }
+  }
+}

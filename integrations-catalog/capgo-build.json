@@ -1,0 +1,470 @@
+{
+  "slug": "capgo-build",
+  "name": "Capgo Build",
+  "description": "Request, upload prepared native source ZIPs, start, monitor, and cancel Capgo native iOS/Android builds. Prepare the native project and signing credentials first. Source uploads use TUS: create an upload, send chunks at the returned offset, then start_build. Build logs use streaming URLs from start_build and are not polled through the deprecated SSE proxy.",
+  "logo": "https://www.google.com/s2/favicons?domain=capgo.app&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "mobile",
+    "ios",
+    "builds"
+  ],
+  "base_url": "https://api.capgo.app",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "{{api_key}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Capgo API Key",
+        "type": "password",
+        "required": true,
+        "description": "Generate an organization API key in the Capgo Console with app.build_native permission and write/all mode for starting/uploading builds. Build routes use the raw authorization API-key header, without a Bearer prefix."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_apps",
+      "description": "List accessible Capgo apps to locate the application identifier used by build requests.",
+      "method": "GET",
+      "path": "/app/",
+      "query_params": [
+        "page",
+        "limit",
+        "org_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "org_id": {
+            "type": "string",
+            "description": "Optional organization filter."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_app",
+      "description": "Get a Capgo app and its organization metadata.",
+      "method": "GET",
+      "path": "/app/{appId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId"
+        ]
+      }
+    },
+    {
+      "name": "request_build",
+      "description": "Create a pending native build job and receive job_id, upload_url, upload_path, and upload expiry. This does not upload local files or start compilation. Prepare a ZIP of the native project, create_source_upload, upload_source_chunk until complete, then start_build. Pass build_credentials, not the rejected deprecated credentials field. Configure signing/output destinations first.",
+      "method": "POST",
+      "path": "/build/request",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Registered application identifier, such as com.example.app."
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "build_mode": {
+            "type": "string",
+            "enum": [
+              "release",
+              "debug"
+            ]
+          },
+          "build_options": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "ios",
+                  "android"
+                ]
+              },
+              "buildMode": {
+                "type": "string",
+                "enum": [
+                  "release",
+                  "debug"
+                ]
+              },
+              "cliVersion": {
+                "type": "string"
+              },
+              "iosScheme": {
+                "type": "string"
+              },
+              "iosTarget": {
+                "type": "string"
+              },
+              "iosDistribution": {
+                "type": "string",
+                "enum": [
+                  "app_store",
+                  "ad_hoc"
+                ]
+              },
+              "iosXcodeVersion": {
+                "type": "string"
+              },
+              "iosSourceDir": {
+                "type": "string"
+              },
+              "iosAppDir": {
+                "type": "string"
+              },
+              "iosProjectDir": {
+                "type": "string"
+              },
+              "androidSourceDir": {
+                "type": "string"
+              },
+              "androidAppDir": {
+                "type": "string"
+              },
+              "androidProjectDir": {
+                "type": "string"
+              },
+              "androidFlavor": {
+                "type": "string"
+              },
+              "outputUploadEnabled": {
+                "type": "boolean"
+              },
+              "outputRetentionSeconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "skipBuildNumberBump": {
+                "type": "boolean"
+              },
+              "skipMarketingVersionBump": {
+                "type": "boolean"
+              },
+              "submitToStoreReview": {
+                "type": "boolean"
+              },
+              "storeReleaseName": {
+                "type": "string"
+              },
+              "storeReleaseNotes": {
+                "type": "string"
+              },
+              "storeReleaseNotesLocalized": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "iosTestflightGroups": {
+                "type": "string"
+              },
+              "iosAutomaticRelease": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "build_config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "build_credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Signing secrets in Capgo environment-variable names, e.g. BUILD_CERTIFICATE_BASE64, CAPGO_IOS_PROVISIONING_MAP, P12_PASSWORD, APPLE_KEY_ID, APPLE_ISSUER_ID, APPLE_KEY_CONTENT, APP_STORE_CONNECT_TEAM_ID, or ANDROID_KEYSTORE_FILE and KEYSTORE_* for Android. These are prepared inputs; no signing files are created by this integration."
+          },
+          "cache_enabled": {
+            "type": "boolean"
+          },
+          "cache_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_id",
+          "platform"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_source_upload",
+      "description": "Create the TUS upload for a pending job. upload_length is the prepared ZIP byte length. Read the Location and Upload-Offset response headers. The upload resource is the final ZIP filename of upload_path returned by request_build. Capgo rewrites upload metadata to the authorized job source path.",
+      "method": "POST",
+      "path": "/build/upload/{job_id}",
+      "body_none": true,
+      "omit_auth_headers": [
+        "Content-Type",
+        "Accept"
+      ],
+      "headers": {
+        "Tus-Resumable": "1.0.0"
+      },
+      "header_params": {
+        "upload_length": "Upload-Length",
+        "upload_metadata": "Upload-Metadata"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "upload_length": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "upload_metadata": {
+            "type": "string",
+            "description": "Optional TUS metadata, for example filetype YXBwbGljYXRpb24vemlw (application/zip). Values must be base64-encoded."
+          }
+        },
+        "required": [
+          "job_id",
+          "upload_length"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_source_upload_offset",
+      "description": "Probe TUS upload progress. The Capgo backend accepts a Tus-Resumable GET and forwards it as HEAD. Read Upload-Offset/Upload-Length response headers before resuming.",
+      "method": "GET",
+      "path": "/build/upload/{job_id}/{upload_resource}",
+      "omit_auth_headers": [
+        "Content-Type",
+        "Accept"
+      ],
+      "headers": {
+        "Tus-Resumable": "1.0.0"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "upload_resource": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+\\.zip$",
+            "description": "Final ZIP filename from upload_path, or the matching Location suffix. Do not use the builder host or a filesystem path."
+          }
+        },
+        "required": [
+          "job_id",
+          "upload_resource"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "upload_source_chunk",
+      "description": "Upload a ZIP chunk to a pending TUS resource at the current byte offset. data must be a binary envelope with mimeType application/offset+octet-stream. Continue until Upload-Offset equals Upload-Length before start_build. Use the official CLI for large/resumable local project uploads when response headers are unavailable to the caller.",
+      "method": "PATCH",
+      "path": "/build/upload/{job_id}/{upload_resource}",
+      "omit_auth_headers": [
+        "Content-Type",
+        "Accept"
+      ],
+      "headers": {
+        "Tus-Resumable": "1.0.0"
+      },
+      "header_params": {
+        "upload_offset": "Upload-Offset"
+      },
+      "body_binary_param": "data",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "upload_resource": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+\\.zip$",
+            "description": "Final ZIP filename from upload_path, or the matching Location suffix. Do not use the builder host or a filesystem path."
+          },
+          "upload_offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "_binary": {
+                "type": "boolean",
+                "const": true
+              },
+              "base64": {
+                "type": "string",
+                "description": "Base64-encoded ZIP chunk bytes."
+              },
+              "mimeType": {
+                "type": "string",
+                "const": "application/offset+octet-stream"
+              }
+            },
+            "required": [
+              "_binary",
+              "base64",
+              "mimeType"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "job_id",
+          "upload_resource",
+          "upload_offset",
+          "data"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "start_build",
+      "description": "Start compilation only after the pending job source upload is complete. Returns status and potentially logs_url/logs_token for a direct SSE client. This consumes native build usage.",
+      "method": "POST",
+      "path": "/build/start/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "app_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "app_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_build_status",
+      "description": "Get native-build status and errors. Supply the registered app ID and the original platform. Poll this JSON route; streaming build logs require a separate SSE-capable client. upload_url is a source-upload URL, not a downloadable build output.",
+      "method": "GET",
+      "path": "/build/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "app_id": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          }
+        },
+        "required": [
+          "job_id",
+          "app_id",
+          "platform"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancel a native build for the authorized app.",
+      "method": "POST",
+      "path": "/build/cancel/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "app_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "app_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "download_build_output",
+      "description": "Download an exact temporary output URL emitted in completed build logs or returned by the official CLI when outputUploadEnabled was configured. Do not use the source upload_url from get_build_status. The Capgo API key is not sent to the output host.",
+      "method": "GET",
+      "path": "{download_url}",
+      "omit_auth_headers": [
+        "Authorization",
+        "Content-Type",
+        "Accept"
+      ],
+      "response_type": "binary",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        },
+        "required": [
+          "download_url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_apps",
+    "input": {}
+  }
+}
