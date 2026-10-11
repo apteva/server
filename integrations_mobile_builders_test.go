@@ -13,7 +13,7 @@ func TestEmbeddedMobileBuilderCatalogs(t *testing.T) {
 		requiredTool string
 	}{
 		{file: "integrations-catalog/bitrise.json", slug: "bitrise", toolCount: 97, requiredTool: "trigger_build"},
-		{file: "integrations-catalog/appcircle.json", slug: "appcircle", toolCount: 101, requiredTool: "start_build"},
+		{file: "integrations-catalog/appcircle.json", slug: "appcircle", toolCount: 103, requiredTool: "start_build"},
 		{file: "integrations-catalog/buildkite.json", slug: "buildkite", toolCount: 51, requiredTool: "create_build"},
 	}
 
