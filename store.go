@@ -186,6 +186,10 @@ func NewStore(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := s.migrateAppRuntime(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.migrateReviewFixes(); err != nil {
 		db.Close()
 		return nil, err

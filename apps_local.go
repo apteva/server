@@ -495,6 +495,10 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 		return err
 	}
 	cmd := exec.CommandContext(context.Background(), bin)
+	if pidFile := env["APTEVA_RUNTIME_PID_FILE"]; pidFile != "" {
+		cmd = exec.CommandContext(context.Background(), "/bin/sh", "-c", `umask 077; printf '%s\n' "$$" > "$1" || exit 125; exec "$2"`, "apteva-managed-runtime", pidFile, bin)
+	}
+
 	cmd.Dir = dataDir
 	overrides := make(map[string]string, len(env)+3)
 	overrides["APTEVA_APP_PORT"] = fmt.Sprintf("%d", port)
@@ -708,6 +712,9 @@ func freePort() (int, error) {
 // spawn); static apps and dependency-resolution recursion don't pay
 // its cost.
 func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID string, decryptedConfig map[string]string) error {
+	if s.runtimeManaged(installID) {
+		return s.managedRuntimeUpgrade(installID, m)
+	}
 	// Drop a duplicate goroutine for the same install_id on the
 	// floor. Returning nil (not error) means: the in-flight call
 	// will write the final state to the DB; we don't need to.
@@ -1112,7 +1119,7 @@ func (s *Server) ResumeLocalInstalls() {
 				COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 				COALESCE(i.integration_bindings, '{}')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE i.status='running' AND i.local_bin_path != ''`)
+		 WHERE i.status='running' AND i.local_bin_path != '' AND i.runtime_managed=0`)
 	if err != nil {
 		return
 	}
@@ -1243,7 +1250,7 @@ func (s *Server) PrepareCloneLocalRuntimes() error {
 		`SELECT i.id, a.name, COALESCE(i.project_id,''),
 			i.version, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE i.status='running' AND i.local_bin_path != ''`)
+		 WHERE i.status='running' AND i.local_bin_path != '' AND i.runtime_managed=0`)
 	if err != nil {
 		return err
 	}
@@ -1327,7 +1334,7 @@ func (s *Server) ResumePendingLocalInstalls() {
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 			COALESCE(NULLIF(i.pending_manifest_json, ''), NULLIF(i.manifest_json, ''), a.manifest_json)
 		   FROM app_installs i JOIN apps a ON a.id = i.app_id
-		  WHERE i.status='pending' OR (i.status='running' AND COALESCE(i.pending_manifest_json,'') != '')`)
+		  WHERE i.runtime_managed=0 AND (i.status='pending' OR (i.status='running' AND COALESCE(i.pending_manifest_json,'') != ''))`)
 	if err != nil {
 		log.Printf("[APPS-LOCAL] load pending installs: %v", err)
 		return
@@ -1614,6 +1621,9 @@ func envResumeConcurrency() int {
 // cached binary is missing, or the new process fails its health
 // check. Updates app_installs.local_pid + status on success/failure.
 func (s *Server) RespawnLocalInstall(installID int64) error {
+	if s.runtimeManaged(installID) {
+		return s.managedRuntimeRestart(installID)
+	}
 	row := s.store.db.QueryRow(
 		`SELECT i.local_pid, i.local_bin_path, i.local_port,
 			COALESCE(i.project_id,''), i.config_encrypted, i.version,

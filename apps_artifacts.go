@@ -193,7 +193,11 @@ func validateAppArtifact(root string, m *sdk.Manifest) error {
 // Only absence of a platform artifact permits source fallback. Any selected
 // artifact error propagates, leaving previous runtimes and caches intact.
 func (sup *LocalSupervisor) fetchAppArtifact(m *sdk.Manifest, progress func(string)) (string, error) {
-	a, ok := m.Runtime.Artifacts[localPlatform()]
+	return sup.fetchAppArtifactForPlatform(m, localPlatform(), progress)
+}
+
+func (sup *LocalSupervisor) fetchAppArtifactForPlatform(m *sdk.Manifest, platform string, progress func(string)) (string, error) {
+	a, ok := m.Runtime.Artifacts[platform]
 	if !ok {
 		return "", errors.New("no artifact for this platform")
 	}

@@ -548,6 +548,12 @@ func runGitWithRetry(dir string, args ...string) error {
 // dashboard's poll loop has new content but the DB doesn't get
 // hammered. Pass nil to disable.
 func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress func(string)) error {
+	return goBuildInEnvironment(srcDir, entry, binPath, cacheDir, goEnv, progress, nil)
+}
+
+// Managed packages use an isolated child environment; legacy builds keep their
+// existing environment and command line.
+func goBuildInEnvironment(srcDir, entry, binPath, cacheDir string, goEnv []string, progress func(string), buildEnv []string, parents ...context.Context) error {
 	buildDir := srcDir
 	if entry != "" && entry != "." {
 		buildDir = filepath.Join(srcDir, entry)
@@ -564,9 +570,17 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 	// One build attempt. The deadline lives here so a retry gets a full
 	// window rather than the remains of the first attempt's.
 	attempt := func() (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		parent := context.Background()
+		if len(parents) > 0 {
+			parent = parents[0]
+		}
+		ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, goBin, "build", "-o", binPath, ".")
+		args := []string{"build", "-o", binPath, "."}
+		if buildEnv != nil {
+			args = []string{"build", "-trimpath", "-o", binPath, "."}
+		}
+		cmd := exec.CommandContext(ctx, goBin, args...)
 		cmd.Dir = buildDir
 		// GOCACHE / GOMODCACHE MUST be absolute — Go rejects relative
 		// values with "GOMODCACHE entry is relative; must be absolute
@@ -581,6 +595,9 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 			return "", fmt.Errorf("resolve app build cache: %w", err)
 		}
 		envv := os.Environ()
+		if buildEnv != nil {
+			envv = append([]string(nil), buildEnv...)
+		}
 		envv = append(envv,
 			"CGO_ENABLED=0",
 			"GOCACHE="+filepath.Join(absCache, "gocache"),
@@ -786,6 +803,9 @@ func resolvedGoRootBinary(goBin, dir string, envOverrides []string) string {
 // (clone + go build + spawn), so the build slot is what actually
 // prevents the OOM-on-bulk-install crashes the operator hits.
 func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID string, decryptedConfig map[string]string) error {
+	if s.runtimeManaged(installID) {
+		return s.managedRuntimeUpgrade(installID, m)
+	}
 	if !s.localApps.acquireInstall(installID) {
 		log.Printf("[APPS-SOURCE] install %d already in flight — skipping duplicate goroutine", installID)
 		return nil

@@ -120,7 +120,7 @@ func (s *Server) handleSetInstallConfig(w http.ResponseWriter, r *http.Request) 
 	// saved, so a failed respawn is a warning, not a 500.
 	restarted := false
 	if string(beforeRaw) != string(raw) &&
-		s.localApps != nil && s.localApps.PID(installID) > 0 {
+		(s.runtimeManaged(installID) || (s.localApps != nil && s.localApps.PID(installID) > 0)) {
 		if err := s.RespawnLocalInstall(installID); err != nil {
 			log.Printf("[APPS-CONFIG] install %d: config saved but respawn failed: %v", installID, err)
 		} else {

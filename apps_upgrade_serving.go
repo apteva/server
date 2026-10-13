@@ -16,6 +16,11 @@ func (s *Server) stageAppUpgrade(id int64, next *sdk.Manifest) error {
 		return err
 	}
 	status := "pending"
+	if s.runtimeManaged(id) {
+		if active, e := s.appRuntimeManager().active(id); e == nil && active.Status == "active" {
+			status = "running"
+		}
+	}
 	if s.localApps != nil {
 		old := s.localApps.currentProc(id)
 		_, err := fixedRuntimePorts(next)

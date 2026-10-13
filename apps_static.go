@@ -113,10 +113,13 @@ func (s *Server) RemountStaticApps() {
 	}
 	routes := map[string]http.Handler{}
 	for _, e := range s.installedApps.List() {
-		if e.StaticDir == "" {
+		if e.StaticDir == "" && !(e.Manifest.Runtime.Kind == "static" && e.SidecarURL != "") {
 			continue
 		}
 		mount := e.MountPath
+		if mount == "" && e.Manifest.Runtime.Kind == "static" {
+			mount = resolveMountPath(&e.Manifest, e.Config)
+		}
 		if mount == "" || mount == "/" {
 			log.Printf("[APPS-STATIC] skip %s — empty or root mount path", e.AppName)
 			continue
@@ -129,7 +132,11 @@ func (s *Server) RemountStaticApps() {
 		if !strings.HasSuffix(mount, "/") {
 			mount = mount + "/"
 		}
-		routes[mount] = newStaticAppFileHandler(s, e)
+		if e.StaticDir != "" {
+			routes[mount] = newStaticAppFileHandler(s, e)
+		} else {
+			routes[mount] = newRuntimeStaticHandler(s, e)
+		}
 	}
 	s.staticMounts.replace(routes)
 	log.Printf("[APPS-STATIC] remounted %d static app(s)", len(routes))

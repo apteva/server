@@ -301,6 +301,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// accepted temporarily for sidecars started by an older server build.
 		if token != "" && appTokenRouteAllowed(r.URL.Path) {
 			id, installedBy, status, appErr := s.appInstallForToken(token)
+			if appErr == nil && !s.runtimeInitRouteAllowed(token, r) {
+				http.Error(w, "deployment is not active", http.StatusForbidden)
+				return
+			}
 			if appErr == nil && id > 0 {
 				// Accept "running" plus any pre-running state. The
 				// supervisor only flips status to "running" AFTER
@@ -429,6 +433,8 @@ func splitAppProxyPath(path string) (appName, appPath string, ok bool) {
 
 func isAppManagementRoute(first string) bool {
 	switch first {
+	case "execution-backends", "execution-pools":
+		return true
 	case "installs", "callback", "preview", "install", "marketplace":
 		return true
 	default:

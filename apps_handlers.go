@@ -1077,6 +1077,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := getUserID(r)
 	var body struct {
+		Placement     *runtimePlacement `json:"placement,omitempty"`
 		ManifestURL   string            `json:"manifest_url"`
 		ManifestYAML  string            `json:"manifest_yaml"`
 		Repo          string            `json:"repo"`
@@ -1096,6 +1097,12 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	if body.Placement != nil {
+		if err := s.appRuntimeManager().normalizePlacement(body.Placement); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
 	yamlBytes, err := s.fetchManifestBytes(body.ManifestURL, body.ManifestYAML)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -1110,7 +1117,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if manifest.Runtime.ActivationStrategy == sdk.ActivationExclusive && os.Getenv("APTEVA_APPS_REMOTE") != "" {
+	if manifest.Runtime.ActivationStrategy == sdk.ActivationExclusive && os.Getenv("APTEVA_APPS_REMOTE") != "" && body.Placement == nil {
 		http.Error(w, "exclusive activation requires the local app supervisor", http.StatusBadRequest)
 		return
 	}
@@ -1285,6 +1292,19 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	// works on any host with Go), then per-platform binaries, then fall
 	// back. Failures flip the install row to 'error' with the message
 	// stored.
+	if body.Placement != nil {
+		if err := s.appRuntimeManager().normalizePlacement(body.Placement); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		op, err := s.appRuntimeManager().begin(installID, "upgrade", "install-"+generateToken(12), *body.Placement, manifest)
+		if err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		writeJSONStatus(w, 202, map[string]any{"install_id": installID, "app_id": appID, "operation": op})
+		return
+	}
 	preferLocal := os.Getenv("APTEVA_APPS_REMOTE") == "" // default: local mode
 	if preferLocal {
 		if manifest.Runtime.Kind == "static" {
@@ -1465,6 +1485,16 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		}
 		skillRows.Close()
 	}
+	if s.runtimeProviderInUse(installID) {
+		http.Error(w, "installation owns active deployment resources", http.StatusConflict)
+		return
+	}
+	if s.runtimeManaged(installID) {
+		if err := s.appRuntimeManager().stopSync(installID, true); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
 	detachPlan := s.captureAppToolsDetachPlan(installID)
 	s.cleanupInactiveIntegrationWebhooks(installID, true)
 	tx, err := s.store.db.Begin()
@@ -1480,6 +1510,12 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		{`DELETE FROM app_agent_bindings WHERE install_id=?`, installID},
 		{`DELETE FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID)},
 		{`DELETE FROM skills WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_credentials WHERE deployment_id IN (SELECT id FROM app_runtime_deployments WHERE install_id=?)`, installID},
+		{`DELETE FROM app_runtime_ports WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_deployments WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_operations WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_scaling WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_backends WHERE install_id=?`, installID},
 		{`DELETE FROM app_installs WHERE id=?`, installID},
 	}
 	for _, statement := range statements {
@@ -1540,6 +1576,39 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 	if body.Status != "running" && body.Status != "disabled" && body.Status != "error" {
 		http.Error(w, "status must be running|disabled|error", http.StatusBadRequest)
 		return
+	}
+	if body.Status != "running" && s.runtimeProviderInUse(installID) {
+		http.Error(w, "installation owns active deployment resources", http.StatusConflict)
+		return
+	}
+	if s.runtimeManaged(installID) {
+		if body.ServiceName != "" || body.SidecarURL != "" {
+			http.Error(w, "managed endpoint is owned by the deployment controller", http.StatusConflict)
+			return
+		}
+		if body.Status == "disabled" || body.Status == "error" {
+			if err := s.appRuntimeManager().stopSync(installID, false); err != nil {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+		}
+		if body.Status == "running" {
+			d, err := s.appRuntimeManager().active(installID)
+			if err != nil {
+				http.Error(w, "no managed deployment", 409)
+				return
+			}
+			op, err := s.appRuntimeManager().begin(installID, "restart", "enable-"+generateToken(12), d.Placement, nil)
+			if err == nil {
+				err = s.appRuntimeManager().waitOperation(op.ID)
+			}
+			if err != nil {
+				http.Error(w, err.Error(), 409)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "running"})
+			return
+		}
 	}
 	effectiveSidecarURL := strings.TrimSpace(body.SidecarURL)
 	if body.Status == "running" {
@@ -2081,7 +2150,9 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ApproveNewPermissions bool `json:"approve_new_permissions"`
+		Placement             *runtimePlacement `json:"placement,omitempty"`
+		ApproveNewPermissions bool              `json:"approve_new_permissions"`
+		ManifestURL           string            `json:"manifest_url,omitempty"`
 	}
 	if r.Body != nil && r.Body != http.NoBody {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
@@ -2197,7 +2268,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Curated registry entries already provide the authoritative moving
 	// manifest URL. Prefer it over the catalog's human-facing repo field;
 	// that field may be a GitHub tree URL rather than a clone root.
-	url := s.lookupRegistryManifestURL(stored.Name)
+	url := body.ManifestURL
+	if url == "" {
+		url = s.lookupRegistryManifestURL(stored.Name)
+	}
 	if url == "" && catalogRepo != "" {
 		candidate := stored
 		entry := ""
@@ -2217,6 +2291,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	live, err := s.fetchAndCacheManifest(url)
 	if err != nil || live == nil {
 		http.Error(w, "fetch upstream manifest: "+errString(err), http.StatusBadGateway)
+		return
+	}
+	if live.Name != stored.Name {
+		http.Error(w, "selected release belongs to a different app", 400)
 		return
 	}
 	if live.Version == "" {
@@ -2239,6 +2317,23 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if body.Placement != nil {
+		if !s.runtimeManaged(installID) {
+			http.Error(w, "placement changes require a managed installation", 409)
+			return
+		}
+		if err = s.appRuntimeManager().normalizePlacement(body.Placement); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		op, e := s.appRuntimeManager().begin(installID, "upgrade", r.Header.Get("Idempotency-Key"), *body.Placement, live)
+		if e != nil {
+			http.Error(w, e.Error(), 409)
+			return
+		}
+		writeJSONStatus(w, http.StatusAccepted, map[string]any{"status": "pending", "version": live.Version, "operation_id": op.ID})
+		return
+	}
 	// Decrypt the config_encrypted blob so the rebuild gets the same
 	// env that was passed at install time.
 	var cfg map[string]string

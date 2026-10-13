@@ -1279,6 +1279,8 @@ var forwardableHeaders = []string{
 	"Location",
 	"Content-Type",
 	"Content-Range",
+	"Range",
+	"Retry-After",
 	"Accept-Ranges",
 	"Etag",
 	"Last-Modified",
@@ -2214,13 +2216,17 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		url += sep + encoded
 	}
 
-	transformedBody, hasTransformedBody, err := buildRequestTransformBody(tool.RequestTransform, input)
-	if err != nil {
-		return nil, err
+	var transformedBody any
+	var hasTransformedBody bool
+	if !tool.BodyNone {
+		transformedBody, hasTransformedBody, err = buildRequestTransformBody(tool.RequestTransform, input)
+		if err != nil {
+			return nil, err
+		}
 	}
 	var binaryBody any
 	binaryBodyPresent := false
-	if tool.BodyBinaryParam != "" {
+	if !tool.BodyNone && tool.BodyBinaryParam != "" {
 		binaryBody, binaryBodyPresent = input[tool.BodyBinaryParam]
 		binaryBodyPresent = binaryBodyPresent && binaryBody != nil
 		if !binaryBodyPresent && inputSchemaRequires(tool.InputSchema, tool.BodyBinaryParam) {
@@ -2233,7 +2239,10 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// DNS delete endpoint, require a JSON body on DELETE; keeping the
 	// default DELETE path query-only preserves existing integrations.
 	var bodyReader io.Reader
-	if tool.Method != "GET" && tool.Method != "OPTIONS" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
+	if tool.BodyNone {
+		// Explicitly send no body, and do not move unused body inputs into the
+		// query string: a resumable-upload probe must retain its session URL.
+	} else if tool.Method != "GET" && tool.Method != "OPTIONS" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
 		// Raw-body path: tool declared a single input field that
 		// carries the request body verbatim (S3 PutObject, R2
 		// PutObject, etc.). Skip the JSON map assembly entirely.

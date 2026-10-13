@@ -161,6 +161,17 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.runtimeManaged(installID) {
+		if current, e := s.appRuntimeManager().active(installID); e == nil && !current.Placement.local() {
+			for _, owner := range []int64{current.Placement.Backend.InstallID, current.Placement.Target.InstallID} {
+				var ownerProject string
+				if e = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, owner).Scan(&ownerProject); e != nil || (ownerProject != "" && ownerProject != target) {
+					http.Error(w, "runtime backend or target is not accessible in the new project", 409)
+					return
+				}
+			}
+		}
+	}
 	// All checks pass. Wrap the two UPDATEs in a transaction so a
 	// crash partway leaves nothing inconsistent. registerAppMCP runs
 	// AFTER commit — it reads the just-committed row and rewrites
@@ -274,6 +285,9 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 // today. If a second consumer shows up, move to apps_local.go and
 // give it a real signature.
 func (s *Server) restartInstallSidecar(installID int64) error {
+	if s.runtimeManaged(installID) {
+		return s.managedRuntimeRestart(installID)
+	}
 	if err := s.localApps.Stop(installID); err != nil {
 		return fmt.Errorf("stop before scope restart: %w", err)
 	}

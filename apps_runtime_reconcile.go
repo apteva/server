@@ -1,0 +1,200 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	sdk "github.com/apteva/app-sdk"
+	"time"
+)
+
+func (m *appRuntimeManager) reconcile() {
+	m.s.store.db.Exec(`DELETE FROM app_runtime_browser_revocations WHERE expires_at<?`, time.Now().Unix())
+	rows, err := m.s.store.db.Query(`SELECT id FROM app_runtime_operations WHERE status IN ('queued','running') AND (owner='' OR lease_until<?)`, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		m.launch(id)
+	}
+	rows, err = m.s.store.db.Query(`SELECT d.id FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE i.runtime_managed=1 AND i.runtime_active_deployment=d.id AND i.status='running' AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`)
+	if err != nil {
+		return
+	}
+	ids = nil
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		if m.ctx.Err() != nil {
+			return
+		}
+		d, e := m.loadDeployment(id)
+		if e != nil {
+			continue
+		}
+		b, e := m.backend(d)
+		if e != nil {
+			m.markUnreachable(d)
+			continue
+		}
+		req, _ := m.request(d, runtimeOperation{ID: "reconcile"}, "inspect")
+		out, e := b.Inspect(req)
+		if e != nil {
+			m.markUnreachable(d)
+			continue
+		}
+		if d.Placement.local() && out.StoppedConfirmed {
+			op, e := m.begin(d.InstallID, "restart", "reconcile-"+d.ID, d.Placement, nil)
+			if e == nil {
+				m.launch(op.ID)
+			}
+			continue
+		}
+		// A remote outage is an observation, never permission to spawn locally.
+		if !out.Ready || out.State != "running" {
+			m.markUnreachable(d)
+			continue
+		}
+		d.Execution = out
+		_ = m.saveDeployment(d)
+		m.s.store.db.Exec(`UPDATE app_installs SET status_message='' WHERE id=? AND status='running'`, d.InstallID)
+	}
+}
+func (m *appRuntimeManager) markUnreachable(d runtimeDeployment) {
+	m.s.store.db.Exec(`UPDATE app_installs SET status_message='Deployment control unavailable; ownership retained' WHERE id=?`, d.InstallID)
+}
+func (s *Server) managedRuntimeRestart(id int64) error {
+	m := s.appRuntimeManager()
+	d, err := m.active(id)
+	if err != nil {
+		return err
+	}
+	_, err = m.begin(id, "restart", "restart-"+generateToken(12), d.Placement, nil)
+	return err
+}
+func (m *appRuntimeManager) restartOperation(op *runtimeOperation) error {
+	if err := m.prepare(op); err != nil {
+		return err
+	}
+	return m.activate(op)
+}
+
+func (m *appRuntimeManager) stopSync(id int64, remove bool) error {
+	kind := "stop"
+	if remove {
+		kind = "delete"
+	}
+	op, err := m.begin(id, kind, kind+"-"+generateToken(12), runtimePlacement{}, nil)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(m.ctx, 6*time.Minute)
+	defer cancel()
+	for {
+		state, e := m.operation(op.ID)
+		if e != nil {
+			return e
+		}
+		if state.Status == "succeeded" {
+			return nil
+		}
+		if state.Status == "failed" {
+			return fmt.Errorf("managed execution stop failed: %s", state.Error)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("managed stop is still pending; installation retained")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+func (s *Server) runtimeProviderInUse(id int64) bool {
+	rows, err := s.store.db.Query(`SELECT record_json FROM app_runtime_deployments WHERE status != 'deleted'`)
+	if err != nil {
+		return true
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		var d runtimeStoredDeployment
+		if rows.Scan(&raw) != nil || json.Unmarshal([]byte(raw), &d) != nil {
+			return true
+		}
+		if !d.Placement.local() && (d.Placement.Backend.InstallID == id || d.Placement.Target.InstallID == id) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) managedRuntimeUpgrade(id int64, manifest *sdk.Manifest) error {
+	m := s.appRuntimeManager()
+	d, err := m.active(id)
+	if err != nil {
+		return err
+	}
+	op, err := m.begin(id, "upgrade", "upgrade-"+generateToken(12), d.Placement, manifest)
+	if err != nil {
+		return err
+	}
+	return m.waitOperation(op.ID)
+}
+func (m *appRuntimeManager) waitOperation(ref string) error {
+	ctx, cancel := context.WithTimeout(m.ctx, 35*time.Minute)
+	defer cancel()
+	for {
+		op, err := m.operation(ref)
+		if err != nil {
+			return err
+		}
+		if op.Status == "succeeded" {
+			return nil
+		}
+		if op.Status == "failed" {
+			return fmt.Errorf("%s", op.Error)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func (m *appRuntimeManager) retryOperation(id string, installID int64) error {
+	op, err := m.operation(id)
+	if err != nil || op.InstallID != installID {
+		return fmt.Errorf("operation not found")
+	}
+	if op.Status != "failed" && op.Status != "cancelled" {
+		return fmt.Errorf("operation is not retryable")
+	}
+	var pending, active string
+	if err = m.s.store.db.QueryRow(`SELECT runtime_pending_deployment,runtime_active_deployment FROM app_installs WHERE id=?`, installID).Scan(&pending, &active); err != nil {
+		return err
+	}
+	if op.DeploymentID != "" && op.DeploymentID != pending && op.DeploymentID != active && op.Phase != "rolling_back" && op.Kind != "scale" {
+		return fmt.Errorf("operation no longer owns a candidate")
+	}
+	op.Status = "queued"
+	op.Error = ""
+	op.UpdatedAt = runtimeTimestamp()
+	if _, err = m.s.store.db.Exec(`UPDATE app_runtime_operations SET status='queued',owner='',lease_until=0,cancel_requested=0,record_json=? WHERE id=? AND status IN ('failed','cancelled')`, runtimeJSON(runtimeStoredOperation{op, op.SnapshotPath}), id); err != nil {
+		return err
+	}
+	m.launch(id)
+	return nil
+}

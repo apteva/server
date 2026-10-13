@@ -158,7 +158,10 @@ type Server struct {
 	// this host (binary spawn — no Docker). Used in single-host /
 	// laptop installs; coexists with the orchestrator path for prod
 	// multi-worker deployments.
-	localApps *LocalSupervisor
+	localApps         *LocalSupervisor
+	runtimeOnce       sync.Once
+	appRuntime        *appRuntimeManager
+	runtimeRoundRobin uint64
 	// staticMounts holds the live URL-prefix → handler table for every
 	// kind=static app install. Rebuilt on every (un)install via
 	// RemountStaticApps. Read on the request hot path through a
@@ -1135,6 +1138,8 @@ func main() {
 			return
 		}
 		switch {
+		case strings.Contains(path, "/deployment/") || strings.HasSuffix(path, "/placement") || strings.HasSuffix(path, "/deployment"):
+			s.handleAppDeployment(w, r, installID)
 		case strings.HasSuffix(path, "/status") && r.Method == http.MethodPut:
 			s.handleSetInstallStatus(w, r)
 		case strings.HasSuffix(path, "/instances") && r.Method == http.MethodPut:
@@ -1179,6 +1184,7 @@ func main() {
 			http.Error(w, "not found", http.StatusNotFound)
 		}
 	}))
+	s.registerAppDeploymentRoutes(apiMux)
 	s.registerAppRuntimeRoutes(apiMux)
 
 	apiMux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -1688,6 +1694,7 @@ func main() {
 		s.ResumeLocalInstalls()
 		s.PruneInstalledAppVersions()
 		s.ResumePendingLocalInstalls()
+		s.appRuntimeManager().startReconciler()
 	}
 	s.LoadInstalledApps()
 	if !quarantined {
@@ -1796,6 +1803,9 @@ func main() {
 		// this, every clean apteva-server exit leaves the running
 		// app sidecars (code, deploy, storage, …) as orphans for
 		// the next boot's cleanup pass to mop up — works, but noisy.
+		if s.appRuntime != nil {
+			s.appRuntime.Close()
+		}
 		if s.localApps != nil {
 			s.localApps.StopAll(5 * time.Second)
 		}

@@ -39,6 +39,9 @@ func newTestServer(t *testing.T) *Server {
 		secret:         bytes.Repeat([]byte{0x42}, 32),
 	}
 	t.Cleanup(func() {
+		if s.appRuntime != nil {
+			s.appRuntime.Close()
+		}
 		s.shutdownWebsocketProxies()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

@@ -77,6 +77,12 @@ func (s *Server) appInstallForToken(token string) (installID, installedBy int64,
 		`SELECT id, COALESCE(installed_by,0), status FROM app_installs WHERE app_token_hash=?`,
 		HashAPIKey(token),
 	).Scan(&installID, &installedBy, &status)
+	if err == sql.ErrNoRows {
+		return s.runtimeGrantInstall(token)
+	}
+	if err == nil && !s.runtimeLegacyTokenAllowed(installID) {
+		return 0, 0, "", sql.ErrNoRows
+	}
 	return
 }
 
@@ -96,6 +102,10 @@ func (s *Server) handleIssueInstallRuntimeToken(w http.ResponseWriter, r *http.R
 	installID, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || installID <= 0 {
 		http.Error(w, "invalid install id", http.StatusBadRequest)
+		return
+	}
+	if s.runtimeManaged(installID) {
+		http.Error(w, "managed runtime credentials are issued by the deployment controller", http.StatusConflict)
 		return
 	}
 	token, err := s.appInstallToken(installID)

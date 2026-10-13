@@ -41,16 +41,18 @@ type InstalledAppsRegistry struct {
 }
 
 type InstalledApp struct {
-	InstallID   int64
-	AppName     string
-	ProjectID   string
-	Manifest    sdk.Manifest
-	SidecarURL  string            // http://<worker-ip>:<port> from orchestrator (sidecar apps only)
-	StaticDir   string            // absolute path on disk (kind=static apps only)
-	MountPath   string            // URL prefix this app is served at (kind=static apps only, e.g. "/client")
-	Config      map[string]string // decrypted config_json — used for branding / kiosk-key injection
-	Permissions []sdk.Permission
-	Token       string // platform-issued APTEVA_APP_TOKEN for callbacks
+	RuntimeReplicas []runtimeReplicaEndpoint
+	RuntimeRouting  string
+	InstallID       int64
+	AppName         string
+	ProjectID       string
+	Manifest        sdk.Manifest
+	SidecarURL      string            // http://<worker-ip>:<port> from orchestrator (sidecar apps only)
+	StaticDir       string            // absolute path on disk (kind=static apps only)
+	MountPath       string            // URL prefix this app is served at (kind=static apps only, e.g. "/client")
+	Config          map[string]string // decrypted config_json — used for branding / kiosk-key injection
+	Permissions     []sdk.Permission
+	Token           string // platform-issued APTEVA_APP_TOKEN for callbacks
 }
 
 func NewInstalledAppsRegistry() *InstalledAppsRegistry {
@@ -265,6 +267,7 @@ func (s *Server) LoadInstalledApps() {
 			sidecarURL = s.resolveSidecarURL(serviceName, manifest.Runtime.Port)
 		}
 		entry.SidecarURL = sidecarURL
+		s.loadRuntimeEndpoints(entry)
 		s.installedApps.Add(entry)
 		count++
 		log.Printf("[APPS] mounted %s (install=%d project=%q sidecar=%s)",
@@ -582,6 +585,11 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	if tail == "/mcp" && r.Method == http.MethodPost {
 		asyncReq = s.inspectAppMCPAsyncRequest(entry, r, effectiveProjectID)
 	}
+	if strings.HasPrefix(tail, runtimeControlPrefix) {
+		http.Error(w, "not found", 404)
+		return
+	}
+	entry = s.runtimeProxyEntry(entry, r)
 	target, err := url.Parse(entry.SidecarURL)
 	if err != nil {
 		http.Error(w, "invalid sidecar url", http.StatusInternalServerError)

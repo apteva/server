@@ -599,6 +599,10 @@ type AppToolDef struct {
 	// forwarded provider Authorization header.
 	OmitAuthHeaders []string       `json:"omit_auth_headers,omitempty"`
 	InputSchema     map[string]any `json:"input_schema"`
+	// BodyNone suppresses request body construction, including auth body fields,
+	// for zero-byte probes and signed endpoints. URL and header handling remain
+	// unchanged. Mirrors AppToolTemplate.body_none in the TypeScript runner.
+	BodyNone bool `json:"body_none,omitempty"`
 	// Names of input fields that should be sent as URL query string
 	// parameters instead of being folded into the request body. Required
 	// for APIs that mix query+body on POST/PUT/PATCH (e.g. Google Sheets'
