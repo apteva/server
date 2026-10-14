@@ -861,8 +861,53 @@
           },
           "skip": {
             "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "failed",
+              "verifying",
+              "onSale",
+              "onSaleStopped",
+              "saleProcessing",
+              "privateSale",
+              "leaseActive",
+              "sold"
+            ],
+            "description": "Filter by SellerHub public status."
           }
         }
+      }
+    },
+    {
+      "name": "list_sellerhub_sold_domains",
+      "display_name": "List Sold SellerHub Domains",
+      "description": "Read confirmed SellerHub sales with saleDateTime, salePrice and payout. Requires sellerhub:read. Cursor-paginated; follow cursor until absent. Listing disappearance alone is not proof of a sale. API reference: https://docs.spaceship.dev/",
+      "method": "GET",
+      "path": "/v1/sellerhub/domains/reports/sold",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "take": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "saleDateTimeFrom": {
+            "type": "string",
+            "description": "Inclusive ISO-8601 UTC date-time."
+          },
+          "saleDateTimeTo": {
+            "type": "string",
+            "description": "Exclusive ISO-8601 UTC date-time."
+          }
+        },
+        "required": [
+          "take"
+        ]
       }
     },
     {
