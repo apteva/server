@@ -2668,6 +2668,19 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		}
 	}
 
+	if !binary && len(tool.ResponseHeaderFields) > 0 {
+		mapped, ok := data.(map[string]any)
+		if !ok {
+			mapped = map[string]any{}
+		}
+		for header, field := range tool.ResponseHeaderFields {
+			if value := resp.Header.Get(header); value != "" {
+				mapped[field] = value
+			}
+		}
+		data = mapped
+	}
+
 	// Strip any fields the tool declared we shouldn't expose. Runs
 	// AFTER response_path so the paths are relative to whatever the
 	// agent actually ends up seeing. Silent no-op on unmatched paths
