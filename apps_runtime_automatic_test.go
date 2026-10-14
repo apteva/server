@@ -36,7 +36,8 @@ func TestManagedRuntimeAutomaticAppAndTarget(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, args := range [][]string{{"add", "."}, {"commit", "-m", "standard SDK release metadata"}, {"tag", "-f", "v1.0.0"}} {
-				c := exec.Command("git", args...)
+				// CI has no global Git author; keep fixture commits self-contained.
+				c := exec.Command("git", append([]string{"-c", "user.name=Apteva test", "-c", "user.email=tests@apteva.invalid"}, args...)...)
 				c.Dir = repo
 				if out, err := c.CombinedOutput(); err != nil {
 					t.Fatalf("%v %s", err, out)
