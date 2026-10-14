@@ -42,7 +42,7 @@
   "tools": [
     {
       "name": "get_current_user",
-      "description": "Get your profile info. Shows the authenticated users profile info",
+      "description": "Get the authenticated user profile with a Personal Access Token. Workspace API tokens have no user profile and may receive HTTP 404 here; use list_apps to validate either token type.",
       "method": "GET",
       "path": "/me",
       "input_schema": {
@@ -129,7 +129,7 @@
     },
     {
       "name": "list_apps",
-      "description": "Get list of the apps. List all the apps available for the authenticated account, including those that are owned by other users or Organizations.",
+      "description": "List apps accessible to a Personal Access Token or Workspace API token. Workspace tokens return only apps allowed by the token's CI access settings. An empty list can be valid. This read-only endpoint also validates either token type.",
       "method": "GET",
       "path": "/apps",
       "input_schema": {
