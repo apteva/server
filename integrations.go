@@ -730,6 +730,9 @@ type AppToolDef struct {
 	// ResponseTransform rewrites provider-specific responses into
 	// agent-friendly output after response_path and before response_omit.
 	ResponseTransform *ResponseTransformDef `json:"response_transform,omitempty"`
+	// ResponseHeaderFields maps only catalog-declared upstream headers into JSON,
+	// including async operation handles returned with an empty HTTP 202 body.
+	ResponseHeaderFields map[string]string `json:"response_header_fields,omitempty"`
 	// Preserve successful downloads as binary envelopes regardless of their MIME type.
 	ResponseType string `json:"response_type,omitempty"`
 

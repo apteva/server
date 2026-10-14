@@ -2,8 +2,10 @@
   "slug": "spaceship",
   "name": "Spaceship",
   "logo": "https://www.spaceship.com/favicon.ico",
-  "categories": ["domains"],
-  "description": "Spaceship public API for domain portfolio management, DNS records, contacts, personal nameservers, transfer metadata, async operation status, and SellerHub.",
+  "categories": [
+    "domains"
+  ],
+  "description": "Spaceship public API for domain registration, portfolio management, DNS records, contacts, personal nameservers, transfer metadata, async operation status, and SellerHub.",
   "base_url": "https://spaceship.dev/api",
   "auth": {
     "types": [
@@ -90,6 +92,140 @@
         "required": [
           "domain"
         ]
+      }
+    },
+    {
+      "name": "register_domain",
+      "description": "Register an available domain. SPENDS MONEY at Spaceship account rates; no API dry run, price cap, or documented idempotency. Obtain explicit confirmation including term, privacy and contacts. Requires domains:billing and asyncoperations:read. HTTP 202 only means accepted; use returned operation_id with get_async_operation. Never repeat a timed-out submission automatically.",
+      "method": "POST",
+      "path": "/v1/domains/{domain}",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "domain",
+          "autoRenew",
+          "years",
+          "privacyProtection",
+          "contacts"
+        ],
+        "properties": {
+          "autoRenew": {
+            "type": "boolean",
+            "example": false,
+            "description": "Specifies whether automatic renewal will be enabled for the domain after the registration. After that, if autoRenew is set to true, the domain will be automatically renewed using the account\u2019s default payment method upon each expiration"
+          },
+          "years": {
+            "type": "integer",
+            "format": "int32",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Number of years to register the domain"
+          },
+          "privacyProtection": {
+            "type": "object",
+            "required": [
+              "level",
+              "userConsent"
+            ],
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "high"
+                ],
+                "example": "high",
+                "description": "Indicates the level of privacy protection. Set this property to \"high\" to enable privacy protection and hide your personal details, or to \"public\" to display your real contact information.\nWhen choosing the \"public\" level, the \"userConsent\" property must be set to true to confirm your explicit consent for making your contact information publicly available.\n\nNote: not all TLDs support \"high\" privacy protection level"
+              },
+              "userConsent": {
+                "type": "boolean",
+                "example": true,
+                "description": "Indicates whether the user consents to the Public privacy settings"
+              }
+            },
+            "description": "Privacy protection options. This parameter controls the visibility of your domain registrant contact information in the public WHOIS database."
+          },
+          "contacts": {
+            "type": "object",
+            "required": [
+              "registrant"
+            ],
+            "properties": {
+              "registrant": {
+                "type": "string",
+                "example": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+                "minLength": 27,
+                "maxLength": 32,
+                "pattern": "[a-zA-Z0-9]+",
+                "description": "ID of the registrant contact person"
+              },
+              "admin": {
+                "type": "string",
+                "example": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+                "minLength": 27,
+                "maxLength": 32,
+                "pattern": "[a-zA-Z0-9]+",
+                "description": "ID of the admin contact person"
+              },
+              "tech": {
+                "type": "string",
+                "example": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+                "minLength": 27,
+                "maxLength": 32,
+                "pattern": "[a-zA-Z0-9]+",
+                "description": "ID of the technical contact person"
+              },
+              "billing": {
+                "type": "string",
+                "example": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+                "minLength": 27,
+                "maxLength": 32,
+                "pattern": "[a-zA-Z0-9]+",
+                "description": "ID of the billing contact person"
+              },
+              "attributes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "example": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+                  "minLength": 27,
+                  "maxLength": 32,
+                  "pattern": "[a-zA-Z0-9]+",
+                  "description": "Contact ID"
+                },
+                "example": [
+                  "1ZdMXpapqp9sle5dl8BlppTJXAzf3",
+                  "1ZdMXpapqp9sle5dl8BlppTJXAzf2"
+                ],
+                "maxItems": 5,
+                "description": "List of extended attribute contact point IDs"
+              }
+            },
+            "description": "Domain contacts are specified using contact IDs. These contact IDs can be obtained from the \u201cGet domain info\u201d endpoint (/domains) for an existing domain, or by creating new contacts through the \u201cSave contact details\u201d endpoint (/contacts). Each contact ID corresponds to a specific contact person and includes their details (such as name, address, and email). These contacts will be associated with the domain during registration.",
+            "example": {
+              "registrant": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+              "admin": "1ZdMXpapqp9sle5dl8BlppTJXAzf6",
+              "tech": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+              "billing": "1ZdMXpapqp9sle5dl8BlppTJXAzf5",
+              "attributes": [
+                "1ZdMXpapqp9sle5dl8BlppTJXAzf8"
+              ]
+            }
+          },
+          "domain": {
+            "type": "string",
+            "description": "Domain to register (ASCII)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_header_fields": {
+        "spaceship-async-operationid": "operation_id"
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 0
       }
     },
     {
