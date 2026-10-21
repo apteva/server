@@ -211,7 +211,7 @@ func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement
 	if err != sql.ErrNoRows {
 		return runtimeOperation{}, err
 	}
-	if kind == "prepare" || kind == "upgrade" || kind == "restart" {
+	if kind == "prepare" || kind == "upgrade" || kind == "restart" || kind == "deploy" {
 		if err = m.normalizePlacement(&p); err != nil {
 			return runtimeOperation{}, err
 		}
@@ -237,7 +237,7 @@ func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement
 	}
 	old, _ := m.active(id)
 	d := runtimeDeployment{}
-	if kind == "prepare" || kind == "upgrade" || kind == "restart" {
+	if kind == "prepare" || kind == "upgrade" || kind == "restart" || kind == "deploy" {
 		if manifest == nil {
 			manifest, err = installManifest(m.s, id)
 			if err != nil {
@@ -263,7 +263,7 @@ func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement
 		return op, err
 	}
 	defer tx.Rollback()
-	if kind == "prepare" || kind == "upgrade" || kind == "restart" {
+	if kind == "prepare" || kind == "upgrade" || kind == "restart" || kind == "deploy" {
 		var pending string
 		if err = tx.QueryRow(`SELECT runtime_pending_deployment FROM app_installs WHERE id=?`, id).Scan(&pending); err != nil {
 			return op, err
@@ -400,7 +400,7 @@ func (m *appRuntimeManager) run(id string) {
 		err = m.stopOperation(&op)
 	case "delete":
 		err = m.deleteOperation(&op)
-	case "restart", "upgrade":
+	case "restart", "upgrade", "deploy":
 		err = m.restartOperation(&op)
 	case "scale":
 		err = m.scaleOperation(&op)

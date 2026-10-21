@@ -84,6 +84,8 @@ func runtimeSecureURL(raw string) error {
 }
 
 type runtimeBackendCaps struct {
+	TargetDiscovery  *runtimeTargetDiscovery     `json:"target_discovery,omitempty"`
+	TargetListing    bool                        `json:"target_listing,omitempty"`
 	ManagedIngress   bool                        `json:"managed_ingress,omitempty"`
 	TargetInspection bool                        `json:"target_inspection,omitempty"`
 	PackageDelivery  *runtimePackageDeliveryCaps `json:"package_delivery,omitempty"`
@@ -103,10 +105,12 @@ type runtimeBackendCaps struct {
 	OptionsSchema    json.RawMessage             `json:"options_schema,omitempty"`
 }
 type runtimeBackendRegistration struct {
-	InstallID int64              `json:"app_install_id"`
-	ID        string             `json:"id"`
-	Endpoint  string             `json:"endpoint"`
-	Caps      runtimeBackendCaps `json:"capabilities"`
+	DisplayName     string                  `json:"display_name,omitempty"`
+	TargetDiscovery *runtimeTargetDiscovery `json:"target_discovery,omitempty"`
+	InstallID       int64                   `json:"app_install_id"`
+	ID              string                  `json:"id"`
+	Endpoint        string                  `json:"endpoint"`
+	Caps            runtimeBackendCaps      `json:"capabilities"`
 	// An administrator can attest a legacy backend's optional delivery contract.
 	PackageDelivery *runtimePackageDeliveryCaps `json:"package_delivery,omitempty"`
 }

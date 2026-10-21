@@ -8,6 +8,9 @@ import (
 )
 
 func (s *Store) migrateAppRuntime() error {
+	if err := s.migrateRuntimeConsole(); err != nil {
+		return err
+	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS app_runtime_ingress (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id),hostname TEXT NOT NULL UNIQUE,record_json TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_packages (id TEXT PRIMARY KEY,build_key TEXT NOT NULL UNIQUE,record_json TEXT NOT NULL,bytes INTEGER NOT NULL,last_used INTEGER NOT NULL)`,

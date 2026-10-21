@@ -47,12 +47,14 @@ func (m *appRuntimeManager) reconcile() {
 		}
 		b, e := m.backend(d)
 		if e != nil {
+			m.observeDeployment(d, runtimeExecution{}, e)
 			m.markUnreachable(d)
 			continue
 		}
 		req, _ := m.request(d, runtimeOperation{ID: "reconcile"}, "inspect")
 		out, e := b.Inspect(req)
 		if e != nil {
+			m.observeDeployment(d, runtimeExecution{}, e)
 			m.markUnreachable(d)
 			continue
 		}
@@ -64,6 +66,7 @@ func (m *appRuntimeManager) reconcile() {
 			continue
 		}
 		// A remote outage is an observation, never permission to spawn locally.
+		m.observeDeployment(d, out, nil)
 		if !out.Ready || out.State != "running" {
 			m.markUnreachable(d)
 			continue

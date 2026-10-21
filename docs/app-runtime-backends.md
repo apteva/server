@@ -260,3 +260,74 @@ idempotency, authorization, private endpoints, generation credentials, browser
 scope/revocation, exclusive activation, lost responses, verified/failed rollback,
 state snapshots, interrupted starts, port ranges, replica routing/stop, and native
 orphan recovery. Production infrastructure/media paths have not been exercised.
+
+
+## Dashboard placement and target discovery
+
+The Apps install flow offers **This Server** or a discovered execution backend.
+Execution placement is independent of app integration bindings. The installed
+app's Deployment tab uses the persisted controller operations; navigating away
+or restarting Server does not discard progress. App list badges identify backend
+and target, with local/remote, backend and target filters at every project scope.
+
+New backends advertise `target_listing: true` in `describe` and implement
+`GET <backend endpoint>/targets?project_id=...&q=...&cursor=...` using the same
+private installation authentication as their lifecycle routes. Return:
+
+```json
+{
+  "targets": [{
+    "ref": {"app_install_id": 42, "resource_type": "compute.machine", "resource_id": "host-1"},
+    "name": "Trial worker", "status": "ready", "available": true,
+    "platform": "linux-amd64", "region": "example-region"
+  }],
+  "next_cursor": ""
+}
+```
+
+Target references must belong to the selected backend installation. A backend
+must apply its own resource authorization; Server also checks installation and
+project access. Return `available: false` with a safe `reason` for unavailable
+resources. Responses are bounded, cached for display labels, and may use opaque
+pagination cursors. Never include credentials or private control URLs in labels.
+
+For older backends, an administrator can register `target_discovery` through
+`POST /apps/execution-backends`, or the backend can advertise the same field in
+its descriptor. This maps a private inventory **GET** route without executing
+inventory tools or creating resources:
+
+```json
+{"path":"/api/resources","items":"resources","id_field":"id","name_field":"name","status_field":"status","ready_value":"ready","resource_type":"compute.machine"}
+```
+
+The mapping survives backend rediscovery. It is backend configuration, shared
+by all deployed apps; Server contains no provider-name or app-name switches.
+Native target listing is preferable for large inventories and project-specific
+resource authorization. Legacy mapped inventories are capped at 5,000 records
+and paginated by Server. Returned fields other than safe target metadata are
+not forwarded to the browser.
+
+The console API adds `GET /apps/deployment-targets` and
+`POST /apps/deployment-preflight`. Preflight checks access, runtime/listener
+compatibility, ingress capabilities, state transfer and optional read-only
+`inspect-target`. Builds, uploads, listener ownership checks and activation
+remain authoritative in the deployment controller. Preflight does not start
+an app or change host networking. Backend `options_schema` drives advanced
+fields; backend validation remains authoritative for backend-specific options.
+
+`POST /apps/installs/:id/deployment/deploy` prepares and activates in one
+persisted operation, with the existing `Idempotency-Key` contract. Remote
+installation requests may also supply this header; receipts atomically link
+that key to the installation, and retries resume the stored release instead
+of creating another installation. A different payload with the same key is
+rejected. Stop/remove-runtime retains persistent installation data and never
+removes the backend host or unrelated services.
+
+Deployment summaries distinguish current process readiness from app admission.
+A stored active record alone is not a health check; observations expire after
+90 seconds. An app may optionally expose authenticated
+`/_apteva/runtime/app/status` returning `{"state":"active","admitting":true}`.
+Without that optional status, the console reports process readiness and unknown
+admission, rather than asserting that the app is accepting work. No host CPU
+sampling is added. Domain setup uses the existing managed ingress capabilities;
+only apps with declared public routes and capable backends can select HTTPS.

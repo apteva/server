@@ -27,28 +27,29 @@ import (
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
 type AppRow struct {
-	InstallID           int64            `json:"install_id"`
-	AppID               int64            `json:"app_id"`
-	Name                string           `json:"name"`
-	DisplayName         string           `json:"display_name"`
-	Version             string           `json:"version"`
-	AvailableVersion    string           `json:"available_version,omitempty"`
-	Description         string           `json:"description"`
-	Icon                string           `json:"icon"`
-	IconStyle           string           `json:"icon_style,omitempty"`
-	ProjectID           string           `json:"project_id"`
-	Status              string           `json:"status"`
-	StatusMessage       string           `json:"status_message,omitempty"`
-	ErrorMessage        string           `json:"error_message,omitempty"`
-	Source              string           `json:"source"`
-	UpgradePolicy       string           `json:"upgrade_policy"`
-	DefaultForNewAgents bool             `json:"default_for_new_agents"`
-	Permissions         []sdk.Permission `json:"permissions"`
-	Surfaces            AppSurfaces      `json:"surfaces"`
-	Deprecated          bool             `json:"deprecated,omitempty"`
-	Deprecation         string           `json:"deprecation,omitempty"`
-	Replacement         string           `json:"replacement,omitempty"`
-	UIPanels            []sdk.UIPanel    `json:"ui_panels,omitempty"`
+	Deployment          *runtimeDeploymentSummary `json:"deployment,omitempty"`
+	InstallID           int64                     `json:"install_id"`
+	AppID               int64                     `json:"app_id"`
+	Name                string                    `json:"name"`
+	DisplayName         string                    `json:"display_name"`
+	Version             string                    `json:"version"`
+	AvailableVersion    string                    `json:"available_version,omitempty"`
+	Description         string                    `json:"description"`
+	Icon                string                    `json:"icon"`
+	IconStyle           string                    `json:"icon_style,omitempty"`
+	ProjectID           string                    `json:"project_id"`
+	Status              string                    `json:"status"`
+	StatusMessage       string                    `json:"status_message,omitempty"`
+	ErrorMessage        string                    `json:"error_message,omitempty"`
+	Source              string                    `json:"source"`
+	UpgradePolicy       string                    `json:"upgrade_policy"`
+	DefaultForNewAgents bool                      `json:"default_for_new_agents"`
+	Permissions         []sdk.Permission          `json:"permissions"`
+	Surfaces            AppSurfaces               `json:"surfaces"`
+	Deprecated          bool                      `json:"deprecated,omitempty"`
+	Deprecation         string                    `json:"deprecation,omitempty"`
+	Replacement         string                    `json:"replacement,omitempty"`
+	UIPanels            []sdk.UIPanel             `json:"ui_panels,omitempty"`
 	// UISurfaces are code-free native UI descriptors. Mobile clients use
 	// Entry through the authenticated /api/apps/<name>/... proxy and validate
 	// the downloaded document against Schema before rendering it.
@@ -842,6 +843,10 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows.Close()
+	for i := range out {
+		v := s.appRuntimeManager().deploymentSummary(out[i].InstallID)
+		out[i].Deployment = &v
+	}
 
 	// Backfill Surfaces.RequiredApps[].Installed from the live install
 	// set so the install-detail panel shows the correct ✓/✗ badge.
@@ -1097,6 +1102,16 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	installRequestKey, installFingerprint := "", ""
+	if body.Placement != nil && r.Header.Get("Idempotency-Key") != "" {
+		runtimeConsoleInstallMu.Lock()
+		defer runtimeConsoleInstallMu.Unlock()
+		installRequestKey = runtimeHash([]byte(r.Header.Get("Idempotency-Key")))
+		installFingerprint = runtimeHash([]byte(runtimeJSON(body)))
+		if s.replayRuntimeConsoleInstall(w, r, userID, installRequestKey, installFingerprint, *body.Placement) {
+			return
+		}
+	}
 	if body.Placement != nil {
 		if err := s.appRuntimeManager().normalizePlacement(body.Placement); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -1260,7 +1275,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 	// Install row.
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
-	res, err := s.store.db.Exec(
+	res, err := s.insertRuntimeConsoleInstall(userID, installRequestKey, installFingerprint,
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
 		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1297,7 +1312,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		op, err := s.appRuntimeManager().begin(installID, "upgrade", "install-"+generateToken(12), *body.Placement, manifest)
+		op, err := s.appRuntimeManager().begin(installID, "deploy", runtimeConsoleInstallOperationKey(installRequestKey), *body.Placement, manifest)
 		if err != nil {
 			http.Error(w, err.Error(), 409)
 			return

@@ -26,6 +26,7 @@ func runtimeDecode(r *http.Request, out any) error {
 	return nil
 }
 func (s *Server) registerAppDeploymentRoutes(mux *http.ServeMux) {
+	s.registerRuntimeConsoleRoutes(mux)
 	mux.HandleFunc("/apps/execution-backends/discover", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := s.requirePlatformAdmin(w, r); !ok {
 			return
@@ -82,6 +83,10 @@ func (s *Server) registerAppDeploymentRoutes(mux *http.ServeMux) {
 				if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &reg) == nil {
 					out = append(out, reg)
 				}
+			}
+			rows.Close()
+			for i := range out {
+				out[i].DisplayName = m.backendName(runtimeBackendRef{out[i].InstallID, out[i].ID})
 			}
 			writeJSON(w, map[string]any{"contract": runtimeBackendContract, "backends": out, "local": (&localRuntimeBackend{}).Describe()})
 		case http.MethodDelete:
@@ -234,7 +239,7 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 			s.store.db.QueryRow(`SELECT runtime_pending_deployment,runtime_placement_json FROM app_installs WHERE id=?`, id).Scan(&pending, &raw)
 			var p runtimePlacement
 			json.Unmarshal([]byte(raw), &p)
-			writeJSON(w, map[string]any{"placement": p, "active_deployment_id": active.ID, "pending_deployment_id": pending, "deployments": ds})
+			writeJSON(w, map[string]any{"placement": p, "active_deployment_id": active.ID, "pending_deployment_id": pending, "deployments": ds, "summary": m.deploymentSummary(id), "operations": m.consoleOperations(id), "can_scale": active.ID != "" && m.replicaEligible(active) == nil})
 			return
 		}
 		http.Error(w, "not found", 404)
@@ -284,14 +289,14 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	kind := strings.TrimPrefix(path, "deployment/")
-	if kind != "prepare" && kind != "activate" && kind != "stop" && kind != "delete" && kind != "restart" && kind != "discard" {
+	if kind != "deploy" && kind != "prepare" && kind != "activate" && kind != "stop" && kind != "delete" && kind != "restart" && kind != "discard" {
 		http.Error(w, "not found", 404)
 		return
 	}
 	var body struct {
 		Placement runtimePlacement `json:"placement"`
 	}
-	if kind == "prepare" {
+	if kind == "prepare" || kind == "deploy" {
 		if runtimeDecode(r, &body) != nil {
 			http.Error(w, "invalid placement", 400)
 			return

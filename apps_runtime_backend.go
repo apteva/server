@@ -165,6 +165,14 @@ func (m *appRuntimeManager) registerBackend(reg runtimeBackendRegistration) erro
 	return m.registerBackendContext(m.ctx, reg)
 }
 func (m *appRuntimeManager) registerBackendContext(parent context.Context, reg runtimeBackendRegistration) error {
+	if err := validateTargetDiscovery(reg.TargetDiscovery); err != nil {
+		return err
+	}
+	if reg.TargetDiscovery == nil {
+		if previous, e := m.registration(runtimeBackendRef{reg.InstallID, reg.ID}); e == nil {
+			reg.TargetDiscovery = previous.TargetDiscovery
+		}
+	}
 	if reg.InstallID <= 0 || !runtimeID(reg.ID) || reg.Endpoint != runtimeControlPrefix+"backends/"+reg.ID {
 		return fmt.Errorf("backend endpoint must be /_apteva/runtime/backends/<id>")
 	}
@@ -188,6 +196,12 @@ func (m *appRuntimeManager) registerBackendContext(parent context.Context, reg r
 	defer cancel()
 	if err = b.request(ctx, http.MethodGet, "describe", nil, &reg.Caps); err != nil {
 		return err
+	}
+	if reg.Caps.TargetDiscovery != nil {
+		if err := validateTargetDiscovery(reg.Caps.TargetDiscovery); err != nil {
+			return err
+		}
+		reg.TargetDiscovery = reg.Caps.TargetDiscovery
 	}
 	if reg.Caps.Contract != runtimeBackendContract || reg.Caps.ID != reg.ID || !reg.Caps.ConfirmedStop {
 		return fmt.Errorf("unsupported backend contract or missing confirmed-stop guarantee")
