@@ -94,6 +94,9 @@ func (m *appRuntimeManager) listTargets(ctx context.Context, ref runtimeBackendR
 	if e != nil {
 		return page, e
 	}
+	if !reg.Caps.TargetListing && reg.TargetDiscovery == nil {
+		return page, fmt.Errorf("backend does not advertise target listing; enter a target ID or configure target discovery")
+	}
 	var owner, base, status string
 	if e = m.s.store.db.QueryRow(`SELECT COALESCE(project_id,''),sidecar_url_override,status FROM app_installs WHERE id=?`, ref.InstallID).Scan(&owner, &base, &status); e != nil {
 		return page, e
@@ -269,7 +272,9 @@ func (s *Server) handleRuntimeConsolePreflight(w http.ResponseWriter, r *http.Re
 			return
 		}
 		manifest, e = installManifest(s, body.InstallID)
-		s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, body.InstallID).Scan(&body.ProjectID)
+		if e == nil {
+			e = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, body.InstallID).Scan(&body.ProjectID)
+		}
 	} else {
 		var raw []byte
 		raw, e = s.fetchManifestBytes(body.ManifestURL, body.ManifestYAML)
@@ -281,93 +286,8 @@ func (s *Server) handleRuntimeConsolePreflight(w http.ResponseWriter, r *http.Re
 		http.Error(w, "valid app manifest required", 400)
 		return
 	}
-	checks := []map[string]string{}
-	ok := true
-	check := func(name string, err error) {
-		v := map[string]string{"name": name, "status": "passed"}
-		if err != nil {
-			ok = false
-			v["status"] = "blocked"
-			v["message"] = err.Error()
-		}
-		checks = append(checks, v)
-	}
-	m := s.appRuntimeManager()
-	p := body.Placement
-	check("App release", validateAppRuntimeCompatibility(manifest, Version))
-	check("Placement", m.normalizePlacement(&p))
-	if ok && body.InstallID > 0 {
-		check("Placement access", func() error {
-			if p.local() {
-				return nil
-			}
-			return m.validatePlacementAccess(body.InstallID, p)
-		}())
-		if old, er := m.active(body.InstallID); er == nil && runtimePersistentState(old) && runtimeJSON(old.Placement.Target) != runtimeJSON(p.Target) {
-			oldBackend, oldErr := m.backend(old)
-			destinationSnapshots := p.local()
-			if !p.local() {
-				reg, er := m.registration(p.Backend)
-				destinationSnapshots = er == nil && reg.Caps.Snapshots
-			}
-			if oldErr != nil || !oldBackend.Describe().Snapshots || !destinationSnapshots {
-				check("Data transfer", fmt.Errorf("moving existing app data requires snapshot support at both ends; create a separate installation"))
-			}
-		}
-	}
-	if ok && !p.local() {
-		reg, err := m.registration(p.Backend)
-		check("Backend", err)
-		if err == nil {
-			var owner string
-			s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, p.Backend.InstallID).Scan(&owner)
-			if owner != "" && owner != body.ProjectID {
-				check("Project access", fmt.Errorf("backend belongs to another project"))
-			}
-			if p.Target.InstallID != p.Backend.InstallID {
-				check("Target", fmt.Errorf("target must be owned by the selected backend installation"))
-			}
-			if !runtimeContains(reg.Caps.RuntimeKinds, string(manifest.Runtime.Kind)) {
-				check("App compatibility", fmt.Errorf("backend does not support this app runtime kind"))
-			}
-			for _, port := range manifest.Runtime.Ports {
-				protocol := port.Protocol
-				if protocol == "" {
-					protocol = "tcp"
-				}
-				if !runtimeContains(reg.Caps.Protocols, protocol) {
-					check("Network listeners", fmt.Errorf("backend does not support declared %s listeners", protocol))
-				}
-			}
-			if len(manifest.Runtime.Ports) > 0 {
-				checks = append(checks, map[string]string{"name": "Declared listeners", "status": "passed", "message": "Listener ownership and reachability are checked during deployment"})
-			}
-			if p.Ingress != nil && (!reg.Caps.ManagedIngress || manifest.Runtime.Ingress == nil) {
-				check("HTTPS", fmt.Errorf("app and backend must declare managed public routes"))
-			}
-			if body.InstallID > 0 {
-				if old, er := m.active(body.InstallID); er == nil && runtimeJSON(old.Placement.Target) != runtimeJSON(p.Target) && manifest.DB != nil && !reg.Caps.Snapshots {
-					check("Data transfer", fmt.Errorf("this backend cannot move existing app data; create a separate installation"))
-				}
-			}
-			if ok && reg.Caps.TargetInspection {
-				b := remoteRuntimeBackend{manager: m, registration: reg}
-				s.store.db.QueryRow(`SELECT sidecar_url_override FROM app_installs WHERE id=?`, reg.InstallID).Scan(&b.base)
-				b.token, err = s.runtimeControlToken(reg.InstallID)
-				if err == nil {
-					ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-					defer cancel()
-					var info sdk.RuntimeTargetInfo
-					err = b.request(ctx, "POST", "inspect-target", &runtimeBackendRequest{Contract: runtimeBackendContract, OperationID: "preflight", IdempotencyKey: "preflight", ProjectID: body.ProjectID, Target: p.Target, GatewayURL: p.GatewayURL, Options: map[string]any{"gateway_url": p.GatewayURL}}, &info)
-					if err == nil {
-						checks = append(checks, map[string]string{"name": "Target platform", "status": "passed", "message": info.Platform})
-					}
-				}
-				check("Target connectivity", err)
-			}
-		}
-	}
-	writeJSON(w, map[string]any{"compatible": ok, "placement": p, "checks": checks})
+	p, checks := s.appRuntimeManager().preflight(r.Context(), body.InstallID, body.ProjectID, *manifest, body.Placement)
+	writeJSON(w, map[string]any{"compatible": firstRuntimeBlock(checks) == nil, "placement": p, "checks": checks})
 }
 func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary {
 	v := runtimeDeploymentSummary{Type: "local", State: "unknown", TargetName: "This Server"}
@@ -417,7 +337,7 @@ func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary
 			v.State = state
 			v.Message = message
 			v.AdmissionState = admission
-			if t, er := time.Parse(time.RFC3339Nano, checked); er != nil || time.Since(t) > 90*time.Second {
+			if t, er := time.Parse(time.RFC3339Nano, checked); er != nil || time.Since(t) > runtimeObservationMaxAge {
 				v.State = "unknown"
 				v.Message = "Last readiness observation is stale"
 			}
@@ -440,54 +360,6 @@ func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary
 		}
 	}
 	return v
-}
-func (m *appRuntimeManager) observeDeployment(d runtimeDeployment, out runtimeExecution, err error) {
-	state, message, admission := "unavailable", "Deployment control unavailable", "unknown"
-	if err == nil {
-		state = out.State
-		message = ""
-		if !out.Ready {
-			state = "unavailable"
-			message = "Process readiness check failed"
-		}
-		if out.Ready && out.State == "running" {
-			state = "running"
-		}
-	}
-	if err == nil && out.Ready && out.Endpoint != "" {
-		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
-		defer cancel()
-		token, e := m.token(d)
-		if e == nil {
-			req, requestErr := http.NewRequestWithContext(ctx, "GET", runtimeEndpoint(out.Endpoint, runtimeControlPrefix+"app/status"), nil)
-			if requestErr != nil {
-				return
-			}
-			req.Header.Set("Authorization", "Bearer "+token)
-			if resp, er := m.http.Do(req); er == nil {
-				defer resp.Body.Close()
-				if resp.StatusCode == 200 {
-					var s struct {
-						State     string `json:"state"`
-						Admitting *bool  `json:"admitting"`
-					}
-					if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&s) == nil && s.Admitting != nil {
-						admission = s.State
-						if *s.Admitting {
-							state = "healthy"
-						} else {
-							state = "degraded"
-							message = "App is not admitting work: " + s.State
-						}
-					}
-				}
-			}
-		}
-		if admission == "unknown" {
-			message = "Process running; app admission is not reported"
-		}
-	}
-	_, _ = m.s.store.db.Exec(`INSERT INTO app_runtime_observations VALUES(?,?,?,?,?) ON CONFLICT(deployment_id) DO UPDATE SET checked_at=excluded.checked_at,state=excluded.state,message=excluded.message,admission_state=excluded.admission_state`, d.ID, runtimeTimestamp(), state, message, admission)
 }
 func (m *appRuntimeManager) consoleOperations(id int64) []runtimeOperation {
 	out := []runtimeOperation{}

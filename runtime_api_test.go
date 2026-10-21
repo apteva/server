@@ -216,6 +216,36 @@ func TestRuntimeAPI_EmptyTelemetryIsJSONArray(t *testing.T) {
 	if strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Fatalf("empty telemetry must be an array, got %s", rec.Body.String())
 	}
+	// Runtime owners retain their existing permission contract, but receive the
+	// same sanitized content as all other public telemetry readers.
+	compiled := compileAgentDirective("Runtime mission", "cautious", 37)
+	raw, _ := json.Marshal(map[string]any{"directive": compiled})
+	if err := s.store.InsertTelemetry([]TelemetryEvent{{ID: "runtime-control", AgentID: 991, ThreadID: "main", Type: "thread.spawn", Time: time.Now().UTC(), Data: raw}}); err != nil {
+		t.Fatal(err)
+	}
+	rec = runtimeAPIRequest(t, s, installID, http.MethodGet, "/apps/callback/runtimes/rt-telemetry/agents/main/telemetry", nil)
+	var public []TelemetryEvent
+	if err := json.Unmarshal(rec.Body.Bytes(), &public); err != nil || rec.Code != 200 || len(public) != 1 {
+		t.Fatal("runtime history", rec.Code, err)
+	}
+	var content struct {
+		Directive string `json:"directive"`
+	}
+	if err := json.Unmarshal(public[0].Data, &content); err != nil || content.Directive != "Runtime mission" {
+		t.Fatal("runtime content sanitizer", content, err)
+	}
+	stored, err := s.store.QueryTelemetry(991, "", time.Time{}, 100)
+	if err != nil || len(stored) != 1 {
+		t.Fatal("stored telemetry", err)
+	}
+	if err := json.Unmarshal(stored[0].Data, &content); err != nil || content.Directive != compiled {
+		t.Fatal("public projection changed stored telemetry", err)
+	}
+	observer := seedRuntimeAPIInstall(t, s, "telemetry-observer", sdk.PermTelemetryObserve, sdk.PermRuntimesObserve)
+	if other := runtimeAPIRequest(t, s, observer, http.MethodGet, "/apps/callback/runtimes/rt-telemetry/agents/main/telemetry", nil); other.Code != 404 {
+		t.Fatal("observation grants changed runtime ownership", other.Code)
+	}
+
 }
 
 func TestRuntimeAPI_WaitReturnsNormalizedTraceAndMetrics(t *testing.T) {
@@ -290,8 +320,10 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 	}
 
 	var coreSpawnBody struct {
-		MCP           []string                   `json:"mcp"`
-		TurnDetection *sdk.RealtimeTurnDetection `json:"turn_detection"`
+		Model             string                       `json:"model"`
+		RealtimeExecution *sdk.RealtimeExecutionConfig `json:"realtime_execution"`
+		MCP               []string                     `json:"mcp"`
+		TurnDetection     *sdk.RealtimeTurnDetection   `json:"turn_detection"`
 	}
 	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -340,11 +372,15 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 	}
 
 	spawned := runtimeAPIRequestAtHost(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime", sdk.RuntimeRealtimeSpawnRequest{
-		ThreadID: "voice", Directive: "Answer the caller",
-		TurnDetection: &sdk.RealtimeTurnDetection{Profile: "telephony"},
+		ThreadID: "voice", Directive: "Answer the caller", Model: "large",
+		RealtimeExecution: &sdk.RealtimeExecutionConfig{Mode: "thread", Model: "medium"},
+		TurnDetection:     &sdk.RealtimeTurnDetection{Profile: "telephony"},
 	}, "runtime-gateway.internal:5280")
 	if spawned.Code != http.StatusOK {
 		t.Fatalf("spawn status=%d body=%s", spawned.Code, spawned.Body.String())
+	}
+	if coreSpawnBody.Model != "large" || coreSpawnBody.RealtimeExecution == nil || coreSpawnBody.RealtimeExecution.Model != "medium" {
+		t.Fatalf("runtime dropped voice execution options: %#v", coreSpawnBody)
 	}
 	if strings.Join(coreSpawnBody.MCP, ",") != "flexylead-bookings" {
 		t.Fatalf("runtime realtime MCPs=%v", coreSpawnBody.MCP)

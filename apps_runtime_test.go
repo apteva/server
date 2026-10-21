@@ -107,6 +107,7 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 			if req.StateRef != "" {
 				out.StateRef = req.StateRef
 			}
+			out.StateBytes = new(int64)
 			out.AppCapabilities = f.appCaps
 			if f.asyncPrepare {
 				out.State = "preparing"
@@ -371,6 +372,7 @@ func TestManagedRuntimeUnavailableBackendNeverFallsBackLocal(t *testing.T) {
 	old := activateRuntimeFixture(t, m, id, "activate")
 	f.server.Close()
 	m.reconcile()
+	collectRuntimeMonitor(t, m, old.InstallID)
 	if s.localApps.PID(id) != 0 {
 		t.Fatal("unavailable remote host spawned locally")
 	}
@@ -378,8 +380,7 @@ func TestManagedRuntimeUnavailableBackendNeverFallsBackLocal(t *testing.T) {
 	if current.ID != old.ID {
 		t.Fatal("remote ownership lost")
 	}
-	var msg string
-	s.store.db.QueryRow(`SELECT status_message FROM app_installs WHERE id=?`, id).Scan(&msg)
+	msg := m.deploymentSummary(id).Message
 	if !strings.Contains(msg, "ownership retained") {
 		t.Fatal(msg)
 	}
@@ -853,6 +854,8 @@ func TestManagedRuntimeAutoscalingUsesWorkLoadAndCooldown(t *testing.T) {
 	state.Load = &load
 	f.executions[active.ID] = state
 	f.mu.Unlock()
+	serveRuntimeWorkload(f)
+	collectRuntimeMonitor(t, m, id)
 	policy := runtimeScalingPolicy{InstallID: id, Min: 1, Max: 3, TargetLoad: 1, CooldownSeconds: 30, Enabled: true}
 	s.store.db.Exec(`INSERT INTO app_runtime_scaling(install_id,record_json) VALUES(?,?)`, id, runtimeJSON(policy))
 	m.autoscale()

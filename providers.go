@@ -680,6 +680,9 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 		combined = append([]ProviderInfo{managed}, combined...)
 	}
 	for i := range combined {
+		if catalog := s.realtimeCatalogForProvider(combined[i].Type); catalog != nil {
+			combined[i].Realtime = catalog
+		}
 		if combined[i].ModelPolicy == nil {
 			combined[i].ModelPolicy = s.modelPolicyForProvider(combined[i].Type)
 		}
@@ -696,7 +699,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 			realtimeCompanions = append(realtimeCompanions, ProviderInfo{
 				Type: "openai-realtime", ModelLarge: "gpt-realtime-2.1",
 				ModelMedium: "gpt-realtime-2.1-mini", ModelSmall: "gpt-realtime-2.1-mini",
-				RealtimeVoice: "marin",
+				RealtimeVoice: "marin", Realtime: s.realtimeCatalogForProvider("openai"),
 			})
 		case "xai":
 			realtimeCompanions = append(realtimeCompanions, ProviderInfo{

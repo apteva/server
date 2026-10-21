@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	sdk "github.com/apteva/app-sdk"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,8 @@ func telemetryTestServer(t *testing.T, installProject string, permissions ...str
 		(99, 2, 'Foreign', '', 'learn', '{}', 'proj-1')`)
 
 	permsJSON, _ := json.Marshal(permissions)
+	mustExec(`INSERT OR IGNORE INTO projects(id,user_id,name) VALUES('proj-1',1,'One'),('proj-2',1,'Two')`)
+	mustExec(`INSERT OR IGNORE INTO project_members(project_id,user_id,role) VALUES('proj-1',1,'owner'),('proj-2',1,'owner')`)
 	mustExec(`INSERT INTO apps (id, name, source, repo, ref, manifest_json) VALUES (700, 'streamer', 'registry', '', '', '{}')`)
 	mustExec(`INSERT INTO app_installs (id, app_id, project_id, status, permissions_json, installed_by)
 		VALUES (7001, 700, ?, 'running', ?, 1)`, installProject, string(permsJSON))
@@ -144,41 +147,29 @@ func TestCallbackTelemetryFiltersStream(t *testing.T) {
 func TestCallbackTelemetryScopesToInstallProject(t *testing.T) {
 	s, installID := telemetryTestServer(t, "proj-1", "platform.telemetry.read")
 
-	owned, err := s.ownedAgentIDsForInstall(1, installID)
+	owned, err := s.telemetryAgents(telemetryPrincipal{userID: 1, installID: installID, project: "proj-1", legacy: true}, sdk.TelemetryQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !owned[41] || owned[42] || owned[99] {
+	if owned[41].agent == nil || owned[42].agent != nil || owned[99].agent != nil {
 		t.Fatalf("owned = %v, want only agent 41 (proj-1, user 1)", owned)
 	}
 }
 
 func TestTelemetryFilterUnitCases(t *testing.T) {
-	filter := &telemetryFilter{
-		events:       map[string]bool{"llm.tool_chunk": true},
-		threadPrefix: "chat-",
-		ownedAgents:  map[int64]bool{41: true},
-	}
-	cases := []struct {
-		name string
+	q := sdk.TelemetryQuery{Events: []string{"llm.tool_chunk"}, ThreadPrefix: "chat-", AgentID: 41}
+	for _, tc := range []struct {
 		ev   TelemetryEvent
 		want bool
 	}{
-		{"allowed", TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "chat-x"}, true},
-		{"wrong type", TelemetryEvent{Type: "thought", AgentID: 41, ThreadID: "chat-x"}, false},
-		{"unowned agent", TelemetryEvent{Type: "llm.tool_chunk", AgentID: 99, ThreadID: "chat-x"}, false},
-		{"wrong thread", TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "main"}, false},
-	}
-	for _, tc := range cases {
-		if got := filter.allows(tc.ev); got != tc.want {
-			t.Errorf("%s: allows = %v, want %v", tc.name, got, tc.want)
+		{TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "chat-x"}, true},
+		{TelemetryEvent{Type: "thought", AgentID: 41, ThreadID: "chat-x"}, false},
+		{TelemetryEvent{Type: "llm.tool_chunk", AgentID: 99, ThreadID: "chat-x"}, false},
+		{TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "main"}, false},
+	} {
+		if got := matchesTelemetry(q, tc.ev); got != tc.want {
+			t.Errorf("filter %+v: got %v", tc.ev, got)
 		}
-	}
-	// agent_id narrows further even among owned agents.
-	filter.agentID = 41
-	filter.ownedAgents[42] = true
-	if filter.allows(TelemetryEvent{Type: "llm.tool_chunk", AgentID: 42, ThreadID: "chat-x"}) {
-		t.Error("agent_id filter must exclude other owned agents")
 	}
 }
 

@@ -124,7 +124,7 @@ Retries preserve operation/deployment IDs for backend idempotency.
 
 ## Backend wire protocol
 
-Backend control requests carry:
+Execution control requests carry:
 
 - `contract`, `operation_id`, and `idempotency_key`;
 - `install_id`, `deployment_id`, `generation`, and `project_id`;
@@ -161,6 +161,46 @@ stops block replacement unless the backend can provide deployment-scoped fencing
 and confirmed loss of the previous execution's ownership. A timeout is never
 interpreted as successful termination. `delete` removes only resources belonging
 to the addressed deployment and must preserve state shared with retained versions.
+
+## Read-only preflight
+
+`POST /api/apps/deployment-preflight` returns named `checks` with
+`status`, optional stable `code`, and a safe operator message. It neither adopts
+legacy processes nor creates placeholder deployment/operation records, builds
+packages, drains, stops or activates apps. Backend inference uses registered
+capabilities; explicit discovery/registration remains separate.
+
+Artifact-independent `inspect-target` has its own identity-free request. See
+[package inspection](app-runtime-packages.md) for fields and diagnostics. An old
+backend rejecting missing execution identity returns a protocol-incompatibility
+check, not a claim of broken SSH/gateway connectivity. Successful metadata alone
+does not assert that unreported SSH/systemd/gateway/capacity diagnostics passed.
+Preflight verifies declared platform, ABI, system libraries, delivery format and
+resource-control requirements; post-build ELF verification and backend capacity
+validation still run before execution.
+
+Before moving an existing installation, Server checks both managed executions
+and legacy local processes/data. It reports source and destination snapshot
+support separately, including `destination_snapshots_required`. It also checks
+unmapped mounts, lifecycle capabilities, local rollback-binary availability and
+state limits. Destination lifecycle declarations must describe the exact release;
+a changed release cannot inherit the previous release's capabilities.
+For a snapshot-capable remote source, authenticated execution `inspect` must
+return optional `state_bytes` with current uncompressed persistent bytes.
+Unknown/negative/oversized values block a move rather than assume an empty state.
+Backends without snapshots need not implement this field; their missing snapshot
+capability is reported directly. Local metadata inspection and snapshot export
+share file/path/type/size/count limits. Live estimates are rechecked after stop.
+The same migration guard runs before actual preparation and again before drain.
+
+A deliberate legacy-local move adopts the existing installation ID and original
+startup environment, retaining project, bindings and data. A stopped installation
+with data remains a real source, and failed activation leaves it stopped. The
+existing controller alone prepares, drains, confirms stop, snapshots/transfers,
+verifies restore, starts passively, verifies readiness and switches routes. State
+transfer explicitly rejects an unconfirmed source stop. Candidate starts with
+unknown outcomes must be stopped/confirmed before rollback can restart a writer.
+No migration orchestration belongs in a backend app.
 
 ## App lifecycle and state
 
@@ -203,6 +243,62 @@ expansion. Larger state or specialized volumes require an extended provider
 transfer contract. Rollback uses the previous startup deadline and verifies
 readiness. `database_upgrade: requires_restore` stays blocked; binary rollback
 cannot undo arbitrary committed schema changes.
+
+## Monitoring and reconciliation
+
+The operation-recovery loop still runs every 15 seconds. Stable remote
+executions use authenticated HTTP readiness and optional app admission status
+over the existing private control endpoint roughly every 15 seconds. There is
+**no periodic host inspection by default**. Cold controller recovery, completed
+lifecycle operations and changed execution identity/control endpoints require a
+fresh inspection. A single failed health poll and its healthy recovery do not
+inspect the host. Three consecutive failures trigger one investigation; if
+ownership verifies, an ongoing app outage does not repeatedly inspect the host.
+Failed verification retries at two-minute intervals, or earlier when health
+recovers. Local process checks remain cheap and use the health-check cadence.
+
+For an optional infrequent safety audit, set Server's environment variable
+`APTEVA_RUNTIME_INSPECTION_AUDIT_INTERVAL=20m` before starting it. Durations from
+15m through 30m are accepted; unset, zero or invalid values leave audits disabled.
+Lifecycle and migration verification remain mandatory regardless of this option.
+
+Checks start at different per-deployment offsets, with four monitoring jobs at
+most. Each deployment has one background job in flight. Full inspection is also
+serialized against lifecycle and migration callers, with a bounded 30-second
+deadline and existing advertised retry rules. Lifecycle requests always use
+fresh inspection, never cached monitoring authority.
+
+The existing authenticated `GET /_apteva/runtime/app/status` may include fresh
+per-replica work load using the same units as the scaling policy's `target_load`:
+
+```json
+{
+  "state": "active",
+  "admitting": true,
+  "deployment_id": "<APTEVA_DEPLOYMENT_ID>",
+  "generation": 8,
+  "load": 2.5
+}
+```
+
+Generation comes from `APTEVA_DEPLOYMENT_GENERATION`. Status identity must match
+the current deployment and generation. Load must be finite and nonnegative;
+autoscaling additionally requires admitting work and recent successful health
+(within 90 seconds). Work load is optional: missing/invalid/stale data suppresses
+automatic scaling rather than falling back to host inspection or an old backend
+load sample. Existing apps without these optional fields keep health monitoring;
+only load-based autoscaling needs this lightweight report. No new route, table
+or mandatory app/SDK change is introduced.
+
+UI summaries read the existing observation table; autoscaling reads the same
+collector's fresh identity-bound app load without network requests. Old host
+verification need not be refreshed just to keep load sampling alive. Monitoring
+cache is discarded on Server restart. Current-generation replicas share the
+collector with the primary; stopped, retired and changing installations are
+removed from its cache. Slow observations cannot publish against an older
+generation or during a lifecycle operation. Probe failures never authorize a
+replacement, ownership change or local fallback. Automatic local restart still
+requires fresh confirmed stop; lifecycle start/stop/transfer checks are unchanged.
 
 ## Browser endpoints and credentials
 
@@ -295,6 +391,12 @@ For older backends, an administrator can register `target_discovery` through
 `POST /apps/execution-backends`, or the backend can advertise the same field in
 its descriptor. This maps a private inventory **GET** route without executing
 inventory tools or creating resources:
+
+Target listing is optional. Server calls `/targets` only when the backend
+advertises `target_listing`, or uses an explicitly configured inventory mapping.
+Without discovery, the console accepts a target ID using the backend's declared
+resource type. Manual selection is also available when discovery fails; the
+backend still validates and authorizes that target before deployment.
 
 ```json
 {"path":"/api/resources","items":"resources","id_field":"id","name_field":"name","status_field":"status","ready_value":"ready","resource_type":"compute.machine"}

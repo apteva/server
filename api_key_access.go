@@ -63,6 +63,17 @@ func readOnlyAPIRequestAllowed(r *http.Request) bool {
 		"/settings/server", "/settings/new-agent-provider":
 		return true
 	}
+	if p == "/telemetry/runtimes" || p == "/telemetry/agents" {
+		return true
+	}
+	if strings.HasPrefix(p, "/telemetry/runtimes/") && validRuntimeID(strings.TrimPrefix(p, "/telemetry/runtimes/")) {
+		return true
+	}
+	if strings.HasPrefix(p, "/telemetry/agents/") && strings.HasSuffix(p, "/topology") {
+		id := strings.TrimSuffix(strings.TrimPrefix(p, "/telemetry/agents/"), "/topology")
+		n, e := strconv.ParseInt(id, 10, 64)
+		return e == nil && n > 0
+	}
 	parts := strings.Split(strings.TrimPrefix(p, "/"), "/")
 	if len(parts) == 2 && parts[0] == "projects" && parts[1] != "" {
 		return true

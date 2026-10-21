@@ -18,14 +18,18 @@ import (
 )
 
 type appRuntimeManager struct {
-	s       *Server
-	ctx     context.Context
-	cancel  context.CancelFunc
-	owner   string
-	http    *http.Client
-	mu      sync.Mutex
-	workers map[string]bool
-	wg      sync.WaitGroup
+	s               *Server
+	ctx             context.Context
+	cancel          context.CancelFunc
+	owner           string
+	http            *http.Client
+	mu              sync.Mutex
+	workers         map[string]bool
+	wg              sync.WaitGroup
+	monitorMu       sync.Mutex
+	monitors        map[string]*runtimeMonitorEntry
+	monitorSlots    chan struct{}
+	inspectionLocks map[string]*runtimeInspectionLock
 }
 
 func (s *Server) appRuntimeManager() *appRuntimeManager {
@@ -104,35 +108,36 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 		return d, err
 	}
 	d.CredentialEncrypted = encrypted
-	cfg, err := decryptInstallConfig(m.s, id)
+	env, err := m.deploymentEnvironment(d, token)
 	if err != nil {
 		return d, err
-	}
-	var project string
-	m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project)
-	gateway := m.s.localGatewayURL()
-	if !p.local() {
-		gateway = p.GatewayURL
-	}
-	env := map[string]string{"APTEVA_APP_TOKEN": token, "APTEVA_OUTBOUND_TOKEN": token, "APTEVA_GATEWAY_URL": gateway, "APTEVA_PUBLIC_URL": m.s.publicBaseURL(), "APTEVA_INSTALL_ID": fmt.Sprint(id), "APTEVA_PROJECT_ID": project, "APTEVA_APP_CONFIG": runtimeJSON(cfg), "APTEVA_DEPLOYMENT_ID": d.ID, "APTEVA_DEPLOYMENT_GENERATION": fmt.Sprint(gen), "APTEVA_RUNTIME_MODE": "standby"}
-	for k, v := range manifest.Runtime.Env {
-		if v.From == "" && !strings.HasPrefix(k, "APTEVA_") {
-			env[k] = v.Value
-		}
 	}
 	d.EnvironmentEncrypted, err = Encrypt(m.s.secret, runtimeJSON(env))
 	return d, err
 }
-func (m *appRuntimeManager) ensureExisting(id int64) error {
-	var managed int
-	var status, manifest, bin, endpoint string
-	var port, pid int
-	var generation int64
-	err := m.s.store.db.QueryRow(`SELECT runtime_managed,status,COALESCE(NULLIF(i.manifest_json,''),a.manifest_json),local_bin_path,local_port,local_pid,sidecar_url_override,runtime_generation FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&managed, &status, &manifest, &bin, &port, &pid, &endpoint, &generation)
+func (m *appRuntimeManager) deploymentEnvironment(d runtimeDeployment, token string) (map[string]string, error) {
+	cfg, err := decryptInstallConfig(m.s, d.InstallID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if managed == 1 {
+	var project string
+	if err = m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
+		return nil, err
+	}
+	gateway := m.s.localGatewayURL()
+	if !d.Placement.local() {
+		gateway = d.Placement.GatewayURL
+	}
+	env := map[string]string{"APTEVA_APP_TOKEN": token, "APTEVA_OUTBOUND_TOKEN": token, "APTEVA_GATEWAY_URL": gateway, "APTEVA_PUBLIC_URL": m.s.publicBaseURL(), "APTEVA_INSTALL_ID": fmt.Sprint(d.InstallID), "APTEVA_PROJECT_ID": project, "APTEVA_APP_CONFIG": runtimeJSON(cfg), "APTEVA_DEPLOYMENT_ID": d.ID, "APTEVA_DEPLOYMENT_GENERATION": fmt.Sprint(d.Generation), "APTEVA_RUNTIME_MODE": "standby"}
+	for k, v := range d.Manifest.Runtime.Env {
+		if v.From == "" && !strings.HasPrefix(k, "APTEVA_") {
+			env[k] = v.Value
+		}
+	}
+	return env, nil
+}
+func (m *appRuntimeManager) ensureExisting(id int64) error {
+	if m.s.runtimeManaged(id) {
 		return nil
 	}
 	if m.s.localApps != nil {
@@ -141,35 +146,32 @@ func (m *appRuntimeManager) ensureExisting(id int64) error {
 		}
 		defer m.s.localApps.releaseInstall(id)
 	}
-	if status != "running" && status != "pending" && status != "disabled" {
-		return fmt.Errorf("installation is not ready for managed placement")
-	}
-	var sm sdk.Manifest
-	if err = json.Unmarshal([]byte(manifest), &sm); err != nil {
+	source, err := m.existingSource(id)
+	if err != nil {
 		return err
 	}
-	if sm.Runtime.Kind == "static" && status == "running" {
-		bin = strings.TrimPrefix(endpoint, "static://")
-		if bin == endpoint {
-			return fmt.Errorf("unmanaged remote static execution has no owner")
+	oldID := ""
+	if source.Exists {
+		d := source.Deployment
+		if err = m.s.store.db.QueryRow(`SELECT id FROM app_runtime_deployments WHERE install_id=? AND generation=? AND replica=0`, id, d.Generation).Scan(&oldID); err != nil && err != sql.ErrNoRows {
+			return err
 		}
-	}
-	var oldID string
-	if status == "running" {
-		if bin == "" || m.s.localApps == nil || (sm.Runtime.Kind != "static" && m.s.localApps.currentProc(id) == nil) {
-			return fmt.Errorf("cannot adopt an unmanaged external process; register its owning backend first")
-		}
-		var existing string
-		if e := m.s.store.db.QueryRow(`SELECT id FROM app_runtime_deployments WHERE install_id=? AND generation=? AND replica=0`, id, generation).Scan(&existing); e == nil {
-			oldID = existing
-		} else {
+		if oldID == "" {
 			oldID = rand.Text()
 		}
-		d := runtimeDeployment{ID: oldID, InstallID: id, Generation: generation, Manifest: sm, Status: "active", Placement: runtimePlacement{Type: "local"}, LocalBin: bin, LocalPort: port, LocalPID: pid, CreatedAt: runtimeTimestamp(), AppCaps: m.appCapabilities(id), Execution: runtimeExecution{Handle: oldID, State: "running", Ready: true, HostKey: "server:local", Endpoint: endpoint, StateRef: fmt.Sprintf("local:%d", id)}}
-		p := m.s.localApps.currentProc(id)
-		env := map[string]string{}
-		if p != nil {
-			env = p.spec.env
+		d.ID = oldID
+		d.Execution.Handle = oldID
+		d.CreatedAt = runtimeTimestamp()
+		env := source.Environment
+		if len(env) == 0 {
+			token, err := m.s.appInstallToken(id)
+			if err != nil {
+				return err
+			}
+			env, err = m.deploymentEnvironment(d, token)
+			if err != nil {
+				return err
+			}
 		}
 		d.EnvironmentEncrypted, err = Encrypt(m.s.secret, runtimeJSON(env))
 		if err != nil {
@@ -232,10 +234,33 @@ func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement
 			return runtimeOperation{}, fmt.Errorf("execution backend is not registered")
 		}
 	}
+	if kind == "prepare" || kind == "upgrade" || kind == "restart" || kind == "deploy" {
+		if manifest == nil {
+			manifest, err = installManifest(m.s, id)
+			if err != nil {
+				return runtimeOperation{}, err
+			}
+		}
+		if err = m.checkInstallationMigration(m.ctx, id, *manifest, p); err != nil {
+			return runtimeOperation{}, err
+		}
+	}
 	if err = m.ensureExisting(id); err != nil {
 		return runtimeOperation{}, err
 	}
 	old, _ := m.active(id)
+	if old.ID != "" && old.Placement.local() && (kind == "prepare" || kind == "upgrade" || kind == "restart" || kind == "deploy" || kind == "activate") {
+		present, e := runtimeStatePresent(m.localStateDir(old))
+		if e != nil {
+			return runtimeOperation{}, e
+		}
+		if present && !old.PersistentData {
+			old.PersistentData = true
+			if e = m.saveDeployment(old); e != nil {
+				return runtimeOperation{}, e
+			}
+		}
+	}
 	d := runtimeDeployment{}
 	if kind == "prepare" || kind == "upgrade" || kind == "restart" || kind == "deploy" {
 		if manifest == nil {
@@ -257,7 +282,7 @@ func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement
 			return runtimeOperation{}, fmt.Errorf("no prepared deployment")
 		}
 	}
-	op := runtimeOperation{ID: rand.Text(), InstallID: id, Kind: kind, Phase: "queued", Status: "queued", PreviousID: old.ID, DeploymentID: d.ID, IdempotencyKey: key, Fingerprint: fingerprint, CreatedAt: runtimeTimestamp(), UpdatedAt: runtimeTimestamp()}
+	op := runtimeOperation{PreviousStopped: old.ID != "" && old.Status == "stopped", ID: rand.Text(), InstallID: id, Kind: kind, Phase: "queued", Status: "queued", PreviousID: old.ID, DeploymentID: d.ID, IdempotencyKey: key, Fingerprint: fingerprint, CreatedAt: runtimeTimestamp(), UpdatedAt: runtimeTimestamp()}
 	tx, err := m.s.store.db.Begin()
 	if err != nil {
 		return op, err
@@ -426,8 +451,12 @@ func (m *appRuntimeManager) run(id string) {
 		op.Phase = "complete"
 	}
 	_ = m.saveOperation(op)
+	// A lifecycle change invalidates cached monitoring facts, but monitoring
+	// never supplies authorization to a lifecycle operation.
+	m.queueRuntimeObservations(op.InstallID, true)
 }
 func (m *appRuntimeManager) startReconciler() {
+	m.startRuntimeMonitor()
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()

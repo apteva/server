@@ -23,31 +23,13 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 		return err
 	}
 	caps := b.Describe()
-	if d.Manifest.Runtime.Resources.CPULimit < 0 || d.Manifest.Runtime.Resources.MemoryLimit < 0 {
-		return fmt.Errorf("negative resource limit")
+	if op.RollbackID == "" {
+		if err = m.checkInstallationMigration(m.ctx, d.InstallID, d.Manifest, d.Placement); err != nil {
+			return err
+		}
 	}
-	if (d.Manifest.Runtime.Resources.CPULimit > 0 || d.Manifest.Runtime.Resources.MemoryLimit > 0) && !caps.ResourceControls {
-		return fmt.Errorf("backend cannot enforce declared resource limits")
-	}
-
-	if !d.Placement.local() {
-		if !runtimeContains(caps.RuntimeKinds, d.Manifest.Runtime.Kind) {
-			return fmt.Errorf("backend does not support app runtime kind")
-		}
-		for _, p := range d.Manifest.Runtime.Ports {
-			proto := p.Protocol
-			if proto == "" {
-				proto = "tcp"
-			}
-			if !runtimeContains(caps.Protocols, proto) {
-				return fmt.Errorf("backend does not support required listener protocol")
-			}
-		}
-		if d.Manifest.Runtime.Resources.CPULimit > 0 || d.Manifest.Runtime.Resources.MemoryLimit > 0 {
-			if !caps.ResourceControls {
-				return fmt.Errorf("backend cannot enforce declared resource limits")
-			}
-		}
+	if err = runtimeBackendCompatibility(d.Manifest, caps); err != nil {
+		return err
 	}
 	if err = m.prepareIngress(&d, b); err != nil {
 		return err
@@ -159,6 +141,9 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 	}
 	if runtimePersistentState(d) && execution.StateRef == "" {
 		return fmt.Errorf("backend must provide a persistent state reference")
+	}
+	if req.StateRef != "" && execution.StateRef != req.StateRef {
+		return fmt.Errorf("backend did not preserve the existing state reference")
 	}
 	d.Execution = execution
 	d.AppCaps = execution.AppCapabilities
@@ -368,21 +353,22 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 	if d.Manifest.Runtime.DatabaseUpgrade == "requires_restore" {
 		return fmt.Errorf("automatic activation blocked by database_upgrade requires_restore")
 	}
+	if old.ID != "" && old.Placement.local() {
+		present, e := runtimeStatePresent(m.localStateDir(old))
+		if e != nil {
+			return e
+		}
+		if present && !old.PersistentData {
+			old.PersistentData = true
+			if err = m.saveDeployment(old); err != nil {
+				return err
+			}
+		}
+	}
 	migration := old.ID != "" && (!sameRuntimeTarget(old, d) || runtimePersistentState(old) && old.Execution.StateRef != d.Execution.StateRef)
-	if migration && runtimePersistentState(old) {
-		if !old.AppCaps.PassiveStart || !d.AppCaps.PassiveStart {
-			return fmt.Errorf("state migration requires app passive-start lifecycle support")
-		}
-		ob, e := m.backend(old)
-		if e != nil {
-			return e
-		}
-		nb, e := m.backend(d)
-		if e != nil {
-			return e
-		}
-		if !ob.Describe().Snapshots || !nb.Describe().Snapshots {
-			return fmt.Errorf("both execution backends must support state snapshots")
+	if migration {
+		if err = firstRuntimeBlock(m.migrationChecks(m.ctx, old, d.Manifest, d.Placement, &d.AppCaps, true)); err != nil {
+			return err
 		}
 	}
 	exclusive := migration || runtimeExclusive(old, d)
@@ -559,6 +545,13 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 	if old.ID == "" {
 		return cause
 	}
+	if op.PreviousStopped && old.Status == "stopped" {
+		_, err := m.s.store.db.Exec(`UPDATE app_installs SET status='disabled',runtime_active_deployment=?,runtime_pending_deployment='',runtime_placement_json=? WHERE id=?`, old.ID, runtimeJSON(old.Placement), old.InstallID)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%w; previous installation remains stopped with its data retained", cause)
+	}
 	if old.Status == "stopped" {
 		if !old.Placement.local() {
 			return m.rollbackRemoteDeployment(op, *old, *candidate, cause)
@@ -692,7 +685,7 @@ func (m *appRuntimeManager) deployments(id int64) ([]runtimeDeployment, error) {
 }
 
 func runtimePersistentState(d runtimeDeployment) bool {
-	return len(d.Manifest.Runtime.Storage) > 0 || (d.Manifest.DB != nil && (d.Manifest.DB.Driver == "" || d.Manifest.DB.Driver == "sqlite"))
+	return d.PersistentData || len(d.Manifest.Runtime.Storage) > 0 || (d.Manifest.DB != nil && (d.Manifest.DB.Driver == "" || d.Manifest.DB.Driver == "sqlite"))
 }
 func (m *appRuntimeManager) retirePrevious(op *runtimeOperation, old runtimeDeployment) error {
 	if old.ID == "" {

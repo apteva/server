@@ -609,7 +609,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		if err := validateProviderModel(providerPool, selected, configuredAgentModelOverride(inst.Config, selected)); err != nil {
 			return err
 		}
-		provArray := buildAgentCoreProviderConfigs(providerPool, inst.Config, defaultProvider)
+		provArray := buildAgentCoreProviderConfigs(providerPool, realtimeConfigFromDisk(inst.Config, config), defaultProvider)
 		for _, provider := range provArray {
 			if builtins := runtimeBuiltins(provider); len(builtins) > 0 {
 				name, _ := provider["name"].(string)
@@ -1061,8 +1061,10 @@ func buildAgentCoreProviderConfigs(pool []ProviderInfo, configJSON string, fallb
 		for _, provider := range providers {
 			for _, override := range saved.Providers {
 				if override["name"] == provider["name"] {
-					if value, exists := override["image_generation"]; exists {
-						provider["image_generation"] = value
+					for _, field := range []string{"image_generation", "realtime_voice", "realtime_models", "realtime_execution"} {
+						if value, exists := override[field]; exists {
+							provider[field] = value
+						}
 					}
 				}
 			}
@@ -1082,6 +1084,36 @@ func buildAgentCoreProviderConfigs(pool []ProviderInfo, configJSON string, fallb
 			log.Printf("[RUNTIME-MODELS] ignoring incompatible saved realtime choice: %v", err)
 		} else {
 			applyRealtimeSelection(providers, provider, selectedModel)
+			var voiceConfig struct {
+				Voice string `json:"realtime_voice"`
+			}
+			_ = json.Unmarshal([]byte(configJSON), &voiceConfig)
+			// Explicit per-provider voice survives hydration; catalog defaults
+			// only fill the absence of an operator choice.
+			for _, name := range []string{provider, strings.TrimSuffix(provider, "-realtime")} {
+				for _, entry := range saved.Providers {
+					if entry["name"] == name {
+						if voice, ok := entry["realtime_voice"].(string); ok && voice != "" {
+							voiceConfig.Voice = voice
+							break
+						}
+					}
+				}
+				if voiceConfig.Voice != "" {
+					break
+				}
+			}
+			if voiceConfig.Voice == "" {
+				for _, info := range pool {
+					if info.Type == provider {
+						voiceConfig.Voice = realtimeDefaultVoice(info, selectedModel)
+						break
+					}
+				}
+			}
+			if voiceConfig.Voice != "" {
+				applyRealtimeVoice(providers, provider, voiceConfig.Voice)
+			}
 		}
 	}
 	return providers
@@ -1146,7 +1178,7 @@ func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, r
 			}
 			applyAgentServiceTiers([]map[string]any{provider}, pool, checked)
 		}
-		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice", "image_generation", "builtins"} {
+		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice", "realtime_models", "realtime_execution", "image_generation", "builtins"} {
 			if value, ok := override[field]; ok {
 				provider[field] = value
 			}
@@ -2996,7 +3028,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if body.Config != "" {
 			configuredDefault = configuredAgentDefaultProvider(body.Config)
 		}
-		hydrated, selected, err := hydrateCoreProviderConfigs(pool, configuredDefault, body.Providers)
+		hydrated, selected, err := hydrateCoreProviderConfigs(pool, configuredDefault, mergeSavedRealtimeProviders(s.savedRealtimeConfig(inst), body.Providers))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -3020,18 +3052,24 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[RUNTIME-MODELS] ignoring incompatible saved realtime choice: %v", err)
 			} else {
 				applyRealtimeSelection(hydrated, provider, model)
+				selectedVoice := ""
 				if voice, sent := rawBody["realtime_voice"].(string); sent {
-					if err := validateRealtimeVoice(pool, provider, voice); err != nil {
+					selectedVoice = voice
+					if err := validateRealtimeModelVoice(pool, provider, model, voice); err != nil {
 						http.Error(w, err.Error(), http.StatusBadRequest)
 						return
 					}
-				} else if realtimeProviderSent && requestedRealtimeProvider != savedRealtimeProvider {
+				} else if (realtimeProviderSent && requestedRealtimeProvider != savedRealtimeProvider) || (realtimeModelSent && requestedRealtimeModel != savedRealtimeModel) {
 					for _, info := range pool {
 						if providerKeyFromName(info.Type) == provider {
-							rawBody["realtime_voice"] = info.RealtimeVoice
+							rawBody["realtime_voice"] = realtimeDefaultVoice(info, model)
+							selectedVoice = realtimeDefaultVoice(info, model)
 							break
 						}
 					}
+				}
+				if selectedVoice != "" {
+					applyRealtimeVoice(hydrated, provider, selectedVoice)
 				}
 			}
 		}
@@ -3120,6 +3158,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg == nil {
 			cfg = map[string]any{}
+		}
+		if providers, exists := rawBody["providers"]; exists {
+			cfg["providers"] = providers
 		}
 		if builtinSent {
 			removeLegacyAgentImages(cfg)
@@ -3677,20 +3718,21 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 						depth = int(d)
 					}
 					threads = append(threads, map[string]any{
-						"id":          t["id"],
-						"parent_id":   t["parent_id"],
-						"depth":       depth,
-						"directive":   withoutAgentControls(sleepStringValue(t["directive"])),
-						"tools":       t["tools"],
-						"mcp_names":   t["mcp_names"],
-						"realtime":    t["realtime"],
-						"voice":       t["voice"],
-						"provider":    t["provider"],
-						"iteration":   0,
-						"rate":        "stopped",
-						"model":       "",
-						"age":         "",
-						"sleep_state": "stopped",
+						"id":                 t["id"],
+						"parent_id":          t["parent_id"],
+						"depth":              depth,
+						"directive":          withoutAgentControls(sleepStringValue(t["directive"])),
+						"tools":              t["tools"],
+						"mcp_names":          t["mcp_names"],
+						"realtime":           t["realtime"],
+						"voice":              t["voice"],
+						"provider":           t["provider"],
+						"realtime_execution": t["realtime_execution"],
+						"iteration":          0,
+						"rate":               "stopped",
+						"model":              "",
+						"age":                "",
+						"sleep_state":        "stopped",
 					})
 				}
 			}
@@ -3733,7 +3775,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		// inject so the dashboard never guesses from a differently ordered
 		// provider list or displays stale disk defaults.
 		if pool := s.GetProviderPool(inst.UserID, inst.ProjectID); len(pool) > 0 {
-			config["providers"] = buildAgentCoreProviderConfigs(pool, inst.Config)
+			config["providers"] = buildAgentCoreProviderConfigs(pool, realtimeConfigFromDisk(inst.Config, config))
 		}
 		// Return the full persisted config surface — mcp_servers,
 		// providers, threads — so the stopped-instance UI

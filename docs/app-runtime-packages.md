@@ -31,13 +31,25 @@ The gateway comes from this Server's configured public address, never an
 untrusted request Host header. Inspection verifies reachability from the host.
 
 A backend advertising `target_inspection: true` implements protected POST
-`inspect-target`, using the ordinary request without an artifact and returning
-`{platform,host_key,abi,system_libraries,formats}`. Inspection never creates an
-execution or changes host configuration. Server persists host identity/platform
-before build and checks them again during prepare/start. Instances 0.7.1
-implements this generic contract. It also accepts verified archive-to-package
-handoffs while preserving the approved archive checksum separately from the
-executable checksum.
+`inspect-target`. This is a read-only request containing `contract`, `target`,
+`project_id`, `gateway_url` and target `options` (including `gateway_url`). It
+contains no installation/deployment/generation identity, manifest, environment
+or artifact ID. Authenticate and validate the target/project before inspection;
+do not run the execution-envelope validator or require a sealed artifact.
+Return `{platform,host_key,abi,system_libraries,formats}`. Optional `checks` use
+bounded `{name,status}` pairs: names `ssh`, `systemd`, `gateway`, `capacity` and
+statuses `passed`, `blocked`, `unknown`. Non-passing diagnostics block preparation.
+Errors may include a safe top-level `code`: `ssh_unreachable`,
+`systemd_unavailable`, `gateway_unreachable`, `capacity_insufficient`,
+`invalid_target`. Arbitrary provider error text is not shown to operators.
+
+Inspection never creates an execution or changes host configuration. Server
+persists host identity/platform before build and checks them again during
+prepare/start. Backends that still require execution identity for inspection
+need a backend fix; Server reports protocol incompatibility, not a target SSH
+or gateway failure, and never fabricates a deployment to satisfy that validator.
+Archive-to-package handoffs must preserve the approved archive checksum
+separately from the executable checksum.
 
 SDK v0.101.0 adds optional validated `runtime.package`. Standard Go apps use the
 source entry, declared UI/migrations/skills, optional `native/` directory and

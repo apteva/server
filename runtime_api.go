@@ -694,13 +694,10 @@ func (s *Server) handleRuntimeAgents(w http.ResponseWriter, r *http.Request, run
 		if raw := r.URL.Query().Get("since"); raw != "" {
 			since, _ = time.Parse(time.RFC3339Nano, raw)
 		}
-		events, err := s.store.QueryTelemetry(agent.AgentID, "", since, limit)
+		events, err := s.queryPublicTelemetry(r.Context(), agent.AgentID, "", since, limit, "")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		if events == nil {
-			events = []TelemetryEvent{}
 		}
 		writeJSON(w, events)
 	case "realtime":
@@ -760,7 +757,7 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 			Port: agent.Port, CoreAPIKey: agent.APIKey,
 		}, sdk.RealtimeSpawnRequest{
 			AgentID: agent.AgentID, ThreadID: req.ThreadID, Directive: req.Directive,
-			Voice: req.Voice, Provider: req.Provider, CapabilityMode: mode, Tools: tools, MCP: mcpNames,
+			Voice: req.Voice, Provider: req.Provider, Model: req.Model, RealtimeExecution: req.RealtimeExecution, CapabilityMode: mode, Tools: tools, MCP: mcpNames,
 			CallContext:   req.CallContext,
 			TurnDetection: req.TurnDetection,
 			Ephemeral:     req.Ephemeral, InitialMessage: req.InitialMessage,

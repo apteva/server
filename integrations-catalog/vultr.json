@@ -1,7 +1,7 @@
 {
   "slug": "vultr",
   "name": "Vultr",
-  "description": "MCP server for Vultr Cloud - instances, snapshots, regions, plans",
+  "description": "Vultr compute, GPU, bare metal, plans, regions, snapshots and storage APIs",
   "logo": "https://www.google.com/s2/favicons?domain=vultr.com&sz=128",
   "categories": [
     "cloud",
@@ -79,10 +79,46 @@
           "label": {
             "type": "string"
           },
-          "sshkey_id": { "type": "array" },
-          "hostname": { "type": "string" },
-          "user_data": { "type": "string" },
-          "enable_ipv6": { "type": "boolean" }
+          "sshkey_id": {
+            "type": "array"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "user_data": {
+            "type": "string"
+          },
+          "enable_ipv6": {
+            "type": "boolean"
+          },
+          "block_devices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "block_id": {
+                  "type": "string"
+                },
+                "bootable": {
+                  "type": "boolean"
+                },
+                "disk_size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "user_scheme": {
+            "type": "string",
+            "enum": [
+              "root",
+              "limited"
+            ]
+          }
         },
         "required": [
           "region",
@@ -165,7 +201,14 @@
       "path": "/regions",
       "input_schema": {
         "type": "object",
-          "properties": { "per_page": { "type": "number" } }
+        "properties": {
+          "per_page": {
+            "type": "number"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
       }
     },
     {
@@ -176,8 +219,15 @@
       "input_schema": {
         "type": "object",
         "properties": {
-            "type": { "type": "string" },
-            "per_page": { "type": "number" }
+          "type": {
+            "type": "string"
+          },
+          "per_page": {
+            "type": "number"
+          },
+          "cursor": {
+            "type": "string"
+          }
         }
       }
     },
@@ -188,7 +238,14 @@
       "path": "/os",
       "input_schema": {
         "type": "object",
-          "properties": { "per_page": { "type": "number" } }
+        "properties": {
+          "per_page": {
+            "type": "number"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
       }
     },
     {
@@ -226,63 +283,174 @@
       "description": "List Vultr block storage subscriptions",
       "method": "GET",
       "path": "/blocks",
-      "input_schema": { "type": "object", "properties": { "per_page": { "type": "integer" }, "cursor": { "type": "string" } } }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
     },
     {
       "name": "block_storage_get",
       "description": "Get a block storage subscription",
       "method": "GET",
       "path": "/blocks/{block_id}",
-      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" } }, "required": ["block_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
     },
     {
       "name": "block_storage_create",
       "description": "Create a Vultr block storage subscription",
       "method": "POST",
       "path": "/blocks",
-      "input_schema": { "type": "object", "properties": { "region": { "type": "string" }, "size_gb": { "type": "integer", "minimum": 10 }, "label": { "type": "string" }, "block_type": { "type": "string", "enum": ["storage_opt", "high_perf"] }, "live": { "type": "boolean" } }, "required": ["region", "size_gb"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "size_gb": {
+            "type": "integer",
+            "minimum": 10
+          },
+          "label": {
+            "type": "string"
+          },
+          "block_type": {
+            "type": "string",
+            "enum": [
+              "storage_opt",
+              "high_perf"
+            ]
+          },
+          "live": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "region",
+          "size_gb"
+        ]
+      }
     },
     {
       "name": "block_storage_update",
       "description": "Rename or expand a block storage subscription",
       "method": "PATCH",
       "path": "/blocks/{block_id}",
-      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" }, "label": { "type": "string" }, "size_gb": { "type": "integer", "description": "New larger size in GiB" } }, "required": ["block_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "size_gb": {
+            "type": "integer",
+            "description": "New larger size in GiB"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
     },
     {
       "name": "block_storage_attach",
       "description": "Attach block storage to an instance in the same region",
       "method": "POST",
       "path": "/blocks/{block_id}/attach",
-      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" }, "instance_id": { "type": "string" }, "live": { "type": "boolean" } }, "required": ["block_id", "instance_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "live": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "block_id",
+          "instance_id"
+        ]
+      }
     },
     {
       "name": "block_storage_detach",
       "description": "Detach block storage without deleting it",
       "method": "POST",
       "path": "/blocks/{block_id}/detach",
-      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" }, "live": { "type": "boolean" } }, "required": ["block_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "live": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
     },
     {
       "name": "block_storage_delete",
       "description": "Delete a block storage subscription",
       "method": "DELETE",
       "path": "/blocks/{block_id}",
-      "input_schema": { "type": "object", "properties": { "block_id": { "type": "string" } }, "required": ["block_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
     },
     {
       "name": "object_storage_clusters_list",
       "description": "List Vultr Object Storage clusters and their regions",
       "method": "GET",
       "path": "/object-storage/clusters",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "object_storage_tiers_list",
       "description": "List Vultr Object Storage subscription tiers",
       "method": "GET",
       "path": "/object-storage/tiers",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "object_storage_list",
@@ -291,7 +459,14 @@
       "path": "/object-storage",
       "input_schema": {
         "type": "object",
-        "properties": { "per_page": { "type": "integer" }, "cursor": { "type": "string" } }
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
       }
     },
     {
@@ -301,8 +476,14 @@
       "path": "/object-storage/{object_storage_id}",
       "input_schema": {
         "type": "object",
-        "properties": { "object_storage_id": { "type": "string" } },
-        "required": ["object_storage_id"]
+        "properties": {
+          "object_storage_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_storage_id"
+        ]
       }
     },
     {
@@ -313,11 +494,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "label": { "type": "string" },
-          "cluster_id": { "type": "integer" },
-          "tier_id": { "type": "integer" }
+          "label": {
+            "type": "string"
+          },
+          "cluster_id": {
+            "type": "integer"
+          },
+          "tier_id": {
+            "type": "integer"
+          }
         },
-        "required": ["label", "cluster_id"]
+        "required": [
+          "label",
+          "cluster_id"
+        ]
       }
     },
     {
@@ -328,8 +518,14 @@
       "body_none": true,
       "input_schema": {
         "type": "object",
-        "properties": { "object_storage_id": { "type": "string" } },
-        "required": ["object_storage_id"]
+        "properties": {
+          "object_storage_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_storage_id"
+        ]
       }
     },
     {
@@ -339,8 +535,202 @@
       "path": "/object-storage/{object_storage_id}",
       "input_schema": {
         "type": "object",
-        "properties": { "object_storage_id": { "type": "string" } },
-        "required": ["object_storage_id"]
+        "properties": {
+          "object_storage_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_storage_id"
+        ]
+      }
+    },
+    {
+      "name": "list_metal_plans",
+      "description": "List metal plans",
+      "method": "GET",
+      "path": "/plans-metal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_region_availability",
+      "description": "List region availability",
+      "method": "GET",
+      "path": "/regions/{region_id}/availability",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "region_id"
+        ]
+      }
+    },
+    {
+      "name": "list_bare_metals",
+      "description": "List bare metals",
+      "method": "GET",
+      "path": "/bare-metals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_bare_metal",
+      "description": "Create bare metal",
+      "method": "POST",
+      "path": "/bare-metals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "os_id": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string"
+          },
+          "sshkey_id": {
+            "type": "array"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "user_data": {
+            "type": "string"
+          },
+          "enable_ipv6": {
+            "type": "boolean"
+          },
+          "user_scheme": {
+            "type": "string",
+            "enum": [
+              "root",
+              "limited"
+            ]
+          },
+          "mdisk_mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "region",
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "get_bare_metal",
+      "description": "Get bare metal",
+      "method": "GET",
+      "path": "/bare-metals/{baremetal_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baremetal_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "baremetal_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_bare_metal",
+      "description": "Delete bare metal",
+      "method": "DELETE",
+      "path": "/bare-metals/{baremetal_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baremetal_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "baremetal_id"
+        ]
+      }
+    },
+    {
+      "name": "start_bare_metal",
+      "description": "Start bare metal",
+      "method": "POST",
+      "path": "/bare-metals/{baremetal_id}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baremetal_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "baremetal_id"
+        ]
+      }
+    },
+    {
+      "name": "stop_bare_metal",
+      "description": "Stop bare metal",
+      "method": "POST",
+      "path": "/bare-metals/{baremetal_id}/halt",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baremetal_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "baremetal_id"
+        ]
+      }
+    },
+    {
+      "name": "restart_bare_metal",
+      "description": "Restart bare metal",
+      "method": "POST",
+      "path": "/bare-metals/{baremetal_id}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baremetal_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "baremetal_id"
+        ]
       }
     }
   ]

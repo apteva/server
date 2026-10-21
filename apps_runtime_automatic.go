@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	sdk "github.com/apteva/app-sdk"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -13,7 +12,8 @@ import (
 
 // Only a backend's live contract can select a package pipeline. No provider
 // names, resource-name guesses or trial writes to artifact endpoints are used.
-func (m *appRuntimeManager) normalizePlacement(p *runtimePlacement) error {
+func (m *appRuntimeManager) normalizePlacement(p *runtimePlacement, readOnly ...bool) error {
+	readonly := len(readOnly) > 0 && readOnly[0]
 	if p.local() {
 		return p.validate()
 	}
@@ -30,7 +30,33 @@ func (m *appRuntimeManager) normalizePlacement(p *runtimePlacement) error {
 	if p.Backend.ID == "" {
 		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 		defer cancel()
-		candidates, err := m.discoverBackendsFor(ctx, p.Backend.InstallID)
+		var candidates []runtimeBackendRegistration
+		var err error
+		if readonly {
+			rows, e := m.s.store.db.Query(`SELECT record_json FROM app_runtime_backends WHERE (?=0 OR install_id=?)`, p.Backend.InstallID, p.Backend.InstallID)
+			err = e
+			if e == nil {
+				for rows.Next() {
+					var raw string
+					var reg runtimeBackendRegistration
+					if e = rows.Scan(&raw); e != nil {
+						err = e
+						break
+					}
+					if e = json.Unmarshal([]byte(raw), &reg); e != nil {
+						err = e
+						break
+					}
+					candidates = append(candidates, reg)
+				}
+				if e = rows.Err(); e != nil {
+					err = e
+				}
+				rows.Close()
+			}
+		} else {
+			candidates, err = m.discoverBackendsFor(ctx, p.Backend.InstallID)
+		}
 		if err != nil {
 			return err
 		}
@@ -51,6 +77,9 @@ func (m *appRuntimeManager) normalizePlacement(p *runtimePlacement) error {
 		p.Backend.ID = compatible[0].ID
 	}
 	if _, err := m.registration(p.Backend); err != nil {
+		if readonly {
+			return fmt.Errorf("execution backend is not registered")
+		}
 		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 		defer cancel()
 		if _, err = m.discoverBackendsFor(ctx, p.Backend.InstallID); err != nil {
@@ -64,34 +93,26 @@ func (m *appRuntimeManager) inspectPackageTarget(d *runtimeDeployment, op *runti
 		if d.Placement.Package == nil || d.Placement.Package.Platform == "" {
 			return fmt.Errorf("backend must advertise artifact-independent target inspection for automatic deployment")
 		}
-		return nil
+		return runtimeReleaseTargetCompatibility(d.Manifest, d.Placement, b.registration, nil)
 	}
-	req, err := m.request(*d, *op, "inspect-target")
+	var project string
+	if err := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
+	info, err := m.inspectTarget(ctx, d.Placement, project)
 	if err != nil {
 		return err
 	}
-	var info sdk.RuntimeTargetInfo
-	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
-	defer cancel()
-	if err = b.request(ctx, http.MethodPost, "inspect-target", &req, &info); err != nil {
-		return err
-	}
-	if _, _, err = runtimePackagePlatform(info.Platform); err != nil || info.HostKey == "" || len(info.HostKey) > 512 || !runtimeContains(info.Formats, "binary") || len(info.SystemLibraries) > 2048 {
-		return fmt.Errorf("backend returned invalid target metadata")
-	}
-	if info.ABI != "" && info.ABI != "gnu" && info.ABI != "musl" {
-		return fmt.Errorf("backend returned unsupported target ABI")
-	}
-	for _, lib := range info.SystemLibraries {
-		if !runtimeSystemLibraryName(lib) {
-			return fmt.Errorf("backend returned invalid library inventory")
-		}
+	if _, _, err = runtimePackagePlatform(info.Platform); err != nil || !runtimeContains(info.Formats, "binary") {
+		return fmt.Errorf("target does not support the prepared binary package platform/format")
 	}
 	if d.TargetInfo != nil && (d.TargetInfo.HostKey != info.HostKey || d.TargetInfo.Platform != info.Platform || d.TargetInfo.ABI != info.ABI) {
 		return fmt.Errorf("deployment target identity/platform changed; create a new deployment")
 	}
-	if release := d.Manifest.Runtime.Package; release != nil && release.ABI != "" && release.ABI != info.ABI {
-		return fmt.Errorf("release ABI is incompatible with selected target")
+	if err = runtimeReleaseTargetCompatibility(d.Manifest, d.Placement, b.registration, &info); err != nil {
+		return err
 	}
 	if d.Placement.Package == nil {
 		d.Placement.Package = &runtimePackageSpec{}

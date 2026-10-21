@@ -25,60 +25,9 @@ func (m *appRuntimeManager) reconcile() {
 	for _, id := range ids {
 		m.launch(id)
 	}
-	rows, err = m.s.store.db.Query(`SELECT d.id FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE i.runtime_managed=1 AND i.runtime_active_deployment=d.id AND i.status='running' AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`)
-	if err != nil {
-		return
-	}
-	ids = nil
-	for rows.Next() {
-		var id string
-		if rows.Scan(&id) == nil {
-			ids = append(ids, id)
-		}
-	}
-	rows.Close()
-	for _, id := range ids {
-		if m.ctx.Err() != nil {
-			return
-		}
-		d, e := m.loadDeployment(id)
-		if e != nil {
-			continue
-		}
-		b, e := m.backend(d)
-		if e != nil {
-			m.observeDeployment(d, runtimeExecution{}, e)
-			m.markUnreachable(d)
-			continue
-		}
-		req, _ := m.request(d, runtimeOperation{ID: "reconcile"}, "inspect")
-		out, e := b.Inspect(req)
-		if e != nil {
-			m.observeDeployment(d, runtimeExecution{}, e)
-			m.markUnreachable(d)
-			continue
-		}
-		if d.Placement.local() && out.StoppedConfirmed {
-			op, e := m.begin(d.InstallID, "restart", "reconcile-"+d.ID, d.Placement, nil)
-			if e == nil {
-				m.launch(op.ID)
-			}
-			continue
-		}
-		// A remote outage is an observation, never permission to spawn locally.
-		m.observeDeployment(d, out, nil)
-		if !out.Ready || out.State != "running" {
-			m.markUnreachable(d)
-			continue
-		}
-		d.Execution = out
-		_ = m.saveDeployment(d)
-		m.s.store.db.Exec(`UPDATE app_installs SET status_message='' WHERE id=? AND status='running'`, d.InstallID)
-	}
+	m.queueRuntimeObservations(0, false)
 }
-func (m *appRuntimeManager) markUnreachable(d runtimeDeployment) {
-	m.s.store.db.Exec(`UPDATE app_installs SET status_message='Deployment control unavailable; ownership retained' WHERE id=?`, d.InstallID)
-}
+
 func (s *Server) managedRuntimeRestart(id int64) error {
 	m := s.appRuntimeManager()
 	d, err := m.active(id)

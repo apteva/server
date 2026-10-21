@@ -18,6 +18,9 @@ import (
 const runtimeSnapshotLimit int64 = 512 << 20
 
 func (m *appRuntimeManager) transferState(old, d *runtimeDeployment, op *runtimeOperation) error {
+	if old.Status != "stopped" || !old.Execution.StoppedConfirmed {
+		return fmt.Errorf("state transfer requires confirmed source shutdown")
+	}
 	if op.SnapshotPath == "" {
 		path, sha, err := m.snapshot(*old, *op)
 		if err != nil {
@@ -149,28 +152,7 @@ func (m *appRuntimeManager) restoreSnapshot(d *runtimeDeployment, op runtimeOper
 func writeRuntimeSnapshot(root string, out io.Writer) error {
 	gz, _ := gzip.NewWriterLevel(out, gzip.BestSpeed)
 	tw := tar.NewWriter(gz)
-	var total int64
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if os.IsNotExist(err) && path == root {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if path == root {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && !info.Mode().IsRegular() {
-			return fmt.Errorf("snapshot excludes links and special files")
-		}
-		total += info.Size()
-		if total > runtimeSnapshotLimit {
-			return fmt.Errorf("persistent state exceeds snapshot limit")
-		}
+	_, err := walkRuntimeState(root, func(path, rel string, info os.FileInfo) error {
 		hdr, err := tar.FileInfoHeader(info, "")
 		if err != nil {
 			return err
@@ -186,9 +168,12 @@ func writeRuntimeSnapshot(root string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
 		_, err = io.CopyN(tw, f, info.Size())
-		return err
+		closeErr := f.Close()
+		if err != nil {
+			return err
+		}
+		return closeErr
 	})
 	if err != nil {
 		tw.Close()
@@ -283,3 +268,77 @@ func readRuntimeSnapshot(path, dest string) error {
 	return os.RemoveAll(backup)
 }
 func runtimeHash(raw []byte) string { b := sha256.Sum256(raw); return hex.EncodeToString(b[:]) }
+
+// One set of limits/path rules for live metadata checks and stopped snapshots.
+type runtimeStateSize struct {
+	Bytes   int64
+	Entries int
+}
+
+// Presence detection does not impose transfer limits on ordinary same-host
+// updates or stop/delete. Full validation is reserved for a state transfer.
+func runtimeStatePresent(root string) (bool, error) {
+	info, err := os.Lstat(root)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("persistent state could not be inspected")
+	}
+	if !info.IsDir() {
+		return true, nil
+	}
+	f, err := os.Open(root)
+	if err != nil {
+		return false, fmt.Errorf("persistent state could not be inspected")
+	}
+	defer f.Close()
+	entries, err := f.Readdirnames(1)
+	if err != nil && err != io.EOF {
+		return false, fmt.Errorf("persistent state could not be inspected")
+	}
+	return len(entries) > 0, nil
+}
+
+func inspectRuntimeState(root string) (runtimeStateSize, error) { return walkRuntimeState(root, nil) }
+func walkRuntimeState(root string, visit func(string, string, os.FileInfo) error) (runtimeStateSize, error) {
+	var stats runtimeStateSize
+	if !filepath.IsAbs(root) {
+		return stats, fmt.Errorf("persistent state path must be absolute")
+	}
+	if info, err := os.Lstat(root); os.IsNotExist(err) {
+		return stats, nil
+	} else if err != nil || !info.IsDir() {
+		return stats, fmt.Errorf("persistent state root is unavailable or not a directory")
+	}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("persistent state could not be inspected")
+		}
+		if path == root {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			return fmt.Errorf("state transfer excludes links and special files")
+		}
+		stats.Entries++
+		if info.Mode().IsRegular() {
+			if info.Size() < 0 || info.Size() > runtimeSnapshotLimit-stats.Bytes {
+				return fmt.Errorf("persistent state exceeds snapshot limit")
+			}
+			stats.Bytes += info.Size()
+		}
+		if stats.Entries > 100000 {
+			return fmt.Errorf("persistent state exceeds snapshot entry limit")
+		}
+		if visit != nil {
+			return visit(path, rel, info)
+		}
+		return nil
+	})
+	return stats, err
+}

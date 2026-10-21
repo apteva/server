@@ -339,6 +339,14 @@ func main() {
     if os.Getenv("TEST_SIDECAR_FAIL_HEALTH") == "1" { http.Error(w, "not ready", 503); return }
     w.WriteHeader(200)
   })
+  mux.HandleFunc("/_apteva/runtime/app/describe", func(w http.ResponseWriter, r *http.Request) {
+    json.NewEncoder(w).Encode(map[string]any{"passive_start":true,"drain":true,"routing":"key"})
+  })
+  mux.HandleFunc("/_apteva/runtime/app/drain", func(w http.ResponseWriter, r *http.Request) {
+    event("drain")
+    json.NewEncoder(w).Encode(map[string]bool{"drained":true})
+  })
+  mux.HandleFunc("/_apteva/runtime/app/activate", func(w http.ResponseWriter, r *http.Request) { event("activate"); w.WriteHeader(200) })
   server := &http.Server{Addr: "127.0.0.1:"+os.Getenv("APTEVA_APP_PORT"), Handler: mux}
   httpListener, err := net.Listen("tcp", server.Addr)
   if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(24) }

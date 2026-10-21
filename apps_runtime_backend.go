@@ -32,7 +32,7 @@ type remoteRuntimeBackend struct {
 }
 
 func (b *remoteRuntimeBackend) Describe() runtimeBackendCaps { return b.registration.Caps }
-func (b *remoteRuntimeBackend) request(ctx context.Context, method, action string, in *runtimeBackendRequest, out any) error {
+func (b *remoteRuntimeBackend) request(ctx context.Context, method, action string, in any, out any) error {
 	var body io.Reader
 	if in != nil {
 		body = bytes.NewBufferString(runtimeJSON(in))
@@ -43,11 +43,14 @@ func (b *remoteRuntimeBackend) request(ctx context.Context, method, action strin
 	}
 	req.Header.Set("Authorization", "Bearer "+b.token)
 	req.Header.Set("Content-Type", "application/json")
-	if in != nil {
-		req.Header.Set("Idempotency-Key", in.IdempotencyKey+":"+action)
+	if execution, ok := in.(*runtimeBackendRequest); ok && execution != nil {
+		req.Header.Set("Idempotency-Key", execution.IdempotencyKey+":"+action)
 	}
 	resp, err := b.manager.http.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("backend %s %s: transport unavailable", b.registration.ID, action)
 	}
 	defer resp.Body.Close()
@@ -58,24 +61,31 @@ func (b *remoteRuntimeBackend) request(ctx context.Context, method, action strin
 				return &runtimeBackendRetryError{message, time.Duration(seconds) * time.Second}
 			}
 		}
-		return errors.New(message)
+		var problem struct {
+			Code string `json:"code"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 32<<10)).Decode(&problem)
+		return &runtimeBackendHTTPError{Action: action, Status: resp.StatusCode, Code: problem.Code}
 	}
 	if out == nil {
 		return nil
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, runtimeResponseLimit+1))
 	if err != nil || len(raw) > runtimeResponseLimit {
-		return fmt.Errorf("backend response exceeds limit or is unreadable")
+		return &runtimeInspectionProtocolError{message: "backend response exceeds limit or is unreadable"}
 	}
 	if err = json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("backend returned invalid JSON")
+		return &runtimeInspectionProtocolError{message: "backend returned invalid JSON"}
 	}
 	return nil
 }
 func (b *remoteRuntimeBackend) invoke(action string, in runtimeBackendRequest) (runtimeExecution, error) {
-	var out runtimeExecution
 	ctx, cancel := context.WithTimeout(b.manager.ctx, 30*time.Second)
 	defer cancel()
+	return b.invokeContext(ctx, action, in)
+}
+func (b *remoteRuntimeBackend) invokeContext(ctx context.Context, action string, in runtimeBackendRequest) (runtimeExecution, error) {
+	var out runtimeExecution
 	for {
 		err := b.request(ctx, http.MethodPost, action, &in, &out)
 		var retry *runtimeBackendRetryError
@@ -114,7 +124,17 @@ func (b *remoteRuntimeBackend) Start(in runtimeBackendRequest) (runtimeExecution
 	return b.invoke("start", in)
 }
 func (b *remoteRuntimeBackend) Inspect(in runtimeBackendRequest) (runtimeExecution, error) {
-	return b.invoke("inspect", in)
+	return b.inspectContext(b.manager.ctx, in)
+}
+func (b *remoteRuntimeBackend) inspectContext(ctx context.Context, in runtimeBackendRequest) (runtimeExecution, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	unlock, err := b.manager.lockRuntimeInspection(ctx, in.DeploymentID)
+	if err != nil {
+		return runtimeExecution{}, err
+	}
+	defer unlock()
+	return b.invokeContext(ctx, "inspect", in)
 }
 func (b *remoteRuntimeBackend) Stop(in runtimeBackendRequest) (runtimeExecution, error) {
 	return b.invoke("stop", in)

@@ -386,6 +386,9 @@ func (w *Environment) attachAgentLocked(a *EnvironmentAgent) error {
 	}
 	w.agents[a.AgentID] = a
 	w.agentAliases[alias] = a.AgentID
+	if w.server != nil && w.server.store != nil {
+		w.server.store.agentEligibilityRevision.Add(1)
+	}
 	return nil
 }
 
@@ -446,6 +449,9 @@ func (w *Environment) RemoveAgent(agentID int64) *EnvironmentAgent {
 		return nil
 	}
 	delete(w.agents, agentID)
+	if w.server != nil && w.server.store != nil {
+		w.server.store.agentEligibilityRevision.Add(1)
+	}
 	if a.Alias != "" {
 		delete(w.agentAliases, a.Alias)
 	}

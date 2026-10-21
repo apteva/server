@@ -236,14 +236,8 @@ func (m *appRuntimeManager) autoscale() {
 			if d.Status != "active" || d.Generation != active.Generation {
 				continue
 			}
-			b, e := m.backend(d)
-			if e != nil {
-				valid = false
-				break
-			}
-			req, _ := m.request(d, runtimeOperation{ID: "autoscale"}, "inspect")
-			state, e := b.Inspect(req)
-			if e != nil || state.Load == nil || *state.Load < 0 {
+			state, ok := m.recentRuntimeExecution(d, time.Now())
+			if !ok || state.Load == nil || *state.Load < 0 {
 				valid = false
 				break
 			}

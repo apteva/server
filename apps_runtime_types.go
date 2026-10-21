@@ -128,6 +128,7 @@ type runtimePortBinding struct {
 	Exclusive bool   `json:"exclusive"`
 }
 type runtimeExecution struct {
+	StateBytes       *int64               `json:"state_bytes,omitempty"` // Current uncompressed persistent bytes, reported by the owning backend.
 	Endpoints        map[string]string    `json:"endpoints,omitempty"`
 	AppCapabilities  runtimeAppCaps       `json:"app_capabilities"`
 	ReleaseDigest    string               `json:"release_digest"`
@@ -145,6 +146,7 @@ type runtimeExecution struct {
 	Load             *float64             `json:"load,omitempty"` // backend-reported work load; never server CPU sampling.
 }
 type runtimeDeployment struct {
+	PersistentData       bool                       `json:"persistent_data,omitempty"`
 	TargetInfo           *sdk.RuntimeTargetInfo     `json:"target_info,omitempty"`
 	Package              *runtimePreparedPackage    `json:"package,omitempty"`
 	PackagePreparation   *runtimePackagePreparation `json:"package_preparation,omitempty"`
@@ -165,24 +167,25 @@ type runtimeDeployment struct {
 	LocalPort            int                        `json:"-"`
 }
 type runtimeOperation struct {
-	RollbackID     string `json:"rollback_deployment_id,omitempty"`
-	FailedID       string `json:"failed_deployment_id,omitempty"`
-	ID             string `json:"id"`
-	InstallID      int64  `json:"install_id"`
-	Kind           string `json:"kind"`
-	Phase          string `json:"phase"`
-	Status         string `json:"status"`
-	DeploymentID   string `json:"deployment_id,omitempty"`
-	PreviousID     string `json:"previous_deployment_id,omitempty"`
-	Error          string `json:"error,omitempty"`
-	IdempotencyKey string `json:"idempotency_key"`
-	Fingerprint    string `json:"-"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-	Owner          string `json:"-"`
-	LeaseUntil     int64  `json:"-"`
-	SnapshotPath   string `json:"-"`
-	SnapshotSHA256 string `json:"snapshot_sha256,omitempty"`
+	PreviousStopped bool   `json:"previous_stopped,omitempty"`
+	RollbackID      string `json:"rollback_deployment_id,omitempty"`
+	FailedID        string `json:"failed_deployment_id,omitempty"`
+	ID              string `json:"id"`
+	InstallID       int64  `json:"install_id"`
+	Kind            string `json:"kind"`
+	Phase           string `json:"phase"`
+	Status          string `json:"status"`
+	DeploymentID    string `json:"deployment_id,omitempty"`
+	PreviousID      string `json:"previous_deployment_id,omitempty"`
+	Error           string `json:"error,omitempty"`
+	IdempotencyKey  string `json:"idempotency_key"`
+	Fingerprint     string `json:"-"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+	Owner           string `json:"-"`
+	LeaseUntil      int64  `json:"-"`
+	SnapshotPath    string `json:"-"`
+	SnapshotSHA256  string `json:"snapshot_sha256,omitempty"`
 }
 type runtimeBackendRequest struct {
 	TargetInfo       *sdk.RuntimeTargetInfo   `json:"target_info,omitempty"`

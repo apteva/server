@@ -123,15 +123,18 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 	case "threads":
 		s.handleCallbackThreads(w, r, parts[1:])
 	case "telemetry":
-		// Ephemeral, permission-gated live telemetry for sidecars —
-		// the generic replacement for the channel-chat-only
-		// liveTelemetryHook. See apps_telemetry.go.
 		installID, err := requireInstallID(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
-		s.handleCallbackTelemetry(w, r, installID)
+		if len(parts) == 1 {
+			s.handleCallbackTelemetry(w, r, installID)
+		} else if parts[1] == "stream" {
+			http.NotFound(w, r)
+		} else {
+			s.handleTelemetryRead(w, r, installID, "/"+strings.Join(parts[1:], "/"))
+		}
 	case "runtimes":
 		s.handleCallbackRuntimes(w, r, parts[1:])
 	case "platform-info":

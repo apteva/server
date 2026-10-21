@@ -110,9 +110,11 @@ type RuntimeRealtimeCatalog struct {
 }
 
 type RuntimeRealtimeModel struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Available bool   `json:"available"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Available    bool     `json:"available"`
+	Voices       []string `json:"voices,omitempty"`
+	DefaultVoice string   `json:"default_voice,omitempty"`
 }
 
 type IntegrationURLProperty struct {

@@ -784,6 +784,7 @@ func main() {
 	// performs its own narrow authentication and never accepts user API keys.
 	apiMux.HandleFunc("/llm/chat/completions", s.handleManagedLLMChat)
 	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry) // broadcast-only ingest for chunks
+	s.registerTelemetryReadRoutes(apiMux)
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:

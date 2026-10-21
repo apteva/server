@@ -617,6 +617,46 @@
     "env": {
       "OPENAI_API_KEY": "{{credentials.token}}",
       "OPENAI_BASE_URL": "{{config.base_url}}"
+    },
+    "realtime": {
+      "provider_key": "openai-realtime",
+      "default_model": "gpt-realtime-2.1",
+      "models": [
+        {
+          "id": "gpt-realtime-2.1",
+          "name": "GPT Realtime 2.1",
+          "available": true,
+          "default_voice": "marin"
+        },
+        {
+          "id": "gpt-realtime-2.1-mini",
+          "name": "GPT Realtime 2.1 Mini",
+          "available": true,
+          "default_voice": "marin"
+        },
+        {
+          "id": "gpt-live-1",
+          "name": "GPT-Live 1",
+          "available": true,
+          "voices": [
+            "brise",
+            "sillage"
+          ],
+          "default_voice": "brise"
+        }
+      ],
+      "voices": [
+        "marin",
+        "cedar",
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "sage",
+        "shimmer",
+        "verse"
+      ]
     }
   }
 }

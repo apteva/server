@@ -247,6 +247,9 @@ func (s *Server) applyBehaviorToLiveWorkers(ctx context.Context, inst *Agent) er
 }
 
 func (s *Server) behaviorMetadata(inst *Agent, out map[string]any) {
+	rtProvider, rtModel := configuredAgentRealtimeSelection(inst.Config)
+	out["realtime_provider"] = rtProvider
+	out["realtime_model"] = rtModel
 	out["builtin_overrides"] = editableAgentBuiltins(inst.Config)
 	out["mode"] = agentMode(inst.Mode)
 	out["proactivity"] = inst.Proactivity

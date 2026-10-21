@@ -81,6 +81,32 @@ func TestRuntimeConsoleDiscoverySafety(t *testing.T) {
 		t.Fatal("invalid cursor accepted")
 	}
 }
+
+func TestRuntimeConsoleTargetDiscoveryIsOptional(t *testing.T) {
+	s, m, p := consoleTargetFixture(t, false)
+	reg, err := m.registration(p.Backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.Caps.TargetListing = false
+	if _, err = s.store.db.Exec(`UPDATE app_runtime_backends SET record_json=? WHERE install_id=? AND backend_id=?`, runtimeJSON(reg), reg.InstallID, reg.ID); err != nil {
+		t.Fatal(err)
+	}
+	// No backend HTTP endpoint should be guessed when listing was not advertised.
+	called := false
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.Error(w, "unsupported", http.StatusMethodNotAllowed)
+	}))
+	defer fake.Close()
+	s.store.db.Exec(`UPDATE app_installs SET sidecar_url_override=? WHERE id=?`, fake.URL, p.Backend.InstallID)
+	if _, err = m.listTargets(context.Background(), p.Backend, "", "", ""); err == nil || !strings.Contains(err.Error(), "enter a target ID") {
+		t.Fatal("missing optional-discovery guidance", err)
+	}
+	if called {
+		t.Fatal("unadvertised target-listing endpoint was called")
+	}
+}
 func TestRuntimeConsoleDeployAndSummary(t *testing.T) {
 	s, m, _, id, p := runtimeTestSetup(t)
 	op, e := m.begin(id, "deploy", "console-click-once", p, nil)
@@ -102,7 +128,7 @@ func TestRuntimeConsoleDeployAndSummary(t *testing.T) {
 	if summary.Type != "backend" || summary.State == "healthy" || summary.BackendName != "arbitrary-execution-provider" {
 		t.Fatalf("unverified status: %+v", summary)
 	}
-	m.observeDeployment(d, d.Execution, nil)
+	collectRuntimeMonitor(t, m, id)
 	summary = m.deploymentSummary(id)
 	if summary.State != "running" || summary.AdmissionState != "unknown" {
 		t.Fatalf("readiness: %+v", summary)
@@ -111,7 +137,7 @@ func TestRuntimeConsoleDeployAndSummary(t *testing.T) {
 	if m.deploymentSummary(id).State != "unknown" {
 		t.Fatal("stale status reported current")
 	}
-	m.observeDeployment(d, runtimeExecution{}, context.DeadlineExceeded)
+	_, _ = m.persistRuntimeObservation(d, runtimeHealthObservation{State: "unavailable", Message: "Deployment control unavailable", Admission: "unknown"}, nil)
 	if m.deploymentSummary(id).State != "unavailable" {
 		t.Fatal("backend outage hidden")
 	}
