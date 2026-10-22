@@ -485,6 +485,82 @@
       }
     },
     {
+      "name": "list_account_pinterest_boards",
+      "description": "List boards on an already connected Pinterest account. Separate from OAuth board selection.",
+      "method": "GET",
+      "path": "/accounts/{accountId}/pinterest-boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "create_pinterest_board",
+      "description": "Create a board under a connected Pinterest account; the returned board ID can be used for publishing.",
+      "method": "POST",
+      "path": "/accounts/{accountId}/pinterest-boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 180
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "privacy": {
+            "type": "string",
+            "enum": [
+              "PUBLIC",
+              "PROTECTED",
+              "SECRET"
+            ],
+            "default": "PUBLIC"
+          }
+        },
+        "required": [
+          "accountId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "set_default_pinterest_board",
+      "description": "Set the connected account default board without another OAuth flow. Explicit per-post boardId takes precedence.",
+      "method": "PUT",
+      "path": "/accounts/{accountId}/pinterest-boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "defaultBoardId": {
+            "type": "string"
+          },
+          "defaultBoardName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId",
+          "defaultBoardId"
+        ]
+      }
+    },
+    {
       "name": "list_snapchat_profiles",
       "description": "List Snapchat public profiles available during a Zernio OAuth selection flow.",
       "method": "GET",
