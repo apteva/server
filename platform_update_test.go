@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/apteva/server/apps/channelchat"
+	"github.com/apteva/server/apps/framework"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -74,6 +76,10 @@ func TestUpdateDatabasePreflightPreservesSourceAndBackup(t *testing.T) {
 	}
 	defer store.Close()
 	if err := store.SetSetting("update-sentinel", "keep"); err != nil {
+		t.Fatal(err)
+	}
+	app := channelchat.New(nil)
+	if err := framework.RunMigrations(store.db, app.Manifest().Slug, app.Migrations()); err != nil {
 		t.Fatal(err)
 	}
 	before, err := updateDatabaseSchema(source)
@@ -155,5 +161,38 @@ func TestUpdateDatabaseFingerprintDetectsDataOnlyChanges(t *testing.T) {
 	again, err := updateDatabaseFingerprint(source)
 	if err != nil || again != after {
 		t.Fatal("fingerprint must be deterministic")
+	}
+}
+
+func TestPreflightIgnoresOnlyDerivedMetadataEpoch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.db")
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	before, err := updateDatabaseFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE app_metadata_generation SET generation=generation+1`); err != nil {
+		t.Fatal(err)
+	}
+	after, err := updateDatabaseFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatal("derived metadata counter blocks compatible handoff")
+	}
+	if _, err := store.db.Exec(`INSERT INTO server_settings(key,value) VALUES('preserve-real-data','latest')`); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := updateDatabaseFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == after {
+		t.Fatal("fingerprint ignored actual stored data")
 	}
 }

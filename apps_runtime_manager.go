@@ -189,6 +189,11 @@ func runtimeFingerprint(v any) string {
 	return hex.EncodeToString(b[:])
 }
 func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement, manifest *sdk.Manifest, desired ...int) (runtimeOperation, error) {
+	finish, err := m.s.beginHostedWork()
+	if err != nil {
+		return runtimeOperation{}, err
+	}
+	defer finish()
 	if !runtimeID(key) {
 		return runtimeOperation{}, fmt.Errorf("Idempotency-Key must be a bounded identifier")
 	}
@@ -203,7 +208,7 @@ func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement
 		Replicas  int
 	}{kind, p, manifest, replicas})
 	var existing, fp string
-	err := m.s.store.db.QueryRow(`SELECT id,fingerprint FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, key).Scan(&existing, &fp)
+	err = m.s.store.db.QueryRow(`SELECT id,fingerprint FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, key).Scan(&existing, &fp)
 	if err == nil {
 		if fp != fingerprint {
 			return runtimeOperation{}, fmt.Errorf("idempotency key reused with different request")
@@ -355,18 +360,25 @@ func (m *appRuntimeManager) validatePlacementAccess(id int64, p runtimePlacement
 	return nil
 }
 func (m *appRuntimeManager) launch(id string) {
+	finish, err := m.s.beginHostedWork()
+	if err != nil {
+		return
+	}
 	if m.ctx.Err() != nil {
+		finish()
 		return
 	}
 	m.mu.Lock()
 	if m.workers[id] {
 		m.mu.Unlock()
+		finish()
 		return
 	}
 	m.workers[id] = true
 	m.wg.Add(1)
 	m.mu.Unlock()
 	go func() {
+		defer finish()
 		defer m.wg.Done()
 		defer func() { m.mu.Lock(); delete(m.workers, id); m.mu.Unlock() }()
 		m.run(id)

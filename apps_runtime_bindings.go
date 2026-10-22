@@ -206,10 +206,16 @@ func (s *Server) setLiveBindings(w http.ResponseWriter, id int64, previous, desi
 }
 
 func (s *Server) startLiveBindingWorker(id int64) {
+	finish, err := s.beginHostedWork()
+	if err != nil {
+		return
+	}
 	if _, loaded := s.liveBindingWorkers.LoadOrStore(id, true); loaded {
+		finish()
 		return
 	}
 	go func() {
+		defer finish()
 		defer s.liveBindingWorkers.Delete(id)
 		for {
 			time.Sleep(time.Second)

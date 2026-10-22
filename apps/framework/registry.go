@@ -95,7 +95,9 @@ func (r *Registry) Load(app App) error {
 // Start runs migrations, OnMount, and worker supervision for every
 // loaded app in load order. Errors abort the sequence (apps already
 // started are left running — caller should Stop + exit).
-func (r *Registry) Start() error {
+func (r *Registry) Start() error               { return r.start(true) }
+func (r *Registry) StartExistingSchema() error { return r.start(false) }
+func (r *Registry) start(migrate bool) error {
 	r.mu.RLock()
 	apps := make([]*loadedApp, 0, len(r.apps))
 	for _, a := range r.apps {
@@ -104,8 +106,10 @@ func (r *Registry) Start() error {
 	r.mu.RUnlock()
 
 	for _, a := range apps {
-		if err := RunMigrations(r.db, a.slug, a.app.Migrations()); err != nil {
-			return fmt.Errorf("migrations for %q: %w", a.slug, err)
+		if migrate {
+			if err := RunMigrations(r.db, a.slug, a.app.Migrations()); err != nil {
+				return fmt.Errorf("migrations for %q: %w", a.slug, err)
+			}
 		}
 		if err := a.app.OnMount(a.ctx); err != nil {
 			return fmt.Errorf("OnMount %q: %w", a.slug, err)
@@ -174,10 +178,10 @@ func (r *Registry) MountHTTP(mux *http.ServeMux, authMW AuthMiddleware) {
 	// pattern panic at registration time. Each bucket may contain
 	// multiple method→handler entries.
 	type bucket struct {
-		noAuth   bool
-		methods  map[string]func(http.ResponseWriter, *http.Request, *AppCtx)
-		anyAny   func(http.ResponseWriter, *http.Request, *AppCtx) // for Method=""
-		appCtx   *AppCtx
+		noAuth  bool
+		methods map[string]func(http.ResponseWriter, *http.Request, *AppCtx)
+		anyAny  func(http.ResponseWriter, *http.Request, *AppCtx) // for Method=""
+		appCtx  *AppCtx
 	}
 	buckets := map[string]*bucket{}
 	for _, a := range r.apps {

@@ -125,6 +125,7 @@ type LocalSupervisor struct {
 	buildMu  map[string]*sync.Mutex
 
 	inflightG sync.Mutex
+	handoff   bool
 	inflight  map[int64]struct{}
 
 	installSem chan struct{}
@@ -219,6 +220,9 @@ func (sup *LocalSupervisor) lockApp(name, version string) func() {
 func (sup *LocalSupervisor) acquireInstall(id int64) bool {
 	sup.inflightG.Lock()
 	defer sup.inflightG.Unlock()
+	if sup.handoff {
+		return false
+	}
 	if _, busy := sup.inflight[id]; busy {
 		return false
 	}
@@ -513,8 +517,11 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	}
 	overrides["APTEVA_DATA_DIR"] = persistentRoot
 	cmd.Env = childEnvWithOverrides(os.Environ(), overrides)
-	cmd.Stdout = logf
-	cmd.Stderr = logf
+	if os.Getenv("APTEVA_HOST_SOCKET") != "" {
+		logf.Close()
+		return sup.spawnHosted(spec, cmd, logPath)
+	}
+	cmd.Stdout, cmd.Stderr = logf, logf
 	// Setpgid puts the child into a new process group with itself as
 	// the leader. Two reasons:
 	//   1. Lets us kill the entire subtree (sidecar + any chromedp
@@ -613,6 +620,7 @@ func childEnvWithOverrides(base []string, overrides map[string]string) []string 
 	}
 	scrubKeys := append([]string(nil), keys...)
 	scrubKeys = append(scrubKeys,
+		"APTEVA_HOST_PROXY_SECRET", "APTEVA_HOST_SLOT_SOCKET", "APTEVA_HOST_SOCKET", "APTEVA_HOST_BACKEND_ADDR",
 		"APTEVA_DELEGATED_DNS_FLEET_URL",
 		"APTEVA_DELEGATED_DNS_TOKEN",
 		"APTEVA_DELEGATED_DNS_TENANT_ID",
@@ -627,7 +635,7 @@ func childEnvWithOverrides(base []string, overrides map[string]string) []string 
 	if _, ok := overrides["NO_PROXY"]; ok {
 		scrubKeys = append(scrubKeys, "no_proxy")
 	}
-	envv := envWithout(append([]string(nil), base...), scrubKeys...)
+	envv := envWithout(withoutHostedEnvironment(base), scrubKeys...)
 	sort.Strings(keys)
 	for _, k := range keys {
 		envv = append(envv, k+"="+overrides[k])
@@ -1418,6 +1426,14 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
 		return
 	}
+	if os.Getenv("APTEVA_HOST_EXISTING_SCHEMA") == "1" {
+		// An exclusive handoff must only adopt. Leave durable metadata and the
+		// process untouched on failure so the previous controller can recover.
+		if err := s.localApps.Adopt(id, int(pid), int(port), binPath, &m); err != nil {
+			log.Printf("[HOST] app install=%d could not be adopted: %v", id, err)
+		}
+		return
+	}
 	if err := validateAppRuntimeCompatibility(&m, Version); err != nil {
 		s.store.db.Exec(`UPDATE app_installs SET status='error',error_message=? WHERE id=?`, err.Error(), id)
 		return
@@ -1441,6 +1457,12 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 	// + log file and would race with our respawn for the cached
 	// `bin`, so kill it cleanly before proceeding. SIGTERM first,
 	// SIGKILL after a short grace.
+	if pid > 0 && processAlive(int(pid)) && os.Getenv("APTEVA_HOST_SOCKET") != "" {
+		if err := s.localApps.Adopt(id, int(pid), int(port), binPath, &m); err != nil {
+			log.Printf("[APPS-LOCAL] refusing to replace live hosted process install=%d: %v", id, err)
+		}
+		return
+	}
 	if pid > 0 && processAlive(int(pid)) {
 		log.Printf("[APPS-LOCAL] orphan install=%d pid=%d from previous server — killing before respawn", id, pid)
 		if err := killOrphan(int(pid)); err != nil {

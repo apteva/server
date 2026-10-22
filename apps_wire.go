@@ -52,7 +52,13 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// resuming unrelated agents, sidecars, jobs or subscriptions.
 	localChatTest := quarantined && os.Getenv("APTEVA_QUARANTINE_CHAT_TEST") == "1" && os.Getenv("APTEVA_BIND") == "127.0.0.1"
 	if !quarantined || localChatTest {
-		if err := reg.Start(); err != nil {
+		var err error
+		if os.Getenv("APTEVA_HOST_EXISTING_SCHEMA") == "1" {
+			err = reg.StartExistingSchema()
+		} else {
+			err = reg.Start()
+		}
+		if err != nil {
 			return nil, fmt.Errorf("start apps: %w", err)
 		}
 	}

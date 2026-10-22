@@ -14,6 +14,8 @@ const (
 	serverModeVersion
 	serverModeHelp
 	serverModePreflight
+	serverModeHostProtocol
+	serverModeHostCheckSchema
 	serverModeMCPProxy
 	serverModeMCPGateway
 )
@@ -51,6 +53,16 @@ func parseServerInvocation(args []string) (serverInvocation, error) {
 			return serverInvocation{}, err
 		}
 		return serverInvocation{mode: serverModeHelp}, nil
+	case "--host-check-schema":
+		if err := requireNoExtraArgs(args[0]); err != nil {
+			return serverInvocation{}, err
+		}
+		return serverInvocation{mode: serverModeHostCheckSchema}, nil
+	case "--host-protocol":
+		if err := requireNoExtraArgs(args[0]); err != nil {
+			return serverInvocation{}, err
+		}
+		return serverInvocation{mode: serverModeHostProtocol}, nil
 	case "--preflight":
 		if err := requireNoExtraArgs(args[0]); err != nil {
 			return serverInvocation{}, err
