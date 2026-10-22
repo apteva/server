@@ -66,7 +66,7 @@ func (m *appRuntimeManager) request(d runtimeDeployment, op runtimeOperation, ac
 		}
 		options["gateway_url"] = d.Placement.GatewayURL
 	}
-	req := runtimeBackendRequest{TargetInfo: d.TargetInfo, Contract: runtimeBackendContract, OperationID: op.ID, IdempotencyKey: op.ID + ":" + d.ID, DeploymentID: d.ID, InstallID: d.InstallID, Generation: d.Generation, ProjectID: project, Target: d.Placement.Target, Options: options, Manifest: d.Manifest, Execution: d.Execution, StateRef: d.Execution.StateRef, GatewayURL: d.Placement.GatewayURL}
+	req := runtimeBackendRequest{StateTransfer: op.StateTransfer, TargetInfo: d.TargetInfo, Contract: runtimeBackendContract, OperationID: op.ID, IdempotencyKey: op.ID + ":" + d.ID, DeploymentID: d.ID, InstallID: d.InstallID, Generation: d.Generation, ProjectID: project, Target: d.Placement.Target, Options: options, Manifest: d.Manifest, Execution: d.Execution, StateRef: d.Execution.StateRef, GatewayURL: d.Placement.GatewayURL}
 	if d.Package != nil {
 		if v, ok := options["artifact_id"]; ok && v != d.Package.Metadata.ID {
 			return req, fmt.Errorf("artifact option conflicts with prepared package")
@@ -373,7 +373,7 @@ func (m *appRuntimeManager) launch(id string) {
 	}()
 }
 func (m *appRuntimeManager) phase(op *runtimeOperation, p string) error {
-	if p != "rolling_back" && p != "retiring_previous" {
+	if p != "rolling_back" && p != "retiring_previous" && op.RollbackID == "" {
 		var cancelled int
 		if err := m.s.store.db.QueryRow(`SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&cancelled); err != nil {
 			return err
@@ -436,6 +436,12 @@ func (m *appRuntimeManager) run(id string) {
 	}
 	if m.ctx.Err() != nil {
 		return
+	}
+	if err != nil && errors.Is(err, context.Canceled) {
+		var cancelled int
+		if e := m.s.store.db.QueryRow(`SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&cancelled); e == nil && cancelled != 0 {
+			err = fmt.Errorf("%w: %v", errRuntimeCancelled, err)
+		}
 	}
 	if err != nil {
 		op.Status = "failed"

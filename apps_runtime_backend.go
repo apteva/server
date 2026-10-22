@@ -217,6 +217,11 @@ func (m *appRuntimeManager) registerBackendContext(parent context.Context, reg r
 	if err = b.request(ctx, http.MethodGet, "describe", nil, &reg.Caps); err != nil {
 		return err
 	}
+	if reg.Caps.StateTransfer != nil {
+		if err := validateRuntimeStatePolicy(*reg.Caps.StateTransfer); err != nil {
+			return err
+		}
+	}
 	if reg.Caps.TargetDiscovery != nil {
 		if err := validateTargetDiscovery(reg.Caps.TargetDiscovery); err != nil {
 			return err

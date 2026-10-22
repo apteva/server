@@ -17,7 +17,8 @@ type localRuntimeBackend struct {
 }
 
 func (b *localRuntimeBackend) Describe() runtimeBackendCaps {
-	return runtimeBackendCaps{Contract: runtimeBackendContract, ID: "local", RuntimeKinds: []string{"source", "service", "static"}, Platforms: []string{localPlatform()}, Formats: []string{"artifact", "source", "binary"}, Protocols: []string{"tcp", "udp"}, Snapshots: true, ConfirmedStop: true}
+	policy, _ := serverRuntimeStatePolicy()
+	return runtimeBackendCaps{StateTransfer: &policy, Contract: runtimeBackendContract, ID: "local", RuntimeKinds: []string{"source", "service", "static"}, Platforms: []string{localPlatform()}, Formats: []string{"artifact", "source", "binary"}, Protocols: []string{"tcp", "udp"}, Snapshots: true, ConfirmedStop: true}
 }
 func (b *localRuntimeBackend) Prepare(req runtimeBackendRequest) (runtimeExecution, error) {
 	if req.Manifest.Runtime.Kind == "static" {

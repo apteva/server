@@ -168,7 +168,7 @@ func (m *appRuntimeManager) preflight(ctx context.Context, id int64, project str
 		if err != nil {
 			checks = append(checks, runtimeCheck("Source installation", "source_unverified", err))
 		} else if source.Exists {
-			migration := m.migrationChecks(ctx, source.Deployment, manifest, p, nil, false)
+			migration := m.migrationChecks(ctx, source.Deployment, manifest, p, nil, false, runtimeMigrationCheckOptions{Target: target})
 			checks = append(checks, migration...)
 		}
 	}

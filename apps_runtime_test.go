@@ -41,7 +41,7 @@ type runtimeBackendFixture struct {
 
 func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 	t.Helper()
-	f := &runtimeBackendFixture{caps: runtimeBackendCaps{Contract: runtimeBackendContract, ID: id, RuntimeKinds: []string{"service", "source"}, Formats: []string{"artifact", "source", "image"}, Platforms: []string{"linux-amd64"}, Protocols: []string{"tcp", "udp"}, ConfirmedStop: true, Snapshots: true, Replicas: true}, executions: map[string]runtimeExecution{}, env: map[string]map[string]string{}, appCaps: runtimeAppCaps{PassiveStart: true, Drain: true, ReplicaSafe: true, WorkerCoordination: true, Routing: "stateless"}}
+	f := &runtimeBackendFixture{caps: runtimeBackendCaps{Contract: runtimeBackendContract, ID: id, RuntimeKinds: []string{"service", "source"}, Formats: []string{"artifact", "source", "image"}, Platforms: []string{"linux-amd64"}, Protocols: []string{"tcp", "udp"}, ConfirmedStop: true, Snapshots: true, Replicas: true, TargetInspection: true}, executions: map[string]runtimeExecution{}, env: map[string]map[string]string{}, appCaps: runtimeAppCaps{PassiveStart: true, Drain: true, ReplicaSafe: true, WorkerCoordination: true, Routing: "stateless"}}
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -76,6 +76,11 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 			json.NewEncoder(w).Encode(f.caps)
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/inspect-target") {
+			free := int64(100 << 30)
+			json.NewEncoder(w).Encode(sdk.RuntimeTargetInfo{HostKey: "test-host", Platform: "linux-amd64", Formats: []string{"source"}, StateAvailableBytes: &free})
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/restore") {
 			raw, _ := io.ReadAll(r.Body)
 			if runtimeHash(raw) != r.Header.Get("X-Apteva-Snapshot-SHA256") {
@@ -108,6 +113,9 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 				out.StateRef = req.StateRef
 			}
 			out.StateBytes = new(int64)
+			out.StateEntries = new(int64)
+			free := int64(100 << 30)
+			out.StateAvailableBytes = &free
 			out.AppCapabilities = f.appCaps
 			if f.asyncPrepare {
 				out.State = "preparing"

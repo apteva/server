@@ -117,6 +117,9 @@ func (m *appRuntimeManager) inspectTarget(ctx context.Context, p runtimePlacemen
 	return info, nil
 }
 func validateRuntimeTargetInfo(info sdk.RuntimeTargetInfo, caps runtimeBackendCaps) error {
+	if info.StateAvailableBytes != nil && *info.StateAvailableBytes < 0 {
+		return fmt.Errorf("invalid state filesystem capacity")
+	}
 	if info.HostKey == "" || len(info.HostKey) > 512 || !runtimeContains(caps.Platforms, info.Platform) || len(info.Formats) == 0 || len(info.SystemLibraries) > 2048 || len(info.Checks) > 4 {
 		return fmt.Errorf("invalid target platform/identity metadata")
 	}

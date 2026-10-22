@@ -144,23 +144,35 @@ func (m *appRuntimeManager) placementCapabilities(p runtimePlacement) (runtimeBa
 	return reg.Caps, err
 }
 
+type runtimeMigrationCheckOptions struct {
+	Policy *runtimeStateTransferPolicy
+	Target *sdk.RuntimeTargetInfo
+}
+
 // These checks are used before preparation and again before draining. Backend
 // apps supply execution facts; the Server retains migration sequencing/rollback.
-func (m *appRuntimeManager) migrationChecks(ctx context.Context, old runtimeDeployment, manifest sdk.Manifest, p runtimePlacement, candidateCaps *runtimeAppCaps, force bool) []runtimeCompatibilityCheck {
+func (m *appRuntimeManager) migrationChecks(ctx context.Context, old runtimeDeployment, manifest sdk.Manifest, p runtimePlacement, candidateCaps *runtimeAppCaps, force bool, options ...runtimeMigrationCheckOptions) []runtimeCompatibilityCheck {
 	if !force && sameRuntimeTarget(old, runtimeDeployment{Placement: p}) {
 		return nil
 	}
 	persistent := runtimePersistentState(old)
 	var bytes *int64
+	var entries *int64
+	var sourceFree *int64
 	var stateErr error
 	if old.Placement.local() {
 		if m.s.localApps == nil {
 			stateErr = fmt.Errorf("local source state cannot be inspected")
 		} else {
-			stats, err := inspectRuntimeState(m.localStateDir(old))
+			stats, err := inspectRuntimeStateContext(ctx, m.localStateDir(old), inspectionPolicy())
 			stateErr = err
 			if err == nil {
 				bytes = &stats.Bytes
+				n := int64(stats.Entries)
+				entries = &n
+				if free, e := runtimeStateDiskFree(m.localStateDir(old)); e == nil {
+					sourceFree = &free
+				}
 				persistent = persistent || stats.Entries > 0
 			}
 		}
@@ -198,6 +210,8 @@ func (m *appRuntimeManager) migrationChecks(ctx context.Context, old runtimeDepl
 				if err == nil {
 					_, err = runtimeMergeExecution(old.Execution, observed)
 					bytes = observed.StateBytes
+					entries = observed.StateEntries
+					sourceFree = observed.StateAvailableBytes
 				}
 			}
 		}
@@ -211,12 +225,23 @@ func (m *appRuntimeManager) migrationChecks(ctx context.Context, old runtimeDepl
 	if stateErr == nil && bytes == nil {
 		stateErr = fmt.Errorf("source backend must report uncompressed state_bytes before migration; transfer size is unknown")
 	}
-	if stateErr == nil && (*bytes < 0 || *bytes > runtimeSnapshotLimit) {
-		stateErr = fmt.Errorf("persistent state exceeds the %d-byte transfer limit", runtimeSnapshotLimit)
+	var opts runtimeMigrationCheckOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	policy, policyErr := m.negotiateStatePolicy(old, p, opts.Policy)
+	checks = append(checks, runtimeCheck("State transfer policy", "state_transfer_policy_incompatible", policyErr))
+	if stateErr == nil && entries == nil {
+		stateErr = fmt.Errorf("source backend must report state_entries before migration")
+	}
+	if stateErr == nil && policyErr == nil && (*bytes < 0 || *bytes > policy.MaxExpandedBytes || *entries < 0 || *entries > policy.MaxEntries) {
+		stateErr = fmt.Errorf("persistent state exceeds negotiated limits: %d bytes / %d entries; allowed %d bytes / %d entries", *bytes, *entries, policy.MaxExpandedBytes, policy.MaxEntries)
 	}
 	checks = append(checks, runtimeCheck("State size", "state_size_unverified", stateErr))
-	if stateErr == nil {
-		checks[len(checks)-1].Message = fmt.Sprintf("%d uncompressed bytes; transfer limit %d bytes (rechecked after shutdown)", *bytes, runtimeSnapshotLimit)
+	if stateErr == nil && policyErr == nil {
+		checks[len(checks)-1].Message = fmt.Sprintf("%d uncompressed bytes, %d entries; allowed %d bytes, %d entries (rechecked after shutdown)", *bytes, *entries, policy.MaxExpandedBytes, policy.MaxEntries)
+		diskErr := m.migrationDiskCheck(ctx, old, p, runtimeStateSize{Bytes: *bytes, Entries: int(*entries)}, sourceFree, opts.Target)
+		checks = append(checks, runtimeCheck("State transfer disk space", "state_disk_insufficient", diskErr))
 	}
 	oldLifecycle := error(nil)
 	if old.Status != "stopped" && (!old.AppCaps.PassiveStart || !old.AppCaps.Drain) {

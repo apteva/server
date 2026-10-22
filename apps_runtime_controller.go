@@ -24,6 +24,15 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 	}
 	caps := b.Describe()
 	if op.RollbackID == "" {
+		source, e := m.existingSource(d.InstallID)
+		if e != nil {
+			return e
+		}
+		if source.Exists && !sameRuntimeTarget(source.Deployment, d) && runtimePersistentState(source.Deployment) {
+			if err = m.pinStatePolicy(source.Deployment, d, op); err != nil {
+				return err
+			}
+		}
 		if err = m.checkInstallationMigration(m.ctx, d.InstallID, d.Manifest, d.Placement); err != nil {
 			return err
 		}
@@ -344,6 +353,10 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 	if oldErr != nil && oldErr != sql.ErrNoRows && op.PreviousID != "" {
 		return oldErr
 	}
+	// Recovery must not be blocked by forward-migration preflight checks.
+	if op.Phase == "rolling_back" {
+		return m.rollback(op, &old, &d, errors.New("recovering interrupted activation"))
+	}
 	if d.Status == "active" {
 		current, e := m.active(d.InstallID)
 		if e == nil && current.ID == d.ID {
@@ -367,15 +380,16 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 	}
 	migration := old.ID != "" && (!sameRuntimeTarget(old, d) || runtimePersistentState(old) && old.Execution.StateRef != d.Execution.StateRef)
 	if migration {
-		if err = firstRuntimeBlock(m.migrationChecks(m.ctx, old, d.Manifest, d.Placement, &d.AppCaps, true)); err != nil {
+		if runtimePersistentState(old) {
+			if err = m.pinStatePolicy(old, d, op); err != nil {
+				return err
+			}
+		}
+		if err = firstRuntimeBlock(m.migrationChecks(m.ctx, old, d.Manifest, d.Placement, &d.AppCaps, true, runtimeMigrationCheckOptions{Policy: op.StateTransfer})); err != nil {
 			return err
 		}
 	}
 	exclusive := migration || runtimeExclusive(old, d)
-	// A persisted rollback phase must never be mistaken for another activation.
-	if op.Phase == "rolling_back" {
-		return m.rollback(op, &old, &d, errors.New("recovering interrupted activation"))
-	}
 	if old.ID != "" && exclusive && old.Status != "stopped" {
 		if err = m.phase(op, "draining"); err != nil {
 			return err
@@ -415,6 +429,12 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 	}
 	if err = m.phase(op, "starting_candidate"); err != nil {
 		return m.rollback(op, &old, &d, err)
+	}
+	if migration && runtimePersistentState(old) && !op.CandidateStarted {
+		op.CandidateStarted = true
+		if err = m.saveOperation(*op); err != nil {
+			return m.rollback(op, &old, &d, err)
+		}
 	}
 	if d.Status == "starting" || d.Status == "ready" {
 		b, e := m.backend(d)
@@ -535,15 +555,39 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 	if err := m.phase(op, "rolling_back"); err != nil {
 		return err
 	}
+	// Upgrade older operation journals conservatively before touching a possible
+	// writer. A stopped candidate with a verified restore may have already run.
+	if !op.CandidateStarted && op.SnapshotPath != "" && (candidate.Status == "starting" || candidate.Status == "ready" || candidate.Status == "active" || candidate.Status == "stopped" && candidate.Execution.SnapshotSHA256 != "") {
+		op.CandidateStarted = true
+		if err := m.saveOperation(*op); err != nil {
+			return err
+		}
+	}
 	// Unknown start outcomes are inspected/stopped by deployment ID, never
 	// assumed absent just because Start returned an error.
 	if candidate.Status == "starting" || candidate.Status == "ready" || candidate.Status == "active" {
+		if candidate.Execution.State == "running" && candidate.Execution.Ready {
+			if err := m.drain(*candidate, *op); err != nil {
+				return fmt.Errorf("candidate drain failed; rollback refused: %w", err)
+			}
+		}
 		if err := m.stopDeployment(candidate, *op); err != nil {
 			return fmt.Errorf("activation failed; candidate stop unconfirmed and rollback refused")
 		}
 	}
 	if old.ID == "" {
 		return cause
+	}
+	if old.Status == "stopped" && op.CandidateStarted && (op.SnapshotSourceID == "" || op.SnapshotSourceID == old.ID) {
+		if candidate.Status != "stopped" || !candidate.Execution.StoppedConfirmed {
+			return fmt.Errorf("rollback requires confirmed candidate shutdown")
+		}
+		if candidate.Manifest.Runtime.DatabaseUpgrade == "requires_restore" || old.Manifest.Runtime.DatabaseUpgrade == "requires_restore" {
+			return fmt.Errorf("rollback requires an explicit database restore plan; newer state retained")
+		}
+		if err := m.captureStateSnapshot(*candidate, op); err != nil {
+			return fmt.Errorf("rollback could not preserve latest candidate state: %w", err)
+		}
 	}
 	if op.PreviousStopped && old.Status == "stopped" {
 		_, err := m.s.store.db.Exec(`UPDATE app_installs SET status='disabled',runtime_active_deployment=?,runtime_pending_deployment='',runtime_placement_json=? WHERE id=?`, old.ID, runtimeJSON(old.Placement), old.InstallID)
@@ -552,6 +596,7 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 		}
 		return fmt.Errorf("%w; previous installation remains stopped with its data retained", cause)
 	}
+
 	if old.Status == "stopped" {
 		if !old.Placement.local() {
 			return m.rollbackRemoteDeployment(op, *old, *candidate, cause)

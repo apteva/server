@@ -28,7 +28,7 @@ func runtimeDirectoryDigest(root string) (string, error) {
 			return fmt.Errorf("static package contains a link or special file")
 		}
 		total += info.Size()
-		if total > runtimeSnapshotLimit {
+		if total > runtimePackageLimit {
 			return fmt.Errorf("static package exceeds package limit")
 		}
 		relative, _ := filepath.Rel(root, path)

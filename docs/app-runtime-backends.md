@@ -186,8 +186,16 @@ unmapped mounts, lifecycle capabilities, local rollback-binary availability and
 state limits. Destination lifecycle declarations must describe the exact release;
 a changed release cannot inherit the previous release's capabilities.
 For a snapshot-capable remote source, authenticated execution `inspect` must
-return optional `state_bytes` with current uncompressed persistent bytes.
-Unknown/negative/oversized values block a move rather than assume an empty state.
+return `state_bytes` (uncompressed persistent bytes), `state_entries` (files and
+subdirectories), and `state_available_bytes` (free bytes on its state/staging
+filesystem). Artifact-independent `inspect-target` returns
+`state_available_bytes` for the destination, without creating a deployment.
+Unknown/negative/oversized values block a move rather than assume empty state.
+Preflight also budgets Server's disk-backed archive cache, destination archive
+and staged extraction, and source restoration space for rollback, with a 64 MiB
+free-space reserve. It never treats generic host connectivity/capacity as proof
+that persistent state will fit. Available space and state sizes are rechecked
+at transfer/restoration; preflight does not reserve disk space.
 Backends without snapshots need not implement this field; their missing snapshot
 capability is reported directly. Local metadata inspection and snapshot export
 share file/path/type/size/count limits. Live estimates are rechecked after stop.
@@ -238,9 +246,53 @@ a started candidate without a recorded verified restore outcome.
 
 Native snapshots cover the installation's SDK data directory. Unmapped extra
 local storage mounts are rejected rather than silently omitted. Snapshots are
-bounded to 512 MiB; archives reject traversal, links, special files and oversized
-expansion. Larger state or specialized volumes require an extended provider
-transfer contract. Rollback uses the previous startup deadline and verifies
+bounded by one negotiated `state_transfer` policy in the existing backend
+contract. Backends optionally advertise it in `describe`:
+
+```json
+{
+  "state_transfer": {
+    "format": "tar.gz",
+    "max_archive_bytes": 8589934592,
+    "max_expanded_bytes": 8589934592,
+    "max_entries": 1000000,
+    "timeout_seconds": 7200
+  }
+}
+```
+
+Server takes the minimum of its own limits and both backend policies. Absent
+backend policies retain the legacy 512 MiB / 100,000 entries / 20 minute limits;
+missing size/count/free-space metadata blocks a state migration, while fresh
+stateless deployments remain available. Server defaults to 8 GiB archive and
+expanded state, 1,000,000 entries and two hours. Operators can set
+`APTEVA_RUNTIME_STATE_MAX_ARCHIVE_BYTES`,
+`APTEVA_RUNTIME_STATE_MAX_EXPANDED_BYTES`, `APTEVA_RUNTIME_STATE_MAX_ENTRIES`,
+and `APTEVA_RUNTIME_STATE_TIMEOUT_SECONDS`. Positive bounded values are required
+(maximum 1 TiB, 10 million entries and 24 hours). Application-package and static
+package limits are separate and unchanged.
+
+The effective policy is persisted with the operation before preparation/drain,
+forwarded as `state_transfer` on lifecycle requests and as JSON in
+`X-Apteva-State-Transfer-Policy` on snapshot/restore HTTP requests. Snapshot-capable
+backends that advertise the policy must enforce the requested lower limits in
+both directions; they must reject unsupported policies before mutating state.
+Retries/recovery keep the same policy and fail if current capabilities no longer
+support it. Older operation journals without a policy retain legacy limits.
+
+Both local and remote archives are disk-backed and streamed with cancellation,
+negotiated deadlines, archive/expanded/count bounds, SHA-256 and gzip integrity
+checks. Failed temporary downloads/extractions are cleaned up. Archives reject
+traversal, links, special files, duplicate paths and non-zero trailing payloads.
+Restoration checks target quiescence independently of the forward controller;
+a verified identical restore can be reused without rewriting live state.
+
+If a candidate may have started writing, rollback confirms its stop, snapshots
+its latest state and durably replaces the operation's snapshot digest/provenance
+before restoring the previous owner. Failure to capture/restore newer state
+leaves the data retained and refuses to start a competing writer. Recovery does
+not silently fall back to the stale pre-migration snapshot. Both migration and
+rollback use the same policy and transfer implementation. Rollback uses the previous startup deadline and verifies
 readiness. `database_upgrade: requires_restore` stays blocked; binary rollback
 cannot undo arbitrary committed schema changes.
 

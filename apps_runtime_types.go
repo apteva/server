@@ -83,7 +83,10 @@ func runtimeSecureURL(raw string) error {
 	return nil
 }
 
+type runtimeStateTransferPolicy = sdk.RuntimeStateTransferPolicy
+
 type runtimeBackendCaps struct {
+	StateTransfer    *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
 	TargetDiscovery  *runtimeTargetDiscovery     `json:"target_discovery,omitempty"`
 	TargetListing    bool                        `json:"target_listing,omitempty"`
 	ManagedIngress   bool                        `json:"managed_ingress,omitempty"`
@@ -128,22 +131,24 @@ type runtimePortBinding struct {
 	Exclusive bool   `json:"exclusive"`
 }
 type runtimeExecution struct {
-	StateBytes       *int64               `json:"state_bytes,omitempty"` // Current uncompressed persistent bytes, reported by the owning backend.
-	Endpoints        map[string]string    `json:"endpoints,omitempty"`
-	AppCapabilities  runtimeAppCaps       `json:"app_capabilities"`
-	ReleaseDigest    string               `json:"release_digest"`
-	Platform         string               `json:"platform"`
-	Handle           string               `json:"handle"`
-	State            string               `json:"state"`
-	Ready            bool                 `json:"ready"`
-	StoppedConfirmed bool                 `json:"stopped_confirmed"`
-	HostKey          string               `json:"host_key"`
-	Endpoint         string               `json:"control_endpoint,omitempty"`
-	BrowserEndpoint  string               `json:"browser_endpoint,omitempty"`
-	StateRef         string               `json:"state_ref,omitempty"`
-	Ports            []runtimePortBinding `json:"ports,omitempty"`
-	SnapshotSHA256   string               `json:"snapshot_sha256,omitempty"`
-	Load             *float64             `json:"load,omitempty"` // backend-reported work load; never server CPU sampling.
+	StateEntries        *int64               `json:"state_entries,omitempty"`
+	StateAvailableBytes *int64               `json:"state_available_bytes,omitempty"`
+	StateBytes          *int64               `json:"state_bytes,omitempty"` // Current uncompressed persistent bytes, reported by the owning backend.
+	Endpoints           map[string]string    `json:"endpoints,omitempty"`
+	AppCapabilities     runtimeAppCaps       `json:"app_capabilities"`
+	ReleaseDigest       string               `json:"release_digest"`
+	Platform            string               `json:"platform"`
+	Handle              string               `json:"handle"`
+	State               string               `json:"state"`
+	Ready               bool                 `json:"ready"`
+	StoppedConfirmed    bool                 `json:"stopped_confirmed"`
+	HostKey             string               `json:"host_key"`
+	Endpoint            string               `json:"control_endpoint,omitempty"`
+	BrowserEndpoint     string               `json:"browser_endpoint,omitempty"`
+	StateRef            string               `json:"state_ref,omitempty"`
+	Ports               []runtimePortBinding `json:"ports,omitempty"`
+	SnapshotSHA256      string               `json:"snapshot_sha256,omitempty"`
+	Load                *float64             `json:"load,omitempty"` // backend-reported work load; never server CPU sampling.
 }
 type runtimeDeployment struct {
 	PersistentData       bool                       `json:"persistent_data,omitempty"`
@@ -167,44 +172,48 @@ type runtimeDeployment struct {
 	LocalPort            int                        `json:"-"`
 }
 type runtimeOperation struct {
-	PreviousStopped bool   `json:"previous_stopped,omitempty"`
-	RollbackID      string `json:"rollback_deployment_id,omitempty"`
-	FailedID        string `json:"failed_deployment_id,omitempty"`
-	ID              string `json:"id"`
-	InstallID       int64  `json:"install_id"`
-	Kind            string `json:"kind"`
-	Phase           string `json:"phase"`
-	Status          string `json:"status"`
-	DeploymentID    string `json:"deployment_id,omitempty"`
-	PreviousID      string `json:"previous_deployment_id,omitempty"`
-	Error           string `json:"error,omitempty"`
-	IdempotencyKey  string `json:"idempotency_key"`
-	Fingerprint     string `json:"-"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
-	Owner           string `json:"-"`
-	LeaseUntil      int64  `json:"-"`
-	SnapshotPath    string `json:"-"`
-	SnapshotSHA256  string `json:"snapshot_sha256,omitempty"`
+	StateTransfer    *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
+	SnapshotSourceID string                      `json:"snapshot_source_id,omitempty"`
+	CandidateStarted bool                        `json:"candidate_started,omitempty"`
+	PreviousStopped  bool                        `json:"previous_stopped,omitempty"`
+	RollbackID       string                      `json:"rollback_deployment_id,omitempty"`
+	FailedID         string                      `json:"failed_deployment_id,omitempty"`
+	ID               string                      `json:"id"`
+	InstallID        int64                       `json:"install_id"`
+	Kind             string                      `json:"kind"`
+	Phase            string                      `json:"phase"`
+	Status           string                      `json:"status"`
+	DeploymentID     string                      `json:"deployment_id,omitempty"`
+	PreviousID       string                      `json:"previous_deployment_id,omitempty"`
+	Error            string                      `json:"error,omitempty"`
+	IdempotencyKey   string                      `json:"idempotency_key"`
+	Fingerprint      string                      `json:"-"`
+	CreatedAt        string                      `json:"created_at"`
+	UpdatedAt        string                      `json:"updated_at"`
+	Owner            string                      `json:"-"`
+	LeaseUntil       int64                       `json:"-"`
+	SnapshotPath     string                      `json:"-"`
+	SnapshotSHA256   string                      `json:"snapshot_sha256,omitempty"`
 }
 type runtimeBackendRequest struct {
-	TargetInfo       *sdk.RuntimeTargetInfo   `json:"target_info,omitempty"`
-	Package          *runtimePackageReference `json:"package,omitempty"`
-	GatewayURL       string                   `json:"gateway_url,omitempty"`
-	Contract         string                   `json:"contract"`
-	OperationID      string                   `json:"operation_id"`
-	IdempotencyKey   string                   `json:"idempotency_key"`
-	DeploymentID     string                   `json:"deployment_id"`
-	InstallID        int64                    `json:"install_id"`
-	Generation       int64                    `json:"generation"`
-	ProjectID        string                   `json:"project_id,omitempty"`
-	Target           runtimeResourceRef       `json:"target"`
-	Options          map[string]any           `json:"options,omitempty"`
-	Manifest         sdk.Manifest             `json:"manifest"`
-	Environment      map[string]string        `json:"environment,omitempty"`
-	Execution        runtimeExecution         `json:"execution,omitempty"`
-	ArtifactPlatform string                   `json:"artifact_platform,omitempty"`
-	StateRef         string                   `json:"state_ref,omitempty"`
+	StateTransfer    *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
+	TargetInfo       *sdk.RuntimeTargetInfo      `json:"target_info,omitempty"`
+	Package          *runtimePackageReference    `json:"package,omitempty"`
+	GatewayURL       string                      `json:"gateway_url,omitempty"`
+	Contract         string                      `json:"contract"`
+	OperationID      string                      `json:"operation_id"`
+	IdempotencyKey   string                      `json:"idempotency_key"`
+	DeploymentID     string                      `json:"deployment_id"`
+	InstallID        int64                       `json:"install_id"`
+	Generation       int64                       `json:"generation"`
+	ProjectID        string                      `json:"project_id,omitempty"`
+	Target           runtimeResourceRef          `json:"target"`
+	Options          map[string]any              `json:"options,omitempty"`
+	Manifest         sdk.Manifest                `json:"manifest"`
+	Environment      map[string]string           `json:"environment,omitempty"`
+	Execution        runtimeExecution            `json:"execution,omitempty"`
+	ArtifactPlatform string                      `json:"artifact_platform,omitempty"`
+	StateRef         string                      `json:"state_ref,omitempty"`
 }
 type runtimeBackend interface {
 	Describe() runtimeBackendCaps

@@ -32,7 +32,7 @@ func (m *appRuntimeManager) rollbackRemoteDeployment(op *runtimeOperation, old, 
 		}
 		op.RollbackID = recovery.ID
 		op.FailedID = candidate.ID
-		if _, err = tx.Exec(`UPDATE app_runtime_operations SET record_json=? WHERE id=?`, runtimeJSON(*op), op.ID); err != nil {
+		if _, err = tx.Exec(`UPDATE app_runtime_operations SET record_json=? WHERE id=?`, runtimeJSON(runtimeStoredOperation{*op, op.SnapshotPath}), op.ID); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(`UPDATE app_installs SET runtime_pending_deployment=?,runtime_generation=? WHERE id=?`, recovery.ID, recovery.Generation, recovery.InstallID); err != nil {
@@ -70,11 +70,51 @@ func (m *appRuntimeManager) rollbackRemoteDeployment(op *runtimeOperation, old, 
 		}
 	}
 	if recovery.Status == "starting" || recovery.Status == "ready" {
-		if err = m.waitReady(&recovery, work); err != nil {
-			return fmt.Errorf("activation failed; previous deployment readiness failed")
+		b, e := m.backend(recovery)
+		if e != nil {
+			return e
+		}
+		req, e := m.request(recovery, work, "inspect")
+		if e != nil {
+			return e
+		}
+		observed, e := b.Inspect(req)
+		if e != nil {
+			return fmt.Errorf("rollback start outcome remains unknown; another start refused: %w", e)
+		}
+		if _, e = runtimeMergeExecution(recovery.Execution, observed); e != nil {
+			return e
+		}
+		switch {
+		case observed.State == "running":
+			err = m.waitReady(&recovery, work)
+		case observed.State == "prepared":
+			// The backend confirms the failed start never produced a writer.
+			err = m.startDeployment(&recovery, work)
+		case observed.State == "stopped" && observed.StoppedConfirmed:
+			// Terminal executions need a fresh generation, with their latest state.
+			recovery.Status = "stopped"
+			recovery.Execution = observed
+			if err = m.saveDeployment(recovery); err != nil {
+				return err
+			}
+			if err = m.captureStateSnapshot(recovery, op); err != nil {
+				return fmt.Errorf("rollback recovery state could not be retained: %w", err)
+			}
+			op.RollbackID = ""
+			op.DeploymentID = candidate.ID
+			if err = m.saveOperation(*op); err != nil {
+				return err
+			}
+			return m.rollbackRemoteDeployment(op, old, candidate, cause)
+		default:
+			return fmt.Errorf("rollback start outcome remains unconfirmed; another start refused")
+		}
+		if err != nil {
+			return fmt.Errorf("activation failed; previous deployment readiness failed: %w", err)
 		}
 	} else if err = m.startDeployment(&recovery, work); err != nil {
-		return fmt.Errorf("activation failed; previous deployment readiness failed")
+		return fmt.Errorf("activation failed; previous deployment readiness failed: %w", err)
 	}
 	if err = m.appLifecycle(recovery, "activate"); err != nil {
 		return fmt.Errorf("previous deployment could not resume admission")
