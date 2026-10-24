@@ -85,6 +85,8 @@ func FetchModels(providerType, apiKey string, refresh ...bool) ([]ModelInfo, err
 			models = openCodeGoModels()
 			err = nil
 		}
+	case "kimi-code":
+		models, err = fetchKimiCodeModels(apiKey)
 	case "venice":
 		// Venice's /api/v1/models returns rich metadata (display name,
 		// context_length, capabilities). Use the dedicated fetcher so

@@ -313,7 +313,16 @@ func (s *Server) runtimeAppFor(conn runtimeConnection) *AppTemplate {
 	if strings.TrimSpace(app.Runtime.Role) == "" || strings.TrimSpace(app.Runtime.ProviderKey) == "" {
 		return nil
 	}
+	// A separately shipped catalog can prepare a provider before Core knows
+	// it. Apply the same gate to discovery and credentials as to config.json.
+	if !runtimeSupported(app.Runtime) {
+		return nil
+	}
 	return app
+}
+
+func runtimeSupported(runtime *AppRuntimeConfig) bool {
+	return runtime != nil && (!strings.EqualFold(runtime.Role, "llm") || isLLMKey(runtime.ProviderKey))
 }
 
 // runtimeEnvFromConnections builds the env map contributed by every
@@ -738,7 +747,7 @@ func (s *Server) runtimeCatalogForRole(role string) []RuntimeCatalogEntry {
 	var out []RuntimeCatalogEntry
 	for _, summary := range s.catalog.List() {
 		app := s.catalog.Get(summary.Slug)
-		if app == nil || app.Runtime == nil {
+		if app == nil || !runtimeSupported(app.Runtime) {
 			continue
 		}
 		if role != "" && !strings.EqualFold(app.Runtime.Role, role) {
