@@ -29,7 +29,7 @@ jobs:
           path: core
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.6'
+          go-version: '1.26.10'
       - name: Resolve published SDK
         run: |
           go mod edit -dropreplace=github.com/apteva/app-sdk

@@ -34,12 +34,30 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name":           { "type": "string", "description": "Filter to servers with this exact name" },
-          "label_selector": { "type": "string", "description": "Hetzner label selector, e.g. env=prod,role=web" },
-          "status":         { "type": "string", "description": "Filter by status (initializing|starting|running|stopping|off|deleting|rebuilding|migrating|unknown)" },
-          "sort":           { "type": "string", "description": "id|id:asc|id:desc|name|name:asc|name:desc|created|created:asc|created:desc" },
-          "page":           { "type": "integer", "description": "1-based page number; default 1" },
-          "per_page":       { "type": "integer", "description": "Items per page; default 25, max 50" }
+          "name": {
+            "type": "string",
+            "description": "Filter to servers with this exact name"
+          },
+          "label_selector": {
+            "type": "string",
+            "description": "Hetzner label selector, e.g. env=prod,role=web"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status (initializing|starting|running|stopping|off|deleting|rebuilding|migrating|unknown)"
+          },
+          "sort": {
+            "type": "string",
+            "description": "id|id:asc|id:desc|name|name:asc|name:desc|created|created:asc|created:desc"
+          },
+          "page": {
+            "type": "integer",
+            "description": "1-based page number; default 1"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Items per page; default 25, max 50"
+          }
         }
       }
     },
@@ -51,9 +69,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer", "description": "Hetzner server id" }
+          "id": {
+            "type": "integer",
+            "description": "Hetzner server id"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -65,22 +88,83 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name":               { "type": "string", "description": "Unique name within the project (also becomes the hostname)" },
-          "server_type":        { "type": "string", "description": "Current types (the cpx* line is deprecated): cx22/cx32/cx42/cx52 (Intel shared), cax11/cax21/cax31/cax41 (Ampere ARM, best €/vCPU), ccx13+ (dedicated AMD). Call server_types_list for the live catalog." },
-          "image":              { "type": "string", "description": "OS image name (ubuntu-24.04, debian-12, …) or numeric image id" },
-          "location":           { "type": "string", "description": "Region: fsn1 (Falkenstein), nbg1 (Nuremberg), hel1 (Helsinki), ash (Ashburn), hil (Hillsboro), sin (Singapore). Mutually exclusive with datacenter." },
-          "datacenter":         { "type": "string", "description": "Specific datacenter; only set when you need finer control than location" },
-          "ssh_keys":           { "type": "array", "description": "Hetzner-registered SSH key ids/names to seed at first boot. Prefer user_data + cloud-init if you don't want to pre-register keys.", "items": { "type": ["string", "integer"] } },
-          "firewalls":          { "type": "array", "description": "Firewalls to attach at create time; array of {firewall: id}", "items": { "type": "object" } },
-          "networks":           { "type": "array", "description": "Private networks to attach; array of network ids", "items": { "type": "integer" } },
-          "volumes":            { "type": "array", "description": "Existing volume ids to attach at create time", "items": { "type": "integer" } },
-          "user_data":          { "type": "string", "description": "Cloud-init userdata script (e.g. #cloud-config YAML). The instances app uses this to seed authorized_keys." },
-          "labels":             { "type": "object", "description": "Free-form key/value labels" },
-          "start_after_create": { "type": "boolean", "description": "Default true; set false to leave the server powered off after provisioning" },
-          "automount":          { "type": "boolean", "description": "If volumes are attached, mount them automatically. Default false." },
-          "placement_group":    { "type": "integer", "description": "Placement group id for anti-affinity" }
+          "name": {
+            "type": "string",
+            "description": "Unique name within the project (also becomes the hostname)"
+          },
+          "server_type": {
+            "type": "string",
+            "description": "Current types (the cpx* line is deprecated): cx22/cx32/cx42/cx52 (Intel shared), cax11/cax21/cax31/cax41 (Ampere ARM, best €/vCPU), ccx13+ (dedicated AMD). Call server_types_list for the live catalog."
+          },
+          "image": {
+            "type": "string",
+            "description": "OS image name (ubuntu-24.04, debian-12, …) or numeric image id"
+          },
+          "location": {
+            "type": "string",
+            "description": "Region: fsn1 (Falkenstein), nbg1 (Nuremberg), hel1 (Helsinki), ash (Ashburn), hil (Hillsboro), sin (Singapore). Mutually exclusive with datacenter."
+          },
+          "datacenter": {
+            "type": "string",
+            "description": "Specific datacenter; only set when you need finer control than location"
+          },
+          "ssh_keys": {
+            "type": "array",
+            "description": "Hetzner-registered SSH key ids/names to seed at first boot. Prefer user_data + cloud-init if you don't want to pre-register keys.",
+            "items": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            }
+          },
+          "firewalls": {
+            "type": "array",
+            "description": "Firewalls to attach at create time; array of {firewall: id}",
+            "items": {
+              "type": "object"
+            }
+          },
+          "networks": {
+            "type": "array",
+            "description": "Private networks to attach; array of network ids",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "volumes": {
+            "type": "array",
+            "description": "Existing volume ids to attach at create time",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "user_data": {
+            "type": "string",
+            "description": "Cloud-init userdata script (e.g. #cloud-config YAML). The instances app uses this to seed authorized_keys."
+          },
+          "labels": {
+            "type": "object",
+            "description": "Free-form key/value labels"
+          },
+          "start_after_create": {
+            "type": "boolean",
+            "description": "Default true; set false to leave the server powered off after provisioning"
+          },
+          "automount": {
+            "type": "boolean",
+            "description": "If volumes are attached, mount them automatically. Default false."
+          },
+          "placement_group": {
+            "type": "integer",
+            "description": "Placement group id for anti-affinity"
+          }
         },
-        "required": ["name", "server_type", "image"]
+        "required": [
+          "name",
+          "server_type",
+          "image"
+        ]
       }
     },
     {
@@ -91,11 +175,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":     { "type": "integer", "description": "Hetzner server id" },
-          "name":   { "type": "string" },
-          "labels": { "type": "object" }
+          "id": {
+            "type": "integer",
+            "description": "Hetzner server id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -106,9 +199,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer", "description": "Hetzner server id" }
+          "id": {
+            "type": "integer",
+            "description": "Hetzner server id"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -119,9 +217,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -132,9 +234,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -145,9 +251,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -158,9 +268,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -171,9 +285,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -185,10 +303,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":    { "type": "integer" },
-          "image": { "type": "string", "description": "Image name or id to rebuild from" }
+          "id": {
+            "type": "integer"
+          },
+          "image": {
+            "type": "string",
+            "description": "Image name or id to rebuild from"
+          }
         },
-        "required": ["id", "image"]
+        "required": [
+          "id",
+          "image"
+        ]
       }
     },
     {
@@ -200,11 +326,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":           { "type": "integer" },
-          "server_type":  { "type": "string" },
-          "upgrade_disk": { "type": "boolean", "description": "If true, grow the boot disk to match the new type. Irreversible." }
+          "id": {
+            "type": "integer"
+          },
+          "server_type": {
+            "type": "string"
+          },
+          "upgrade_disk": {
+            "type": "boolean",
+            "description": "If true, grow the boot disk to match the new type. Irreversible."
+          }
         },
-        "required": ["id", "server_type", "upgrade_disk"]
+        "required": [
+          "id",
+          "server_type",
+          "upgrade_disk"
+        ]
       }
     },
     {
@@ -215,11 +352,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":      { "type": "integer" },
-          "delete":  { "type": "boolean" },
-          "rebuild": { "type": "boolean" }
+          "id": {
+            "type": "integer"
+          },
+          "delete": {
+            "type": "boolean"
+          },
+          "rebuild": {
+            "type": "boolean"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -230,11 +375,24 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":       { "type": "integer" },
-          "type":     { "type": "string", "description": "linux64 (default) | linux32 | freebsd64" },
-          "ssh_keys": { "type": "array", "description": "SSH key ids to inject into the rescue system", "items": { "type": "integer" } }
+          "id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "description": "linux64 (default) | linux32 | freebsd64"
+          },
+          "ssh_keys": {
+            "type": "array",
+            "description": "SSH key ids to inject into the rescue system",
+            "items": {
+              "type": "integer"
+            }
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -245,9 +403,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -258,9 +420,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -271,9 +437,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -284,13 +454,32 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":    { "type": "integer" },
-          "type":  { "type": "string", "description": "cpu | disk | network (or comma-separated combo)" },
-          "start": { "type": "string", "description": "ISO-8601 start timestamp, e.g. 2026-05-18T00:00:00Z" },
-          "end":   { "type": "string", "description": "ISO-8601 end timestamp" },
-          "step":  { "type": "integer", "description": "Step in seconds (e.g. 60 for per-minute samples)" }
+          "id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "description": "cpu | disk | network (or comma-separated combo)"
+          },
+          "start": {
+            "type": "string",
+            "description": "ISO-8601 start timestamp, e.g. 2026-05-18T00:00:00Z"
+          },
+          "end": {
+            "type": "string",
+            "description": "ISO-8601 end timestamp"
+          },
+          "step": {
+            "type": "integer",
+            "description": "Step in seconds (e.g. 60 for per-minute samples)"
+          }
         },
-        "required": ["id", "type", "start", "end"]
+        "required": [
+          "id",
+          "type",
+          "start",
+          "end"
+        ]
       }
     },
     {
@@ -301,9 +490,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name":     { "type": "string", "description": "Filter by exact name" },
-          "page":     { "type": "integer" },
-          "per_page": { "type": "integer" }
+          "name": {
+            "type": "string",
+            "description": "Filter by exact name"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
         }
       }
     },
@@ -315,15 +511,37 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "type":           { "type": "string", "description": "system | snapshot | backup | app" },
-          "status":         { "type": "string", "description": "available | creating" },
-          "bound_to":       { "type": "integer", "description": "Filter to images bound to this server id" },
-          "name":           { "type": "string" },
-          "label_selector": { "type": "string" },
-          "architecture":   { "type": "string", "description": "x86 | arm" },
-          "sort":           { "type": "string" },
-          "page":           { "type": "integer" },
-          "per_page":       { "type": "integer" }
+          "type": {
+            "type": "string",
+            "description": "system | snapshot | backup | app"
+          },
+          "status": {
+            "type": "string",
+            "description": "available | creating"
+          },
+          "bound_to": {
+            "type": "integer",
+            "description": "Filter to images bound to this server id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "label_selector": {
+            "type": "string"
+          },
+          "architecture": {
+            "type": "string",
+            "description": "x86 | arm"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
         }
       }
     },
@@ -335,7 +553,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "description": "Filter by exact location name" }
+          "name": {
+            "type": "string",
+            "description": "Filter by exact location name"
+          }
         }
       }
     },
@@ -347,9 +568,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name":           { "type": "string", "description": "Filter by exact key name" },
-          "fingerprint":    { "type": "string", "description": "Filter by SHA-256 fingerprint" },
-          "label_selector": { "type": "string" }
+          "name": {
+            "type": "string",
+            "description": "Filter by exact key name"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "Filter by SHA-256 fingerprint"
+          },
+          "label_selector": {
+            "type": "string"
+          }
         }
       }
     },
@@ -361,9 +590,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -374,11 +607,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name":       { "type": "string", "description": "Unique label within the project" },
-          "public_key": { "type": "string", "description": "Full SSH public key, e.g. ssh-ed25519 AAAA… comment" },
-          "labels":     { "type": "object" }
+          "name": {
+            "type": "string",
+            "description": "Unique label within the project"
+          },
+          "public_key": {
+            "type": "string",
+            "description": "Full SSH public key, e.g. ssh-ed25519 AAAA… comment"
+          },
+          "labels": {
+            "type": "object"
+          }
         },
-        "required": ["name", "public_key"]
+        "required": [
+          "name",
+          "public_key"
+        ]
       }
     },
     {
@@ -389,9 +633,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -402,12 +650,25 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name":           { "type": "string" },
-          "label_selector": { "type": "string" },
-          "status":         { "type": "string", "description": "creating | available" },
-          "sort":           { "type": "string" },
-          "page":           { "type": "integer" },
-          "per_page":       { "type": "integer" }
+          "name": {
+            "type": "string"
+          },
+          "label_selector": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "creating | available"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
         }
       }
     },
@@ -419,9 +680,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -432,15 +697,37 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name":      { "type": "string" },
-          "size":      { "type": "integer", "description": "Size in GB (10–10240)" },
-          "location":  { "type": "string", "description": "Free-floating volume in this location" },
-          "server":    { "type": "integer", "description": "Attach to this server at creation (mutually exclusive with location)" },
-          "format":    { "type": "string", "description": "ext4 | xfs — format the volume after create" },
-          "automount": { "type": "boolean", "description": "Mount automatically if server is set" },
-          "labels":    { "type": "object" }
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Size in GB (10–10240)"
+          },
+          "location": {
+            "type": "string",
+            "description": "Free-floating volume in this location"
+          },
+          "server": {
+            "type": "integer",
+            "description": "Attach to this server at creation (mutually exclusive with location)"
+          },
+          "format": {
+            "type": "string",
+            "description": "ext4 | xfs — format the volume after create"
+          },
+          "automount": {
+            "type": "boolean",
+            "description": "Mount automatically if server is set"
+          },
+          "labels": {
+            "type": "object"
+          }
         },
-        "required": ["name", "size"]
+        "required": [
+          "name",
+          "size"
+        ]
       }
     },
     {
@@ -451,9 +738,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -464,11 +755,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":     { "type": "integer" },
-          "name":   { "type": "string" },
-          "labels": { "type": "object" }
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -479,11 +778,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":        { "type": "integer", "description": "Volume id" },
-          "server":    { "type": "integer", "description": "Server id to attach to" },
-          "automount": { "type": "boolean" }
+          "id": {
+            "type": "integer",
+            "description": "Volume id"
+          },
+          "server": {
+            "type": "integer",
+            "description": "Server id to attach to"
+          },
+          "automount": {
+            "type": "boolean"
+          }
         },
-        "required": ["id", "server"]
+        "required": [
+          "id",
+          "server"
+        ]
       }
     },
     {
@@ -494,9 +804,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -507,10 +821,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id":   { "type": "integer" },
-          "size": { "type": "integer", "description": "New size in GB; must be greater than current" }
+          "id": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer",
+            "description": "New size in GB; must be greater than current"
+          }
         },
-        "required": ["id", "size"]
+        "required": [
+          "id",
+          "size"
+        ]
       }
     },
     {
@@ -521,11 +843,23 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "status":   { "type": "string", "description": "running | success | error" },
-          "command":  { "type": "string", "description": "Filter by command name, e.g. create_server" },
-          "sort":     { "type": "string" },
-          "page":     { "type": "integer" },
-          "per_page": { "type": "integer" }
+          "status": {
+            "type": "string",
+            "description": "running | success | error"
+          },
+          "command": {
+            "type": "string",
+            "description": "Filter by command name, e.g. create_server"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
         }
       }
     },
@@ -537,9 +871,185 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" }
+          "id": {
+            "type": "integer"
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_list",
+      "description": "Firewall list. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      },
+      "query_params": [
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "firewall_get",
+      "description": "Firewall get. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_create",
+      "description": "Firewall create. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "labels": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "rules"
+        ]
+      }
+    },
+    {
+      "name": "firewall_set_rules",
+      "description": "Firewall set rules. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls/{id}/actions/set_rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "rules"
+        ]
+      }
+    },
+    {
+      "name": "firewall_delete",
+      "description": "Firewall delete. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "DELETE",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_attach",
+      "description": "Firewall attach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls/{id}/actions/apply_to_resources",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "apply_to": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "apply_to"
+        ]
+      }
+    },
+    {
+      "name": "firewall_detach",
+      "description": "Firewall detach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls/{id}/actions/remove_from_resources",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "remove_from": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "remove_from"
+        ]
+      }
+    },
+    {
+      "name": "firewall_action_get",
+      "description": "Inspect asynchronous firewall action completion.",
+      "method": "GET",
+      "path": "/firewalls/actions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
       }
     }
   ]

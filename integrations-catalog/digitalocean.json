@@ -3,13 +3,25 @@
   "name": "DigitalOcean",
   "description": "MCP server for DigitalOcean - droplets, apps, databases, kubernetes, spaces, domains",
   "logo": "https://www.google.com/s2/favicons?domain=digitalocean.com&sz=128",
-  "categories": ["hosting", "cloud", "infrastructure", "devops"],
+  "categories": [
+    "hosting",
+    "cloud",
+    "infrastructure",
+    "devops"
+  ],
   "base_url": "https://api.digitalocean.com/v2",
   "auth": {
-    "types": ["bearer"],
-    "headers": { "Authorization": "Bearer {{token}}" },
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
     "credential_fields": [
-      { "name": "token", "label": "Personal Access Token" }
+      {
+        "name": "token",
+        "label": "Personal Access Token"
+      }
     ]
   },
   "tools": [
@@ -21,8 +33,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "tag_name": { "type": "string" },
-          "per_page": { "type": "number" }
+          "tag_name": {
+            "type": "string"
+          },
+          "per_page": {
+            "type": "number"
+          }
         }
       }
     },
@@ -33,8 +49,14 @@
       "path": "/droplets/{droplet_id}",
       "input_schema": {
         "type": "object",
-        "properties": { "droplet_id": { "type": "string" } },
-        "required": ["droplet_id"]
+        "properties": {
+          "droplet_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "droplet_id"
+        ]
       }
     },
     {
@@ -45,8 +67,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "page": { "type": "number" },
-          "per_page": { "type": "number" }
+          "page": {
+            "type": "number"
+          },
+          "per_page": {
+            "type": "number"
+          }
         }
       }
     },
@@ -58,8 +84,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "page": { "type": "number" },
-          "per_page": { "type": "number" }
+          "page": {
+            "type": "number"
+          },
+          "per_page": {
+            "type": "number"
+          }
         }
       }
     },
@@ -71,10 +101,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "type": { "type": "string" },
-          "public": { "type": "boolean" },
-          "page": { "type": "number" },
-          "per_page": { "type": "number" }
+          "type": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "number"
+          },
+          "per_page": {
+            "type": "number"
+          }
         }
       }
     },
@@ -86,15 +124,34 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "region": { "type": "string" },
-          "size": { "type": "string" },
-          "image": { "type": "string" },
-          "ssh_keys": { "type": "array" },
-          "user_data": { "type": "string" },
-          "backups": { "type": "boolean" }
+          "name": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "ssh_keys": {
+            "type": "array"
+          },
+          "user_data": {
+            "type": "string"
+          },
+          "backups": {
+            "type": "boolean"
+          }
         },
-        "required": ["name", "region", "size", "image"]
+        "required": [
+          "name",
+          "region",
+          "size",
+          "image"
+        ]
       }
     },
     {
@@ -104,8 +161,14 @@
       "path": "/droplets/{droplet_id}",
       "input_schema": {
         "type": "object",
-        "properties": { "droplet_id": { "type": "string" } },
-        "required": ["droplet_id"]
+        "properties": {
+          "droplet_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "droplet_id"
+        ]
       }
     },
     {
@@ -116,10 +179,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "droplet_id": { "type": "string" },
-          "type": { "type": "string" }
+          "droplet_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
         },
-        "required": ["droplet_id", "type"]
+        "required": [
+          "droplet_id",
+          "type"
+        ]
       }
     },
     {
@@ -127,7 +197,10 @@
       "description": "List App Platform apps",
       "method": "GET",
       "path": "/apps",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "create_app_deployment",
@@ -137,10 +210,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "app_id": { "type": "string" },
-          "force_build": { "type": "boolean" }
+          "app_id": {
+            "type": "string"
+          },
+          "force_build": {
+            "type": "boolean"
+          }
         },
-        "required": ["app_id"]
+        "required": [
+          "app_id"
+        ]
       }
     },
     {
@@ -148,35 +227,70 @@
       "description": "List managed databases",
       "method": "GET",
       "path": "/databases",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "list_k8s_clusters",
       "description": "List Kubernetes clusters",
       "method": "GET",
       "path": "/kubernetes/clusters",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "list_domains",
       "description": "List domains",
       "method": "GET",
       "path": "/domains",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "volume_list",
       "description": "List block storage volumes, optionally filtered by region or name",
       "method": "GET",
       "path": "/volumes",
-      "input_schema": { "type": "object", "properties": { "region": { "type": "string" }, "name": { "type": "string" }, "page": { "type": "integer" }, "per_page": { "type": "integer" } } }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
     },
     {
       "name": "volume_get",
       "description": "Get a block storage volume by UUID",
       "method": "GET",
       "path": "/volumes/{volume_id}",
-      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" } }, "required": ["volume_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
     },
     {
       "name": "volume_create",
@@ -186,12 +300,37 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "region": { "type": "string" }, "name": { "type": "string" },
-          "size_gigabytes": { "type": "integer", "minimum": 1 },
-          "description": { "type": "string" }, "filesystem_type": { "type": "string" }, "filesystem_label": { "type": "string" },
-          "tags": { "type": "array", "items": { "type": "string" } }
+          "region": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size_gigabytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "filesystem_type": {
+            "type": "string"
+          },
+          "filesystem_label": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
-        "required": ["region", "name", "size_gigabytes"]
+        "required": [
+          "region",
+          "name",
+          "size_gigabytes"
+        ]
       }
     },
     {
@@ -199,7 +338,17 @@
       "description": "Delete an unattached block storage volume",
       "method": "DELETE",
       "path": "/volumes/{volume_id}",
-      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" } }, "required": ["volume_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
     },
     {
       "name": "volume_action",
@@ -209,12 +358,34 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "volume_id": { "type": "string" }, "type": { "type": "string", "enum": ["attach", "detach", "resize"] },
-          "droplet_id": { "type": "integer", "description": "Required for attach and detach" },
-          "region": { "type": "string", "description": "Required for attach and resize" },
-          "size_gigabytes": { "type": "integer", "description": "Required for resize; volumes cannot shrink" }
+          "volume_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "attach",
+              "detach",
+              "resize"
+            ]
+          },
+          "droplet_id": {
+            "type": "integer",
+            "description": "Required for attach and detach"
+          },
+          "region": {
+            "type": "string",
+            "description": "Required for attach and resize"
+          },
+          "size_gigabytes": {
+            "type": "integer",
+            "description": "Required for resize; volumes cannot shrink"
+          }
         },
-        "required": ["volume_id", "type"]
+        "required": [
+          "volume_id",
+          "type"
+        ]
       }
     },
     {
@@ -222,14 +393,251 @@
       "description": "Get the status of a volume action",
       "method": "GET",
       "path": "/volumes/{volume_id}/actions/{action_id}",
-      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "action_id": { "type": "integer" } }, "required": ["volume_id", "action_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          },
+          "action_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "volume_id",
+          "action_id"
+        ]
+      }
     },
     {
       "name": "volume_snapshot_create",
       "description": "Create a snapshot of a block storage volume",
       "method": "POST",
       "path": "/volumes/{volume_id}/snapshots",
-      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "name": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } }, "required": ["volume_id", "name"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "volume_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "firewall_list",
+      "description": "Firewall list. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      },
+      "query_params": [
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "firewall_get",
+      "description": "Firewall get. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_create",
+      "description": "Firewall create. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "inbound_rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "outbound_rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "droplet_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "inbound_rules",
+          "outbound_rules"
+        ]
+      }
+    },
+    {
+      "name": "firewall_set_rules",
+      "description": "Firewall set rules. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "PUT",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "inbound_rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "outbound_rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "droplet_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "inbound_rules",
+          "outbound_rules"
+        ]
+      }
+    },
+    {
+      "name": "firewall_delete",
+      "description": "Firewall delete. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "DELETE",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_attach",
+      "description": "Firewall attach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls/{id}/droplets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "droplet_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "droplet_ids"
+        ]
+      }
+    },
+    {
+      "name": "firewall_detach",
+      "description": "Firewall detach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "DELETE",
+      "path": "/firewalls/{id}/droplets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "droplet_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "droplet_ids"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "body"
+        ]
+      },
+      "body_root_param": "body"
     }
   ]
 }

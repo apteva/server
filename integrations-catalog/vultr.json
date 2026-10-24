@@ -118,6 +118,9 @@
               "root",
               "limited"
             ]
+          },
+          "firewall_group_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -640,6 +643,9 @@
           },
           "mdisk_mode": {
             "type": "string"
+          },
+          "firewall_group_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -730,6 +736,242 @@
         },
         "required": [
           "baremetal_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_list",
+      "description": "Firewall list. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      },
+      "query_params": [
+        "cursor",
+        "per_page"
+      ]
+    },
+    {
+      "name": "firewall_get",
+      "description": "Firewall get. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_create",
+      "description": "Firewall create. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "firewall_delete",
+      "description": "Firewall delete. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "DELETE",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_rules",
+      "description": "Firewall rules. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/firewalls/{id}/rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "cursor",
+        "per_page"
+      ]
+    },
+    {
+      "name": "firewall_rule_create",
+      "description": "Firewall rule create. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/firewalls/{id}/rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ip_type": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string"
+          },
+          "subnet_size": {
+            "type": "integer"
+          },
+          "port": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ip_type",
+          "protocol",
+          "subnet",
+          "subnet_size"
+        ]
+      }
+    },
+    {
+      "name": "firewall_rule_delete",
+      "description": "Firewall rule delete. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "DELETE",
+      "path": "/firewalls/{id}/rules/{rule_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "rule_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_server_get",
+      "description": "Firewall get. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/instances/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_attach",
+      "description": "Firewall attach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "PATCH",
+      "path": "/instances/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "firewall_group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "firewall_group_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_metal_get",
+      "description": "Firewall metal get. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/bare-metals/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_metal_attach",
+      "description": "Firewall metal attach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "PATCH",
+      "path": "/bare-metals/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "firewall_group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "firewall_group_id"
         ]
       }
     }

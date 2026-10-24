@@ -45,7 +45,6 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
 		"webinars": true, "workspaces": true, "a2a": true, "processes": true, "evals": true, "database": true,
 		"media-downloader": true, "media": true,
-		"database": true, "processes": true,
 	}
 	requiredDomainApps := map[string][]string{
 		"personal-assistant":             {"todo", "notes", "calendar"},
