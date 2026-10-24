@@ -107,13 +107,14 @@ func (h *Host) recoverSlot(ctx context.Context) (*slot, bool, error) {
 		// A standby candidate from a crashed updater must not outlive recovery of
 		// the committed controller. Only its own attested PID may be signalled.
 		h.stopSlot(pending, true)
-		if err := h.waitReady(ctx, active); err != nil {
+		if err := h.withStartupCallbacks(active, func() error { return h.waitReady(ctx, active) }); err != nil {
+			h.stopSlot(active, true)
 			return nil, false, err
 		}
 		return active, true, nil
 	}
 	if pending != nil {
-		if err := h.waitReady(ctx, pending); err == nil {
+		if err := h.withStartupCallbacks(pending, func() error { return h.waitReady(ctx, pending) }); err == nil {
 			return pending, true, nil
 		}
 		h.stopSlot(pending, true)

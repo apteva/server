@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func (m *appRuntimeManager) transferState(old, d *runtimeDeployment, op *runtimeOperation) error {
@@ -222,6 +223,9 @@ func (m *appRuntimeManager) restoreSnapshot(d *runtimeDeployment, op runtimeOper
 	req.ContentLength = info.Size()
 	req.Header.Set("Authorization", "Bearer "+remote.token)
 	req.Header.Set("Content-Type", "application/gzip")
+	// Send the inspected size, not the configured ceiling. Instances verifies
+	// this hint against extracted content and keeps its existing disk reserve.
+	req.Header.Set("X-Apteva-Snapshot-Expanded-Bytes", strconv.FormatInt(stats.Bytes, 10))
 	req.Header.Set("X-Apteva-Snapshot-SHA256", sha)
 	req.Header.Set("X-Apteva-State-Transfer-Policy", runtimeJSON(policy))
 	req.Header.Set("Idempotency-Key", op.ID+":"+d.ID+":"+sha+":restore")
@@ -233,7 +237,10 @@ func (m *appRuntimeManager) restoreSnapshot(d *runtimeDeployment, op runtimeOper
 		return fmt.Errorf("snapshot restore unavailable: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 || resp.Header.Get("X-Apteva-Snapshot-SHA256") != sha {
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("snapshot restore rejected (HTTP %d)", resp.StatusCode)
+	}
+	if resp.Header.Get("X-Apteva-Snapshot-SHA256") != sha {
 		return fmt.Errorf("backend did not verify restored state digest")
 	}
 	d.Execution.SnapshotSHA256 = sha

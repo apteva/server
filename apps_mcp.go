@@ -130,7 +130,9 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 	// The random per-install capability is embedded only in this loopback URL.
 	// authMiddleware accepts app-token query auth exclusively on loopback app
 	// data-plane routes, never on management endpoints.
-	appToken, err := s.appInstallToken(installID)
+	// Managed executions retire the installation credential. Use the active
+	// generation's credential, just as the runtime proxy and control plane do.
+	appToken, err := s.runtimeControlToken(installID)
 	if err != nil {
 		return fmt.Errorf("create app credential: %w", err)
 	}
@@ -259,7 +261,7 @@ func (s *Server) snapshotAppMCPSurface(installID int64) appMCPSurfaceSnapshot {
 	if install == nil || strings.TrimSpace(install.SidecarURL) == "" {
 		return appMCPSurfaceSnapshot{}
 	}
-	token, err := s.appInstallToken(installID)
+	token, err := s.runtimeControlToken(installID)
 	if err != nil {
 		log.Printf("[APPS-MCP] snapshot credential install=%d: %v", installID, err)
 		return appMCPSurfaceSnapshot{}

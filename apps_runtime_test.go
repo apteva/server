@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -501,6 +502,19 @@ func TestManagedRuntimeStateMigrationAndInterruptedStartRecovery(t *testing.T) {
 	f.mu.Unlock()
 	p.Target.ID = "target-b"
 	d := prepareRuntimeFixture(t, m, id, p, "prepare-move")
+	originalHandler := f.server.Config.Handler
+	var measuredRestore atomic.Bool
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/restore") {
+			if r.Header.Get("X-Apteva-Snapshot-Expanded-Bytes") != "22" {
+				t.Error("restore omitted measured expanded size; backend must reserve maximum allowed state")
+				http.Error(w, "insufficient_disk", http.StatusInsufficientStorage)
+				return
+			}
+			measuredRestore.Store(true)
+		}
+		originalHandler.ServeHTTP(w, r)
+	})
 	op, err := m.begin(id, "activate", "move-state", runtimePlacement{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -508,6 +522,9 @@ func TestManagedRuntimeStateMigrationAndInterruptedStartRecovery(t *testing.T) {
 	result := waitRuntimeOperation(t, m, op)
 	if result.Status != "succeeded" {
 		t.Fatal(result.Error)
+	}
+	if !measuredRestore.Load() {
+		t.Fatal("state was not sent with measured size")
 	}
 	if result.SnapshotPath == "" || !runtimeDigest(result.SnapshotSHA256) {
 		t.Fatal("snapshot journal missing")

@@ -62,6 +62,14 @@ func (r *Router) SetStarting(b *backend) {
 	r.starting = b
 	r.notifyLocked()
 }
+func (r *Router) clearStarting(b *backend) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.starting == b {
+		r.starting = nil
+		r.notifyLocked()
+	}
+}
 func (r *Router) Publish(b *backend) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

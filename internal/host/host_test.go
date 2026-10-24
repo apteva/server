@@ -81,8 +81,23 @@ func TestHostProcess(t *testing.T) {
 		os.Exit(4)
 	}
 	requests := http.NewServeMux()
+	ready := make(chan struct{})
 	requests.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-ready:
+		default:
+			http.Error(w, "startup callbacks pending", http.StatusServiceUnavailable)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "cli": version})
+	})
+	requests.HandleFunc("/api/apps/callback/whoami", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer fixture-app-token" || r.Header.Get("X-Apteva-Host-Token") != os.Getenv("APTEVA_HOST_PROXY_SECRET") {
+			http.Error(w, "invalid app callback", http.StatusUnauthorized)
+			return
+		}
+		_ = os.WriteFile(binary+".callback-seen", []byte(strconv.Itoa(os.Getpid())), 0600)
+		w.WriteHeader(http.StatusNoContent)
 	})
 	requests.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
@@ -99,18 +114,43 @@ func TestHostProcess(t *testing.T) {
 		io.WriteString(w, version)
 	})
 	go http.Serve(backend, requests)
+	if _, err := os.Stat(binary + ".startup-callback"); err == nil {
+		// Model OnMount -> platform.WhoAmI through the stable public listener,
+		// while /health remains unsuccessful until that callback completes.
+		client := &http.Client{Timeout: 2 * time.Second}
+		request, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1:"+os.Getenv("PORT")+"/api/apps/callback/whoami", nil)
+		request.Header.Set("Authorization", "Bearer fixture-app-token")
+		response, err := client.Do(request)
+		if err != nil {
+			os.Exit(10)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNoContent {
+			os.Exit(11)
+		}
+		if _, err := os.Stat(binary + ".fail-after-callback"); err == nil {
+			os.Exit(12)
+		}
+		for {
+			if _, err := os.Stat(binary + ".hold-readiness"); err != nil {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	close(ready)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
 	<-sig
 	os.Exit(0)
 }
 
-func fixture(t *testing.T) (*Host, *http.Client, string, Candidate) {
+func fixture(t *testing.T, beforeStart ...func(*Host)) (*Host, *http.Client, string, Candidate) {
 	t.Helper()
-	h, c, url, candidate, _ := fixtureWithStopped(t)
+	h, c, url, candidate, _ := fixtureWithStopped(t, beforeStart...)
 	return h, c, url, candidate
 }
-func fixtureWithStopped(t *testing.T) (*Host, *http.Client, string, Candidate, <-chan struct{}) {
+func fixtureWithStopped(t *testing.T, beforeStart ...func(*Host)) (*Host, *http.Client, string, Candidate, <-chan struct{}) {
 	t.Helper()
 	home, err := os.MkdirTemp(hostTestTempRoot(), "apteva-host-test-")
 	if err != nil {
@@ -140,6 +180,9 @@ func fixtureWithStopped(t *testing.T) (*Host, *http.Client, string, Candidate, <
 	h, err := New(Config{Home: home, DBPath: db, ListenAddr: addr, ServerBinary: binaries["1.0.0"], StartupTimeout: 3 * time.Second, DrainTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, configure := range beforeStart {
+		configure(h)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

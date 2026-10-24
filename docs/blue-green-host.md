@@ -51,6 +51,12 @@ backend; an unfinished call blocks the switch and eventually aborts deployment
 rather than being forcibly disconnected. Persisted dashboard GET subscriptions
 reconnect after retirement. The dashboard never forces an automatic page reload.
 
+Startup callbacks use that same narrow loopback exception before activation
+and while waiting for an attested recovered active or pending slot. The backend
+still authenticates each callback; forwarding headers cannot grant the exception.
+Ordinary requests remain queued until readiness and publication. Failed activation
+or slot cleanup removes its startup registration without clearing a newer one.
+
 The journal is `$APTEVA_HOME/host/state.json`. It records the committed version and
 attested slot PID, unique socket and proxy key. A restarted host may adopt that
 slot only after verifying its private identity. A controller crash restarts the

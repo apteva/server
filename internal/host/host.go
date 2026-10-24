@@ -550,7 +550,6 @@ func (h *Host) deploy(c Candidate) {
 	h.mu.Lock()
 	h.active = candidate
 	h.mu.Unlock()
-	h.router.SetStarting(candidate.backend)
 	if err = h.activate(transferCtx, candidate); err == nil {
 		actual := map[string]int{}
 		client := UnixClient(candidate.socket)
@@ -575,7 +574,6 @@ func (h *Host) deploy(c Candidate) {
 			h.mu.Lock()
 			h.active = previous
 			h.mu.Unlock()
-			h.router.SetStarting(previous.backend)
 			recoveryErr = h.prepare(recoveryCtx, previous)
 			if recoveryErr == nil {
 				h.mu.Lock()
@@ -712,12 +710,27 @@ func (h *Host) startSlot(ctx context.Context, c Candidate) (*slot, error) {
 	}
 }
 func (h *Host) activate(ctx context.Context, s *slot) error {
-	client := UnixClient(s.socket)
-	defer client.CloseIdleConnections()
-	if err := Call(ctx, client, "POST", "/activate", nil, nil); err != nil {
+	return h.withStartupCallbacks(s, func() error {
+		client := UnixClient(s.socket)
+		defer client.CloseIdleConnections()
+		if err := Call(ctx, client, "POST", "/activate", nil, nil); err != nil {
+			return err
+		}
+		return h.waitReady(ctx, s)
+	})
+}
+
+// Register before activation can mount apps, or before waiting for an adopted
+// controller already mounting them. Only the router's existing loopback callback
+// exception is admitted; ordinary traffic stays gated until Publish. Keep this
+// registration through successful readiness and remove it on failure.
+func (h *Host) withStartupCallbacks(s *slot, ready func() error) error {
+	h.router.SetStarting(s.backend)
+	if err := ready(); err != nil {
+		h.router.clearStarting(s.backend)
 		return err
 	}
-	return h.waitReady(ctx, s)
+	return nil
 }
 func (h *Host) waitReady(ctx context.Context, s *slot) error {
 	waitCtx, cancel := context.WithTimeout(ctx, h.cfg.StartupTimeout)
@@ -764,6 +777,11 @@ func (h *Host) retire(ctx context.Context, s *slot) error {
 	}
 }
 func (h *Host) stopSlot(s *slot, preserve bool) {
+	if s != nil {
+		// Covers failures after readiness too, e.g. ownership verification or
+		// durable commit. Never leave callbacks routed to a stopped candidate.
+		h.router.clearStarting(s.backend)
+	}
 	if s == nil || s.cmd == nil || s.cmd.Process == nil {
 		return
 	}

@@ -878,6 +878,7 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 		"provider":                      req.Provider,
 		"model":                         req.Model,
 		"realtime_execution":            req.RealtimeExecution,
+		"realtime_output":               map[string]any{"media": req.RealtimeMedia},
 		"tools":                         req.Tools,
 		"mcp":                           req.MCP,
 		"turn_detection":                req.TurnDetection,

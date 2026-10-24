@@ -183,6 +183,18 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// cannot select a user or app install by supplying them directly.
 		clearPrincipalHeaders(r)
 		token := privateRequestToken(r)
+		// Runtime credentials have no installation-token prefix. Accept them
+		// on the same loopback-only app routes used by agent MCP connections,
+		// after checking that they are actual deployment grants. User API keys
+		// still cannot authenticate app requests through a query parameter.
+		if token == "" && appTokenQueryAllowed(r) {
+			candidate := r.URL.Query().Get("api_key")
+			if candidate != "" {
+				if _, _, _, err := s.runtimeGrantInstall(candidate); err == nil {
+					token = candidate
+				}
+			}
+		}
 		// An explicit API key takes precedence over ambient session cookies.
 		// Try session cookie when no key was supplied
 		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" && token == "" {

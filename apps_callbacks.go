@@ -2093,10 +2093,11 @@ func (s *Server) handleCallbackRenewRealtimeAudio(w http.ResponseWriter, r *http
 }
 
 func (s *Server) callbackRealtimeAudioBaseURL(r *http.Request, installID, agentID int64) string {
-	if s.runtimeContainsInstallAndAgent(installID, agentID) {
-		return requestReachableBaseURL(r, s.localGatewayURL())
-	}
-	return callbackReachableBaseURL(s.publicBaseURL(), r)
+	// The authenticated sidecar already reached this gateway through this
+	// origin. Preserve it for ordinary installations as well as managed
+	// runtimes: a public URL may unnecessarily route local media via a tunnel.
+	// Never substitute localhost; a remote/container sidecar cannot use it.
+	return requestReachableBaseURL(r, s.publicBaseURL())
 }
 
 // handleCallbackAgentList serves GET /api/apps/callback/agents — the

@@ -520,3 +520,16 @@ func waitForRealtimeProxyCloseEvent(
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestRealtimeCallbackPreservesReachableOrigin(t *testing.T) {
+ for _, tc := range []struct{origin, forwarded, want string}{
+  {"http://127.0.0.1:5280/api/apps/callback/realtime/spawn", "", "http://127.0.0.1:5280"},
+  {"http://server.internal:5280/api/apps/callback/realtime/spawn", "", "http://server.internal:5280"},
+  {"https://gateway.example/api/apps/callback/realtime/spawn", "", "https://gateway.example"},
+  {"http://gateway.example/api/apps/callback/realtime/spawn", "https, http", "https://gateway.example"},
+ } {
+  r := httptest.NewRequest("POST", tc.origin, nil)
+  r.Header.Set("X-Forwarded-Proto", tc.forwarded)
+  if got := requestReachableBaseURL(r, "https://unrelated-public.example"); got != tc.want {t.Fatalf("got %q want %q", got, tc.want)}
+ }
+}

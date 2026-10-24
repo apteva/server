@@ -759,8 +759,8 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 			AgentID: agent.AgentID, ThreadID: req.ThreadID, Directive: req.Directive,
 			Voice: req.Voice, Provider: req.Provider, Model: req.Model, RealtimeExecution: req.RealtimeExecution, CapabilityMode: mode, Tools: tools, MCP: mcpNames,
 			CallContext:   req.CallContext,
-			TurnDetection: req.TurnDetection,
-			Ephemeral:     req.Ephemeral, InitialMessage: req.InitialMessage,
+			TurnDetection: req.TurnDetection, RealtimeMedia: req.RealtimeMedia,
+			Ephemeral: req.Ephemeral, InitialMessage: req.InitialMessage,
 			BridgeDisconnectTTLSeconds: req.BridgeDisconnectTTLSeconds,
 		})
 		if err != nil {

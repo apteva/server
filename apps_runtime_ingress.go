@@ -60,8 +60,8 @@ func (m *appRuntimeManager) dnsTool(ctx context.Context, v *runtimeIngressSpec, 
 		return nil, e
 	}
 	args["_project_id"] = v.DNSProjectID
-	body, _ := json.Marshal(map[string]any{"tool": name, "args": args})
-	req, e := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/tools/call", bytes.NewReader(body))
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": "runtime-dns", "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}})
+	req, e := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/mcp", bytes.NewReader(body))
 	if e != nil {
 		return nil, e
 	}
@@ -75,9 +75,32 @@ func (m *appRuntimeManager) dnsTool(ctx context.Context, v *runtimeIngressSpec, 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("DNS provider rejected %s (%d)", name, resp.StatusCode)
 	}
-	var out map[string]any
-	e = json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&out)
-	return out, e
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
+	}
+	if e = json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&envelope); e != nil {
+		return nil, fmt.Errorf("invalid DNS provider response")
+	}
+	if len(envelope.Error) > 0 && string(envelope.Error) != "null" || len(envelope.Result) == 0 {
+		return nil, fmt.Errorf("DNS provider tool %s failed", name)
+	}
+	value, e := unwrapMCPToolResult(envelope.Result)
+	if e != nil {
+		return nil, fmt.Errorf("DNS provider tool %s failed", name)
+	}
+	out, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid DNS provider tool result")
+	}
+	// A malformed inventory must never look like an empty zone and authorize
+	// creating a record over an existing hostname.
+	if name == "domain_records_list" {
+		if _, ok := out["records"].([]any); !ok {
+			return nil, fmt.Errorf("DNS provider returned no record inventory")
+		}
+	}
+	return out, nil
 }
 func (m *appRuntimeManager) prepareIngress(d *runtimeDeployment, b runtimeBackend) error {
 	v := d.Placement.Ingress

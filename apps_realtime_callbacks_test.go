@@ -64,7 +64,8 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 
 	spawned, err := resolver.SpawnRealtimeThread(inst, sdk.RealtimeSpawnRequest{
 		AgentID: 42, ThreadID: "voice", Directive: "answer calls", Voice: "brise",
-		Provider: "openai", Model: "large", RealtimeExecution: &sdk.RealtimeExecutionConfig{Mode: "provider", Provider: "openai", Model: "medium"},
+		RealtimeMedia: &sdk.RealtimeMediaConfig{Transport: "webrtc", Format: "g711_ulaw"},
+		Provider:      "openai", Model: "large", RealtimeExecution: &sdk.RealtimeExecutionConfig{Mode: "provider", Provider: "openai", Model: "medium"},
 		CallContext: &sdk.RealtimeCallContext{
 			CallID: "call-1", Direction: "inbound", FromNumber: "+12025550100",
 		},
@@ -73,6 +74,10 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	media := spawnBody["realtime_output"].(map[string]any)["media"].(map[string]any)
+	if media["transport"] != "webrtc" || media["format"] != "g711_ulaw" {
+		t.Fatal("media contract lost", media)
 	}
 	if spawned.AudioToken != "first" {
 		t.Fatalf("spawn token = %q", spawned.AudioToken)
@@ -411,7 +416,7 @@ func TestCallbackRealtimeAudioBaseURLUsesRuntimeGatewayForEnvironmentInstall(t *
 	if got := s.callbackRealtimeAudioBaseURL(request, installID, agentID); got != "http://127.0.0.1:5280" {
 		t.Fatalf("runtime bridge base=%q", got)
 	}
-	if got := s.callbackRealtimeAudioBaseURL(request, installID+1, agentID); got != "https://stale-public.example" {
+	if got := s.callbackRealtimeAudioBaseURL(request, installID+1, agentID); got != "http://127.0.0.1:5280" {
 		t.Fatalf("normal bridge base=%q", got)
 	}
 }
