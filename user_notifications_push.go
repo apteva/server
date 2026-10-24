@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 // A separate outbox preserves legacy inbox push cursors. One receipt per device
 // and notification makes delivery retryable across server restarts. The relay
-// receives only opaque IDs and generic copy; notification content stays here.
+// receives opaque routing IDs. Preview text is included only with user opt-in.
 func (s *Server) deliverAppNotificationPush(ctx context.Context, device *mobilePushSubscription) {
 	expires, err := time.Parse(time.RFC3339Nano, device.GrantExpiresAt)
 	if err != nil || !expires.After(time.Now()) {
@@ -81,10 +82,21 @@ func (s *Server) deliverAppNotificationPush(ctx context.Context, device *mobileP
 		var result struct {
 			Status string `json:"status"`
 		}
-		err = s.mobilePushRelayRequest(ctx, "POST", "/v1/deliveries", grant, map[string]any{
+		payload := map[string]any{
 			"device_id": device.RelayDeviceID, "type": "notification", "item_id": strconv.FormatInt(n.ID, 10), "project_id": n.ProjectID, "badge": badge,
 			"idempotency_key": fmt.Sprintf("%s:%s:notification:%d", s.mobilePushInstanceRef(), device.ID, n.ID),
-		}, &result)
+		}
+		if preview := s.notificationPushPreview(device.UserID, n); preview != nil {
+			payload["preview"] = preview
+		}
+		err = s.mobilePushRelayRequest(ctx, "POST", "/v1/deliveries", grant, payload, &result)
+		// Older self-hosted relays reject unknown JSON fields before creating a
+		// receipt. Keep their existing generic delivery working after opt-in.
+		var legacyRelayError *mobilePushRelayError
+		if payload["preview"] != nil && errors.As(err, &legacyRelayError) && legacyRelayError.Status == 400 {
+			delete(payload, "preview")
+			err = s.mobilePushRelayRequest(ctx, "POST", "/v1/deliveries", grant, payload, &result)
+		}
 		if err == nil && result.Status != "sent" && result.Status != "delivered" {
 			err = fmt.Errorf("push relay delivery status: %s", result.Status)
 		}

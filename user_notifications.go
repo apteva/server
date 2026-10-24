@@ -63,6 +63,9 @@ type notificationSource struct {
 func (s *Store) migrateUserNotifications() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS user_notification_preferences (
  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, channels TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS user_notification_preview_preferences (
+ user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ mobile_preview TEXT NOT NULL DEFAULT 'hidden' CHECK(mobile_preview IN ('hidden','content')));
  CREATE TABLE IF NOT EXISTS user_notification_subscriptions (
  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
@@ -475,6 +478,8 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeJSON(w, map[string]any{"pending": pending, "failed": failed})
+	case "/previews":
+		s.handleNotificationPreviews(w, r, uid)
 	case "/preferences":
 		if r.Method == "GET" {
 			p, err := notificationPreferences(s.store.db, uid)
