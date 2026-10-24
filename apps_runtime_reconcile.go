@@ -127,6 +127,11 @@ func (m *appRuntimeManager) waitOperation(ref string) error {
 }
 
 func (m *appRuntimeManager) retryOperation(id string, installID int64) error {
+	finish, err := m.s.beginHostedWork()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	op, err := m.operation(id)
 	if err != nil || op.InstallID != installID {
 		return fmt.Errorf("operation not found")

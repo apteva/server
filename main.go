@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/apteva/server/apps/framework"
+	"github.com/apteva/server/internal/host"
 )
 
 func cloneQuarantineEnabled() bool {
@@ -81,6 +82,9 @@ func loadOrMintInstanceSecret(store *Store) string {
 }
 
 type Server struct {
+	handoffMu            sync.Mutex
+	handoffFrozen        bool
+	handoffWork          int
 	liveBindingLocks     sync.Map
 	liveBindingWorkers   sync.Map
 	automatic            automaticRuntime
@@ -267,6 +271,17 @@ func main() {
 	case serverModeHelp:
 		fmt.Println(serverUsage())
 		return
+	case serverModeHostProtocol:
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": host.Protocol, "version": CLIVersion, "existing_schema": true})
+		return
+	case serverModeHostCheckSchema:
+		identity, err := hostedDiskIdentity(os.Getenv("DB_PATH"), os.Getenv("DATA_DIR"))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(identity)
+		return
 	case serverModePreflight:
 		// Fast-exit health gate the CLI runs against a freshly-extracted
 		// binary before flipping the load-bearing bin/current symlink.
@@ -310,6 +325,13 @@ func main() {
 		}
 		return
 	}
+
+	hosted, err := enterHostedLifecycle()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "host lifecycle: %v\n", err)
+		os.Exit(1)
+	}
+	defer hosted.Close()
 
 	// Path defaults derive from APTEVA_HOME when it's set. This is
 	// the single source of truth for the v0.12+ install layout
@@ -419,19 +441,36 @@ func main() {
 	// If a snapshot was uploaded via /api/platform/restore, the server DB
 	// it shipped sits next to dbPath as <dbPath>.restored with a marker.
 	// Swap it in before opening the store. No-op when no restore is pending.
-	if err := applyPendingRecovery(dbPath); err != nil {
-		log.Fatalf("apply recovery: %v", err)
+	existingSchema := os.Getenv("APTEVA_HOST_EXISTING_SCHEMA") == "1"
+	if !existingSchema {
+		if err := applyPendingRecovery(dbPath); err != nil {
+			log.Fatalf("apply recovery: %v", err)
+		}
+		applyPendingRestore(dbPath)
+	} else if err := validateHostedSchema(dbPath, os.Getenv("APTEVA_HOST_SCHEMA_HASH")); err != nil {
+		log.Fatalf("host database identity: %v", err)
 	}
-	applyPendingRestore(dbPath)
-
-	store, err := NewStore(dbPath)
+	var store *Store
+	if existingSchema {
+		store, err = OpenExistingStore(dbPath)
+	} else {
+		store, err = NewStore(dbPath)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
 		os.Exit(1)
 	}
 	defer store.Close()
 
-	secret, err := LoadSecret(dataDir)
+	var secret []byte
+	if existingSchema {
+		secret = hosted.Secret()
+		if len(secret) != 32 {
+			err = fmt.Errorf("candidate has no verified existing encryption key")
+		}
+	} else {
+		secret, err = LoadSecret(dataDir)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load encryption key: %v\n", err)
 		os.Exit(1)
@@ -611,6 +650,7 @@ func main() {
 	s.installCapabilityMemoryHooks()
 	s.instanceHTTPS = newInstanceHTTPSManager(s)
 	s.ingressCerts = NewIngressCertManager(s)
+	hosted.Attach(s)
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
 	s.environments.server = s
@@ -636,7 +676,7 @@ func main() {
 	// per provider-backed user makes updates noisy and can emit a burst of
 	// telemetry before anyone asks for dashboard help. Keep an
 	// opt-in escape hatch for deployments that prefer warm helpers.
-	if !quarantined && envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
+	if !quarantined && hosted == nil && envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
 		go s.bootMetaAgents()
 	}
 
@@ -1489,7 +1529,15 @@ func main() {
 	// disconnected" on every page reload until manual reconnect.
 	resumeInstancesAfterApps := func() {
 		if !quarantined {
-			go s.ResumeRunningInstances()
+			if hosted != nil && existingSchema {
+				if err := s.adoptHostedAgents(); err != nil {
+					log.Fatalf("[HOST] preserving existing cores; handoff adoption failed: %v", err)
+				}
+			} else if hosted != nil {
+				s.ResumeRunningInstances()
+			} else {
+				go s.ResumeRunningInstances()
+			}
 		}
 	}
 
@@ -1632,6 +1680,9 @@ func main() {
 		}
 	}
 	listenAddr := bindAddr + ":" + port
+	if backend := os.Getenv("APTEVA_HOST_BACKEND_ADDR"); backend != "" {
+		listenAddr = backend
+	}
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "listen %s: %v\n", listenAddr, err)
@@ -1640,7 +1691,7 @@ func main() {
 	fmt.Fprintf(os.Stderr, "apteva-server listening on %s\n", listenAddr)
 	drain := newRequestDrain(hostRouter)
 	httpServer := &http.Server{
-		Handler:           drain,
+		Handler:           hostedIngress(drain),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Minute,
 		IdleTimeout:       120 * time.Second,
@@ -1654,6 +1705,14 @@ func main() {
 		}
 	}()
 	httpIngressAddr, httpsIngressAddr := ingressListenAddrs(listenAddr)
+	if hosted != nil {
+		if err := requestHostedListenerOwner("environment-http", httpIngressAddr, ""); err != nil {
+			log.Printf("[HOST] HTTP listeners: %v", err)
+		}
+		if err := requestHostedListenerOwner("environment-https", "", httpsIngressAddr); err != nil {
+			log.Printf("[HOST] HTTPS listeners: %v", err)
+		}
+	}
 	if !quarantined && s.ingressCerts != nil && httpsIngressAddr != "" {
 		s.ingressCerts.Start(60 * time.Second)
 	}
@@ -1724,7 +1783,8 @@ func main() {
 	// Apps are healthy and the installedApps registry is populated.
 	// Now safe to spawn agents — their MCP proxies will resolve.
 	resumeInstancesAfterApps()
-	if !quarantined {
+	if !quarantined && hosted != nil && !existingSchema && envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
+		go s.bootMetaAgents()
 	}
 	runtimeCtx, stopRuntimeMonitor := context.WithCancel(context.Background())
 	defer stopRuntimeMonitor()
@@ -1765,9 +1825,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — shutting down\n", sig)
 		intent := s.readLifecycleIntent(false)
 		shutdownPolicy := s.resolvedShutdownPolicy(intent)
+		if hostedPreserve(hosted) {
+			shutdownPolicy = "preserve"
+		}
 		preserveAgents := shutdownPolicy == "preserve" || shutdownPolicy == "rolling"
 		log.Printf("[LIFECYCLE] shutdown reason=%s agent_policy=%s", map[bool]string{true: intent.Reason, false: "stop"}[intent.Reason != ""], shutdownPolicy)
-		if preserveAgents {
+		if preserveAgents && !hostedPreserve(hosted) {
 			if rows, err := s.store.ListAgentsByStatus("running"); err == nil {
 				for i := range rows {
 					if rows[i].Kind != "" && rows[i].Kind != "user" {
@@ -1776,7 +1839,7 @@ func main() {
 				}
 			}
 		}
-		if stopped, err := s.store.MarkPlatformAgentsStoppedForShutdown(); err != nil {
+		if stopped, err := markPlatformAgentsForShutdown(s.store, hostedPreserve(hosted)); err != nil {
 			log.Printf("[SHUTDOWN] mark platform agents stopped: %v", err)
 		} else if stopped > 0 {
 			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
@@ -1796,7 +1859,7 @@ func main() {
 		} else {
 			s.agents.StopAll(5 * time.Second)
 		}
-		if s.environments != nil {
+		if s.environments != nil && !hostedPreserve(hosted) {
 			s.environments.StopAll()
 		}
 		// Sidecars are spawned with Setpgid; StopAll fans out SIGTERM
@@ -1807,7 +1870,7 @@ func main() {
 		if s.appRuntime != nil {
 			s.appRuntime.Close()
 		}
-		if s.localApps != nil {
+		if s.localApps != nil && !hostedPreserve(hosted) {
 			s.localApps.StopAll(5 * time.Second)
 		}
 		if s.mcpManager != nil {

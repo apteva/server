@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -543,6 +544,11 @@ func (n *instanceHTTPSManager) bind(handler http.Handler, primaryHTTP, existingH
 	n.mu.RLock()
 	active := n.state.Active
 	n.mu.RUnlock()
+	if os.Getenv("APTEVA_HOST_SOCKET") != "" && (active == nil || active.Mode == "proxy") {
+		if err := requestHostedListeners("", ""); err != nil {
+			n.phase("error", err.Error())
+		}
+	}
 	if active != nil && active.Mode != "proxy" {
 		if err := n.ensureListeners(*active); err != nil {
 			n.phase("error", err.Error())
@@ -587,6 +593,18 @@ func (n *instanceHTTPSManager) ensureListeners(c instanceHTTPSConfig) error {
 	}
 	if n.httpsServer != nil && n.boundHTTPS != c.HTTPSPort {
 		return fmt.Errorf("an HTTPS listener already uses port %d; retain that port and adjust external forwarding if needed", n.boundHTTPS)
+	}
+	if os.Getenv("APTEVA_HOST_SOCKET") != "" {
+		httpAddr := ""
+		if c.Mode == "direct" {
+			httpAddr = ":" + strconv.Itoa(c.HTTPPort)
+		}
+		if err := requestHostedListeners(httpAddr, ":"+strconv.Itoa(c.HTTPSPort)); err != nil {
+			return err
+		}
+		n.boundHTTP = c.HTTPPort
+		n.boundHTTPS = c.HTTPSPort
+		return nil
 	}
 	if n.existingHTTPS == "" && n.httpsServer == nil {
 		listener, err := net.Listen("tcp", ":"+strconv.Itoa(c.HTTPSPort))

@@ -130,10 +130,11 @@ type agentRolloutStatus struct {
 }
 
 type agentRolloutCoordinator struct {
-	mu     sync.RWMutex
-	status agentRolloutStatus
-	cancel context.CancelFunc
-	runOne func(context.Context, int64) error
+	handoff bool
+	mu      sync.RWMutex
+	status  agentRolloutStatus
+	cancel  context.CancelFunc
+	runOne  func(context.Context, int64) error
 }
 
 func newAgentRolloutCoordinator(runOne func(context.Context, int64) error) *agentRolloutCoordinator {
@@ -158,6 +159,10 @@ func (r *agentRolloutCoordinator) start(ids []int64, names map[int64]string, sco
 		return r.snapshot(), errors.New("no running agents require a core update")
 	}
 	r.mu.Lock()
+	if r.handoff {
+		r.mu.Unlock()
+		return agentRolloutStatus{}, errors.New("platform handoff is in progress")
+	}
 	if r.status.State == "running" {
 		r.mu.Unlock()
 		return agentRolloutStatus{}, errors.New("a core rollout is already running")
@@ -400,6 +405,10 @@ func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, p
 // reattachManagedAgent applies the same durable activation contract when a
 // replacement server adopts a core that survived the old server process.
 func (s *Server) reattachManagedAgent(inst *Agent, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+	return s.reattachManagedAgentMode(inst, false, channelConfigs...)
+}
+
+func (s *Server) reattachManagedAgentMode(inst *Agent, preserveOnFailure bool, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
 	unlockConfig := s.lockAgentConfig(inst.ID)
 	err := s.refreshAgentAppMCPConfigs(inst)
 	unlockConfig()
@@ -411,7 +420,9 @@ func (s *Server) reattachManagedAgent(inst *Agent, channelConfigs ...ChannelConf
 	}
 	info, err := s.syncAgentRuntime(inst, agentRuntimeStartupTimeout, true)
 	if err != nil {
-		s.abandonUnsyncedAgentRuntime(inst)
+		if !preserveOnFailure {
+			s.abandonUnsyncedAgentRuntime(inst)
+		}
 		return coreRuntimeInfo{}, err
 	}
 	unlockBehavior := s.lockAgentConfig(inst.ID)

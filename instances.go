@@ -2405,7 +2405,7 @@ func (s *Server) ResumeRunningInstances() {
 	if s.startupIntent.Reason != "" {
 		resumePolicy = s.resolvedShutdownPolicy(s.startupIntent)
 	}
-	reattachEnabled := resumePolicy != "restart"
+	reattachEnabled := resumePolicy != "restart" || os.Getenv("APTEVA_HOST_SOCKET") != ""
 	if providerAuthRefreshEnvEnabled() && s.store.RunningAgentsUseCodexProvider() {
 		result := s.refreshExpiringCodexProviders(context.Background(), codexProviderRefreshSkew, false)
 		if result.ProvidersRefreshed+result.ConnectionsRefreshed > 0 && disableCoreReattachForCodexRefresh() {

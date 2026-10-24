@@ -601,7 +601,7 @@ func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stder
 
 	cmd := exec.CommandContext(ctx, record.Command, args...)
 	if inheritEnv {
-		cmd.Env = os.Environ()
+		cmd.Env = withoutHostedEnvironment(os.Environ())
 	} else {
 		cmd.Env = []string{}
 	}
