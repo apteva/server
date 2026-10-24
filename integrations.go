@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	sdk "github.com/apteva/app-sdk"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -207,22 +208,22 @@ type AppHealthCheck struct {
 
 // IntegrationUIComponent mirrors @apteva/integrations/src/types.ts
 // UIComponent. We keep the Go side as map[string]any for the schema
-// because we never inspect the schema server-side beyond rendering it
-// in the agent-facing description — the dashboard's runtime is the
-// authority for prop validation.
+// to preserve the portable schema shape. Widget settings use the shared SDK
+// primitive validator; component props remain owned by the renderer.
 type IntegrationUIComponent struct {
-	Name             string         `json:"name"`
-	Entry            string         `json:"entry"`
-	Slots            []string       `json:"slots,omitempty"`
-	SupportedSizes   []string       `json:"supported_sizes,omitempty"`
-	DefaultSize      string         `json:"default_size,omitempty"`
-	Visibility       string         `json:"visibility,omitempty"`
-	DashboardScopes  []string       `json:"dashboard_scopes,omitempty"`
-	RecommendedViews []string       `json:"recommended_views,omitempty"`
-	RefreshTopics    []string       `json:"refresh_topics,omitempty"`
-	PropsSchema      map[string]any `json:"props_schema,omitempty"`
-	SettingsSchema   map[string]any `json:"settings_schema,omitempty"`
-	PreviewProps     map[string]any `json:"preview_props,omitempty"`
+	Name             string                `json:"name"`
+	Entry            string                `json:"entry"`
+	Slots            []string              `json:"slots,omitempty"`
+	SupportedSizes   []string              `json:"supported_sizes,omitempty"`
+	DefaultSize      string                `json:"default_size,omitempty"`
+	Visibility       string                `json:"visibility,omitempty"`
+	DashboardScopes  []string              `json:"dashboard_scopes,omitempty"`
+	RecommendedViews []string              `json:"recommended_views,omitempty"`
+	RefreshTopics    []string              `json:"refresh_topics,omitempty"`
+	PropsSchema      map[string]any        `json:"props_schema,omitempty"`
+	SettingsUI       *sdk.WidgetSettingsUI `json:"settings_ui,omitempty"`
+	SettingsSchema   map[string]any        `json:"settings_schema,omitempty"`
+	PreviewProps     map[string]any        `json:"preview_props,omitempty"`
 }
 
 // IntegrationExplorerConfig mirrors @apteva/integrations/src/types.ts.

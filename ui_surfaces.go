@@ -24,6 +24,7 @@ type dashboardWidgetNativeRenderer struct {
 }
 
 type dashboardWidgetDefinition struct {
+	HostUI          *sdk.HostUI                    `json:"host_ui,omitempty"`
 	Component       string                         `json:"component"`
 	Kind            string                         `json:"kind"`
 	App             string                         `json:"app,omitempty"`
@@ -35,6 +36,7 @@ type dashboardWidgetDefinition struct {
 	SupportedSizes  []string                       `json:"supported_sizes"`
 	DefaultSize     string                         `json:"default_size"`
 	DefaultSettings map[string]any                 `json:"default_settings,omitempty"`
+	SettingsUI      *sdk.WidgetSettingsUI          `json:"settings_ui,omitempty"`
 	SettingsSchema  map[string]any                 `json:"settings_schema,omitempty"`
 	RefreshTopics   []string                       `json:"refresh_topics,omitempty"`
 	Suggested       bool                           `json:"suggested,omitempty"`
@@ -140,6 +142,7 @@ func (s *Server) installedWidgetDefinitionsForSlot(projectID, slot string, nativ
 				label = component.Name
 			}
 			definition := dashboardWidgetDefinition{
+				HostUI:    component.HostUI,
 				Component: app.AppName + ":" + component.Name,
 				Kind:      "app", App: app.AppName, InstallID: app.InstallID,
 				Label: label, Description: component.Description,
@@ -147,8 +150,8 @@ func (s *Server) installedWidgetDefinitionsForSlot(projectID, slot string, nativ
 				IconStyle:      app.Manifest.IconStyle,
 				SupportedSizes: sizes, DefaultSize: normalizedDashboardWidgetDefaultSize(component, sizes),
 				DefaultSettings: dashboardWidgetDefaultSettings(component.SettingsSchema),
-				SettingsSchema:  component.SettingsSchema,
-				RefreshTopics:   component.RefreshTopics, Suggested: component.Suggested,
+				SettingsSchema:  component.SettingsSchema, SettingsUI: component.SettingsUI,
+				RefreshTopics: component.RefreshTopics, Suggested: component.Suggested,
 				ProjectSurfaces: app.Manifest.Provides.UISurfaces,
 			}
 			if component.Native != nil {

@@ -23,13 +23,14 @@ import (
 var projectPresetFiles embed.FS
 
 type ProjectPresetAgent struct {
-	Icon        string   `json:"icon,omitempty"`
-	Key         string   `json:"key"`
-	Name        string   `json:"name"`
-	Directive   string   `json:"directive"`
-	Mode        string   `json:"mode"`
-	Unconscious bool     `json:"unconscious,omitempty"`
-	Apps        []string `json:"apps,omitempty"`
+	Capabilities []AgentCapability `json:"capabilities,omitempty"`
+	Icon         string            `json:"icon,omitempty"`
+	Key          string            `json:"key"`
+	Name         string            `json:"name"`
+	Directive    string            `json:"directive"`
+	Mode         string            `json:"mode"`
+	Unconscious  bool              `json:"unconscious,omitempty"`
+	Apps         []string          `json:"apps,omitempty"`
 }
 
 // Preset layouts are portable: agent_key refers to a preset agent, never a database ID.
@@ -49,6 +50,7 @@ type ProjectPresetConnection struct {
 }
 
 type ProjectPreset struct {
+	Recommended     bool                      `json:"recommended,omitempty"`
 	Setup           []ProjectPresetSetupStep  `json:"setup,omitempty"`
 	Layouts         *ProjectPresetLayouts     `json:"layouts,omitempty"`
 	Connections     []ProjectPresetConnection `json:"connections,omitempty"`
@@ -203,6 +205,9 @@ func validateProjectPreset(preset ProjectPreset) error {
 		if !validAgentMode(agent.Mode) {
 			return fmt.Errorf("preset %q agent %q has invalid mode %q", preset.ID, agent.Key, agent.Mode)
 		}
+		if err := validateAgentCapabilities(agent.Capabilities); err != nil {
+			return fmt.Errorf("preset %q agent %q: %w", preset.ID, agent.Key, err)
+		}
 		seenAgents[agent.Key] = true
 		seenApps := map[string]bool{}
 		for _, app := range agent.Apps {
@@ -266,14 +271,15 @@ type ProjectPresetAppPreview struct {
 }
 
 type ProjectPresetAgentPreview struct {
-	Icon          string   `json:"icon,omitempty"`
-	Key           string   `json:"key"`
-	Name          string   `json:"name"`
-	Directive     string   `json:"directive"`
-	Mode          string   `json:"mode"`
-	Unconscious   bool     `json:"unconscious"`
-	Apps          []string `json:"apps,omitempty"`
-	AppInstallIDs []int64  `json:"app_install_ids,omitempty"`
+	Capabilities  []AgentCapability `json:"capabilities,omitempty"`
+	Icon          string            `json:"icon,omitempty"`
+	Key           string            `json:"key"`
+	Name          string            `json:"name"`
+	Directive     string            `json:"directive"`
+	Mode          string            `json:"mode"`
+	Unconscious   bool              `json:"unconscious"`
+	Apps          []string          `json:"apps,omitempty"`
+	AppInstallIDs []int64           `json:"app_install_ids,omitempty"`
 }
 
 type ProjectPresetPreview struct {
@@ -366,7 +372,7 @@ func (s *Server) compileProjectPresetPreview(ctx context.Context, userID int64, 
 		agent := ProjectPresetAgentPreview{
 			Key: spec.Key, Icon: spec.Icon, Name: expandPresetTemplate(spec.Name, templateValues),
 			Directive: expandPresetTemplate(spec.Directive, templateValues),
-			Mode:      spec.Mode, Unconscious: spec.Unconscious,
+			Mode:      spec.Mode, Unconscious: spec.Unconscious, Capabilities: spec.Capabilities,
 		}
 		for _, name := range spec.Apps {
 			agent.Apps = append(agent.Apps, name)
@@ -577,7 +583,7 @@ func deterministicProjectPreset(category, purpose string, presets []ProjectPrese
 				score += 4 + strings.Count(term, " ")
 			}
 		}
-		if score > bestScore {
+		if score > bestScore || (score == bestScore && preset.Recommended && !best.Recommended) {
 			bestScore, best = score, preset
 		}
 	}
@@ -917,6 +923,8 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		return
 	}
 	warnings := append([]string(nil), preview.Warnings...)
+	priorAgents, priorAgentsErr := s.store.ListAgentsInProject(projectID)
+	newWorkspace := priorAgentsErr == nil && len(priorAgents) == 0
 
 	agentIDs := map[string]int64{}
 	created := []Agent{}
@@ -942,6 +950,7 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 			"name": agent.Name, "directive": agent.Directive, "mode": agent.Mode, "icon": agent.Icon,
 			"project_id": projectID, "start": true, "unconscious": agent.Unconscious,
 			"bound_app_install_ids": agent.AppInstallIDs,
+			"capabilities":          agent.Capabilities,
 			"idempotency_key":       "preset:" + body.PresetID + ":" + agent.Key,
 		}
 		raw, _ := json.Marshal(payload)
@@ -976,6 +985,11 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		warnings = append(warnings, setupErr.Error())
 	}
 	warnings = append(warnings, s.applyPresetLayouts(getUserID(r), projectID, preview, agentIDs)...)
+	if newWorkspace && len(created) == 1 && len(preview.Agents) == 1 {
+		if err := s.initializeStarterAssistant(getUserID(r), projectID, created[0].ID); err != nil {
+			warnings = append(warnings, "Assistant preference: "+err.Error())
+		}
+	}
 	if len(created)+len(existing) > 0 {
 		if err := s.rememberOnboardingPreset(getUserID(r), projectID, preview); err != nil {
 			warnings = append(warnings, "Could not save the setup recommendation: "+err.Error())
@@ -1047,6 +1061,11 @@ func cleanPresetText(value string, limit int) string {
 // reused agents rather than treating a newly installed app as already usable.
 func (s *Server) presetExistingAgentWarnings(agentID int64, expected ProjectPresetAgentPreview) []string {
 	warnings := []string{}
+	if len(expected.Capabilities) > 0 {
+		if agent, err := s.store.GetAgentByID(agentID); err == nil && !platformMCPAttached(agent) {
+			warnings = append(warnings, expected.Name+" is preserved; Apteva Server management access has not been added. Review its Capabilities settings to opt in.")
+		}
+	}
 	for _, installID := range expected.AppInstallIDs {
 		var bound int
 		err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE agent_id=? AND install_id=? AND enabled=1`, agentID, installID).Scan(&bound)

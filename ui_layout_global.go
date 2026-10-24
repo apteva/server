@@ -34,6 +34,10 @@ func (s *Server) handleUILayoutGlobalSurface(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "surface value must be an array", http.StatusBadRequest)
 			return
 		}
+		if err := s.validateChangedWidgetSettings(userID, "", surface, body.Value, true); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		layout, revision, err := s.store.PatchUserUILayoutGlobalSurface(userID, surface, body.Value)
 		if errors.Is(err, errUILayoutConflict) {
 			writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "layout changed in another session", "ui_layout": layout, "revision": revision})

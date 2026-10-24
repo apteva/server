@@ -50,6 +50,10 @@ func (s *Server) handleUILayoutSurface(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "surface value must be an array", http.StatusBadRequest)
 			return
 		}
+		if err := s.validateChangedWidgetSettings(userID, projectID, surface, body.Value, false); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		var expected *int64
 		if raw := strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`); raw != "" && raw != "*" {
 			value, err := strconv.ParseInt(raw, 10, 64)

@@ -105,6 +105,11 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := s.checkPlatformToolGrant(agent, body); err != nil {
+		writePlatformGatewayToolError(w, body, err)
+		return
+	}
+
 	execute := s.platformGatewayExec
 	if execute == nil {
 		execute = s.executePlatformGatewaySubprocess
@@ -135,12 +140,13 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(response, &reply) == nil {
 			if result, ok := reply["result"].(map[string]any); ok {
 				list, _ := result["tools"].([]any)
-				if projectID != "" {
+				_, restricted := platformToolPolicy(agent)
+				if projectID != "" || restricted {
 					filtered := make([]any, 0, len(list))
 					for _, raw := range list {
 						tool, _ := raw.(map[string]any)
 						name, _ := tool["name"].(string)
-						if projectConversationGatewayTools[name] {
+						if (projectID == "" || projectConversationGatewayTools[name]) && platformToolAllowed(agent, name) {
 							filtered = append(filtered, raw)
 						}
 					}

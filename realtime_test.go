@@ -209,13 +209,23 @@ func TestRealtimeAudioProxyAuthenticatesAndPreservesFrameTypes(t *testing.T) {
 	if err != nil || typ != websocket.BinaryMessage || string(payload) != string([]byte{1, 2, 3}) {
 		t.Fatalf("binary roundtrip type=%d payload=%v err=%v", typ, payload, err)
 	}
-	control := `{"type":"interrupt"}`
-	if err := client.WriteMessage(websocket.TextMessage, []byte(control)); err != nil {
-		t.Fatal(err)
-	}
-	typ, payload, err = client.ReadMessage()
-	if err != nil || typ != websocket.TextMessage || string(payload) != control {
-		t.Fatalf("text roundtrip type=%d payload=%q err=%v", typ, payload, err)
+	for _, control := range []string{
+		`{"type":"interrupt"}`,
+		`{"type":"playback.ready"}`,
+		`{"type":"audio.frame","item_id":"A","audio_end_ms":800,"silence":true}`,
+		`{"type":"interrupt","item_id":"A","reason":"renderer_speech_started"}`,
+		`{"type":"playback.progress","item_id":"A","audio_end_ms":320}`,
+		`{"type":"playback.cleared","item_id":"A"}`,
+		`{"type":"input.speech_started"}`,
+		`{"type":"input.speech_stopped"}`,
+	} {
+		if err := client.WriteMessage(websocket.TextMessage, []byte(control)); err != nil {
+			t.Fatal(err)
+		}
+		typ, payload, err = client.ReadMessage()
+		if err != nil || typ != websocket.TextMessage || string(payload) != control {
+			t.Fatalf("text roundtrip type=%d payload=%q err=%v", typ, payload, err)
+		}
 	}
 
 	if got := <-authSeen; got != "Bearer core-secret" {

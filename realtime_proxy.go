@@ -174,6 +174,9 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	query := coreURL.Query()
 	query.Set("thread", threadID)
 	query.Set("token", token)
+	if r.URL.Query().Get("audio_protocol") == "1" {
+		query.Set("audio_protocol", "1")
+	}
 	coreURL.RawQuery = query.Encode()
 	trace := newWebsocketProxyTrace(s, r, "realtime.proxy", agentID, threadID, websocketProxyMetadata{Proxy: "realtime_audio"})
 	stopWatch := trace.watch(r)
@@ -205,7 +208,20 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	trace.setCloser("backend", coreConn)
 	defer func() { trace.requestClose("backend", "close", "", ""); _ = coreConn.Close() }()
 
-	clientConn, err := realtimeProxyUpgrader.Upgrade(w, r, http.Header{proxyConnectionIDHeader: {trace.id}})
+	responseHeader := http.Header{proxyConnectionIDHeader: {trace.id}}
+	writeBudget := 15 * time.Second
+	if response != nil && r.URL.Query().Get("audio_protocol") == "1" {
+		contract := response.Header.Get("X-Apteva-Audio-Session")
+		if len(contract) > 4096 {
+			http.Error(w, "invalid audio session contract", http.StatusBadGateway)
+			return
+		}
+		if contract != "" {
+			responseHeader.Set("X-Apteva-Audio-Session", contract)
+			writeBudget = 250 * time.Millisecond
+		}
+	}
+	clientConn, err := realtimeProxyUpgrader.Upgrade(w, r, responseHeader)
 	if err != nil {
 		trace.emit("failed", time.Now(), map[string]any{"stage": "client_upgrade", "error": proxyTransportError(err), "category": realtimeProxyErrorCategory(err)})
 		return
@@ -291,7 +307,7 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 				finish("read", srcSide, err, dst)
 				return
 			}
-			_ = dst.SetWriteDeadline(time.Now().Add(15 * time.Second))
+			_ = dst.SetWriteDeadline(time.Now().Add(writeBudget))
 			writeStart := time.Now()
 			err = dst.WriteMessage(messageType, payload)
 			leg = "client"
