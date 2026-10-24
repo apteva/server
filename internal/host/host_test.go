@@ -107,6 +107,11 @@ func TestHostProcess(t *testing.T) {
 
 func fixture(t *testing.T) (*Host, *http.Client, string, Candidate) {
 	t.Helper()
+	h, c, url, candidate, _ := fixtureWithStopped(t)
+	return h, c, url, candidate
+}
+func fixtureWithStopped(t *testing.T) (*Host, *http.Client, string, Candidate, <-chan struct{}) {
+	t.Helper()
 	home, err := os.MkdirTemp(hostTestTempRoot(), "apteva-host-test-")
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +143,8 @@ func fixture(t *testing.T) (*Host, *http.Client, string, Candidate) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- h.Run(ctx) }()
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); done <- h.Run(ctx) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -163,7 +169,7 @@ func fixture(t *testing.T) (*Host, *http.Client, string, Candidate) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	return h, c, "http://" + addr, Candidate{Binary: binaries["2.0.0"], Version: "2.0.0"}
+	return h, c, "http://" + addr, Candidate{Binary: binaries["2.0.0"], Version: "2.0.0"}, stopped
 }
 func waitJob(t *testing.T, c *http.Client) State {
 	t.Helper()
@@ -509,7 +515,7 @@ func hostTestTempRoot() string {
 }
 
 func TestCleanHostRestartUsesCommittedVersion(t *testing.T) {
-	h, c, url, candidate := fixture(t)
+	h, c, url, candidate, stopped := fixtureWithStopped(t)
 	if err := Call(context.Background(), c, "POST", "/deploy", candidate, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -527,6 +533,13 @@ func TestCleanHostRestartUsesCommittedVersion(t *testing.T) {
 			t.Fatal("clean stop was not journaled")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	// CleanStop is journaled before Run's final lock-release defer. A supervisor
+	// restarts only once the previous host has exited, so wait for that boundary.
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("previous host did not exit")
 	}
 	// The launch command can still point at an older symlink after a client
 	// crash. The committed host journal remains authoritative on restart.
