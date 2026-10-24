@@ -27,6 +27,7 @@ import (
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
 type AppRow struct {
+	AgentSetup          *sdk.AgentSetup           `json:"agent_setup,omitempty"`
 	Deployment          *runtimeDeploymentSummary `json:"deployment,omitempty"`
 	InstallID           int64                     `json:"install_id"`
 	AppID               int64                     `json:"app_id"`
@@ -129,21 +130,22 @@ type AppDependency struct {
 
 // RegistryEntry — one row in the marketplace registry.json.
 type RegistryEntry struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"display_name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Author      string   `json:"author"`
-	Repo        string   `json:"repo"`
-	ManifestURL string   `json:"manifest_url"`
-	Icon        string   `json:"icon"`
-	IconStyle   string   `json:"icon_style,omitempty"`
-	Tags        []string `json:"tags"`
-	Official    bool     `json:"official"`
-	Category    string   `json:"category"`
-	Deprecated  bool     `json:"deprecated,omitempty"`
-	Deprecation string   `json:"deprecation,omitempty"`
-	Replacement string   `json:"replacement,omitempty"`
+	AgentSetup  *sdk.AgentSetup `json:"agent_setup,omitempty"`
+	Name        string          `json:"name"`
+	DisplayName string          `json:"display_name"`
+	Version     string          `json:"version"`
+	Description string          `json:"description"`
+	Author      string          `json:"author"`
+	Repo        string          `json:"repo"`
+	ManifestURL string          `json:"manifest_url"`
+	Icon        string          `json:"icon"`
+	IconStyle   string          `json:"icon_style,omitempty"`
+	Tags        []string        `json:"tags"`
+	Official    bool            `json:"official"`
+	Category    string          `json:"category"`
+	Deprecated  bool            `json:"deprecated,omitempty"`
+	Deprecation string          `json:"deprecation,omitempty"`
+	Replacement string          `json:"replacement,omitempty"`
 }
 
 // marketplaceSearchScore keeps direct app-name matches ahead of incidental
@@ -352,6 +354,9 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	categoryCounts := map[string]int{}
 	filtered := make([]RegistryEntry, 0, len(reg.Apps))
 	for _, e := range reg.Apps {
+		if sdk.ValidateAgentSetup(e.AgentSetup) != nil {
+			e.AgentSetup = nil
+		}
 		// Internal framework components use the app runtime as an
 		// implementation detail. They are neither installable products nor
 		// operator-managed inventory, so omit them from Marketplace too.
@@ -401,16 +406,19 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	versionByName := map[string]string{}
 	iconByName := map[string]string{}
 	iconStyleByName := map[string]string{}
+	agentSetupByName := map[string]*sdk.AgentSetup{}
 	for k, v := range builtinSurfaces {
 		surfacesByName[k] = v
 	}
 	{
 		type result struct {
-			name      string
-			surf      AppSurfaces
-			version   string
-			icon      string
-			iconStyle string
+			name       string
+			resolved   bool
+			agentSetup *sdk.AgentSetup
+			surf       AppSurfaces
+			version    string
+			icon       string
+			iconStyle  string
 		}
 		ch := make(chan result, len(reg.Apps))
 		dispatched := 0
@@ -430,17 +438,22 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				ch <- result{
-					name:      name,
-					surf:      surfacesFromManifest(m),
-					version:   m.Version,
-					icon:      resolveMarketplaceAppIcon(url, m.Icon),
-					iconStyle: m.IconStyle,
+					name:       name,
+					resolved:   true,
+					agentSetup: m.AgentSetup,
+					surf:       surfacesFromManifest(m),
+					version:    m.Version,
+					icon:       resolveMarketplaceAppIcon(url, m.Icon),
+					iconStyle:  m.IconStyle,
 				}
 			}(e.Name, e.ManifestURL)
 		}
 		for i := 0; i < dispatched; i++ {
 			r := <-ch
 			key := normalizeAppName(r.name)
+			if r.resolved {
+				agentSetupByName[key] = r.agentSetup
+			}
 			if _, hasBuiltin := surfacesByName[key]; !hasBuiltin {
 				surfacesByName[key] = r.surf
 			}
@@ -493,6 +506,9 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		}
 		if style, ok := iconStyleByName[key]; ok && style != "" {
 			e.IconStyle = style
+		}
+		if metadata, ok := agentSetupByName[key]; ok {
+			e.AgentSetup = metadata
 		}
 		out = append(out, entryWithStatus{
 			RegistryEntry: e,
@@ -810,6 +826,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, AppRow{
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
+			AgentSetup:        manifest.AgentSetup,
 			Bindings:          bindings,
 			HasPendingOptions: hasPendingOptions != 0,
 			Version:           version,
@@ -924,8 +941,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 						DashboardScopes:  c.DashboardScopes,
 						RefreshTopics:    c.RefreshTopics,
 						PropsSchema:      c.PropsSchema,
-						SettingsSchema:   c.SettingsSchema,
-						PreviewProps:     c.PreviewProps,
+						SettingsSchema:   c.SettingsSchema, SettingsUI: c.SettingsUI,
+						PreviewProps: c.PreviewProps,
 					})
 				}
 				icon := ""

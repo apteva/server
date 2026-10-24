@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -127,7 +128,13 @@ const (
 	sqliteMaxOpenConns  = 8
 )
 
-func NewStore(path string) (*Store, error) {
+func NewStore(path string) (*Store, error) { return openStore(path, true) }
+
+// OpenExistingStore never creates a new database or applies migrations. Hosted
+// candidates must prove compatibility before they can use this path.
+func OpenExistingStore(path string) (*Store, error) { return openStore(path, false) }
+
+func openStore(path string, migrate bool) (*Store, error) {
 	// _pragma= in the DSN applies to EVERY new connection
 	// modernc.org/sqlite opens, not just the one that happens to
 	// run an initial PRAGMA Exec. Pre-v0.12.4 the bare PRAGMA
@@ -144,6 +151,16 @@ func NewStore(path string) (*Store, error) {
 	// continued, but on a slower box or larger DB it could fail
 	// loud. URI form fixes it for every pooled connection.
 	dsn := path
+	if !migrate {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("existing database is not a regular file")
+		}
+		dsn = sqliteFileURI(path)
+	}
 	if !strings.Contains(dsn, "?") {
 		dsn += "?"
 	} else {
@@ -154,6 +171,9 @@ func NewStore(path string) (*Store, error) {
 	// writer reservation before any reads occur. A deferred transaction that
 	// reads and then upgrades to a writer can return SQLITE_BUSY immediately
 	// when a parallel write wins the reservation, bypassing busy_timeout.
+	if !migrate {
+		dsn += "mode=rw&"
+	}
 	dsn += fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate", sqliteBusyTimeoutMS)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -182,49 +202,51 @@ func NewStore(path string) (*Store, error) {
 	}
 
 	s := &Store{db: db, path: path}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if err := s.migrateAppRuntime(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateReviewFixes(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateTelemetryMetrics(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateTelemetryRollups(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateAppEventTargets(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateFileReferences(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateAppSetup(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateUserNotifications(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := s.migrateAsyncSubscriptions(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate async subscriptions: %w", err)
-	}
-	if err := s.migrateSubscriptionOutbox(); err != nil {
-		db.Close()
-		return nil, err
+	if migrate {
+		if err := s.migrate(); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		if err := s.migrateAppRuntime(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateReviewFixes(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateTelemetryMetrics(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateTelemetryRollups(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateAppEventTargets(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateFileReferences(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateAppSetup(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateUserNotifications(); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.migrateAsyncSubscriptions(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate async subscriptions: %w", err)
+		}
+		if err := s.migrateSubscriptionOutbox(); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	if s.apiKeyUsage, err = newAPIKeyUsageTracker(db); err != nil {
 		db.Close()

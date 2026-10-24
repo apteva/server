@@ -139,6 +139,9 @@ func presetAgentTemplates() ([]AgentTemplate, error) {
 			description, _, _ := strings.Cut(role, ". ")
 			description = strings.TrimSuffix(description, ".") + "."
 			directive := expandPresetTemplate(role, nil)
+			if len(agent.Capabilities) > 0 {
+				directive += "\n\nA standalone role does not inherit the workspace preset’s management grant. Use Apteva Server only if the operator has attached it; otherwise explain that management access must be enabled before creating agents."
+			}
 			directive += "\n\nUse the user's instructions and available project context to guide your work. Other roles mentioned above may not exist in this workspace. Collaborate only with agents that are actually available; otherwise handle work within your capabilities or explain what is missing. Never claim to have delegated work to an unavailable agent."
 			requirements := make([]Requirement, 0, len(agent.Apps))
 			for _, slug := range agent.Apps {

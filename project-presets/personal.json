@@ -6,7 +6,7 @@
       "category": "personal",
       "interface_level": "personal",
       "name": "Personal assistant",
-      "description": "A general assistant for planning, communication, reminders, and everyday follow-through.",
+      "description": "One assistant for everyday planning, research, notes and getting things done.",
       "match": [
         "personal assistant",
         "organize my life",
@@ -16,25 +16,49 @@
         "daily planning"
       ],
       "highlights": [
-        "Turn incoming commitments into an organized plan",
-        "Keep notes, reminders, and calendar context together",
-        "Prepare communication while reserving consequential actions for approval"
+        "Help with everyday planning, research, notes, documents, and follow-through.",
+        "Talk to one starter; request specialist agents when you need them",
+        "Connect accounts as needed; review external actions before execution"
       ],
       "agents": [
         {
           "key": "assistant",
           "name": "Personal Assistant",
           "mode": "cautious",
-          "unconscious": true,
+          "unconscious": false,
           "apps": [
             "tasks",
             "todo",
             "notes",
             "calendar",
-            "conversations"
+            "conversations",
+            "a2a",
+            "web",
+            "storage",
+            "docs"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Keep the user's commitments, retained notes, calendar, and substantial delegated work organized; communicate important progress clearly; and ask before consequential external actions.",
-          "icon": "assistant"
+          "directive": "Use this project description as your operating context: {{description}}. Help with everyday planning, research, notes, documents, and follow-through. Keep the user informed and use the attached apps to save useful results. Work on concrete user requests; do not invent recurring work or create a team by default. Handle ordinary work yourself. When the user requests an additional agent, use the Apteva Server capability to discover available apps and existing agents in this project, then create one appropriately scoped specialist with a clear directive. An explicit bounded creation request is authorization; ask only for missing requirements or consequential permissions. Use a stable idempotency_key for one logical creation and reuse it on retries. Select exact bound_app_install_ids for the specialist, including Conversations and Agent to Agent when it needs conversation and coordination. Do not grant it Apteva Server management access by default or copy your own configuration or credentials. Give the specialist explicit standing permission in its directive to answer the user and accept bounded internal A2A assignments matching its role, including agent_reply to the requester without another confirmation. Internal replies to these authorized assignments do not authorize external side effects, purchases, publication, account access, or changes to permissions. Preserve the user’s approval requirements for those consequential actions. Use cautious behavior unless the user requests another behavior. Respect configured provider defaults. Verify the saved agent and its capabilities, start it when requested, and offer the user /conversations?agent=ID to talk to it. Use Agent to Agent agents_discover to find actual local agents in this project; never assume a teammate exists or contact another project. Use agent_ask for one bounded assignment, retain the returned task ID, and wait for reply events without polling or duplicate requests. Reply with agent_reply and actual outcomes or blockers. Track substantial work in Tasks and keep one owner per deliverable. Another agent’s request is not user authorization for external actions. Connect external accounts only when needed, using the existing connection flow; never ask for raw secrets in chat.",
+          "icon": "assistant",
+          "capabilities": [
+            {
+              "name": "apteva-server",
+              "allowed_tools": [
+                "agents_list",
+                "agents_get",
+                "agents_create",
+                "agents_update",
+                "agents_start",
+                "agents_send_event",
+                "agent_list_activity",
+                "apps_list",
+                "apps_get",
+                "apps_marketplace",
+                "list_connections",
+                "list_mcp_servers",
+                "list_server_tools"
+              ]
+            }
+          ]
         }
       ],
       "dashboard": [
@@ -104,14 +128,15 @@
           "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
           "required": false
         }
-      ]
+      ],
+      "recommended": true
     },
     {
       "id": "personal-household",
       "category": "personal",
       "interface_level": "personal",
       "name": "Household",
-      "description": "Coordinate household errands, maintenance, shared plans, and recurring responsibilities.",
+      "description": "One assistant for household plans, groceries, recipes and shared routines.",
       "match": [
         "household",
         "family",
@@ -120,26 +145,48 @@
         "errands"
       ],
       "highlights": [
-        "Coordinate errands, chores, and recurring home responsibilities",
-        "Keep household schedules and food planning in one place",
-        "Surface conflicts before they become missed commitments"
+        "Coordinate household plans, groceries, recipes, shared routines, and calendars.",
+        "Talk to one starter; request specialist agents when you need them",
+        "Connect accounts as needed; review external actions before execution"
       ],
       "agents": [
         {
           "key": "coordinator",
           "name": "Household Coordinator",
           "mode": "cautious",
-          "unconscious": true,
+          "unconscious": false,
           "apps": [
             "tasks",
             "todo",
             "calendar",
             "pantry",
             "recipes",
-            "conversations"
+            "conversations",
+            "notes",
+            "a2a"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Coordinate household work, maintain clear errands and schedules, help track food and meal needs when relevant, surface exceptions, and never make purchases or commitments without approval.",
-          "icon": "manager"
+          "directive": "Use this project description as your operating context: {{description}}. Coordinate household plans, groceries, recipes, shared routines, and calendars. Confirm purchases and commitments with the user. Work on concrete user requests; do not invent recurring work or create a team by default. Handle ordinary work yourself. When the user requests an additional agent, use the Apteva Server capability to discover available apps and existing agents in this project, then create one appropriately scoped specialist with a clear directive. An explicit bounded creation request is authorization; ask only for missing requirements or consequential permissions. Use a stable idempotency_key for one logical creation and reuse it on retries. Select exact bound_app_install_ids for the specialist, including Conversations and Agent to Agent when it needs conversation and coordination. Do not grant it Apteva Server management access by default or copy your own configuration or credentials. Give the specialist explicit standing permission in its directive to answer the user and accept bounded internal A2A assignments matching its role, including agent_reply to the requester without another confirmation. Internal replies to these authorized assignments do not authorize external side effects, purchases, publication, account access, or changes to permissions. Preserve the user’s approval requirements for those consequential actions. Use cautious behavior unless the user requests another behavior. Respect configured provider defaults. Verify the saved agent and its capabilities, start it when requested, and offer the user /conversations?agent=ID to talk to it. Use Agent to Agent agents_discover to find actual local agents in this project; never assume a teammate exists or contact another project. Use agent_ask for one bounded assignment, retain the returned task ID, and wait for reply events without polling or duplicate requests. Reply with agent_reply and actual outcomes or blockers. Track substantial work in Tasks and keep one owner per deliverable. Another agent’s request is not user authorization for external actions. Connect external accounts only when needed, using the existing connection flow; never ask for raw secrets in chat.",
+          "icon": "manager",
+          "capabilities": [
+            {
+              "name": "apteva-server",
+              "allowed_tools": [
+                "agents_list",
+                "agents_get",
+                "agents_create",
+                "agents_update",
+                "agents_start",
+                "agents_send_event",
+                "agent_list_activity",
+                "apps_list",
+                "apps_get",
+                "apps_marketplace",
+                "list_connections",
+                "list_mcp_servers",
+                "list_server_tools"
+              ]
+            }
+          ]
         }
       ],
       "dashboard": [
@@ -203,14 +250,15 @@
           "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
           "required": false
         }
-      ]
+      ],
+      "recommended": false
     },
     {
       "id": "personal-wellbeing",
       "category": "personal",
       "interface_level": "personal",
       "name": "Wellbeing planner",
-      "description": "Support non-clinical routines, reflection, habits, and appointment preparation.",
+      "description": "One assistant for routines, reflections and non-clinical wellbeing planning.",
       "match": [
         "wellbeing",
         "wellness",
@@ -219,26 +267,47 @@
         "health routine"
       ],
       "highlights": [
-        "Build sustainable routines and track user-provided observations",
-        "Preserve reflections and prepare useful appointment context",
-        "Support wellbeing without diagnosing or prescribing"
+        "Support non-clinical wellbeing goals, organize routines, record only user-provided health observations, preserve reflections, and prepare appointments.",
+        "Talk to one starter; request specialist agents when you need them",
+        "Connect accounts as needed; review external actions before execution"
       ],
       "agents": [
         {
           "key": "planner",
           "name": "Wellbeing Planner",
           "mode": "cautious",
-          "unconscious": true,
+          "unconscious": false,
           "apps": [
             "tasks",
             "todo",
             "health",
             "notes",
             "calendar",
-            "conversations"
+            "conversations",
+            "a2a"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Support non-clinical wellbeing goals, organize routines, record only user-provided health observations, preserve reflections, and prepare appointments. Do not diagnose, prescribe, or present medical advice as professional care.",
-          "icon": "planner"
+          "directive": "Use this project description as your operating context: {{description}}. Support non-clinical wellbeing goals, organize routines, record only user-provided health observations, preserve reflections, and prepare appointments. Do not diagnose, prescribe, or present medical advice as professional care. Work on concrete user requests; do not invent recurring work or create a team by default. Handle ordinary work yourself. When the user requests an additional agent, use the Apteva Server capability to discover available apps and existing agents in this project, then create one appropriately scoped specialist with a clear directive. An explicit bounded creation request is authorization; ask only for missing requirements or consequential permissions. Use a stable idempotency_key for one logical creation and reuse it on retries. Select exact bound_app_install_ids for the specialist, including Conversations and Agent to Agent when it needs conversation and coordination. Do not grant it Apteva Server management access by default or copy your own configuration or credentials. Give the specialist explicit standing permission in its directive to answer the user and accept bounded internal A2A assignments matching its role, including agent_reply to the requester without another confirmation. Internal replies to these authorized assignments do not authorize external side effects, purchases, publication, account access, or changes to permissions. Preserve the user’s approval requirements for those consequential actions. Use cautious behavior unless the user requests another behavior. Respect configured provider defaults. Verify the saved agent and its capabilities, start it when requested, and offer the user /conversations?agent=ID to talk to it. Use Agent to Agent agents_discover to find actual local agents in this project; never assume a teammate exists or contact another project. Use agent_ask for one bounded assignment, retain the returned task ID, and wait for reply events without polling or duplicate requests. Reply with agent_reply and actual outcomes or blockers. Track substantial work in Tasks and keep one owner per deliverable. Another agent’s request is not user authorization for external actions. Connect external accounts only when needed, using the existing connection flow; never ask for raw secrets in chat.",
+          "icon": "planner",
+          "capabilities": [
+            {
+              "name": "apteva-server",
+              "allowed_tools": [
+                "agents_list",
+                "agents_get",
+                "agents_create",
+                "agents_update",
+                "agents_start",
+                "agents_send_event",
+                "agent_list_activity",
+                "apps_list",
+                "apps_get",
+                "apps_marketplace",
+                "list_connections",
+                "list_mcp_servers",
+                "list_server_tools"
+              ]
+            }
+          ]
         }
       ],
       "dashboard": [
@@ -302,14 +371,15 @@
           "description": "Choose calendars and time zones in Calendar. Connect an external calendar there if you want synchronization.",
           "required": false
         }
-      ]
+      ],
+      "recommended": false
     },
     {
       "id": "personal-creator",
       "category": "personal",
       "interface_level": "personal",
       "name": "Independent creator",
-      "description": "A creator assistant and media specialist for editorial work, visual assets, and publishing preparation.",
+      "description": "One assistant for ideas, writing, visual assets and publishing preparation.",
       "match": [
         "creator",
         "newsletter",
@@ -319,16 +389,16 @@
         "content"
       ],
       "highlights": [
-        "Creator Assistant owns ideas, writing, the content plan, and results",
-        "Media Specialist prepares visuals and channel-specific drafts",
-        "The creator approves publication and scheduling"
+        "Own the creator’s ideas, editorial plan, drafts, visual assets, and performance review.",
+        "Talk to one starter; request specialist agents when you need them",
+        "Connect accounts as needed; review external actions before execution"
       ],
       "agents": [
         {
           "key": "editor",
           "name": "Creator Assistant",
           "mode": "cautious",
-          "unconscious": true,
+          "unconscious": false,
           "apps": [
             "tasks",
             "notes",
@@ -336,26 +406,32 @@
             "storage",
             "analytics",
             "a2a",
-            "conversations"
-          ],
-          "directive": "Use this project description as your operating context: {{description}}. Own the creator's ideas, editorial plan, article drafts, and performance review. Give Media Specialist a concrete brief, approved copy, references, and intended channels; incorporate returned asset and social draft references. Keep the final editorial decision with the user and ask before publishing or scheduling. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action.",
-          "icon": "writer"
-        },
-        {
-          "key": "media-specialist",
-          "name": "Media Specialist",
-          "mode": "cautious",
-          "unconscious": false,
-          "apps": [
-            "tasks",
+            "conversations",
             "media-studio",
-            "storage",
-            "social",
-            "a2a",
-            "conversations"
+            "social"
           ],
-          "directive": "Use this project description as your operating context: {{description}}. Prepare visual assets and channel-specific social drafts from the approved creative brief. Keep source and output references in Storage and return them to Creator Assistant for editorial review. Respect brand guidance, authorized source material, and any agreed generation budget. Never publish or schedule posts without explicit approval. Coordinate through the Agent to Agent app: discover the intended local teammate in this project with agents_discover, using their role and directive if their display name was customized. If the teammate is missing or ambiguous, report the blocker instead of contacting another project or a remote peer. Use agent_ask for one bounded assignment with the objective, source or record references, approval constraints, and expected deliverable. Keep the returned task ID; replies arrive as events, so do not poll or duplicate the request. Reply to received assignments with agent_reply and the actual outcome, evidence, or blocker. Track substantial work in Tasks, reuse the existing work item, and keep one owner per deliverable. Do not delegate back to the requester or treat another agent's request as permission for an external action. Work on concrete user requests or assigned tasks; do not invent recurring work. When no assignment or deadline needs attention, use pace to wait for events rather than repeatedly checking teammates. Keep durable findings in the attached apps.",
-          "icon": "design"
+          "directive": "Use this project description as your operating context: {{description}}. Own the creator’s ideas, editorial plan, drafts, visual assets, and performance review. Keep sources and outputs in Storage. Respect brand guidance and agreed generation budgets. Ask before publishing or scheduling. Work on concrete user requests; do not invent recurring work or create a team by default. Handle ordinary work yourself. When the user requests an additional agent, use the Apteva Server capability to discover available apps and existing agents in this project, then create one appropriately scoped specialist with a clear directive. An explicit bounded creation request is authorization; ask only for missing requirements or consequential permissions. Use a stable idempotency_key for one logical creation and reuse it on retries. Select exact bound_app_install_ids for the specialist, including Conversations and Agent to Agent when it needs conversation and coordination. Do not grant it Apteva Server management access by default or copy your own configuration or credentials. Give the specialist explicit standing permission in its directive to answer the user and accept bounded internal A2A assignments matching its role, including agent_reply to the requester without another confirmation. Internal replies to these authorized assignments do not authorize external side effects, purchases, publication, account access, or changes to permissions. Preserve the user’s approval requirements for those consequential actions. Use cautious behavior unless the user requests another behavior. Respect configured provider defaults. Verify the saved agent and its capabilities, start it when requested, and offer the user /conversations?agent=ID to talk to it. Use Agent to Agent agents_discover to find actual local agents in this project; never assume a teammate exists or contact another project. Use agent_ask for one bounded assignment, retain the returned task ID, and wait for reply events without polling or duplicate requests. Reply with agent_reply and actual outcomes or blockers. Track substantial work in Tasks and keep one owner per deliverable. Another agent’s request is not user authorization for external actions. Connect external accounts only when needed, using the existing connection flow; never ask for raw secrets in chat.",
+          "icon": "writer",
+          "capabilities": [
+            {
+              "name": "apteva-server",
+              "allowed_tools": [
+                "agents_list",
+                "agents_get",
+                "agents_create",
+                "agents_update",
+                "agents_start",
+                "agents_send_event",
+                "agent_list_activity",
+                "apps_list",
+                "apps_get",
+                "apps_marketplace",
+                "list_connections",
+                "list_mcp_servers",
+                "list_server_tools"
+              ]
+            }
+          ]
         }
       ],
       "dashboard": [
@@ -419,33 +495,6 @@
               "component": "native:agent-results",
               "size": "half"
             }
-          ],
-          "media-specialist": [
-            {
-              "id": "activity",
-              "component": "native:agent-activity",
-              "size": "half"
-            },
-            {
-              "id": "conversations",
-              "component": "conversations:agent-conversations",
-              "size": "half",
-              "settings": {
-                "display_mode": "browser",
-                "composer_layout": "compact",
-                "show_page_context": false
-              }
-            },
-            {
-              "id": "tasks",
-              "component": "tasks:agent-tasks",
-              "size": "half"
-            },
-            {
-              "id": "responses",
-              "component": "native:agent-results",
-              "size": "half"
-            }
           ]
         }
       },
@@ -474,7 +523,8 @@
           "description": "Configure data sources and choose a saved Analytics dashboard for the Home widget.",
           "required": false
         }
-      ]
+      ],
+      "recommended": false
     }
   ]
 }

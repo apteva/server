@@ -242,6 +242,12 @@ func (m *IngressCertManager) TLSConfig() *tls.Config {
 }
 
 func startIngressTLSListener(addr string, handler http.Handler, certs *IngressCertManager) *http.Server {
+	if os.Getenv("APTEVA_HOST_SOCKET") != "" {
+		if err := requestHostedListenerOwner("environment-https", "", addr); err != nil {
+			log.Printf("[HOST] HTTPS ingress: %v", err)
+		}
+		return nil
+	}
 	if strings.TrimSpace(addr) == "" {
 		return nil
 	}
@@ -265,6 +271,12 @@ func startIngressTLSListener(addr string, handler http.Handler, certs *IngressCe
 }
 
 func startIngressHTTPListener(addr string, handler http.Handler) *http.Server {
+	if os.Getenv("APTEVA_HOST_SOCKET") != "" {
+		if err := requestHostedListenerOwner("environment-http", addr, ""); err != nil {
+			log.Printf("[HOST] HTTP ingress: %v", err)
+		}
+		return nil
+	}
 	if strings.TrimSpace(addr) == "" {
 		return nil
 	}

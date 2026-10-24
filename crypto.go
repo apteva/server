@@ -14,7 +14,9 @@ import (
 // LoadSecret returns a 32-byte encryption key.
 // It checks SERVER_SECRET env var first, then falls back to a .secret file
 // next to the database. If neither exists, it generates a new key and saves it.
-func LoadSecret(dataDir string) ([]byte, error) {
+func LoadSecret(dataDir string) ([]byte, error)         { return loadSecret(dataDir, true) }
+func LoadExistingSecret(dataDir string) ([]byte, error) { return loadSecret(dataDir, false) }
+func loadSecret(dataDir string, create bool) ([]byte, error) {
 	// Try env var first
 	if env := os.Getenv("SERVER_SECRET"); env != "" {
 		key, err := hex.DecodeString(env)
@@ -36,6 +38,9 @@ func LoadSecret(dataDir string) ([]byte, error) {
 		return nil, fmt.Errorf("read encryption key: %w", err)
 	}
 
+	if !create {
+		return nil, fmt.Errorf("existing encryption key is missing; refusing to generate a replacement during deployment")
+	}
 	// Generate new key
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {

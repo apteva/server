@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/apteva/server/internal/host"
 	"net/http"
 	"os"
 	"os/exec"
@@ -84,7 +85,17 @@ func (s *Server) platformUpdater(ctx context.Context, start bool, target, policy
 	if err != nil {
 		return view, err
 	}
-	body, _ := json.Marshal(map[string]any{"home": home, "db_path": dbPath, "port": port, "server_pid": os.Getpid(), "method": method, "target_version": target, "agent_policy": policy})
+	serverPID := os.Getpid()
+	if os.Getenv("APTEVA_HOST_SOCKET") != "" {
+		client := host.UnixClient(os.Getenv("APTEVA_HOST_SOCKET"))
+		defer client.CloseIdleConnections()
+		var state host.State
+		if err := host.Call(ctx, client, "GET", "/status", nil, &state); err != nil {
+			return view, fmt.Errorf("stable host identity unavailable: %w", err)
+		}
+		serverPID = state.PID
+	}
+	body, _ := json.Marshal(map[string]any{"home": home, "db_path": dbPath, "port": port, "server_pid": serverPID, "method": method, "target_version": target, "agent_policy": policy})
 	mode := "--dashboard-probe"
 	if start {
 		mode = "--dashboard-start"

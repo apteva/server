@@ -119,6 +119,7 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	body := map[string]any{"preset_id": preset.ID, "description": "Qualify clinic leads", "agent_overrides": []ProjectPresetAgentOverride{{Key: key, Name: "My lead assistant", Directive: "Research leads. Ask before sending outreach.", Mode: "cautious"}}}
 	call := func(suffix string) *httptest.ResponseRecorder {
 		r := authedRequest(t, http.MethodPost, "/projects/setup-project/setup/"+suffix, "", body)
+		r.Header.Set("X-Apteva-Operator-ID", "1")
 		w := httptest.NewRecorder()
 		s.handleProject(w, r)
 		return w

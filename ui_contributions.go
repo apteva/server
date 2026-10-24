@@ -9,11 +9,13 @@ import (
 )
 
 type uiContributionEligibility struct {
-	App        string `json:"app"`
-	Component  string `json:"component"`
-	Visibility string `json:"visibility"`
-	Eligible   bool   `json:"eligible"`
-	Attached   bool   `json:"attached"`
+	SettingsUI *sdk.WidgetSettingsUI `json:"settings_ui,omitempty"`
+	HostUI     *sdk.HostUI           `json:"host_ui,omitempty"`
+	App        string                `json:"app"`
+	Component  string                `json:"component"`
+	Visibility string                `json:"visibility"`
+	Eligible   bool                  `json:"eligible"`
+	Attached   bool                  `json:"attached"`
 }
 
 // GET /api/ui/contributions resolves contextual placement without teaching the
@@ -104,6 +106,7 @@ func (s *Server) handleUIContributions(w http.ResponseWriter, r *http.Request) {
 			key := appName + ":" + component.Name
 			seen[key] = true
 			result = append(result, uiContributionEligibility{
+				HostUI: component.HostUI, SettingsUI: component.SettingsUI,
 				App: appName, Component: component.Name, Visibility: visibility,
 				Eligible: eligible, Attached: isAttached,
 			})

@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/apteva/server/apps/channelchat"
+	"github.com/apteva/server/apps/framework"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,6 +70,11 @@ func preflightUpdateDatabase(source, backup string) error {
 	if err != nil {
 		return fmt.Errorf("candidate migrations: %w", err)
 	}
+	app := channelchat.New(nil)
+	if err := framework.RunMigrations(store.db, app.Manifest().Slug, app.Migrations()); err != nil {
+		store.Close()
+		return fmt.Errorf("candidate built-in app migrations: %w", err)
+	}
 	if err := store.Close(); err != nil {
 		return err
 	}
@@ -78,7 +86,7 @@ func preflightUpdateDatabase(source, backup string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(map[string]any{"version": CLIVersion, "schema_changed": before != after, "rollback_safe": before == after && beforeData == afterData})
+	raw, err := json.Marshal(map[string]any{"version": CLIVersion, "schema_hash": before, "schema_changed": before != after, "rollback_safe": before == after && beforeData == afterData})
 	if err != nil {
 		return err
 	}
@@ -86,7 +94,7 @@ func preflightUpdateDatabase(source, backup string) error {
 }
 
 func updateDatabaseSchema(path string) (string, error) {
-	db, err := sql.Open("sqlite", path+"?mode=ro")
+	db, err := sql.Open("sqlite", sqliteFileURI(path)+"?mode=ro")
 	if err != nil {
 		return "", err
 	}
@@ -104,19 +112,24 @@ func updateDatabaseSchema(path string) (string, error) {
 		}
 		fmt.Fprintf(&schema, "%s\x00%s\x00%s\n", kind, name, definition)
 	}
-	return schema.String(), rows.Err()
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(schema.String()))), nil
 }
 
 // Schema equality alone does not prove rollback safety: migrations may rewrite
 // data. Compare a deterministic stream of all stored rows too. Fail closed on
 // unsupported values; never load the whole database into memory.
 func updateDatabaseFingerprint(path string) (string, error) {
-	db, err := sql.Open("sqlite", path+"?mode=ro")
+	db, err := sql.Open("sqlite", sqliteFileURI(path)+"?mode=ro")
 	if err != nil {
 		return "", err
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
+	// This trigger-maintained cache epoch advances even for no-op UPDATEs.
+	// Compare the underlying app/MCP rows instead; its value is not user data.
+	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name!='app_metadata_generation' ORDER BY name`)
 	if err != nil {
 		return "", err
 	}
@@ -181,3 +194,5 @@ func updateDatabaseFingerprint(path string) (string, error) {
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
+
+func sqliteFileURI(path string) string { return (&url.URL{Scheme: "file", Path: path}).String() }

@@ -22,11 +22,12 @@ func TestBuiltinAgentTemplatesExposePresetRolesAndAreReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var engineer *AgentTemplate
+	var engineer, starter *AgentTemplate
 	for i := range list {
 		if list[i].ID == "github-helper" {
 			t.Fatal("legacy built-in template is still offered by the picker")
 		}
+		if list[i].ID == "preset:personal-assistant:assistant" { starter = &list[i] }
 		if list[i].ID == "preset:development-software:engineer" {
 			engineer = &list[i]
 		}
@@ -38,6 +39,7 @@ func TestBuiltinAgentTemplatesExposePresetRolesAndAreReadOnly(t *testing.T) {
 		t.Fatalf("single-agent instructions are incomplete: %+v", engineer)
 	}
 
+	if starter == nil || len(starter.RecommendedApps) < 2 { t.Fatalf("starter template is missing app capabilities: %+v", starter) }
 	req := authedRequest(t, http.MethodPut, "/agent-templates/"+engineer.ID, "", map[string]any{
 		"name": "Changed", "directive": "Changed globally.", "mode": "learn",
 	})

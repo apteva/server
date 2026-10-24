@@ -25,11 +25,13 @@
     "credential_fields": [
       {
         "name": "token",
+        "required": true,
         "label": "Api Key",
         "description": "Your OpenAI API Key (sk-...)"
       },
       {
         "name": "organizationId",
+        "required": false,
         "label": "Organization Id",
         "description": "Your OpenAI Organization ID (optional)"
       }

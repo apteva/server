@@ -1725,14 +1725,15 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        string `json:"name"`
-		Icon        string `json:"icon"`
-		IconColor   string `json:"icon_color"`
-		Directive   string `json:"directive"`
-		Proactivity *int   `json:"proactivity"`
-		Mode        string `json:"mode"`   // "autonomous" | "cautious" | "learn"
-		Config      string `json:"config"` // optional JSON blob for MCP servers etc
-		ProjectID   string `json:"project_id"`
+		Capabilities []AgentCapability `json:"capabilities,omitempty"`
+		Name         string            `json:"name"`
+		Icon         string            `json:"icon"`
+		IconColor    string            `json:"icon_color"`
+		Directive    string            `json:"directive"`
+		Proactivity  *int              `json:"proactivity"`
+		Mode         string            `json:"mode"`   // "autonomous" | "cautious" | "learn"
+		Config       string            `json:"config"` // optional JSON blob for MCP servers etc
+		ProjectID    string            `json:"project_id"`
 		// IdempotencyKey identifies one logical agent creation. Reusing it in
 		// the same project returns the existing agent instead of creating a
 		// duplicate. Unscoped agents are isolated by caller user id.
@@ -1872,6 +1873,14 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	selectedAppInstallIDs = validAppInstallIDs
+
+	if len(body.Capabilities) > 0 {
+		body.Config, err = s.configWithAgentCapabilities(attachmentProbe, body.Capabilities)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Freeze the creation preference even when the agent is created stopped.
 	body.Config = s.applyNewAgentProviderDefault(userID, body.ProjectID, body.Config)
@@ -2396,7 +2405,7 @@ func (s *Server) ResumeRunningInstances() {
 	if s.startupIntent.Reason != "" {
 		resumePolicy = s.resolvedShutdownPolicy(s.startupIntent)
 	}
-	reattachEnabled := resumePolicy != "restart"
+	reattachEnabled := resumePolicy != "restart" || os.Getenv("APTEVA_HOST_SOCKET") != ""
 	if providerAuthRefreshEnvEnabled() && s.store.RunningAgentsUseCodexProvider() {
 		result := s.refreshExpiringCodexProviders(context.Background(), codexProviderRefreshSkew, false)
 		if result.ProvidersRefreshed+result.ConnectionsRefreshed > 0 && disableCoreReattachForCodexRefresh() {

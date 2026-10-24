@@ -1558,6 +1558,11 @@
             "minLength": 1,
             "pattern": "^[a-zA-Z0-9 -]+$",
             "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
           }
         },
         "required": [
@@ -1671,6 +1676,11 @@
           },
           "portRangeMax": {
             "type": "integer"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
           }
         },
         "required": [
@@ -1772,6 +1782,207 @@
           "name"
         ]
       }
+    },
+    {
+      "name": "firewall_list",
+      "description": "List all firewalls",
+      "method": "GET",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "firewall_get",
+      "description": "Get firewall by id",
+      "method": "GET",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_create",
+      "description": "Create firewall",
+      "method": "POST",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9 -]+$",
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "description",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "firewall_delete",
+      "description": "Delete firewall",
+      "method": "DELETE",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_rule_create",
+      "description": "Create firewall rule",
+      "method": "POST",
+      "path": "/firewalls/{id}/rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sourceIp": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "portRangeMin": {
+            "type": "integer"
+          },
+          "portRangeMax": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "protocol",
+          "sourceIp"
+        ]
+      }
+    },
+    {
+      "name": "firewall_rule_enable",
+      "description": "Enable firewall rule",
+      "method": "POST",
+      "path": "/firewalls/rules/{rule_id}/enable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_rule_delete",
+      "description": "Delete firewall rule",
+      "method": "DELETE",
+      "path": "/firewalls/rules/{rule_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_attach",
+      "description": "Firewall attach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/servers/{server_id}/firewall/{id}/attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "server_id"
+        ]
+      },
+      "body_none": true
+    },
+    {
+      "name": "firewall_detach",
+      "description": "Firewall detach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/servers/{server_id}/firewall/{id}/detach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "server_id"
+        ]
+      },
+      "body_none": true
     }
   ]
 }

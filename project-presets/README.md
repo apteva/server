@@ -253,3 +253,111 @@ Processes creation tools do not currently offer an idempotency argument. The
 server's durable completed-step receipts prevent ordinary reapply from creating
 duplicates; uncertain outcomes still require inspecting Processes before an
 explicit retry, as described above.
+
+## Starter evaluations
+
+Seven bundled presets provision one Evals suite with three cases through the
+same `setup` mechanism: Customer support, Sales team, Lead-generation business,
+Quality assurance, Software project, Engineering team, and Software product
+team. Evals is discovered from the setup calls and installed through the normal
+dependency resolver, including its Environments and LLM dependencies. It is a
+project service; evaluated agents do not acquire Evals management tools.
+
+The suite step calls `eval_suite_create` and binds the preset's primary agent
+with `agents.<key>`. The next three steps call `eval_case_create`, referring to
+`steps.evals-suite-v1.id` for the suite returned by Evals. Inputs require Evals
+0.9.5 or newer and an authenticated operator. No new preset fields, import API,
+worker, scheduling system, or Server knowledge of grading is involved.
+
+Sales and lead generation cover saved CRM state, contact deduplication, and
+unsent outreach. Support covers grounded policy answers, escalation when policy
+is missing, and preservation of ticket context. Engineering and QA cover
+bounded patch proposals, failed or incomplete verification, harness failures,
+workspace ownership, independent review, exact candidate evidence, process
+dispatch ownership, and release approval gates.
+
+Each case supplies an inline Environments specification with stable app names,
+separate app data, blocked external networking, mock integrations, and bounded
+run duration/turns. Seeds create only synthetic records inside that run. Model
+calls and app tools still execute: isolation is not a replacement for tool
+permissions. These starter engineering cases assess supplied code/log fixtures
+and plans using Tasks only; they do not attach Code, Workspaces, or Deploy, touch
+a host checkout, execute a patch, dispatch a real team, or prove an end-to-end
+release. Add disposable repository fixtures before extending that coverage.
+
+Cases use `agentic-quality-v2`: saved outcomes, evidence, and safety are critical;
+final acknowledgement wording is flexible. Record IDs may remain in the durable
+task result. The normal Evals interface owns execution, grading, traces, history,
+and optional continuous checks. After setup, choose an available judge model
+from Evals' catalog and run the suite against its preselected agent. There is no
+hardcoded provider/model, automatic initial experiment, or recurring schedule.
+
+Stable suite/case IDs are namespaced by preset and recipe version. Completed
+setup receipts preserve user edits, run history, and schedules on reapply. Do
+not revise an attempted step in place to overwrite customized cases. As with
+other setup tools, uncertain calls require inspecting the app before retrying;
+the app's create tools are upserts, not a new exactly-once guarantee. Existing
+projects receive nothing at startup; explicitly applying/reapplying a preset
+provisions its new steps. User-authored presets remain unchanged.
+
+Local tests cover recipe references/isolation, app version requirements, normal
+proxy calls, and durable reapply behavior. An optional contract test provisions
+all seven suites and 21 cases against a real Evals executable in a temporary DB:
+
+```sh
+GOWORK=off \
+APTEVA_PRESET_EVALS_BINARY=/absolute/path/to/evals \
+APTEVA_PRESET_EVALS_MIGRATIONS=/absolute/path/to/evals/migrations \
+go test -run TestProjectPresetEvals -count=1 .
+```
+
+Run that command from Server. The executable and migrations must be from the
+same supporting release. The test gateway supplies assertion metadata only;
+no model, real agent, external service, or existing installation is used.
+
+### One starter for Personal and Work
+
+The bundled Personal and Work templates each create one starter agent. Personal
+assistant and Work assistant are recommended; the other templates remain available
+under More templates and search. Stable preset IDs and primary agent keys are
+retained, including `work-executive` / `chief-of-staff`. No startup migration
+changes existing projects or agents. Reapplying a preset preserves existing agents
+and reports missing capability attachments instead of silently granting access.
+
+Presets may declare built-in MCP capabilities separately from installed apps:
+
+```json
+{
+  "capabilities": [{
+    "name": "apteva-server",
+    "allowed_tools": ["agents_list", "agents_get", "agents_create", "agents_start"]
+  }]
+}
+```
+
+`allowed_tools` is required, validated, saved on the new agent, and enforced by
+the existing management gateway for discovery and calls. An empty array denies
+all tools; omission of the entire capability keeps existing behavior. Currently
+Apteva Server is the supported built-in capability. This is a declarative grant,
+not an installable app, a separate management service, or an OS sandbox. Normal
+owner/project access checks still apply. Restricted callers cannot change a
+management-enabled agent or grant management access to another agent. Existing
+agents without a tool policy retain their existing grants.
+
+The confirmation screen shows the management grant before creating anything.
+Starter directives treat a user's explicit request to create a bounded specialist
+as authorization, ask for missing or consequential permissions, use exact app
+attachments and stable creation keys, and do not copy management access or
+credentials to specialists. Accounts are connected when needed. Conversations
+and A2A remain ordinary apps and use their existing APIs. No special transport is
+introduced. The generic single-agent setup result opens `/conversations?agent=ID`.
+An empty workspace may initialize its assistant selection once; existing saved
+preferences, including a disabled assistant, are preserved. Sales and Support
+retain their manual, isolated starter Evals against the unchanged primary keys.
+
+Validation: `TestStarter*` covers all nine templates, preview cancellation,
+normal provisioning and app attachments, idempotent specialist creation, tool
+filtering, escalation and cross-project rejection, and saved preferences. The
+opt-in `TestStarterFlowLive` uses actual local Core and cached app executables
+with entirely temporary databases; it tests creation through a starter
+conversation, a direct specialist conversation, and an A2A exchange.

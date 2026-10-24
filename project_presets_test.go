@@ -43,9 +43,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"containers": true, "fleet": true, "backup": true, "computer": true,
 		"screenshots": true, "signatures": true, "billing": true, "commerce": true,
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
-		"webinars": true, "workspaces": true, "a2a": true,
+		"webinars": true, "workspaces": true, "a2a": true, "processes": true, "evals": true, "database": true,
 		"media-downloader": true, "media": true,
-		"database": true, "processes": true,
 	}
 	requiredDomainApps := map[string][]string{
 		"personal-assistant":             {"todo", "notes", "calendar"},
@@ -120,8 +119,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		}
 	}
 	youtube := catalog.ByID["work-youtube-to-blog"]
-	if len(youtube.Agents) != 2 || youtube.Agents[0].Unconscious || youtube.Agents[1].Unconscious ||
-		!strings.Contains(youtube.Agents[0].Directive, "Never publish") || !strings.Contains(youtube.Agents[1].Directive, "Never publish") {
+	if len(youtube.Agents) != 1 || youtube.Agents[0].Unconscious || !strings.Contains(youtube.Agents[0].Directive, "ask before publishing") {
 		t.Fatalf("youtube-to-blog safety contract is incomplete: %+v", youtube)
 	}
 }
@@ -214,6 +212,8 @@ func TestProjectPresetPreviewUsesConstrainedPlannerAndResolvesProjectApps(t *tes
 func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) {
 	s := newTestServer(t)
 	seedPresetProject(t, s, "apply-project")
+	sidecar, _ := presetEvalsFixture(t)
+	seedPresetEvalsApp(t, s, "apply-project", sidecar.URL)
 	crmInstallID := seedAppWithTools(t, s, "crm", "apply-project", []string{"contacts_list"})
 	if err := s.registerAppMCP(crmInstallID); err != nil {
 		t.Fatal(err)
@@ -225,6 +225,7 @@ func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) 
 
 	apply := func() map[string]any {
 		req := authedRequest(t, http.MethodPost, "/projects/apply-project/setup/apply", "", body)
+		req.Header.Set("X-Apteva-Operator-ID", "1")
 		rec := httptest.NewRecorder()
 		s.handleProject(rec, req)
 		if rec.Code != http.StatusOK {
@@ -237,6 +238,9 @@ func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) 
 		return result
 	}
 	first := apply()
+	if first["status"] != "applied" {
+		t.Fatalf("setup was incomplete: %#v", first)
+	}
 	if got := len(first["created_agents"].([]any)); got != 3 {
 		t.Fatalf("created_agents=%d, want 3: %#v", got, first)
 	}
@@ -390,7 +394,7 @@ provides:
       supported_sizes: [half, full]
       default_size: half
     - name: agent-conversations
-      label: Conversations
+      label: Agent conversations
       entry: /ui/AgentConversations.mjs
       slots: [dashboard.agent_detail]
       supported_sizes: [half, full]

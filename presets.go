@@ -17,6 +17,7 @@ const projectSetupPresetKind = "project_setup"
 // Dashboard keeps the compact component list used by bundled schema-v1 files;
 // DashboardLayout is the lossless representation used by captured presets.
 type ProjectSetupPresetDefinition struct {
+	Recommended     bool                      `json:"recommended,omitempty"`
 	Setup           []ProjectPresetSetupStep  `json:"setup,omitempty"`
 	Layouts         *ProjectPresetLayouts     `json:"layouts,omitempty"`
 	Connections     []ProjectPresetConnection `json:"connections,omitempty"`
@@ -180,7 +181,7 @@ func systemPresetEnvelope(preset ProjectPreset) Preset {
 		ID: preset.ID, Kind: projectSetupPresetKind, Scope: "system", Source: "system",
 		SchemaVersion: 1, Name: preset.Name, Description: preset.Description,
 		Definition: ProjectSetupPresetDefinition{
-			Setup: preset.Setup, Layouts: preset.Layouts, Connections: preset.Connections, DashboardLayout: preset.DashboardLayout, InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
+			Recommended: preset.Recommended, Setup: preset.Setup, Layouts: preset.Layouts, Connections: preset.Connections, DashboardLayout: preset.DashboardLayout, InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
 		},
 	}
 }
@@ -189,7 +190,7 @@ func projectPresetFromEnvelope(preset Preset) ProjectPreset {
 	return ProjectPreset{
 		ID: preset.ID, Kind: preset.Kind, Scope: preset.Scope, Source: preset.Source,
 		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID, OwnerProjectID: preset.OwnerProjectID, Revision: preset.Revision,
-		InterfaceLevel: preset.Definition.InterfaceLevel, Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
+		Recommended: preset.Definition.Recommended, InterfaceLevel: preset.Definition.InterfaceLevel, Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
 		Match: preset.Definition.Match, Highlights: preset.Definition.Highlights, Agents: preset.Definition.Agents,
 		Setup: preset.Definition.Setup, Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout, Layouts: preset.Definition.Layouts, Connections: preset.Definition.Connections,
 	}
@@ -727,6 +728,15 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 		var config map[string]any
 		if json.Unmarshal([]byte(configRaw), &config) == nil {
 			agent.Unconscious, _ = config["unconscious"].(bool)
+			probe := &Agent{Config: configRaw}
+			if policy, restricted := platformToolPolicy(probe); restricted && platformMCPAttached(probe) {
+				tools := make([]string, 0, len(policy))
+				for name := range policy {
+					tools = append(tools, name)
+				}
+				sort.Strings(tools)
+				agent.Capabilities = []AgentCapability{{Name: platformMCPName, AllowedTools: tools}}
+			}
 		}
 		appRows, err := s.store.db.Query(`SELECT a.name FROM app_agent_bindings b
 			JOIN app_installs i ON i.id=b.install_id JOIN apps a ON a.id=i.app_id

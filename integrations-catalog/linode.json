@@ -3,13 +3,27 @@
   "name": "Linode (Akamai Cloud)",
   "description": "MCP server for Linode / Akamai Cloud - instances, types, regions, images, volumes, SSH keys, snapshots",
   "logo": "https://www.google.com/s2/favicons?domain=linode.com&sz=128",
-  "categories": ["cloud", "servers", "vps", "infrastructure", "akamai"],
+  "categories": [
+    "cloud",
+    "servers",
+    "vps",
+    "infrastructure",
+    "akamai"
+  ],
   "base_url": "https://api.linode.com/v4",
   "auth": {
-    "types": ["bearer"],
-    "headers": { "Authorization": "Bearer {{token}}" },
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
     "credential_fields": [
-      { "name": "token", "label": "Personal Access Token", "description": "Generate at cloud.linode.com/profile/tokens" }
+      {
+        "name": "token",
+        "label": "Personal Access Token",
+        "description": "Generate at cloud.linode.com/profile/tokens"
+      }
     ]
   },
   "tools": [
@@ -21,8 +35,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "page": { "type": "number" },
-          "page_size": { "type": "number" }
+          "page": {
+            "type": "number"
+          },
+          "page_size": {
+            "type": "number"
+          }
         }
       }
     },
@@ -33,8 +51,14 @@
       "path": "/linode/instances/{linodeId}",
       "input_schema": {
         "type": "object",
-        "properties": { "linodeId": { "type": "string" } },
-        "required": ["linodeId"]
+        "properties": {
+          "linodeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "linodeId"
+        ]
       }
     },
     {
@@ -45,15 +69,45 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "type": { "type": "string", "description": "e.g. g6-nanode-1" },
-          "region": { "type": "string", "description": "e.g. us-east, ap-south" },
-          "image": { "type": "string", "description": "e.g. linode/ubuntu24.04" },
-          "label": { "type": "string" },
-          "root_pass": { "type": "string" },
-          "authorized_keys": { "type": "array" },
-          "backups_enabled": { "type": "boolean" }
+          "type": {
+            "type": "string",
+            "description": "e.g. g6-nanode-1"
+          },
+          "region": {
+            "type": "string",
+            "description": "e.g. us-east, ap-south"
+          },
+          "image": {
+            "type": "string",
+            "description": "e.g. linode/ubuntu24.04"
+          },
+          "label": {
+            "type": "string"
+          },
+          "root_pass": {
+            "type": "string"
+          },
+          "authorized_keys": {
+            "type": "array"
+          },
+          "backups_enabled": {
+            "type": "boolean"
+          },
+          "firewall_id": {
+            "type": "integer"
+          },
+          "interface_generation": {
+            "type": "string",
+            "enum": [
+              "legacy_config",
+              "linode"
+            ]
+          }
         },
-        "required": ["type", "region"]
+        "required": [
+          "type",
+          "region"
+        ]
       }
     },
     {
@@ -63,8 +117,14 @@
       "path": "/linode/instances/{linodeId}",
       "input_schema": {
         "type": "object",
-        "properties": { "linodeId": { "type": "string" } },
-        "required": ["linodeId"]
+        "properties": {
+          "linodeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "linodeId"
+        ]
       }
     },
     {
@@ -74,8 +134,14 @@
       "path": "/linode/instances/{linodeId}/boot",
       "input_schema": {
         "type": "object",
-        "properties": { "linodeId": { "type": "string" } },
-        "required": ["linodeId"]
+        "properties": {
+          "linodeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "linodeId"
+        ]
       }
     },
     {
@@ -85,8 +151,14 @@
       "path": "/linode/instances/{linodeId}/shutdown",
       "input_schema": {
         "type": "object",
-        "properties": { "linodeId": { "type": "string" } },
-        "required": ["linodeId"]
+        "properties": {
+          "linodeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "linodeId"
+        ]
       }
     },
     {
@@ -96,8 +168,14 @@
       "path": "/linode/instances/{linodeId}/reboot",
       "input_schema": {
         "type": "object",
-        "properties": { "linodeId": { "type": "string" } },
-        "required": ["linodeId"]
+        "properties": {
+          "linodeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "linodeId"
+        ]
       }
     },
     {
@@ -105,84 +183,252 @@
       "description": "List instance types (sizes)",
       "method": "GET",
       "path": "/linode/types",
-      "input_schema": { "type": "object", "properties": { "page": { "type": "number" }, "page_size": { "type": "number" } } }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number"
+          },
+          "page_size": {
+            "type": "number"
+          }
+        }
+      }
     },
     {
       "name": "list_regions",
       "description": "List regions",
       "method": "GET",
       "path": "/regions",
-      "input_schema": { "type": "object", "properties": { "page": { "type": "number" }, "page_size": { "type": "number" } } }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number"
+          },
+          "page_size": {
+            "type": "number"
+          }
+        }
+      }
     },
     {
       "name": "list_images",
       "description": "List available images",
       "method": "GET",
       "path": "/images",
-      "input_schema": { "type": "object", "properties": { "page": { "type": "number" }, "page_size": { "type": "number" } } }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number"
+          },
+          "page_size": {
+            "type": "number"
+          }
+        }
+      }
     },
     {
       "name": "list_volumes",
       "description": "List block storage volumes",
       "method": "GET",
       "path": "/volumes",
-      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "page_size": { "type": "integer" } } }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
     },
     {
       "name": "get_volume",
       "description": "Get a block storage volume",
       "method": "GET",
       "path": "/volumes/{volumeId}",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "create_volume",
       "description": "Create a Linode Block Storage volume, optionally attached to an instance",
       "method": "POST",
       "path": "/volumes",
-      "input_schema": { "type": "object", "properties": { "label": { "type": "string" }, "region": { "type": "string" }, "size": { "type": "integer", "description": "Size in GiB" }, "linode_id": { "type": "integer" }, "config_id": { "type": "integer" }, "tags": { "type": "array", "items": { "type": "string" } }, "encryption": { "type": "string" } }, "required": ["label", "size"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Size in GiB"
+          },
+          "linode_id": {
+            "type": "integer"
+          },
+          "config_id": {
+            "type": "integer"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "encryption": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "size"
+        ]
+      }
     },
     {
       "name": "update_volume",
       "description": "Update a block storage volume label or tags",
       "method": "PUT",
       "path": "/volumes/{volumeId}",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "label": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "attach_volume",
       "description": "Attach a block storage volume to a Linode",
       "method": "POST",
       "path": "/volumes/{volumeId}/attach",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "linode_id": { "type": "integer" }, "config_id": { "type": "integer" } }, "required": ["volumeId", "linode_id"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "integer"
+          },
+          "linode_id": {
+            "type": "integer"
+          },
+          "config_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "volumeId",
+          "linode_id"
+        ]
+      }
     },
     {
       "name": "detach_volume",
       "description": "Detach a block storage volume without deleting it",
       "method": "POST",
       "path": "/volumes/{volumeId}/detach",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "resize_volume",
       "description": "Increase a block storage volume size",
       "method": "POST",
       "path": "/volumes/{volumeId}/resize",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "size": { "type": "integer", "description": "New size in GiB" } }, "required": ["volumeId", "size"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer",
+            "description": "New size in GiB"
+          }
+        },
+        "required": [
+          "volumeId",
+          "size"
+        ]
+      }
     },
     {
       "name": "clone_volume",
       "description": "Clone a block storage volume",
       "method": "POST",
       "path": "/volumes/{volumeId}/clone",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" }, "label": { "type": "string" } }, "required": ["volumeId", "label"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volumeId",
+          "label"
+        ]
+      }
     },
     {
       "name": "delete_volume",
       "description": "Delete a block storage volume",
       "method": "DELETE",
       "path": "/volumes/{volumeId}",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "integer" } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "create_snapshot",
@@ -192,10 +438,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "linodeId": { "type": "string" },
-          "label": { "type": "string" }
+          "linodeId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
         },
-        "required": ["linodeId"]
+        "required": [
+          "linodeId"
+        ]
       }
     },
     {
@@ -203,14 +455,237 @@
       "description": "List SSH keys on the account profile",
       "method": "GET",
       "path": "/profile/sshkeys",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "list_kubernetes_clusters",
       "description": "List LKE Kubernetes clusters",
       "method": "GET",
       "path": "/lke/clusters",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "firewall_list",
+      "description": "Firewall list. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/networking/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      },
+      "query_params": [
+        "page",
+        "page_size"
+      ]
+    },
+    {
+      "name": "firewall_get",
+      "description": "Firewall get. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/networking/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_create",
+      "description": "Firewall create. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "POST",
+      "path": "/networking/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "object"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "label",
+          "rules"
+        ]
+      }
+    },
+    {
+      "name": "firewall_set_rules",
+      "description": "Firewall set rules. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "PUT",
+      "path": "/networking/firewalls/{id}/rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "inbound": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "inbound_policy": {
+            "type": "string"
+          },
+          "outbound": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "outbound_policy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "inbound",
+          "inbound_policy",
+          "outbound",
+          "outbound_policy"
+        ]
+      }
+    },
+    {
+      "name": "firewall_delete",
+      "description": "Firewall delete. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "DELETE",
+      "path": "/networking/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_server_get",
+      "description": "Firewall server get. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/linode/instances/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "firewall_server_list",
+      "description": "Firewall server list. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/linode/instances/{server_id}/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      },
+      "query_params": [
+        "page",
+        "page_size"
+      ]
+    },
+    {
+      "name": "firewall_attach",
+      "description": "Firewall attach. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "PUT",
+      "path": "/linode/instances/{server_id}/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "firewall_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "server_id",
+          "firewall_ids"
+        ]
+      }
+    },
+    {
+      "name": "firewall_devices",
+      "description": "Firewall devices. Used by Instances for isolated, deployment-owned firewall policies.",
+      "method": "GET",
+      "path": "/networking/firewalls/{id}/devices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "page",
+        "page_size"
+      ]
     }
   ]
 }

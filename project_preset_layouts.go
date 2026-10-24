@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 var presetAgentWidgets = []dashboardWidgetDefinition{
@@ -181,83 +182,7 @@ func (s *Server) compilePresetWidgets(projectID string, preset ProjectPreset, sl
 
 // Validate the primitive controls supported by the shared widget settings UI.
 func validatePresetWidgetSettings(settings map[string]any, schema map[string]any) error {
-	if len(schema) == 0 {
-		return nil
-	}
-	// Manifest YAML and captured JSON can use different Go numeric types.
-	settingsJSON, err := json.Marshal(settings)
-	if err != nil {
-		return err
-	}
-	schemaJSON, err := json.Marshal(schema)
-	if err != nil {
-		return err
-	}
-	var normalizedSettings, normalizedSchema map[string]any
-	if err := json.Unmarshal(settingsJSON, &normalizedSettings); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(schemaJSON, &normalizedSchema); err != nil {
-		return err
-	}
-	settings, schema = normalizedSettings, normalizedSchema
-	props, _ := schema["properties"].(map[string]any)
-	for key, value := range settings {
-		property, ok := props[key].(map[string]any)
-		if !ok {
-			if schema["additionalProperties"] == false {
-				return fmt.Errorf("unknown setting %s", key)
-			}
-			continue
-		}
-		kind, _ := property["type"].(string)
-		valid := true
-		switch kind {
-		case "string":
-			_, valid = value.(string)
-		case "boolean":
-			_, valid = value.(bool)
-		case "number", "integer":
-			number, ok := value.(float64)
-			valid = ok
-			if valid && kind == "integer" {
-				valid = number == float64(int64(number))
-			}
-			if min, ok := property["minimum"].(float64); ok && number < min {
-				valid = false
-			}
-			if max, ok := property["maximum"].(float64); ok && number > max {
-				valid = false
-			}
-		case "object":
-			_, valid = value.(map[string]any)
-		case "array":
-			_, valid = value.([]any)
-		}
-		if !valid {
-			return fmt.Errorf("invalid value for %s", key)
-		}
-		if choices, ok := property["enum"].([]any); ok {
-			found := false
-			for _, choice := range choices {
-				if reflect.DeepEqual(choice, value) {
-					found = true
-				}
-			}
-			if !found {
-				return fmt.Errorf("invalid choice for %s", key)
-			}
-		}
-	}
-	if required, ok := schema["required"].([]any); ok {
-		for _, raw := range required {
-			key, _ := raw.(string)
-			if _, ok := settings[key]; !ok {
-				return fmt.Errorf("missing setting %s", key)
-			}
-		}
-	}
-	return nil
+	return sdk.ValidateWidgetSettings(settings, schema)
 }
 
 func (s *Server) compilePresetAgentLayouts(projectID string, preset ProjectPreset) (map[string][]dashboardWidgetInstance, []string) {
@@ -398,6 +323,39 @@ func (s *Server) mergePresetSurface(userID int64, projectID, slot string, widget
 			return nil
 		}
 		raw, err := json.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		if _, _, err = s.store.PatchUserUILayoutSurface(userID, projectID, slot, raw, &revision); err == nil {
+			return nil
+		} else if !errors.Is(err, errUILayoutConflict) {
+			return err
+		}
+	}
+	return errUILayoutConflict
+}
+
+// Only explicit setup of a previously empty workspace may choose an initial
+// assistant. Existing saved preferences (including disabled) always win.
+func (s *Server) initializeStarterAssistant(userID int64, projectID string, agentID int64) error {
+	const slot = "dashboard.chat_assistant"
+	for attempt := 0; attempt < 3; attempt++ {
+		document, revision := s.store.GetUserUILayoutWithRevision(userID)
+		if len(resolvedWidgetLayout(document, projectID, slot)) > 0 {
+			return nil
+		}
+		var stored struct {
+			Projects map[string]struct {
+				Slots map[string]json.RawMessage `json:"slots"`
+			} `json:"projects"`
+		}
+		if json.Unmarshal(document, &stored) == nil {
+			if _, exists := stored.Projects[projectID].Slots[slot]; exists {
+				return nil
+			}
+		}
+		target := map[string]any{"kind": "agent", "id": agentID}
+		raw, err := json.Marshal([]map[string]any{{"id": "chat-assistant", "component": "dashboard:chat-assistant-preferences", "size": "full", "settings": map[string]any{"enabled": true, "defaultTarget": target, "targets": []any{target, map[string]any{"kind": "helper"}}, "allowSwitching": true, "sharePageContext": true}}})
 		if err != nil {
 			return err
 		}
