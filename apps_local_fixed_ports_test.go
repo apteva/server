@@ -277,6 +277,12 @@ func TestRebuildLocalFixedPortReservationsBeforeResume(t *testing.T) {
 func localSidecarSpec(t *testing.T, installID int64, appName, bin string, fixedPort int, env map[string]string) activationSpec {
 	t.Helper()
 	httpPort := unusedTCPPort(t)
+	// Closed ephemeral ports can be handed out again immediately on Linux.
+	// The fixture opens both listeners, so keep its HTTP port distinct from
+	// the fixed listener even when that listener is configured through env.
+	for httpPort == fixedPort || fmt.Sprint(httpPort) == env["TEST_SIDECAR_FIXED_PORT"] {
+		httpPort = unusedTCPPort(t)
+	}
 	m := &sdk.Manifest{Name: appName, Runtime: sdk.Runtime{HealthCheck: "/health"}}
 	if fixedPort > 0 {
 		m.Runtime.Ports = []sdk.RuntimePort{{Name: "mqtt", ContainerPort: fixedPort, HostPort: fixedPort, Protocol: "tcp"}}
