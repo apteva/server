@@ -139,10 +139,11 @@ func (s *Server) handleMobilePushConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, map[string]any{
-		"enabled":                     s.mobilePushRelayURL() != "",
-		"supports_background_refresh": false,
-		"supports_app_notifications":  true,
-		"instance_ref":                s.mobilePushInstanceRef(),
+		"enabled":                        s.mobilePushRelayURL() != "",
+		"supports_background_refresh":    false,
+		"supports_app_notifications":     true,
+		"supports_notification_previews": true,
+		"instance_ref":                   s.mobilePushInstanceRef(),
 	})
 }
 
