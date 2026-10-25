@@ -12,6 +12,7 @@ func (s *Store) migrateAppRuntime() error {
 		return err
 	}
 	statements := []string{
+		`CREATE TABLE IF NOT EXISTS app_runtime_resource_policies (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id) ON DELETE CASCADE, revision INTEGER NOT NULL, policy_json TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_ingress (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id),hostname TEXT NOT NULL UNIQUE,record_json TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_packages (id TEXT PRIMARY KEY,build_key TEXT NOT NULL UNIQUE,record_json TEXT NOT NULL,bytes INTEGER NOT NULL,last_used INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_package_builds (build_key TEXT PRIMARY KEY,package_id TEXT NOT NULL,record_json TEXT NOT NULL)`,

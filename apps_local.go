@@ -532,7 +532,13 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	//      every sidecar before our own shutdown handler runs (we
 	//      want to stop apps cleanly, not have them die mid-flush).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	releaseResources, resourceErr := configureLocalProcessResources(cmd, overrides)
+	if resourceErr != nil {
+		logf.Close()
+		return resourceErr
+	}
 	if err := cmd.Start(); err != nil {
+		releaseResources()
 		logf.Close()
 		return fmt.Errorf("spawn %s: %w", appName, err)
 	}
@@ -549,6 +555,7 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	reap := func() {
 		defer close(done)
 		err := cmd.Wait()
+		releaseResources()
 		log.Printf("[APPS-LOCAL] child exited install=%d pid=%d err=%v", installID, cmd.Process.Pid, err)
 		sup.mu.Lock()
 		if p, ok := sup.procs[installID]; ok && p.cmd == cmd {

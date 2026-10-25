@@ -3,7 +3,7 @@ package main
 // Platform snapshot endpoint.
 //
 // GET /api/platform/snapshot streams a tar.gz containing every SQLite
-// database the platform owns, captured via SQLite VACUUM INTO so each
+// database the platform owns, captured via SQLite online backup so each
 // dump is internally consistent without stopping any sidecar. Layout:
 //
 //   manifest.json                       — versions + per-install metadata
@@ -20,6 +20,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -46,34 +47,13 @@ func (s *Server) handlePlatformSnapshot(w http.ResponseWriter, r *http.Request) 
 	s.writePlatformSnapshot(w, r)
 }
 
-// writePlatformSnapshot contains the shared snapshot implementation. Its
-// callers must complete authentication and authorization before entering it.
-// vacuumIntoFromHandle dumps the open *sql.DB into dst. SQLite's
-// VACUUM INTO acquires only a SHARED read lock on the source so other
-// readers and writers continue uninterrupted; the resulting file is
-// internally consistent.
+// Legacy callers retain these names; platform snapshots use incremental,
+// cancellable SQLite backup rather than rebuilding databases with VACUUM.
 func vacuumIntoFromHandle(db *sql.DB, dst string) error {
-	// VACUUM INTO requires the target file to not exist.
-	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	// SQLite string literal: wrap in single quotes, escape embedded ones.
-	quoted := "'" + strings.ReplaceAll(dst, "'", "''") + "'"
-	_, err := db.Exec("VACUUM INTO " + quoted)
-	return err
+	return onlineBackupDB(context.Background(), db, dst)
 }
-
-// vacuumIntoFromPath opens a SQLite file the server doesn't already
-// hold a handle to (e.g. a sidecar's app.db) and vacuums it. We open
-// in read-only mode so we can never accidentally write to a sidecar's
-// live database.
 func vacuumIntoFromPath(src, dst string) error {
-	db, err := sql.Open("sqlite", "file:"+src+"?mode=ro&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	return vacuumIntoFromHandle(db, dst)
+	return onlineBackupPath(context.Background(), src, dst)
 }
 
 func writeTarBytes(tw *tar.Writer, name string, content []byte, mod time.Time) error {
@@ -198,14 +178,31 @@ func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
 // callers must complete authentication, authorization, and confirmation checks
 // before entering it.
 func (s *Server) restorePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Context().Err() != nil {
+		return
+	}
+	if !platformBackupMu.TryLock() {
+		http.Error(w, "a platform backup or restore is already running", http.StatusConflict)
+		return
+	}
+	defer platformBackupMu.Unlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Hour)
+	defer cancel()
+	r = r.WithContext(ctx)
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(2 * time.Hour))
+	if err := backupSpace(os.TempDir(), 0); err != nil {
+		http.Error(w, err.Error(), http.StatusInsufficientStorage)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxRestoreCompressedBytes)
-	gz, err := gzip.NewReader(r.Body)
+	gz, err := gzip.NewReader(&backupReader{ctx: ctx, in: r.Body})
 	if err != nil {
 		writeRestoreReadError(w, "body is not gzip", err, http.StatusBadRequest)
 		return
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
+	expandedStream := &io.LimitedReader{R: gz, N: maxRestoreExpandedBytes + int64(maxRestoreArchiveEntryCount)*8192 + (1 << 20) + 1}
+	tr := tar.NewReader(expandedStream)
 
 	// Drain the tar into a temp dir so we can validate the manifest before
 	// touching anything live, and so we can iterate entries in any order.
@@ -230,6 +227,9 @@ func (s *Server) restorePlatformSnapshot(w http.ResponseWriter, r *http.Request)
 		}
 		if h.Typeflag != tar.TypeReg {
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return
 		}
 		entryCount++
 		if entryCount > maxRestoreArchiveEntryCount {
@@ -257,12 +257,16 @@ func (s *Server) restorePlatformSnapshot(w http.ResponseWriter, r *http.Request)
 		// archive's own name as a filesystem destination — it's only a
 		// routing hint that we re-validate below.
 		dst := filepath.Join(stage, fmt.Sprintf("entry-%d.bin", len(staged)))
+		if err := backupSpace(stage, h.Size); err != nil {
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+			return
+		}
 		f, err := os.Create(dst)
 		if err != nil {
 			http.Error(w, "stage write: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		written, copyErr := io.Copy(f, tr)
+		written, copyErr := io.Copy(&backupDiskWriter{ctx: ctx, out: f, path: stage}, &backupReader{ctx: ctx, in: tr})
 		if copyErr != nil {
 			f.Close()
 			writeRestoreReadError(w, "stage copy", copyErr, http.StatusInternalServerError)
@@ -277,6 +281,14 @@ func (s *Server) restorePlatformSnapshot(w http.ResponseWriter, r *http.Request)
 		staged[h.Name] = dst
 	}
 
+	if _, err := io.Copy(io.Discard, &backupReader{ctx: ctx, in: expandedStream}); err != nil {
+		writeRestoreReadError(w, "gzip trailer", err, http.StatusBadRequest)
+		return
+	}
+	if expandedStream.N == 0 {
+		http.Error(w, "expanded snapshot exceeds restore limit", http.StatusRequestEntityTooLarge)
+		return
+	}
 	manifestPath, ok := staged["manifest.json"]
 	if !ok {
 		http.Error(w, "snapshot missing manifest.json", http.StatusBadRequest)
@@ -295,7 +307,7 @@ func (s *Server) restorePlatformSnapshot(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if manifest.FormatVersion == 2 {
-		if err := s.stageRecoveryV2(staged, manifestBytes, r.Header.Get("X-Backup-Passphrase")); err != nil {
+		if err := s.stageRecoveryV2Context(ctx, staged, manifestBytes, r.Header.Get("X-Backup-Passphrase")); err != nil {
 			http.Error(w, "stage recovery: "+err.Error(), http.StatusBadRequest)
 			return
 		}

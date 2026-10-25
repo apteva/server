@@ -95,6 +95,8 @@ type platformBackupAuditWriter struct {
 	status int
 }
 
+func (w *platformBackupAuditWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *platformBackupAuditWriter) WriteHeader(status int) {
 	if w.status == 0 {
 		w.status = status

@@ -164,6 +164,14 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	path := suffix[1]
+	if path == "deployment/resources/runtime" {
+		s.handleRuntimeResourceExecution(w, r, id)
+		return
+	}
+	if path == "deployment/resources" {
+		s.handleRuntimeResources(w, r, id)
+		return
+	}
 	if path == "deployment/browser-origins" {
 		s.handleRuntimeBrowserOrigins(w, r, id)
 		return

@@ -25,6 +25,7 @@ type runtimeResourceRef struct {
 	ID        string `json:"resource_id"`
 }
 type runtimePlacement struct {
+	Resources  *sdk.ResourcePolicy `json:"resource_policy,omitempty"`
 	Ingress    *runtimeIngressSpec `json:"ingress,omitempty"`
 	Type       string              `json:"type"`
 	Backend    runtimeBackendRef   `json:"backend,omitempty"`
@@ -37,6 +38,11 @@ type runtimePlacement struct {
 
 func (p runtimePlacement) local() bool { return p.Type == "" || p.Type == "local" }
 func (p runtimePlacement) validate() error {
+	if p.Resources != nil {
+		if e := p.Resources.Validate(); e != nil {
+			return e
+		}
+	}
 	if e := validateRuntimeIngressSpec(p.Ingress); e != nil {
 		return e
 	}
@@ -86,26 +92,27 @@ func runtimeSecureURL(raw string) error {
 type runtimeStateTransferPolicy = sdk.RuntimeStateTransferPolicy
 
 type runtimeBackendCaps struct {
-	StateTransfer    *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
-	TargetDiscovery  *runtimeTargetDiscovery     `json:"target_discovery,omitempty"`
-	TargetListing    bool                        `json:"target_listing,omitempty"`
-	ManagedIngress   bool                        `json:"managed_ingress,omitempty"`
-	TargetInspection bool                        `json:"target_inspection,omitempty"`
-	PackageDelivery  *runtimePackageDeliveryCaps `json:"package_delivery,omitempty"`
-	FencingScope     string                      `json:"fencing_scope,omitempty"`
-	Contract         string                      `json:"contract"`
-	ID               string                      `json:"id"`
-	RuntimeKinds     []string                    `json:"runtime_kinds"`
-	Platforms        []string                    `json:"platforms"`
-	Formats          []string                    `json:"formats"`
-	Protocols        []string                    `json:"protocols"`
-	Snapshots        bool                        `json:"snapshots"`
-	ConfirmedStop    bool                        `json:"confirmed_stop"`
-	Fencing          bool                        `json:"fencing"`
-	Replicas         bool                        `json:"replicas"`
-	ResourceControls bool                        `json:"resource_controls"`
-	TargetSchema     json.RawMessage             `json:"target_schema,omitempty"`
-	OptionsSchema    json.RawMessage             `json:"options_schema,omitempty"`
+	ResourceCapabilities *sdk.ResourceCapabilities   `json:"resource_capabilities,omitempty"`
+	StateTransfer        *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
+	TargetDiscovery      *runtimeTargetDiscovery     `json:"target_discovery,omitempty"`
+	TargetListing        bool                        `json:"target_listing,omitempty"`
+	ManagedIngress       bool                        `json:"managed_ingress,omitempty"`
+	TargetInspection     bool                        `json:"target_inspection,omitempty"`
+	PackageDelivery      *runtimePackageDeliveryCaps `json:"package_delivery,omitempty"`
+	FencingScope         string                      `json:"fencing_scope,omitempty"`
+	Contract             string                      `json:"contract"`
+	ID                   string                      `json:"id"`
+	RuntimeKinds         []string                    `json:"runtime_kinds"`
+	Platforms            []string                    `json:"platforms"`
+	Formats              []string                    `json:"formats"`
+	Protocols            []string                    `json:"protocols"`
+	Snapshots            bool                        `json:"snapshots"`
+	ConfirmedStop        bool                        `json:"confirmed_stop"`
+	Fencing              bool                        `json:"fencing"`
+	Replicas             bool                        `json:"replicas"`
+	ResourceControls     bool                        `json:"resource_controls"`
+	TargetSchema         json.RawMessage             `json:"target_schema,omitempty"`
+	OptionsSchema        json.RawMessage             `json:"options_schema,omitempty"`
 }
 type runtimeBackendRegistration struct {
 	DisplayName     string                  `json:"display_name,omitempty"`
@@ -131,6 +138,7 @@ type runtimePortBinding struct {
 	Exclusive bool   `json:"exclusive"`
 }
 type runtimeExecution struct {
+	ProcessResources    map[string]string    `json:"process_resources,omitempty"`
 	StateEntries        *int64               `json:"state_entries,omitempty"`
 	StateAvailableBytes *int64               `json:"state_available_bytes,omitempty"`
 	StateBytes          *int64               `json:"state_bytes,omitempty"` // Current uncompressed persistent bytes, reported by the owning backend.
@@ -151,6 +159,8 @@ type runtimeExecution struct {
 	Load                *float64             `json:"load,omitempty"` // backend-reported work load; never server CPU sampling.
 }
 type runtimeDeployment struct {
+	Resources            sdk.ResourcePolicy         `json:"resource_policy,omitempty"`
+	ResourceRevision     int64                      `json:"resource_revision,omitempty"`
 	PersistentData       bool                       `json:"persistent_data,omitempty"`
 	TargetInfo           *sdk.RuntimeTargetInfo     `json:"target_info,omitempty"`
 	Package              *runtimePreparedPackage    `json:"package,omitempty"`
@@ -196,6 +206,7 @@ type runtimeOperation struct {
 	SnapshotSHA256   string                      `json:"snapshot_sha256,omitempty"`
 }
 type runtimeBackendRequest struct {
+	Resources        *sdk.ResourcePolicy         `json:"resource_policy,omitempty"`
 	StateTransfer    *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
 	TargetInfo       *sdk.RuntimeTargetInfo      `json:"target_info,omitempty"`
 	Package          *runtimePackageReference    `json:"package,omitempty"`

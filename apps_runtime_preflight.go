@@ -15,6 +15,9 @@ func runtimeBackendCompatibility(manifest sdk.Manifest, caps runtimeBackendCaps)
 	if manifest.Runtime.Resources.CPULimit < 0 || manifest.Runtime.Resources.MemoryLimit < 0 {
 		return fmt.Errorf("negative resource limit")
 	}
+	if (manifest.Runtime.Resources.CPULimit > 0 || manifest.Runtime.Resources.MemoryLimit > 0) && caps.ResourceCapabilities != nil {
+		return fmt.Errorf("legacy container resource limits require an explicit resource_policy for this backend")
+	}
 	if (manifest.Runtime.Resources.CPULimit > 0 || manifest.Runtime.Resources.MemoryLimit > 0) && !caps.ResourceControls {
 		return fmt.Errorf("backend cannot enforce declared resource limits")
 	}
@@ -135,6 +138,24 @@ func (m *appRuntimeManager) preflight(ctx context.Context, id int64, project str
 			return p, append(checks, runtimeCheck("Placement access", "placement_access_denied", fmt.Errorf("backend and target must be available in this project")))
 		}
 	}
+	var installationPolicy *sdk.ResourcePolicy
+	var resourceErr error
+	if id > 0 {
+		saved, e := m.resourcePolicy(id)
+		resourceErr = e
+		installationPolicy = &saved.Policy
+	}
+	resourcePolicy, resolveErr := sdk.ResolveResources(manifest.Runtime.ResourcePolicy, installationPolicy, p.Resources)
+	if resourceErr == nil {
+		resourceErr = resolveErr
+	}
+	if resourceErr == nil {
+		resourceErr = validateHostResourcePolicy(resourcePolicy)
+	}
+	if resourceErr == nil {
+		resourceErr = reg.Caps.ResourceCapabilities.ValidateProcess(resourcePolicy.Process)
+	}
+	checks = append(checks, runtimeCheck("Resources", "resource_policy_unsupported", resourceErr))
 	checks = append(checks, runtimeCheck("Backend compatibility", "backend_incompatible", runtimeBackendCompatibility(manifest, reg.Caps)))
 	if manifest.Runtime.DatabaseUpgrade == "requires_restore" {
 		checks = append(checks, runtimeCheck("Database upgrade", "database_restore_required", fmt.Errorf("automatic activation requires an explicit database restore plan")))

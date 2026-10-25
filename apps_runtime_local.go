@@ -18,7 +18,7 @@ type localRuntimeBackend struct {
 
 func (b *localRuntimeBackend) Describe() runtimeBackendCaps {
 	policy, _ := serverRuntimeStatePolicy()
-	return runtimeBackendCaps{StateTransfer: &policy, Contract: runtimeBackendContract, ID: "local", RuntimeKinds: []string{"source", "service", "static"}, Platforms: []string{localPlatform()}, Formats: []string{"artifact", "source", "binary"}, Protocols: []string{"tcp", "udp"}, Snapshots: true, ConfirmedStop: true}
+	return runtimeBackendCaps{ResourceCapabilities: localResourceCapabilities(), ResourceControls: len(localResourceCapabilities().ProcessControls) > 0, StateTransfer: &policy, Contract: runtimeBackendContract, ID: "local", RuntimeKinds: []string{"source", "service", "static"}, Platforms: []string{localPlatform()}, Formats: []string{"artifact", "source", "binary"}, Protocols: []string{"tcp", "udp"}, Snapshots: true, ConfirmedStop: true}
 }
 func (b *localRuntimeBackend) Prepare(req runtimeBackendRequest) (runtimeExecution, error) {
 	if req.Manifest.Runtime.Kind == "static" {
@@ -166,6 +166,7 @@ func (b *localRuntimeBackend) Inspect(req runtimeBackendRequest) (runtimeExecuti
 					return out, fmt.Errorf("managed process identity cannot be confirmed")
 				}
 				out.State = "running"
+				out.ProcessResources = inspectLocalProcessResources(pid)
 				out.Endpoint = localSidecarURL(int64(d.LocalPort))
 				out.Ready = true
 				out.StoppedConfirmed = false
@@ -181,6 +182,7 @@ func (b *localRuntimeBackend) Inspect(req runtimeBackendRequest) (runtimeExecuti
 		}
 	}
 	out.State = "running"
+	out.ProcessResources = inspectLocalProcessResources(p.cmd.Process.Pid)
 	out.Endpoint = localSidecarURL(int64(p.port))
 	out.Ready = waitFixedTCPPorts(p.spec.probeHost, p.spec.fixedPorts, time.Second) == nil
 	return out, nil

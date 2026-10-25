@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,6 +71,9 @@ func sqliteFile(path string) bool {
 	return err == nil && string(header[:]) == "SQLite format 3\x00"
 }
 func validateRecoveryDB(path string) error {
+	return validateRecoveryDBContext(context.Background(), path)
+}
+func validateRecoveryDBContext(ctx context.Context, path string) error {
 	if !sqliteFile(path) {
 		return fmt.Errorf("invalid SQLite file")
 	}
@@ -78,7 +83,7 @@ func validateRecoveryDB(path string) error {
 	}
 	defer db.Close()
 	var result string
-	if err = db.QueryRow("PRAGMA quick_check").Scan(&result); err != nil {
+	if err = db.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&result); err != nil {
 		return err
 	}
 	if result != "ok" {
@@ -87,6 +92,9 @@ func validateRecoveryDB(path string) error {
 	return nil
 }
 func recoveryDigest(path string) (recoveryFile, error) {
+	return recoveryDigestContext(context.Background(), path)
+}
+func recoveryDigestContext(ctx context.Context, path string) (recoveryFile, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return recoveryFile{}, err
@@ -97,14 +105,29 @@ func recoveryDigest(path string) (recoveryFile, error) {
 	if err != nil {
 		return recoveryFile{}, err
 	}
-	size, err := io.Copy(h, f)
+	size, err := io.Copy(h, &backupReader{ctx: ctx, in: f})
 	return recoveryFile{Mode: uint32(0600 | info.Mode().Perm()&0111), SHA256: hex.EncodeToString(h.Sum(nil)), Size: size, SQLite: sqliteFile(path)}, err
 }
 
-// Materialize all bytes before writing response headers. SQLite databases are
-// independently consistent online snapshots; file trees are captured while live.
-// No runtime stream or event processing is paused by a backup.
+// Capture SQLite files independently online; stream other files while live.
+// Only one SQLite copy is retained at a time; manifest hashes are built in flight.
 func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Context().Err() != nil {
+		return
+	}
+	if !platformBackupMu.TryLock() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "a platform backup or restore is already running", http.StatusConflict)
+		return
+	}
+	defer platformBackupMu.Unlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Hour)
+	defer cancel()
+	r = r.WithContext(ctx)
+	if err := backupSpace(os.TempDir(), 0); err != nil {
+		http.Error(w, err.Error(), http.StatusInsufficientStorage)
+		return
+	}
 	tmp, err := os.MkdirTemp("", "apteva-recovery-*")
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -112,6 +135,7 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.RemoveAll(tmp)
 	files := map[string]string{}
+	var started bool
 	manifest := recoveryManifest{Excluded: map[string][]string{}, FormatVersion: 2, GeneratedAt: time.Now().UTC().Format(time.RFC3339), ServerVersion: versionInfo(), Files: map[string]recoveryFile{}, KeyFingerprint: keyFingerprint(s.secret), KeyPolicy: "original_key_required", SourceDataDir: s.dataDir}
 	if s.localApps != nil {
 		manifest.SourceCacheDir = s.localApps.cacheDir
@@ -139,9 +163,15 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 		manifest.KeyPolicy = "passphrase_wrapped"
 	}
-	fail := func(err error) { http.Error(w, "snapshot: "+err.Error(), 500) }
+	fail := func(err error) {
+		if !started {
+			http.Error(w, "snapshot: "+err.Error(), 500)
+		}
+		// After headers, leave the gzip stream incomplete. Validation rejects it;
+		// never append a valid trailer to a partially captured snapshot.
+	}
 	dbPath := filepath.Join(tmp, "server.db")
-	if err = vacuumIntoFromHandle(s.store.db, dbPath); err != nil {
+	if err = onlineBackupPath(ctx, s.store.path, dbPath); err != nil {
 		fail(err)
 		return
 	}
@@ -233,7 +263,10 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 		if _, e := os.Lstat(root.Path); os.IsNotExist(e) {
 			continue
 		}
-		err = filepath.WalkDir(root.Path, func(path string, d os.DirEntry, e error) error {
+		err = walkBackupTree(ctx, root.Path, func(path string, d os.DirEntry, e error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if e != nil {
 				return e
 			}
@@ -270,23 +303,17 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 			if e != nil {
 				return e
 			}
-			dst := filepath.Join(tmp, fmt.Sprintf("file-%d", len(files)))
-			if sqliteFile(path) {
-				e = vacuumIntoFromPath(path, dst)
-			} else {
-				e = copyFile(path, dst)
-			}
-			if e != nil {
-				return e
+			if len(files)+2 > maxRestoreArchiveEntryCount {
+				return fmt.Errorf("snapshot exceeds recovery file-count limit (%d)", maxRestoreArchiveEntryCount)
 			}
 			info, e := d.Info()
 			if e != nil {
 				return e
 			}
-			if e = os.Chmod(dst, 0600|info.Mode().Perm()&0111); e != nil {
-				return e
+			if info.Size() > maxRestoreEntryBytes {
+				return fmt.Errorf("snapshot file exceeds recovery size limit")
 			}
-			files[root.Archive+"/"+filepath.ToSlash(rel)] = dst
+			files[root.Archive+"/"+filepath.ToSlash(rel)] = path
 			return nil
 		})
 		if err != nil {
@@ -298,42 +325,151 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(fmt.Errorf("snapshot exceeds recovery file-count limit (%d)", maxRestoreArchiveEntryCount))
 		return
 	}
-	var expanded int64
-	for name, path := range files {
-		meta, e := recoveryDigest(path)
+	// Fail early on source size/count limits before reading payloads. SQLite
+	// output sizes are checked again after capture (WAL may contain more pages).
+	var estimate int64
+	for _, path := range files {
+		info, e := os.Stat(path)
 		if e != nil {
 			fail(e)
 			return
 		}
-		if meta.Size > maxRestoreEntryBytes || expanded > maxRestoreExpandedBytes-meta.Size {
+		if info.Size() > maxRestoreExpandedBytes-estimate {
 			fail(fmt.Errorf("snapshot exceeds recovery size limit"))
 			return
 		}
-		expanded += meta.Size
-		manifest.Files[name] = meta
+		estimate += info.Size()
 	}
-	raw, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		fail(err)
+	// Bound manifest memory before streaming payloads; use maximum-width
+	// metadata so the final inventory cannot outgrow this preflight encoding.
+	for name := range files {
+		manifest.Files[name] = recoveryFile{Mode: 0700, SHA256: strings.Repeat("0", 64), Size: maxRestoreEntryBytes, SQLite: true}
+	}
+	preflight, e := json.Marshal(manifest)
+	if e != nil {
+		fail(e)
 		return
 	}
-	if int64(len(raw)) > maxRestoreManifestBytes || expanded > maxRestoreExpandedBytes-int64(len(raw)) {
+	if int64(len(preflight)) > maxRestoreManifestBytes {
 		fail(fmt.Errorf("snapshot manifest exceeds recovery limit"))
+		return
+	}
+	clear(manifest.Files)
+	if err = inventory.Close(); err != nil {
+		fail(err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="apteva-snapshot-`+time.Now().UTC().Format("20060102-150405")+`.tar.gz"`)
-	gz := gzip.NewWriter(w)
+	// Bound compressed output to exactly the restore transport ceiling.
+	limited := &runtimeBoundedWriter{ctx: ctx, out: w, remaining: maxRestoreCompressedBytes}
+	gz, _ := gzip.NewWriterLevel(limited, gzip.BestSpeed)
 	tw := tar.NewWriter(gz)
-	defer gz.Close()
-	defer tw.Close()
-	if err = writeTarBytes(tw, "manifest.json", raw, time.Now()); err != nil {
-		return
+	var expanded int64
+	names := make([]string, 0, len(files))
+	names = append(names, "server/apteva-server.db")
+	for name := range files {
+		if name != "server/apteva-server.db" {
+			names = append(names, name)
+		}
 	}
-	for name, path := range files {
-		if err = writeTarFile(tw, name, path, time.Now()); err != nil {
+	sort.Strings(names[1:])
+	for _, name := range names {
+		path := files[name]
+		if err = ctx.Err(); err != nil {
+			fail(err)
 			return
 		}
+		captured := path
+		isDB := name == "server/apteva-server.db" || sqliteFile(path)
+		if isDB && name != "server/apteva-server.db" {
+			captured = filepath.Join(tmp, "current.db")
+			if err = onlineBackupPath(ctx, path, captured); err != nil {
+				fail(err)
+				return
+			}
+		}
+		if isDB {
+			if err = validateRecoveryDBContext(ctx, captured); err != nil {
+				fail(err)
+				return
+			}
+		}
+		f, e := os.Open(captured)
+		if e != nil {
+			fail(e)
+			return
+		}
+		info, e := f.Stat()
+		if e != nil {
+			f.Close()
+			fail(e)
+			return
+		}
+		mode := info.Mode()
+		if captured != path {
+			original, e := os.Stat(path)
+			if e != nil {
+				f.Close()
+				fail(e)
+				return
+			}
+			mode = original.Mode()
+		}
+		if info.Size() > maxRestoreEntryBytes || info.Size() > maxRestoreExpandedBytes-expanded {
+			f.Close()
+			fail(fmt.Errorf("snapshot exceeds recovery size limit"))
+			return
+		}
+		hash := sha256.New()
+		started = true
+		err = tw.WriteHeader(&tar.Header{Name: name, Mode: int64(0600 | mode.Perm()&0111), Size: info.Size(), ModTime: info.ModTime()})
+		if err == nil {
+			_, err = io.CopyN(io.MultiWriter(tw, hash), &backupReader{ctx: ctx, in: f}, info.Size())
+		}
+		after, statErr := f.Stat()
+		closeErr := f.Close()
+		if err == nil {
+			err = statErr
+		}
+		if err == nil {
+			err = closeErr
+		}
+		if err == nil && (after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime())) {
+			err = fmt.Errorf("persistent file changed during snapshot: %s", name)
+		}
+		if captured != path || name == "server/apteva-server.db" {
+			os.Remove(captured)
+		}
+		if err != nil {
+			fail(err)
+			return
+		}
+		expanded += info.Size()
+		manifest.Files[name] = recoveryFile{Mode: uint32(0600 | mode.Perm()&0111), SHA256: hex.EncodeToString(hash.Sum(nil)), Size: info.Size(), SQLite: isDB}
+	}
+	// Manifest last lets us hash while streaming each file and immediately
+	// release its SQLite copy, instead of staging and rereading the whole tree.
+	raw, e := json.Marshal(manifest)
+	if e != nil {
+		fail(e)
+		return
+	}
+	if int64(len(raw)) > maxRestoreManifestBytes || int64(len(raw)) > maxRestoreExpandedBytes-expanded {
+		fail(fmt.Errorf("snapshot manifest exceeds recovery limit"))
+		return
+	}
+	if err = writeTarBytes(tw, "manifest.json", raw, time.Now()); err != nil {
+		fail(err)
+		return
+	}
+	if err = tw.Close(); err != nil {
+		fail(err)
+		return
+	}
+	if err = gz.Close(); err != nil {
+		fail(err)
+		return
 	}
 }
 
@@ -382,6 +518,12 @@ func syncRecoveryDir(path string) error {
 }
 
 func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphrase string) error {
+	return s.stageRecoveryV2Context(context.Background(), staged, raw, passphrase)
+}
+func (s *Server) stageRecoveryV2Context(ctx context.Context, staged map[string]string, raw []byte, passphrase string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	recoveryStageMu.Lock()
 	defer recoveryStageMu.Unlock()
 	if s.dbPath == "" {
@@ -399,11 +541,14 @@ func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphras
 		return fmt.Errorf("recovery inventory does not match archive")
 	}
 	for name, meta := range m.Files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		path, ok := staged[name]
 		if !ok {
 			return fmt.Errorf("missing recovery file %s", name)
 		}
-		actual, err := recoveryDigest(path)
+		actual, err := recoveryDigestContext(ctx, path)
 		if err != nil {
 			return err
 		}
@@ -415,7 +560,7 @@ func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphras
 			return fmt.Errorf("recovery digest mismatch: %s", name)
 		}
 		if meta.SQLite {
-			if err = validateRecoveryDB(path); err != nil {
+			if err = validateRecoveryDBContext(ctx, path); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
@@ -424,7 +569,7 @@ func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphras
 	if !ok {
 		return fmt.Errorf("missing server database")
 	}
-	if err := validateRecoveryDB(dbSource); err != nil {
+	if err := validateRecoveryDBContext(ctx, dbSource); err != nil {
 		return err
 	}
 	key := s.secret
@@ -487,6 +632,9 @@ func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphras
 	used := map[string]bool{"server/apteva-server.db": true}
 	destinations := map[string]bool{}
 	for _, root := range m.Roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if root.ID <= 0 {
 			return fmt.Errorf("invalid recovery identity")
 		}
@@ -541,7 +689,7 @@ func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphras
 			if err = os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
 				return err
 			}
-			if err = copyFile(path, dest); err != nil {
+			if err = backupStageFile(ctx, path, dest); err != nil {
 				return err
 			}
 			if err = os.Chmod(dest, os.FileMode(m.Files[name].Mode)); err != nil {
@@ -607,7 +755,10 @@ func (s *Server) stageRecoveryV2(staged map[string]string, raw []byte, passphras
 	if err != nil {
 		return err
 	}
-	if err = copyFile(dbSource, tmp); err != nil {
+	if err = backupCopyFile(ctx, dbSource, tmp); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
 		return err
 	}
 	if err = durableJSON(marker, plan); err != nil {

@@ -67,6 +67,7 @@ func (m *appRuntimeManager) request(d runtimeDeployment, op runtimeOperation, ac
 		options["gateway_url"] = d.Placement.GatewayURL
 	}
 	req := runtimeBackendRequest{StateTransfer: op.StateTransfer, TargetInfo: d.TargetInfo, Contract: runtimeBackendContract, OperationID: op.ID, IdempotencyKey: op.ID + ":" + d.ID, DeploymentID: d.ID, InstallID: d.InstallID, Generation: d.Generation, ProjectID: project, Target: d.Placement.Target, Options: options, Manifest: d.Manifest, Execution: d.Execution, StateRef: d.Execution.StateRef, GatewayURL: d.Placement.GatewayURL}
+	req.Resources = &d.Resources
 	if d.Package != nil {
 		if v, ok := options["artifact_id"]; ok && v != d.Package.Metadata.ID {
 			return req, fmt.Errorf("artifact option conflicts with prepared package")
@@ -99,6 +100,36 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 		return runtimeDeployment{}, err
 	}
 	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", CreatedAt: runtimeTimestamp(), AppCaps: m.appCapabilities(id)}
+	policy, err := m.resourcePolicy(id)
+	if err != nil {
+		return d, err
+	}
+	d.Resources, err = sdk.ResolveResources(manifest.Runtime.ResourcePolicy, &policy.Policy, p.Resources)
+	if err != nil {
+		return d, err
+	}
+	d.ResourceRevision = policy.Revision
+	if err = validateHostResourcePolicy(d.Resources); err != nil {
+		return d, err
+	}
+	if !d.Resources.Process.Empty() {
+		if p.local() {
+			if err = validateLocalProcessResources(d.Resources.Process); err != nil {
+				return d, err
+			}
+		} else {
+			reg, e := m.registration(p.Backend)
+			if e != nil {
+				return d, e
+			}
+			if !reg.Caps.ResourceControls || reg.Caps.ResourceCapabilities == nil {
+				return d, fmt.Errorf("backend does not support resource policy")
+			}
+			if err = reg.Caps.ResourceCapabilities.ValidateProcess(d.Resources.Process); err != nil {
+				return d, err
+			}
+		}
+	}
 	if d.Placement.Type == "" {
 		d.Placement.Type = "local"
 	}
@@ -129,6 +160,7 @@ func (m *appRuntimeManager) deploymentEnvironment(d runtimeDeployment, token str
 		gateway = d.Placement.GatewayURL
 	}
 	env := map[string]string{"APTEVA_APP_TOKEN": token, "APTEVA_OUTBOUND_TOKEN": token, "APTEVA_GATEWAY_URL": gateway, "APTEVA_PUBLIC_URL": m.s.publicBaseURL(), "APTEVA_INSTALL_ID": fmt.Sprint(d.InstallID), "APTEVA_PROJECT_ID": project, "APTEVA_APP_CONFIG": runtimeJSON(cfg), "APTEVA_DEPLOYMENT_ID": d.ID, "APTEVA_DEPLOYMENT_GENERATION": fmt.Sprint(d.Generation), "APTEVA_RUNTIME_MODE": "standby"}
+	env["APTEVA_RESOURCE_POLICY"] = runtimeJSON(runtimeResourceEnvelope(d))
 	for k, v := range d.Manifest.Runtime.Env {
 		if v.From == "" && !strings.HasPrefix(k, "APTEVA_") {
 			env[k] = v.Value
