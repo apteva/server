@@ -236,6 +236,16 @@ func (s *Server) dashboardConnectOrigins() ([]string, error) {
 			}
 		}
 	}
+	managed, err := s.dashboardRuntimeOrigins()
+	if err != nil {
+		return nil, err
+	}
+	for _, origin := range managed {
+		if !seen[origin] {
+			seen[origin] = true
+			out = append(out, origin)
+		}
+	}
 	sort.Strings(out)
 	return out, nil
 }

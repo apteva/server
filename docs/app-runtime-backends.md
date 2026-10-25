@@ -485,3 +485,24 @@ Without that optional status, the console reports process readiness and unknown
 admission, rather than asserting that the app is accepting work. No host CPU
 sampling is added. Domain setup uses the existing managed ingress capabilities;
 only apps with declared public routes and capable backends can select HTTPS.
+
+### Dashboard traffic and managed direct origins
+
+Ordinary dashboard HTTP actions, reads, MCP and SSE use the installation-scoped
+Apteva proxy for local and remote executions. Discovering a remote browser URL
+must not automatically redirect these requests or forward platform credentials
+there. The web SDK exposes explicit `client.apps.endpoints(installId)` discovery
+for protocols which intentionally need a direct connection, such as live media.
+
+The dashboard's HTTPS connection policy now derives browser, media and signaling
+origins from the committed active generation and its active replicas. Pending,
+stopped, retired and local executions do not contribute. Private control and
+callback endpoints are excluded; each browser origin must validate as exact
+HTTPS without credentials, query parameters or fragments. Domain changes take
+effect on the next full dashboard load. Existing app-managed origin registration
+remains available for non-deployment destinations, with its existing permission.
+Managed apps no longer need that permission just for their own deployment.
+
+This policy allows a browser connection; it grants neither CORS nor access to an
+app. Direct protocols must still enforce scoped user/call credentials and
+revocation. External frontend hosts continue to own their own browser policy.
