@@ -1643,6 +1643,48 @@ func credentialExchangeError(app *AppTemplate, credentials map[string]string, re
 	return errors.New(name + ": " + message)
 }
 
+// addSerializedQueryValue applies only explicitly configured encoding. Aliases
+// are resolved separately; metadata is keyed by the agent-facing input name.
+func addSerializedQueryValue(q neturl.Values, key string, value any, mode string) error {
+	if mode == "" || mode == "repeat" {
+		addQueryValue(q, key, value)
+		return nil
+	}
+	if mode != "csv" {
+		return fmt.Errorf("unsupported query serialization for %s", key)
+	}
+	var values []any
+	switch v := value.(type) {
+	case []any:
+		values = v
+	case []string:
+		for _, item := range v {
+			values = append(values, item)
+		}
+	default:
+		addQueryValue(q, key, value)
+		return nil
+	}
+	parts := []string{}
+	for _, item := range values {
+		if item == nil {
+			continue
+		}
+		switch v := item.(type) {
+		case string:
+			parts = append(parts, v)
+		case bool, float64, float32, int, int64, int32, uint, uint64, json.Number:
+			parts = append(parts, fmt.Sprint(v))
+		default:
+			return fmt.Errorf("CSV query field %s requires scalar values", key)
+		}
+	}
+	if len(parts) > 0 {
+		q.Add(key, strings.Join(parts, ","))
+	}
+	return nil
+}
+
 func addQueryValue(q neturl.Values, key string, v any) {
 	if v == nil {
 		return
@@ -2190,7 +2232,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		if str, isStr := v.(string); isStr && str == "" {
 			continue
 		}
-		addQueryValue(toolQuery, name, v)
+		if err := addSerializedQueryValue(toolQuery, name, v, tool.QueryParamSerialization[name]); err != nil {
+			return nil, err
+		}
 	}
 	for inputName, queryName := range tool.QueryParamAliases {
 		if localResponseParams[inputName] || localHeaderTransformParams[inputName] {
@@ -2206,7 +2250,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		if str, isStr := v.(string); isStr && str == "" {
 			continue
 		}
-		addQueryValue(toolQuery, queryName, v)
+		if err := addSerializedQueryValue(toolQuery, queryName, v, tool.QueryParamSerialization[inputName]); err != nil {
+			return nil, err
+		}
 	}
 	if encoded := toolQuery.Encode(); encoded != "" && !usingContinuationURL {
 		sep := "&"
@@ -2441,7 +2487,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			if k == tool.BodyInput || k == tool.BodyBinaryParam || k == tool.BodyRoot {
 				continue
 			}
-			addQueryValue(q, k, v)
+			if err := addSerializedQueryValue(q, k, v, tool.QueryParamSerialization[k]); err != nil {
+				return nil, err
+			}
 		}
 		if encoded := q.Encode(); encoded != "" {
 			sep := "&"

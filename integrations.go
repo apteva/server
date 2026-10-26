@@ -621,6 +621,8 @@ type AppToolDef struct {
 	// stay consistent but the upstream API uses an odd name, e.g. Bunny Stream
 	// list_videos accepts input collectionId but requires query key collection.
 	QueryParamAliases map[string]string `json:"query_param_aliases,omitempty"`
+	// Optional per-input array encoding; omitted fields retain repeated keys.
+	QueryParamSerialization map[string]string `json:"query_param_serialization,omitempty"`
 	// RateLimit optionally paces requests per app/tool/credential and retries
 	// only explicitly declared transport statuses or provider error codes.
 	RateLimit *ToolRateLimitDef `json:"rate_limit,omitempty"`
