@@ -156,6 +156,11 @@ approved declaration. The same declaration supplies package capability metadata
 and is included in the existing package cache identity. Backend/package checksums,
 ownership generations and confirmed shutdown rules remain enforced.
 
+The existing protected `/_apteva/runtime/app/status` must report the exact
+deployment ID, numeric generation, state and `admitting` boolean. Server confirms
+admission after activation before publishing the worker. A healthy passive
+process or HTTP 200 activation acknowledgement alone is insufficient.
+
 Updates prepare while the old worker runs, then drain and confirm shutdown before
 starting/activating its replacement. The worker's drain endpoint must wait for
 existing jobs or confirmed cancellation; a deadline failure retains the previous

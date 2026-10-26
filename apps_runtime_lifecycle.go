@@ -140,7 +140,7 @@ func (m *appRuntimeManager) activateAndConfirm(d runtimeDeployment, op runtimeOp
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("app activation admission was not confirmed: %w", ctx.Err())
+			return fmt.Errorf("app activation admission was not confirmed (%s): %w", health.Admission, ctx.Err())
 		case <-time.After(100 * time.Millisecond):
 		}
 	}

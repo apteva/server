@@ -6,7 +6,8 @@ import (
 	"time"
 )
 
-// Recovery is opt-in through an authenticated, identity-bound app status. Failed
+// Recovery requires authenticated, identity-bound app status: an explicit
+// fenced restart request or standby of the already committed owner. Failed
 // HTTP/host probes and ordinary draining never authorize a replacement.
 func (m *appRuntimeManager) maybeRecoverRuntime(d runtimeDeployment, health runtimeHealthObservation) {
 	if !runtimeRecoveryRequested(health) || !m.runtimeMonitorCurrent(d) {
@@ -66,7 +67,7 @@ func (m *appRuntimeManager) readmitRuntime(op *runtimeOperation) error {
 			return err
 		}
 		var n int
-		err := m.s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs i WHERE i.id=? AND i.runtime_active_deployment=? AND i.runtime_generation=? AND i.runtime_pending_deployment='' AND i.status='running' AND (SELECT COUNT(*) FROM app_runtime_deployments WHERE install_id=i.id AND status='active')=1`, d.InstallID, d.ID, d.Generation).Scan(&n)
+		err := m.s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs i WHERE i.id=? AND i.runtime_active_deployment=? AND i.runtime_generation=? AND i.runtime_pending_deployment='' AND i.runtime_managed=1 AND i.status='running' AND EXISTS(SELECT 1 FROM app_runtime_deployments d WHERE d.id=i.runtime_active_deployment AND d.install_id=i.id AND d.generation=i.runtime_generation AND d.status='active') AND (SELECT COUNT(*) FROM app_runtime_deployments WHERE install_id=i.id AND status='active')=1`, d.InstallID, d.ID, d.Generation).Scan(&n)
 		if err != nil || n != 1 {
 			return fmt.Errorf("standby recovery owner or generation changed")
 		}
@@ -116,6 +117,14 @@ func (m *appRuntimeManager) readmitRuntime(op *runtimeOperation) error {
 		if err = m.activateAndConfirm(d, *op); err != nil {
 			return err
 		}
+	} else {
+		// A resumed operation may find activation already completed. The
+		// descriptor request above must not turn a stale active status into
+		// success if the app lost admission while capabilities were checked.
+		fresh := m.runtimeAppHealth(d, out)
+		if !fresh.Healthy || !fresh.IdentityVerified || !fresh.Admitting {
+			return fmt.Errorf("owned execution admission is no longer confirmed")
+		}
 	}
 	if err = current(); err != nil {
 		return err
@@ -145,9 +154,9 @@ func (m *appRuntimeManager) claimRuntimeRecovery(tx *sql.Tx, id int64, expected 
 	if err := tx.QueryRow(`SELECT count(*) FROM app_runtime_deployments WHERE install_id=? AND status='active'`, id).Scan(&count); err != nil {
 		return err
 	}
-	// Whole-installation restart must not disrupt another active replica.
+	// Automatic recovery must not disrupt another active replica.
 	if count != 1 {
-		return fmt.Errorf("automatic replacement requires a single active execution")
+		return fmt.Errorf("automatic recovery requires a single active execution")
 	}
 	if err := tx.QueryRow(`SELECT count(*) FROM app_runtime_deployments WHERE id=? AND install_id=? AND status='active'`, expected, id).Scan(&count); err != nil {
 		return err

@@ -368,3 +368,24 @@ func TestManagedRuntimeReadmissionResumesAfterControllerRestart(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedRuntimeReadmissionRechecksAlreadyActiveAdmission(t *testing.T) {
+	_, m, f, d := recoveryFixture(t)
+	original := f.server.Config.Handler
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		original.ServeHTTP(w, r)
+		if strings.HasPrefix(r.URL.Path, "/exec/"+d.ID+"/") && strings.HasSuffix(r.URL.Path, "/app/describe") {
+			f.mu.Lock()
+			f.admitting[d.ID] = false
+			f.mu.Unlock()
+		}
+	})
+	op, err := m.beginExpected(d.InstallID, "readmit", "resume-already-active", d.Placement, nil, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op = waitRuntimeOperation(t, m, op)
+	if op.Status != "failed" || !strings.Contains(op.Error, "admission") {
+		t.Fatal("stale admission reported as recovery success", op.Error)
+	}
+}
