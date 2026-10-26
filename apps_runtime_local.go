@@ -118,8 +118,12 @@ func (b *localRuntimeBackend) Start(req runtimeBackendRequest) (runtimeExecution
 		return runtimeExecution{}, err
 	}
 	env["APTEVA_RUNTIME_PID_FILE"] = pidPath
-	if env["APTEVA_DEPLOYMENT_ID"] == "" {
-		env["APTEVA_DEPLOYMENT_ID"] = d.ID
+	// Adopted legacy environments predate these fields. A managed restart must
+	// carry the journal's exact identity and remain passive until admitted.
+	env["APTEVA_DEPLOYMENT_ID"] = d.ID
+	env["APTEVA_DEPLOYMENT_GENERATION"] = strconv.FormatInt(d.Generation, 10)
+	if runtimeNeedsAdmission(d) {
+		env["APTEVA_RUNTIME_MODE"] = "standby"
 	}
 	if req.Manifest.Runtime.Source != nil {
 		root := filepath.Join(sup.cacheDir, req.Manifest.Name, req.Manifest.Version, "src", req.Manifest.Runtime.Source.Entry)

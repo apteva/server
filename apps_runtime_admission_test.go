@@ -156,6 +156,40 @@ func TestManagedRuntimeActivationAcknowledgementRequiresAdmission(t *testing.T) 
 	}
 }
 
+func TestManagedRuntimeRollbackRequiresConfirmedAdmission(t *testing.T) {
+	s, m, f, d := recoveryFixture(t)
+	d.Manifest.Runtime.StartupTimeoutSeconds = 1
+	if err := m.saveDeployment(d); err != nil {
+		t.Fatal(err)
+	}
+	s.store.db.Exec(`UPDATE app_installs SET manifest_json=? WHERE id=?`, runtimeJSON(d.Manifest), d.InstallID)
+	f.mu.Lock()
+	f.oldID = d.ID
+	f.failStart = true
+	f.mu.Unlock()
+	original := f.server.Config.Handler
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/activate") {
+			w.WriteHeader(200)
+			return
+		}
+		original.ServeHTTP(w, r)
+	})
+	op, err := m.begin(d.InstallID, "restart", "rollback-admission-required", d.Placement, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op = waitRuntimeOperation(t, m, op)
+	if op.Status != "failed" || !strings.Contains(op.Error, "admission") {
+		t.Fatal("unverified rollback was reported as restored", op.Error)
+	}
+	var count int
+	s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_deployments WHERE install_id=? AND id!=? AND status='active'`, d.InstallID, d.ID).Scan(&count)
+	if count != 0 {
+		t.Fatal("rollback published a standby execution")
+	}
+}
+
 func TestManagedRuntimeAutomaticStandbyReadmission(t *testing.T) {
 	s, m, f, d := recoveryFixture(t)
 	// Simulate a journal produced by the old bug. Its live process is healthy

@@ -130,7 +130,7 @@ func TestRuntimeConsoleDeployAndSummary(t *testing.T) {
 	}
 	collectRuntimeMonitor(t, m, id)
 	summary = m.deploymentSummary(id)
-	if summary.State != "running" || summary.AdmissionState != "unknown" {
+	if summary.State != "healthy" || summary.AdmissionState != "active" {
 		t.Fatalf("readiness: %+v", summary)
 	}
 	s.store.db.Exec(`UPDATE app_runtime_observations SET checked_at=? WHERE deployment_id=?`, time.Now().Add(-2*time.Minute).UTC().Format(time.RFC3339Nano), d.ID)

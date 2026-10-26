@@ -467,5 +467,5 @@ func (m *appRuntimeManager) verifyComponentWorker(d runtimeDeployment, endpoint,
 	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&actual) != nil || actual.Protocol != d.Component.Protocol {
 		return errors.New("running component protocol differs from its declared release")
 	}
-	return m.verifyAppLifecycleCapabilities(endpoint, token, d.Component.Capabilities)
+	return nil
 }

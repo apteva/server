@@ -100,7 +100,7 @@ func TestRuntimeStatePolicyNegotiationAndJournal(t *testing.T) {
 }
 func TestRuntimeStateLargePreflightIsReadOnly(t *testing.T) {
 	s, m, f, id, placement := runtimeTestSetup(t)
-	manifest, root, _ := legacyRuntimeStateFixture(t, s, m, id, false)
+	manifest, root, _ := legacyRuntimeStateFixture(t, s, m, id, false, f)
 	file, err := os.Create(filepath.Join(root, "large.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +255,7 @@ func TestRuntimeStateRestoreRefusesRunningTarget(t *testing.T) {
 }
 func TestRuntimeStateRollbackPreservesNewCandidateWrites(t *testing.T) {
 	s, m, f, id, p := runtimeTestSetup(t)
-	_, root, _ := legacyRuntimeStateFixture(t, s, m, id, true)
+	_, root, _ := legacyRuntimeStateFixture(t, s, m, id, true, f)
 	d := prepareRuntimeFixture(t, m, id, p, "prepare-new-writes")
 	newer := stateTestArchive(t, "app.db", "newer candidate writes")
 	original := f.server.Config.Handler

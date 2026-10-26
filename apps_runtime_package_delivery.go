@@ -220,30 +220,3 @@ func (m *appRuntimeManager) prepareDeploymentPackage(d *runtimeDeployment, op *r
 	}
 	return m.phase(op, "preparing")
 }
-func (m *appRuntimeManager) verifyPackagedAppCapabilities(d runtimeDeployment, endpoint, token string) error {
-	expected := d.Package.Metadata.AppCapabilities
-	return m.verifyAppLifecycleCapabilities(endpoint, token, expected)
-}
-func (m *appRuntimeManager) verifyAppLifecycleCapabilities(endpoint, token string, expected runtimeAppCaps) error {
-	managed := expected.PassiveStart || expected.Drain || expected.ReplicaSafe || expected.WorkerCoordination || expected.Routing != ""
-	if !managed {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, runtimeEndpoint(endpoint, runtimeControlPrefix+"app/describe"), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := m.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("packaged app lifecycle verification unavailable")
-	}
-	defer resp.Body.Close()
-	var actual runtimeAppCaps
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&actual) != nil || actual != expected {
-		return fmt.Errorf("running app lifecycle capabilities differ from sealed release metadata")
-	}
-	return nil
-}

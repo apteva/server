@@ -151,11 +151,14 @@ func TestRuntimeConsoleInspectionErrors(t *testing.T) {
 	}
 }
 
-func legacyRuntimeStateFixture(t *testing.T, s *Server, m *appRuntimeManager, id int64, running bool) (sdk.Manifest, string, int) {
+func legacyRuntimeStateFixture(t *testing.T, s *Server, m *appRuntimeManager, id int64, running bool, backend *runtimeBackendFixture) (sdk.Manifest, string, int) {
 	t.Helper()
 	manifest, _ := installManifest(s, id)
 	manifest.DB = &sdk.DBConfig{Driver: "sqlite"}
 	manifest.Runtime.Package = &sdk.RuntimePackage{AppCapabilities: &sdk.RuntimeAppCapabilities{PassiveStart: true, Drain: true, Routing: "key"}}
+	backend.mu.Lock()
+	backend.appCaps = *manifest.Runtime.Package.AppCapabilities
+	backend.mu.Unlock()
 	state := m.localStateDir(runtimeDeployment{InstallID: id, Manifest: *manifest})
 	if err := os.MkdirAll(state, 0700); err != nil {
 		t.Fatal(err)
@@ -195,7 +198,7 @@ func TestManagedRuntimeLegacyPreflightMissingSnapshots(t *testing.T) {
 	for _, running := range []bool{false, true} {
 		t.Run(fmt.Sprint("running=", running), func(t *testing.T) {
 			s, m, f, id, p := runtimeTestSetup(t)
-			manifest, state, pid := legacyRuntimeStateFixture(t, s, m, id, running)
+			manifest, state, pid := legacyRuntimeStateFixture(t, s, m, id, running, f)
 			reg, _ := m.registration(p.Backend)
 			reg.Caps.Snapshots = false
 			s.store.db.Exec(`UPDATE app_runtime_backends SET record_json=? WHERE install_id=? AND backend_id=?`, runtimeJSON(reg), reg.InstallID, reg.ID)
@@ -223,7 +226,7 @@ func TestManagedRuntimeLegacyPreflightMissingSnapshots(t *testing.T) {
 
 func TestManagedRuntimeMigrationPreflightLimits(t *testing.T) {
 	s, m, f, id, p := runtimeTestSetup(t)
-	manifest, state, _ := legacyRuntimeStateFixture(t, s, m, id, false)
+	manifest, state, _ := legacyRuntimeStateFixture(t, s, m, id, false, f)
 	source, err := m.existingSource(id)
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +279,7 @@ func TestManagedRuntimeLegacyMigrationPreservesIdentityAndData(t *testing.T) {
 			failStart := failure == "start"
 			failRestore := failure == "restore-digest"
 			s, m, f, id, p := runtimeTestSetup(t)
-			manifest, state, pid := legacyRuntimeStateFixture(t, s, m, id, true)
+			manifest, state, pid := legacyRuntimeStateFixture(t, s, m, id, true, f)
 			beforeToken, err := s.appInstallToken(id)
 			if err != nil {
 				t.Fatal(err)
@@ -458,7 +461,7 @@ func TestRuntimeConsolePackagePreflightRequirements(t *testing.T) {
 
 func TestManagedRuntimeStoppedLegacyFailureRemainsStopped(t *testing.T) {
 	s, m, f, id, p := runtimeTestSetup(t)
-	_, state, _ := legacyRuntimeStateFixture(t, s, m, id, false)
+	_, state, _ := legacyRuntimeStateFixture(t, s, m, id, false, f)
 	prepareRuntimeFixture(t, m, id, p, "prepare-stopped-source")
 	f.mu.Lock()
 	f.failStart = true

@@ -108,15 +108,8 @@ func (m *appRuntimeManager) activateAndConfirm(d runtimeDeployment, op runtimeOp
 	if !runtimeCapabilitiesKnown(d) {
 		return fmt.Errorf("app lifecycle capabilities are unknown")
 	}
-	if err := m.appLifecycle(d, "activate"); err != nil {
+	if err := m.checkOwner(op); err != nil {
 		return err
-	}
-	if !runtimeNeedsAdmission(d) {
-		health := m.runtimeAppHealth(d, d.Execution)
-		if !health.Healthy || health.IdentityVerified && !health.Admitting {
-			return fmt.Errorf("app is not admitting work after activation")
-		}
-		return nil
 	}
 	budget := 30 * time.Second
 	if d.Manifest.Runtime.StartupTimeoutSeconds > 0 {
@@ -124,6 +117,16 @@ func (m *appRuntimeManager) activateAndConfirm(d runtimeDeployment, op runtimeOp
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, budget)
 	defer cancel()
+	if err := m.appLifecycleContext(ctx, d, "activate"); err != nil {
+		return err
+	}
+	if !runtimeNeedsAdmission(d) {
+		health := m.runtimeAppHealthContext(ctx, d, d.Execution)
+		if !health.Healthy || health.IdentityVerified && !health.Admitting {
+			return fmt.Errorf("app is not admitting work after activation")
+		}
+		return nil
+	}
 	for {
 		if err := m.checkOwner(op); err != nil {
 			return err

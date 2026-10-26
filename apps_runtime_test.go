@@ -156,6 +156,7 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 				http.Error(w, "old restart failed", 500)
 				return
 			}
+			f.admitting[req.DeploymentID] = false
 			out.State = "running"
 			out.Ready = true
 			out.StoppedConfirmed = false
@@ -586,6 +587,7 @@ func TestManagedRuntimeStateMigrationAndInterruptedStartRecovery(t *testing.T) {
 	out.Ready = true
 	out.Endpoint = f.server.URL + "/exec/" + d2.ID
 	f.executions[d2.ID] = out
+	f.env[d2.ID] = map[string]string{"APTEVA_DEPLOYMENT_GENERATION": fmt.Sprint(d2.Generation)}
 	f.mu.Unlock()
 	recovered := runtimeOperation{ID: "recovered-operation", InstallID: id, Kind: "activate", Phase: "starting_candidate", Status: "running", DeploymentID: d2.ID, PreviousID: active.ID, IdempotencyKey: "recovery", CreatedAt: runtimeTimestamp()}
 	s.store.db.Exec(`INSERT INTO app_runtime_operations(id,install_id,kind,status,owner,lease_until,idempotency_key,fingerprint,record_json) VALUES(?,?,'activate','running','dead-server',0,?,'',?)`, recovered.ID, id, recovered.IdempotencyKey, runtimeJSON(recovered))

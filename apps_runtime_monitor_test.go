@@ -509,7 +509,7 @@ func TestManagedRuntimeMonitorTransientFailureAvoidsInspection(t *testing.T) {
 	if runtimeInspectionCount(f) != before {
 		t.Fatal("transient failure/recovery inspected the host")
 	}
-	if m.deploymentSummary(id).State != "running" {
+	if m.deploymentSummary(id).State != "healthy" {
 		t.Fatal("cheap health did not recover")
 	}
 }

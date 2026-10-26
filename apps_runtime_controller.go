@@ -348,11 +348,6 @@ func (m *appRuntimeManager) waitReady(d *runtimeDeployment, op runtimeOperation)
 					if err := m.verifyComponentWorker(*d, out.Endpoint, token); err != nil {
 						return err
 					}
-					if d.Package != nil {
-						if err := m.verifyPackagedAppCapabilities(*d, out.Endpoint, token); err != nil {
-							return err
-						}
-					}
 					out, err = runtimeMergeExecution(d.Execution, out)
 					if err != nil {
 						return err
