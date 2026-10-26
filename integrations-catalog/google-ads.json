@@ -941,6 +941,17 @@
           "partialFailure": {
             "type": "boolean",
             "description": "If true, allows partial success. If false (default), all operations fail if any one fails."
+          },
+          "validateOnly": {
+            "type": "boolean",
+            "description": "Validate all operations without executing mutations."
+          },
+          "responseContentType": {
+            "type": "string",
+            "enum": [
+              "RESOURCE_NAME_ONLY",
+              "MUTABLE_RESOURCE"
+            ]
           }
         },
         "required": [

@@ -98,7 +98,8 @@ func (s *Server) ensureInterfaceConversations(userID int64) error {
 					break
 				}
 			}
-			manifest, err := s.fetchAndCacheManifest(manifestURL)
+			release, err := s.fetchAndCacheAppRelease(manifestURL)
+			manifest := release.manifest
 			if err != nil {
 				return err
 			}
@@ -114,7 +115,7 @@ func (s *Server) ensureInterfaceConversations(userID int64) error {
 			if _, err := s.installDependencies(ownerID, manifest, "", nil); err != nil {
 				return err
 			}
-			installID, err = s.installAppFromManifest(ownerID, manifest, "")
+			installID, err = s.installAppFromManifest(ownerID, manifest, "", release.components)
 			if err != nil {
 				return err
 			}

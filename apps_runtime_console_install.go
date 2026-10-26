@@ -19,9 +19,9 @@ func runtimeConsoleInstallOperationKey(key string) string {
 	return "console-install-" + key
 }
 func (s *Server) insertRuntimeConsoleInstall(user int64, key, fingerprint, query string, args ...any) (sql.Result, error) {
-	if key == "" {
-		return s.store.db.Exec(query, args...)
-	}
+	return s.insertManifestInstall(user, key, fingerprint, "", nil, query, args...)
+}
+func (s *Server) insertManifestInstall(user int64, key, fingerprint, version string, components appComponentDeclarations, query string, args ...any) (sql.Result, error) {
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		return nil, err
@@ -35,8 +35,13 @@ func (s *Server) insertRuntimeConsoleInstall(user int64, key, fingerprint, query
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(`INSERT INTO app_runtime_install_receipts VALUES(?,?,?,?)`, user, key, fingerprint, id); err != nil {
+	if err = saveAppComponentDeclarations(tx, id, version, components); err != nil {
 		return nil, err
+	}
+	if key != "" {
+		if _, err = tx.Exec(`INSERT INTO app_runtime_install_receipts VALUES(?,?,?,?)`, user, key, fingerprint, id); err != nil {
+			return nil, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err

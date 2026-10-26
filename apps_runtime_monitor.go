@@ -23,6 +23,7 @@ const (
 
 type runtimeHealthObservation struct {
 	State, Message, Admission string
+	Recovery                  string
 	Healthy                   bool
 	Load                      *float64
 }
@@ -34,6 +35,7 @@ type runtimeMonitorEntry struct {
 	FullChecked, HealthChecked time.Time
 	ProbeHealthy               bool
 	HealthFailures             int
+	RecoveryFailures           int
 	FullOK                     bool
 	Health                     runtimeHealthObservation
 	Execution                  runtimeExecution
@@ -178,6 +180,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 	previouslyChecked := !entry.FullChecked.IsZero()
 	previousExecution := entry.Execution
 	failures := entry.HealthFailures
+	recoveryFailures := entry.RecoveryFailures
 	m.monitorMu.Unlock()
 	out := d.Execution
 	health := m.runtimeAppHealth(d, out)
@@ -190,7 +193,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 	// A transient failed health poll is not a reason to inspect the host. One
 	// investigation per persistent outage is enough when ownership still verifies.
 	// Failed verification retries are bounded; recovery never grants new ownership.
-	full := d.Placement.local() || due || (!probeHealthy && failures == 3 && fullOK) || (probeHealthy && !previousHealthy && previouslyChecked && !fullOK)
+	full := d.Placement.local() || due || (health.Recovery == "restart" && !fullOK) || (!probeHealthy && failures == 3 && fullOK) || (probeHealthy && !previousHealthy && previouslyChecked && !fullOK)
 	var verifyErr error
 	verifiedAt := time.Time{}
 	if full {
@@ -207,7 +210,15 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 			out, err = runtimeVerifiedObservation(d, out)
 		}
 		verifyErr = err
-		fullOK = err == nil && out.Ready && out.State == "running"
+		// Fenced admission legitimately makes readiness false; identity and
+		// process state can still be authoritatively verified for replacement.
+		// Inspect may recreate a failed tunnel at a different endpoint. Probe
+		// that verified endpoint even when its app readiness is currently false.
+		if err == nil && out.State == "running" && out.Endpoint != d.Execution.Endpoint {
+			health = m.runtimeAppHealth(d, out)
+			probeHealthy = health.Healthy
+		}
+		fullOK = err == nil && out.State == "running" && (out.Ready || health.Recovery == "restart")
 		if err == nil && out.StoppedConfirmed && d.Placement.local() {
 			// Only a fresh, authoritative local stop can trigger the existing restart
 			// flow. A failed probe or remote observation never authorizes a start.
@@ -215,10 +226,6 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 				_, _ = m.begin(d.InstallID, "restart", "reconcile-"+d.ID, d.Placement, nil)
 			}
 			return
-		}
-		if fullOK && out.Endpoint != d.Execution.Endpoint {
-			health = m.runtimeAppHealth(d, out)
-			probeHealthy = health.Healthy
 		}
 	} else {
 		out = previousExecution
@@ -233,7 +240,15 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 	if full && fullOK {
 		save = &out
 	}
+	if health.Recovery == "restart" {
+		recoveryFailures++
+	} else {
+		recoveryFailures = 0
+	}
 	stored, err := m.persistRuntimeObservation(d, health, save)
+	if stored && err == nil && recoveryFailures >= 2 {
+		m.maybeRecoverRuntime(d, health)
+	}
 	now := time.Now()
 	m.monitorMu.Lock()
 	defer m.monitorMu.Unlock()
@@ -249,6 +264,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 	entry.Health, entry.HealthChecked = health, now
 	entry.ProbeHealthy = probeHealthy
 	entry.HealthFailures = failures
+	entry.RecoveryFailures = recoveryFailures
 	if full {
 		entry.FullChecked = verifiedAt
 		entry.FullOK = fullOK
@@ -317,7 +333,8 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	live := resp.StatusCode == http.StatusOK
+	if !live && resp.StatusCode != http.StatusServiceUnavailable {
 		return failed
 	}
 	result := runtimeHealthObservation{State: "running", Message: "Process running; app admission is not reported", Admission: "unknown", Healthy: true}
@@ -332,6 +349,9 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		if !live {
+			return failed
+		}
 		return result
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -343,6 +363,9 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 		Generation   *int64   `json:"generation"`
 		Load         *float64 `json:"load"`
 		Admitting    *bool    `json:"admitting"`
+		Recovery     struct {
+			Action string `json:"action"`
+		} `json:"recovery"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&status) != nil {
 		return failed
@@ -352,6 +375,9 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 		return failed
 	}
 	if status.Admitting == nil {
+		if !live {
+			return failed
+		}
 		return result
 	}
 	if *status.Admitting && status.DeploymentID == d.ID && status.Generation != nil && *status.Generation == d.Generation && status.Load != nil && *status.Load >= 0 && !math.IsNaN(*status.Load) && !math.IsInf(*status.Load, 0) {
@@ -371,6 +397,11 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 	}
 	if !*status.Admitting {
 		result.Message += ": " + result.Admission
+		if status.State == "fenced" && status.Recovery.Action == "restart" && status.DeploymentID == d.ID && status.Generation != nil && *status.Generation == d.Generation {
+			result.Recovery = "restart"
+		}
+	} else if !live {
+		return failed
 	}
 	return result
 }

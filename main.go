@@ -1179,6 +1179,8 @@ func main() {
 			return
 		}
 		switch {
+		case path == idPart+"/components" || strings.HasPrefix(path, idPart+"/components/"):
+			s.handleAppComponents(w, r, installID)
 		case strings.Contains(path, "/deployment/") || strings.HasSuffix(path, "/placement") || strings.HasSuffix(path, "/deployment"):
 			s.handleAppDeployment(w, r, installID)
 		case strings.HasSuffix(path, "/status") && r.Method == http.MethodPut:

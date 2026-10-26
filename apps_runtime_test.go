@@ -22,22 +22,23 @@ import (
 )
 
 type runtimeBackendFixture struct {
-	asyncPrepare      bool
-	holdPrepare       bool
-	mu                sync.Mutex
-	server            *httptest.Server
-	caps              runtimeBackendCaps
-	executions        map[string]runtimeExecution
-	env               map[string]map[string]string
-	events            []string
-	failStart         bool
-	failedCandidateID string
-	loseStartResponse bool
-	failStop          bool
-	failOldRestart    bool
-	oldID             string
-	appCaps           runtimeAppCaps
-	snapshot          []byte
+	asyncPrepare            bool
+	holdPrepare             bool
+	rejectConcurrentPrepare bool
+	mu                      sync.Mutex
+	server                  *httptest.Server
+	caps                    runtimeBackendCaps
+	executions              map[string]runtimeExecution
+	env                     map[string]map[string]string
+	events                  []string
+	failStart               bool
+	failedCandidateID       string
+	loseStartResponse       bool
+	failStop                bool
+	failOldRestart          bool
+	oldID                   string
+	appCaps                 runtimeAppCaps
+	snapshot                []byte
 }
 
 func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
@@ -109,6 +110,14 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 		case "validate-target":
 			out.HostKey = runtimeHostKey(req.Target)
 		case "prepare":
+			if f.rejectConcurrentPrepare {
+				for id, execution := range f.executions {
+					if id != req.DeploymentID && execution.State == "running" {
+						http.Error(w, "exclusive execution conflict", 409)
+						return
+					}
+				}
+			}
 			out = runtimeExecution{Handle: req.DeploymentID, HostKey: runtimeHostKey(req.Target), State: "prepared", StateRef: "state:" + req.DeploymentID, ReleaseDigest: strings.Repeat("a", 64), Platform: "linux-amd64"}
 			if req.StateRef != "" {
 				out.StateRef = req.StateRef
@@ -214,6 +223,13 @@ func waitRuntimeOperation(t *testing.T, m *appRuntimeManager, op runtimeOperatio
 			t.Fatal(err)
 		}
 		if got.Status == "failed" || got.Status == "succeeded" || got.Status == "cancelled" {
+			m.mu.Lock()
+			busy := m.workers[op.ID]
+			m.mu.Unlock()
+			if busy {
+				time.Sleep(time.Millisecond)
+				continue
+			}
 			return got
 		}
 		if time.Now().After(end) {

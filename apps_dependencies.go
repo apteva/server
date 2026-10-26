@@ -115,7 +115,8 @@ func (s *Server) installDepsRecursive(
 		}
 
 		// Fetch + parse the dep's manifest.
-		depManifest, err := s.fetchAndCacheManifest(manifestURL)
+		release, err := s.fetchAndCacheAppRelease(manifestURL)
+		depManifest := release.manifest
 		if err != nil {
 			if dep.Optional {
 				log.Printf("[APPS-DEP] optional dep %q manifest fetch failed: %v", dep.Name, err)
@@ -142,7 +143,7 @@ func (s *Server) installDepsRecursive(
 		}
 
 		// Install the dep itself.
-		newID, err := s.installAppFromManifest(userID, depManifest, projectID)
+		newID, err := s.installAppFromManifest(userID, depManifest, projectID, release.components)
 		if err != nil {
 			if dep.Optional {
 				log.Printf("[APPS-DEP] optional dep %q install failed: %v", dep.Name, err)
@@ -349,7 +350,7 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 //
 // Returns the new install_id so the cascade can record it in the
 // parent's bindings JSON.
-func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, projectID string) (int64, error) {
+func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, projectID string, declarations ...appComponentDeclarations) (int64, error) {
 	if info, ok := deprecatedApp(manifest.Name); ok {
 		return 0, fmt.Errorf("%s is deprecated and can no longer be installed: %s", manifest.Name, info.Message)
 	}
@@ -384,7 +385,11 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 	}
 
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
-	res, err := s.store.db.Exec(
+	var components appComponentDeclarations
+	if len(declarations) > 0 {
+		components = declarations[0]
+	}
+	res, err := s.insertManifestInstall(userID, "", "", manifest.Version, components,
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by)
 		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'registry', '', '', ?, ?)`,

@@ -124,13 +124,7 @@ type runtimeBackendRegistration struct {
 	// An administrator can attest a legacy backend's optional delivery contract.
 	PackageDelivery *runtimePackageDeliveryCaps `json:"package_delivery,omitempty"`
 }
-type runtimeAppCaps struct {
-	PassiveStart       bool   `json:"passive_start"`
-	Drain              bool   `json:"drain"`
-	ReplicaSafe        bool   `json:"replica_safe"`
-	WorkerCoordination bool   `json:"worker_coordination"`
-	Routing            string `json:"routing"` // stateless or key; existing streams stay on their selected replica.
-}
+type runtimeAppCaps = sdk.RuntimeAppCapabilities
 type runtimePortBinding struct {
 	Protocol  string `json:"protocol"`
 	Start     int    `json:"start"`
@@ -138,27 +132,29 @@ type runtimePortBinding struct {
 	Exclusive bool   `json:"exclusive"`
 }
 type runtimeExecution struct {
-	ProcessResources    map[string]string    `json:"process_resources,omitempty"`
-	StateEntries        *int64               `json:"state_entries,omitempty"`
-	StateAvailableBytes *int64               `json:"state_available_bytes,omitempty"`
-	StateBytes          *int64               `json:"state_bytes,omitempty"` // Current uncompressed persistent bytes, reported by the owning backend.
-	Endpoints           map[string]string    `json:"endpoints,omitempty"`
-	AppCapabilities     runtimeAppCaps       `json:"app_capabilities"`
-	ReleaseDigest       string               `json:"release_digest"`
-	Platform            string               `json:"platform"`
-	Handle              string               `json:"handle"`
-	State               string               `json:"state"`
-	Ready               bool                 `json:"ready"`
-	StoppedConfirmed    bool                 `json:"stopped_confirmed"`
-	HostKey             string               `json:"host_key"`
-	Endpoint            string               `json:"control_endpoint,omitempty"`
-	BrowserEndpoint     string               `json:"browser_endpoint,omitempty"`
-	StateRef            string               `json:"state_ref,omitempty"`
-	Ports               []runtimePortBinding `json:"ports,omitempty"`
-	SnapshotSHA256      string               `json:"snapshot_sha256,omitempty"`
-	Load                *float64             `json:"load,omitempty"` // backend-reported work load; never server CPU sampling.
+	Health              *runtimeBackendHealth `json:"health,omitempty"`
+	ProcessResources    map[string]string     `json:"process_resources,omitempty"`
+	StateEntries        *int64                `json:"state_entries,omitempty"`
+	StateAvailableBytes *int64                `json:"state_available_bytes,omitempty"`
+	StateBytes          *int64                `json:"state_bytes,omitempty"` // Current uncompressed persistent bytes, reported by the owning backend.
+	Endpoints           map[string]string     `json:"endpoints,omitempty"`
+	AppCapabilities     runtimeAppCaps        `json:"app_capabilities"`
+	ReleaseDigest       string                `json:"release_digest"`
+	Platform            string                `json:"platform"`
+	Handle              string                `json:"handle"`
+	State               string                `json:"state"`
+	Ready               bool                  `json:"ready"`
+	StoppedConfirmed    bool                  `json:"stopped_confirmed"`
+	HostKey             string                `json:"host_key"`
+	Endpoint            string                `json:"control_endpoint,omitempty"`
+	BrowserEndpoint     string                `json:"browser_endpoint,omitempty"`
+	StateRef            string                `json:"state_ref,omitempty"`
+	Ports               []runtimePortBinding  `json:"ports,omitempty"`
+	SnapshotSHA256      string                `json:"snapshot_sha256,omitempty"`
+	Load                *float64              `json:"load,omitempty"` // backend-reported work load; never server CPU sampling.
 }
 type runtimeDeployment struct {
+	Component            *appComponentDeployment    `json:"component,omitempty"`
 	Resources            sdk.ResourcePolicy         `json:"resource_policy,omitempty"`
 	ResourceRevision     int64                      `json:"resource_revision,omitempty"`
 	PersistentData       bool                       `json:"persistent_data,omitempty"`
@@ -182,6 +178,13 @@ type runtimeDeployment struct {
 	LocalPort            int                        `json:"-"`
 }
 type runtimeOperation struct {
+	ElapsedMS      int64  `json:"elapsed_ms,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
+	PhaseStartedAt string `json:"phase_started_at,omitempty"`
+	RetryCount     int    `json:"retry_count,omitempty"`
+	LastFailure    string `json:"last_failure,omitempty"`
+
+	Recovery         bool                        `json:"automatic_recovery,omitempty"`
 	StateTransfer    *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
 	SnapshotSourceID string                      `json:"snapshot_source_id,omitempty"`
 	CandidateStarted bool                        `json:"candidate_started,omitempty"`
@@ -263,4 +266,15 @@ func runtimePublicEndpoint(raw string) error {
 		return runtimeSecureURL(u.String())
 	}
 	return runtimeSecureURL(raw)
+}
+
+// Backend observations are diagnostic, never authority to admit work or start
+// a second owner. Server independently authenticates the app status endpoint.
+type runtimeBackendHealth struct {
+	ObservedAt        time.Time `json:"observed_at"`
+	HostReachable     bool      `json:"host_reachable"`
+	AdministrativeSSH bool      `json:"administrative_ssh"`
+	ControlForwarding bool      `json:"control_forwarding"`
+	ProcessRunning    bool      `json:"process_running"`
+	Admitting         *bool     `json:"admitting"`
 }

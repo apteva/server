@@ -71,7 +71,7 @@ func environmentManifestFromDir(dir string) (*sdk.Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := sdk.ParseManifest(raw)
+	m, err := parseServerAppManifest(raw)
 	if err != nil {
 		return nil, err
 	}

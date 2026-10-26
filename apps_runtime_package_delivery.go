@@ -222,6 +222,9 @@ func (m *appRuntimeManager) prepareDeploymentPackage(d *runtimeDeployment, op *r
 }
 func (m *appRuntimeManager) verifyPackagedAppCapabilities(d runtimeDeployment, endpoint, token string) error {
 	expected := d.Package.Metadata.AppCapabilities
+	return m.verifyAppLifecycleCapabilities(endpoint, token, expected)
+}
+func (m *appRuntimeManager) verifyAppLifecycleCapabilities(endpoint, token string, expected runtimeAppCaps) error {
 	managed := expected.PassiveStart || expected.Drain || expected.ReplicaSafe || expected.WorkerCoordination || expected.Routing != ""
 	if !managed {
 		return nil

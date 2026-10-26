@@ -39,6 +39,11 @@ func (s *Server) managedRuntimeRestart(id int64) error {
 }
 func (m *appRuntimeManager) restartOperation(op *runtimeOperation) error {
 	if err := m.prepare(op); err != nil {
+		old, e := m.loadDeployment(op.PreviousID)
+		candidate, ce := m.loadDeployment(op.DeploymentID)
+		if e == nil && ce == nil && old.Status == "stopped" && !op.PreviousStopped {
+			return m.rollback(op, &old, &candidate, err)
+		}
 		return err
 	}
 	return m.activate(op)
@@ -147,6 +152,8 @@ func (m *appRuntimeManager) retryOperation(id string, installID int64) error {
 		return fmt.Errorf("operation no longer owns a candidate")
 	}
 	op.Status = "queued"
+	op.RetryCount++
+	op.LastFailure = op.Error
 	op.Error = ""
 	op.UpdatedAt = runtimeTimestamp()
 	if _, err = m.s.store.db.Exec(`UPDATE app_runtime_operations SET status='queued',owner='',lease_until=0,cancel_requested=0,record_json=? WHERE id=? AND status IN ('failed','cancelled')`, runtimeJSON(runtimeStoredOperation{op, op.SnapshotPath}), id); err != nil {

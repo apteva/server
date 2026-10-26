@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -58,6 +59,38 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 	}
 	if err = m.checkOwner(*op); err != nil {
 		return err
+	}
+	// An exclusive backend may reserve the same service/state directory during
+	// Prepare. Finish package validation first, then confirm the previous writer
+	// stopped before asking the backend to prepare its replacement.
+	if op.Kind != "prepare" && op.RollbackID == "" && d.Manifest.Runtime.DatabaseUpgrade == "requires_restore" {
+		return fmt.Errorf("automatic activation blocked by database_upgrade requires_restore")
+	}
+	if op.Kind != "prepare" && op.RollbackID == "" {
+		if old, e := m.loadDeployment(op.PreviousID); e == nil && sameRuntimeTarget(old, d) && (op.Recovery || runtimeExclusive(old, d) || d.Component != nil) && old.Status != "stopped" {
+			if err = m.phase(op, "draining"); err != nil {
+				return err
+			}
+			if err = m.drain(old, *op); err != nil {
+				if !op.Recovery {
+					_ = m.appLifecycle(old, "activate")
+				}
+				return err
+			}
+			if err = m.phase(op, "stopping_previous"); err != nil {
+				_ = m.appLifecycle(old, "activate")
+				return err
+			}
+			if err = m.s.markExclusiveActivationUnavailable(d.InstallID); err != nil {
+				return err
+			}
+			if err = m.stopDeployment(&old, *op); err != nil {
+				return err
+			}
+			if err = m.phase(op, "preparing"); err != nil {
+				return err
+			}
+		}
 	}
 	execution, err := b.Prepare(req)
 	if err != nil {
@@ -304,6 +337,9 @@ func (m *appRuntimeManager) waitReady(d *runtimeDeployment, op runtimeOperation)
 			if e == nil {
 				resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
+					if err := m.verifyComponentWorker(*d, out.Endpoint, token); err != nil {
+						return err
+					}
 					if d.Package != nil {
 						if err := m.verifyPackagedAppCapabilities(*d, out.Endpoint, token); err != nil {
 							return err
@@ -389,7 +425,7 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 			return err
 		}
 	}
-	exclusive := migration || runtimeExclusive(old, d)
+	exclusive := op.Recovery || migration || runtimeExclusive(old, d) || d.Component != nil
 	if old.ID != "" && exclusive && old.Status != "stopped" {
 		if err = m.phase(op, "draining"); err != nil {
 			return err
@@ -405,7 +441,7 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 			return err
 		}
 		if err = m.stopDeployment(&old, *op); err != nil {
-			if m.waitReady(&old, *op) == nil {
+			if !op.Recovery && m.waitReady(&old, *op) == nil {
 				old.Status = "active"
 				_ = m.saveDeployment(old)
 				_ = m.appLifecycle(old, "activate")
@@ -484,20 +520,68 @@ func (m *appRuntimeManager) drain(d runtimeDeployment, op runtimeOperation) erro
 	if !d.AppCaps.Drain {
 		return nil
 	}
-	end := time.Now().Add(330 * time.Second)
+	// A fenced predecessor has already stopped media. Its database may still
+	// contain unfinished carrier calls after the outage; these cannot become a
+	// 330-second graceful-drain prerequisite for verified recovery. Fresh exact
+	// identity/admission evidence is required; Stop still must be confirmed.
+	if op.Recovery && d.ID == op.PreviousID {
+		health := m.runtimeAppHealth(d, d.Execution)
+		if health.Admission == "fenced" && health.Recovery == "restart" {
+			return nil
+		}
+		return fmt.Errorf("fenced recovery no longer verified; previous execution retained")
+	}
+	ctx, cancel := m.stateTransferContext(op, runtimeStateTransferPolicy{TimeoutSeconds: 330})
+	defer cancel()
+	var last error
 	for {
+		if ctx.Err() != nil {
+			return fmt.Errorf("app drain interrupted (%v): %w", last, ctx.Err())
+		}
 		if err := m.checkOwner(op); err != nil {
 			return err
 		}
-		if err := m.appLifecycle(d, "drain"); err == nil {
+		// A lost acknowledgement or recovered SSH tunnel can change both process
+		// state and control address. Never infer a successful drain from a timeout.
+		if b, err := m.backend(d); err == nil {
+			if req, err := m.request(d, op, "inspect"); err == nil {
+				inspect := b.Inspect
+				if contextual, ok := b.(interface {
+					inspectContext(context.Context, runtimeBackendRequest) (runtimeExecution, error)
+				}); ok {
+					inspect = func(req runtimeBackendRequest) (runtimeExecution, error) { return contextual.inspectContext(ctx, req) }
+				}
+				if out, err := inspect(req); err == nil {
+					merged, err := runtimeMergeExecution(d.Execution, out)
+					if err != nil {
+						return err
+					}
+					if out.StoppedConfirmed && out.State == "stopped" {
+						return nil
+					}
+					d.Execution = merged
+				}
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		last = m.appLifecycleContext(ctx, d, "drain")
+		if last == nil {
 			return nil
 		}
-		if time.Now().After(end) {
-			return fmt.Errorf("app drain deadline exceeded; previous execution retained")
+		// Keep progress visible while distinguishing real active work from a broken
+		// management path. No automatic stop of an unconfirmed draining execution.
+		phase := "drain_unreachable"
+		if errors.Is(last, errRuntimeDraining) {
+			phase = "draining"
+		}
+		if err := m.phase(&op, phase); err != nil {
+			return err
 		}
 		select {
-		case <-m.ctx.Done():
-			return m.ctx.Err()
+		case <-ctx.Done():
+			return fmt.Errorf("app drain interrupted (%v): %w", last, ctx.Err())
 		case <-time.After(time.Second):
 		}
 	}

@@ -11,7 +11,7 @@ import (
 // Deployment progress and serving availability are separate. The database
 // keeps the committed instance running; pending_manifest_json tracks the
 // replacement. The list API still presents pending to existing polling UIs.
-func (s *Server) stageAppUpgrade(id int64, next *sdk.Manifest) error {
+func (s *Server) stageAppUpgrade(id int64, next *sdk.Manifest, declarations ...appComponentDeclarations) error {
 	if err := validateAppRuntimeCompatibility(next, Version); err != nil {
 		return err
 	}
@@ -37,11 +37,23 @@ func (s *Server) stageAppUpgrade(id int64, next *sdk.Manifest) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.store.db.Exec(`UPDATE app_installs SET status=?,status_message='Upgrading…',error_message='',pending_manifest_json=? WHERE id=?`, status, string(pending), id)
+	tx, err := s.store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var components appComponentDeclarations
+	if len(declarations) > 0 {
+		components = declarations[0]
+	}
+	if err = saveAppComponentDeclarations(tx, id, next.Version, components); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE app_installs SET status=?,status_message='Upgrading…',error_message='',pending_manifest_json=? WHERE id=?`, status, string(pending), id)
 	if err != nil {
 		return fmt.Errorf("stage app upgrade: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Server) markExclusiveActivationUnavailable(id int64) error {

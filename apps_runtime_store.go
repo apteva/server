@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 func (s *Store) migrateAppRuntime() error {
+	if err := s.migrateAppComponents(); err != nil {
+		return err
+	}
 	if err := s.migrateRuntimeConsole(); err != nil {
 		return err
 	}
 	statements := []string{
+		`CREATE TABLE IF NOT EXISTS app_runtime_recovery (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id) ON DELETE CASCADE, attempts INTEGER NOT NULL, last_attempt INTEGER NOT NULL, next_attempt INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_resource_policies (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id) ON DELETE CASCADE, revision INTEGER NOT NULL, policy_json TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_ingress (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id),hostname TEXT NOT NULL UNIQUE,record_json TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_packages (id TEXT PRIMARY KEY,build_key TEXT NOT NULL UNIQUE,record_json TEXT NOT NULL,bytes INTEGER NOT NULL,last_used INTEGER NOT NULL)`,
@@ -116,6 +121,15 @@ func (m *appRuntimeManager) operation(id string) (runtimeOperation, error) {
 	op = stored.runtimeOperation
 	op.SnapshotPath = stored.Snapshot
 	op.Owner, op.LeaseUntil = owner, lease
+	if start, e := time.Parse(time.RFC3339Nano, op.StartedAt); e == nil {
+		end := time.Now()
+		if op.Status != "running" && op.Status != "queued" {
+			if completed, e := time.Parse(time.RFC3339Nano, op.UpdatedAt); e == nil {
+				end = completed
+			}
+		}
+		op.ElapsedMS = max(0, end.Sub(start).Milliseconds())
+	}
 	return op, err
 }
 func (m *appRuntimeManager) saveOperation(op runtimeOperation) error {

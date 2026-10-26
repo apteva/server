@@ -1004,7 +1004,7 @@ func (s *Server) applyManagedBundle(bundle sdk.ManagedTenantBundle, grantIDs map
 		if err != nil {
 			return fmt.Errorf("%s: fetch manifest: %w", desired.Key, err)
 		}
-		manifest, err := sdk.ParseManifest(manifestRaw)
+		manifest, err := parseServerAppManifest(manifestRaw)
 		if err != nil {
 			return fmt.Errorf("%s: parse manifest: %w", desired.Key, err)
 		}

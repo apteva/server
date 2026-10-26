@@ -506,3 +506,31 @@ Managed apps no longer need that permission just for their own deployment.
 This policy allows a browser connection; it grants neither CORS nor access to an
 app. Direct protocols must still enforce scoped user/call credentials and
 revocation. External frontend hosts continue to own their own browser policy.
+
+### Automatic recovery after fencing
+
+Apps can expose protected `GET /_apteva/runtime/app/status` even when ordinary
+requests are fenced. Return `deployment_id`, `generation`, `state`, `admitting`
+and optional `load`. A fenced process that has reverified its current ownership
+can request replacement with `recovery: {"action":"restart"}`. It must remain
+fenced; the request never authorizes self-reactivation. Public health probes
+should report admission failures honestly (503); passive startup can return 200
+with an explicit `standby` state and `admitting:false`.
+
+Server reads status even after a 503 health response. Two consecutive explicit,
+authenticated, matching-generation recovery requests trigger a fresh backend
+inspection and another status check. Recovery is supported for a single active
+execution. Ordinary outages, draining, missing status, failed authentication,
+wrong ownership and unverified execution identities never authorize recovery.
+Recovery forces exclusive replacement: the existing deployment controller
+handles draining, confirmed shutdown, replacement and ownership commit for both
+local and remote placement. A process already fenced is not reactivated when
+shutdown confirmation fails.
+
+The current owner, absence of a pending lifecycle operation, and recovery budget
+are checked transactionally when queuing replacement. Backoff persists across
+Server restarts and app generations: 30, 60, 120, 240, then 300 seconds between
+attempts, resetting after 15 minutes without an attempt. Lifecycle operations
+retain their normal diagnostics; failed preparation or an unconfirmed shutdown
+cannot bypass safety checks. No app-specific backend logic or SDK upgrade is
+required to implement this status contract.

@@ -990,7 +990,7 @@ func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(projectID string,
 		if err != nil {
 			return nil, err
 		}
-		m, err := sdk.ParseManifest(data)
+		m, err := parseServerAppManifest(data)
 		if err != nil {
 			return nil, err
 		}

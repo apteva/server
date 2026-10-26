@@ -520,6 +520,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app not installed: "+appName, http.StatusNotFound)
 		return
 	}
+	if s.isOwnedComponent(entry.InstallID) {
+		http.Error(w, "owned components are callable only through their owner", http.StatusForbidden)
+		return
+	}
 	effectiveProjectID := entry.ProjectID
 	if effectiveProjectID == "" {
 		// Global installs execute inside the validated request project. This

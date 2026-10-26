@@ -279,7 +279,7 @@ func (s *Server) handleRuntimeConsolePreflight(w http.ResponseWriter, r *http.Re
 		var raw []byte
 		raw, e = s.fetchManifestBytes(body.ManifestURL, body.ManifestYAML)
 		if e == nil {
-			manifest, e = sdk.ParseManifest(raw)
+			manifest, e = parseServerAppManifest(raw)
 		}
 	}
 	if e != nil || manifest == nil {

@@ -78,7 +78,17 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 	if !ok {
 		return nil, false
 	}
-	targetInstallID := s.installBoundAppMetadata(caller, targetAppName)
+	targetInstallID := int64(0)
+	if strings.HasPrefix(targetAppName, "component:") {
+		var componentErr error
+		targetInstallID, componentErr = s.resolveComponentCall(installID, strings.TrimPrefix(targetAppName, "component:"))
+		if componentErr != nil {
+			http.Error(w, componentErr.Error(), http.StatusServiceUnavailable)
+			return nil, false
+		}
+	} else {
+		targetInstallID = s.installBoundAppMetadata(caller, targetAppName)
+	}
 	if targetInstallID == 0 {
 		id, msg, resolved := s.resolveDynamicTarget(installID, targetAppName, effectiveProjectID)
 		if !resolved {
@@ -86,6 +96,15 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 			return nil, false
 		}
 		targetInstallID = id
+	}
+	owner, _, err := s.componentOwner(targetInstallID)
+	if err != nil {
+		http.Error(w, "target installation unavailable", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	if owner != 0 && owner != installID {
+		http.Error(w, "owned component belongs to another installation", http.StatusForbidden)
+		return nil, false
 	}
 	target := s.installedApps.Get(targetInstallID)
 	if target == nil || target.SidecarURL == "" {

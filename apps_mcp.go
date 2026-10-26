@@ -76,6 +76,9 @@ func localServerPort() string {
 // nothing to expose. The caller can still call this safely; we
 // just no-op.
 func (s *Server) registerAppMCP(installID int64) error {
+	if s.isOwnedComponent(installID) {
+		return nil
+	}
 	return s.registerAppMCPWithSurface(installID, s.snapshotAppMCPSurface(installID))
 }
 
@@ -85,6 +88,9 @@ func (s *Server) registerAppMCP(installID int64) error {
 // Core's atomic reconciliation reloads the connection and its catalog. Ordinary
 // bridge registration preserves the URL, including after a server restart.
 func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfaceSnapshot) error {
+	if s.isOwnedComponent(installID) {
+		return nil
+	}
 	// Pull everything we need in one query: app row's name, the
 	// install's project, the user who owns it, and the cached
 	// manifest_json (which we re-read on every call so manifest

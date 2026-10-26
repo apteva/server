@@ -18,8 +18,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
-	sdk "github.com/apteva/app-sdk"
 )
 
 // RegisterBuiltinApps scans BUILTIN_APPS_DIR (default
@@ -57,7 +55,7 @@ func (s *Server) RegisterBuiltinApps() {
 		if err != nil {
 			continue
 		}
-		manifest, err := sdk.ParseManifest(raw)
+		manifest, err := parseServerAppManifest(raw)
 		if err != nil {
 			log.Printf("[APPS-BUILTIN] skip %s: bad manifest: %v", e.Name(), err)
 			continue

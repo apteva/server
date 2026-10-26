@@ -286,7 +286,13 @@ func (m *appRuntimeManager) appCapabilities(id int64) runtimeAppCaps {
 	_ = json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&caps)
 	return caps
 }
+
+var errRuntimeDraining = errors.New("app has not finished draining")
+
 func (m *appRuntimeManager) appLifecycle(d runtimeDeployment, action string) error {
+	return m.appLifecycleContext(m.ctx, d, action)
+}
+func (m *appRuntimeManager) appLifecycleContext(parent context.Context, d runtimeDeployment, action string) error {
 	if !d.AppCaps.Drain && action == "drain" {
 		return nil
 	}
@@ -300,7 +306,7 @@ func (m *appRuntimeManager) appLifecycle(d runtimeDeployment, action string) err
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, runtimeEndpoint(d.Execution.Endpoint, runtimeControlPrefix+"app/"+action), strings.NewReader(runtimeJSON(map[string]any{"deployment_id": d.ID, "generation": d.Generation})))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -318,8 +324,11 @@ func (m *appRuntimeManager) appLifecycle(d runtimeDeployment, action string) err
 		var out struct {
 			Drained bool `json:"drained"`
 		}
-		if err = json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&out); err != nil || !out.Drained {
-			return fmt.Errorf("app has not finished draining")
+		if err = json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&out); err != nil {
+			return fmt.Errorf("invalid app drain response")
+		}
+		if !out.Drained {
+			return errRuntimeDraining
 		}
 	}
 	return nil

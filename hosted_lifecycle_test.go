@@ -244,6 +244,18 @@ func TestHostedFreezeRejectsOutstandingWorkAndBlocksAdmission(t *testing.T) {
 	if _, err := s.beginHostedWork(); err == nil {
 		t.Fatal("transfer admitted during handoff")
 	}
+	manager := &appRuntimeManager{s: s}
+	for _, automated := range []bool{false, true} {
+		var err error
+		if automated {
+			_, err = manager.beginExpected(42, "restart", "frozen-recovery", runtimePlacement{}, nil, "observed-owner")
+		} else {
+			_, err = manager.begin(42, "restart", "frozen-manual", runtimePlacement{}, nil)
+		}
+		if err == nil || err.Error() != "platform handoff is in progress" {
+			t.Fatalf("automated=%v: runtime operation bypassed handoff admission: %v", automated, err)
+		}
+	}
 	if s.localApps.acquireInstall(42) {
 		t.Fatal("install admitted during handoff")
 	}

@@ -174,7 +174,7 @@ func runtimePackageManifestMatches(root string, want sdk.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("package source manifest missing")
 	}
-	got, err := sdk.ParseManifest(raw)
+	got, err := parseServerAppManifest(raw)
 	if err != nil {
 		return fmt.Errorf("invalid package source manifest")
 	}
@@ -390,7 +390,23 @@ func (m *appRuntimeManager) buildRuntimePackage(d *runtimeDeployment, op *runtim
 	if err = runtimePackageManifestMatches(appRoot, d.Manifest); err != nil {
 		return result, err
 	}
-	spec, err := runtimePackageRecipe(appRoot, d.Placement.Package, d.Manifest, revision)
+	requested := d.Placement.Package
+	if d.Component != nil {
+		// The owner's pinned worker release is a trusted capability source.
+		// Include it in the existing package recipe/cache key and verify the
+		// running worker against the same declaration before activation.
+		copy := runtimePackageSpec{}
+		if requested != nil {
+			copy = *requested
+			if copy.AppCapabilities != nil && *copy.AppCapabilities != d.Component.Capabilities {
+				return result, fmt.Errorf("component package capabilities conflict with its owner's declaration")
+			}
+		}
+		caps := d.Component.Capabilities
+		copy.AppCapabilities = &caps
+		requested = &copy
+	}
+	spec, err := runtimePackageRecipe(appRoot, requested, d.Manifest, revision)
 	if err != nil {
 		return result, err
 	}

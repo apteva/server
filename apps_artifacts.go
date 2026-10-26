@@ -128,7 +128,7 @@ func validateAppArtifact(root string, m *sdk.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("artifact manifest: %w", err)
 	}
-	packaged, err := sdk.ParseManifest(raw)
+	packaged, err := parseServerAppManifest(raw)
 	if err != nil {
 		return err
 	}

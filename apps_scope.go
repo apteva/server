@@ -81,6 +81,10 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := body.ProjectID
+	if s.isOwnedComponent(installID) || s.hasOwnedComponents(installID) {
+		http.Error(w, "remove owned components before changing installation scope", http.StatusConflict)
+		return
+	}
 
 	// Load the install. We need the current scope + the manifest's
 	// scope list to validate the move + the app_id for the UNIQUE

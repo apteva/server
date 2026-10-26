@@ -27,6 +27,7 @@ import (
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
 type AppRow struct {
+	Components          []appComponentSummary     `json:"components,omitempty"`
 	AgentSetup          *sdk.AgentSetup           `json:"agent_setup,omitempty"`
 	Deployment          *runtimeDeploymentSummary `json:"deployment,omitempty"`
 	InstallID           int64                     `json:"install_id"`
@@ -718,8 +719,9 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			COALESCE(NULLIF(i.source, ''), a.source),
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
 			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0),
-			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != ''
-		FROM app_installs i JOIN apps a ON a.id = i.app_id`
+			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != '',
+			(EXISTS(SELECT 1 FROM app_component_declarations c WHERE c.install_id=i.id AND c.parent_version=i.version) OR EXISTS(SELECT 1 FROM app_installs c WHERE c.owner_install_id=i.id))
+		FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.owner_install_id=0`
 	if scope != "" && scope != "global" {
 		http.Error(w, "unsupported app scope", http.StatusBadRequest)
 		return
@@ -731,12 +733,12 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	}
 	args := []any{}
 	if scope == "global" {
-		q += ` WHERE i.project_id = ''`
+		q += ` AND i.project_id = ''`
 	} else if projectID != "" {
-		q += ` WHERE i.project_id = '' OR i.project_id = ?`
+		q += ` AND (i.project_id = '' OR i.project_id = ?)`
 		args = append(args, projectID)
 	} else if s.store.GetPlatformRole(getUserID(r)) != PlatformAdmin {
-		q += ` WHERE i.project_id = ''`
+		q += ` AND i.project_id = ''`
 	}
 	q += ` ORDER BY a.name`
 	// Refresh manifest_json from upstream IN THE BACKGROUND. The list
@@ -787,11 +789,11 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			upgradePolicy, version, permsJSON                               string
 			name, source, manifestJSON, availableManifestJSON, bindingsJSON string
 			hasPendingOptions, defaultForNewAgents                          int
-			upgrading                                                       bool
+			upgrading, hasComponents                                        bool
 		)
 		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
 			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON, &availableManifestJSON,
-			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents, &upgrading); err != nil {
+			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents, &upgrading, &hasComponents); err != nil {
 			continue
 		}
 		var manifest sdk.Manifest
@@ -824,8 +826,13 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		if upgrading && serving {
 			status = "pending"
 		}
+		var componentRows []appComponentSummary
+		if hasComponents {
+			componentRows, _ = s.componentSummaries(installID)
+		}
 		out = append(out, AppRow{
-			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
+			Components: componentRows,
+			InstallID:  installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
 			AgentSetup:        manifest.AgentSetup,
 			Bindings:          bindings,
 			HasPendingOptions: hasPendingOptions != 0,
@@ -1071,14 +1078,16 @@ func (s *Server) handlePreviewApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	manifest, err := sdk.ParseManifest(yamlBytes)
+	manifest, err := parseServerAppManifest(yamlBytes)
 	if err != nil {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	components := manifest.Components
 	writeJSON(w, map[string]any{
-		"manifest": manifest,
-		"surfaces": surfacesFromManifest(manifest),
+		"manifest":   manifest,
+		"components": components,
+		"surfaces":   surfacesFromManifest(manifest),
 	})
 }
 
@@ -1140,11 +1149,12 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	manifest, err := sdk.ParseManifest(yamlBytes)
+	manifest, err := parseServerAppManifest(yamlBytes)
 	if err != nil {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	components := manifest.Components
 	if err := validateAppRuntimeCompatibility(manifest, Version); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1292,7 +1302,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 	// Install row.
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
-	res, err := s.insertRuntimeConsoleInstall(userID, installRequestKey, installFingerprint,
+	res, err := s.insertManifestInstall(userID, installRequestKey, installFingerprint, manifest.Version, components,
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
 		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1423,6 +1433,10 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	installID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if s.hasOwnedComponents(installID) {
+		http.Error(w, "remove owned components before uninstalling their owner; force does not bypass resource cleanup", http.StatusConflict)
 		return
 	}
 	receipt := struct {
@@ -1607,6 +1621,10 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 	}
 	if body.Status != "running" && body.Status != "disabled" && body.Status != "error" {
 		http.Error(w, "status must be running|disabled|error", http.StatusBadRequest)
+		return
+	}
+	if body.Status != "running" && s.ownedComponentsBusy(installID) {
+		http.Error(w, "stop owned components before disabling their owner", http.StatusConflict)
 		return
 	}
 	if body.Status != "running" && s.runtimeProviderInUse(installID) {
@@ -1893,13 +1911,15 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	manifest, err := sdk.ParseManifest(yamlBytes)
+	manifest, err := parseServerAppManifest(yamlBytes)
 	if err != nil {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	components := manifest.Components
 	roles := s.buildPreflightRoles(manifest, body.ProjectID, userID)
 	writeJSON(w, map[string]any{
+		"components":     components,
 		"manifest":       manifest,
 		"setup_features": setupFeatures(manifest),
 		"roles":          roles,
@@ -2201,6 +2221,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		source, manifestJSON, availableManifestJSON, currentVersion, projectID, configEnc, permissionsJSON string
 		catalogRepo, catalogRef                                                                            string
 	)
+	if s.isOwnedComponent(installID) {
+		http.Error(w, "deploy the component release declared by its owner through the components endpoint", http.StatusConflict)
+		return
+	}
 	err = s.store.db.QueryRow(
 		`SELECT COALESCE(NULLIF(i.source, ''), a.source),
 		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
@@ -2320,7 +2344,8 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "manifest has no github source — uninstall + reinstall at the desired ref", http.StatusNotImplemented)
 		return
 	}
-	live, err := s.fetchAndCacheManifest(url)
+	release, err := s.fetchAndCacheAppRelease(url)
+	live := release.manifest
 	if err != nil || live == nil {
 		http.Error(w, "fetch upstream manifest: "+errString(err), http.StatusBadGateway)
 		return
@@ -2350,6 +2375,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Placement != nil {
+		if err := s.persistAppComponentDeclarations(installID, live.Version, release.components); err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
 		if !s.runtimeManaged(installID) {
 			http.Error(w, "placement changes require a managed installation", 409)
 			return
@@ -2384,7 +2413,7 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// reflects the in-flight version even before the build completes.
 	s.updateAppCatalogMetadataByName(live.Name, live)
 
-	if err := s.stageAppUpgrade(installID, live); err != nil {
+	if err := s.stageAppUpgrade(installID, live, release.components); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

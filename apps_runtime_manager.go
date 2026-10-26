@@ -100,6 +100,19 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 		return runtimeDeployment{}, err
 	}
 	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", CreatedAt: runtimeTimestamp(), AppCaps: m.appCapabilities(id)}
+	component, componentErr := m.s.componentDeployment(id, manifest)
+	if componentErr != nil {
+		return d, componentErr
+	}
+	if component != nil {
+		if p.Backend.InstallID == component.OwnerInstallID {
+			return d, fmt.Errorf("component cannot depend on its owner as an execution backend")
+		}
+		if p.Ingress != nil || p.PoolID != "" || replica != 0 {
+			return d, fmt.Errorf("components require private single-execution placement")
+		}
+		d.Component, d.AppCaps = component, component.Capabilities
+	}
 	policy, err := m.resourcePolicy(id)
 	if err != nil {
 		return d, err
@@ -221,11 +234,19 @@ func runtimeFingerprint(v any) string {
 	return hex.EncodeToString(b[:])
 }
 func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement, manifest *sdk.Manifest, desired ...int) (runtimeOperation, error) {
+	return m.beginExpected(id, kind, key, p, manifest, "", desired...)
+}
+
+// expected binds automated recovery to the exact observed owner.
+func (m *appRuntimeManager) beginExpected(id int64, kind, key string, p runtimePlacement, manifest *sdk.Manifest, expected string, desired ...int) (runtimeOperation, error) {
 	finish, err := m.s.beginHostedWork()
 	if err != nil {
 		return runtimeOperation{}, err
 	}
 	defer finish()
+	if (kind == "stop" || kind == "delete") && m.s.ownedComponentsBusy(id) {
+		return runtimeOperation{}, fmt.Errorf("stop owned components before their owner")
+	}
 	if !runtimeID(key) {
 		return runtimeOperation{}, fmt.Errorf("Idempotency-Key must be a bounded identifier")
 	}
@@ -319,12 +340,26 @@ func (m *appRuntimeManager) begin(id int64, kind, key string, p runtimePlacement
 			return runtimeOperation{}, fmt.Errorf("no prepared deployment")
 		}
 	}
-	op := runtimeOperation{PreviousStopped: old.ID != "" && old.Status == "stopped", ID: rand.Text(), InstallID: id, Kind: kind, Phase: "queued", Status: "queued", PreviousID: old.ID, DeploymentID: d.ID, IdempotencyKey: key, Fingerprint: fingerprint, CreatedAt: runtimeTimestamp(), UpdatedAt: runtimeTimestamp()}
+	op := runtimeOperation{Recovery: expected != "", PreviousStopped: old.ID != "" && old.Status == "stopped", ID: rand.Text(), InstallID: id, Kind: kind, Phase: "queued", Status: "queued", PreviousID: old.ID, DeploymentID: d.ID, IdempotencyKey: key, Fingerprint: fingerprint, CreatedAt: runtimeTimestamp(), UpdatedAt: runtimeTimestamp()}
 	tx, err := m.s.store.db.Begin()
 	if err != nil {
 		return op, err
 	}
 	defer tx.Rollback()
+	if kind == "stop" || kind == "delete" {
+		var busy int
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM app_installs c WHERE c.owner_install_id=? AND (c.status!='disabled' OR EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=c.id AND o.status IN ('queued','running')))`, id).Scan(&busy); err != nil {
+			return op, err
+		}
+		if busy != 0 {
+			return op, fmt.Errorf("stop owned components before their owner")
+		}
+	}
+	if expected != "" {
+		if err = m.claimRuntimeRecovery(tx, id, expected, time.Now()); err != nil {
+			return op, err
+		}
+	}
 	if kind == "prepare" || kind == "upgrade" || kind == "restart" || kind == "deploy" {
 		var pending string
 		if err = tx.QueryRow(`SELECT runtime_pending_deployment FROM app_installs WHERE id=?`, id).Scan(&pending); err != nil {
@@ -426,6 +461,9 @@ func (m *appRuntimeManager) phase(op *runtimeOperation, p string) error {
 			return errRuntimeCancelled
 		}
 	}
+	if op.Phase != p {
+		op.PhaseStartedAt = runtimeTimestamp()
+	}
 	op.Phase = p
 	return m.saveOperation(*op)
 }
@@ -444,6 +482,16 @@ func (m *appRuntimeManager) run(id string) {
 		return
 	}
 	op.Status = "running"
+	if op.StartedAt == "" {
+		op.StartedAt = runtimeTimestamp()
+	}
+	if op.Phase == "queued" {
+		op.Phase = "starting"
+		op.PhaseStartedAt = runtimeTimestamp()
+	}
+	if err = m.saveOperation(op); err != nil {
+		return
+	}
 	beat := make(chan struct{})
 	defer close(beat)
 	go func() {
@@ -493,6 +541,7 @@ func (m *appRuntimeManager) run(id string) {
 			op.Status = "cancelled"
 		}
 		op.Error = err.Error()
+		op.LastFailure = op.Error
 		var currentStatus string
 		m.s.store.db.QueryRow(`SELECT status FROM app_installs WHERE id=?`, op.InstallID).Scan(&currentStatus)
 		m.s.store.db.Exec(`UPDATE app_installs SET error_message=?,status_message=? WHERE id=?`, op.Error, "Deployment operation failed; inspect operation", op.InstallID)

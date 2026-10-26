@@ -23,8 +23,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	sdk "github.com/apteva/app-sdk"
 )
 
 // localInstall is the result of installing an app from local source.
@@ -58,7 +56,7 @@ func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int6
 	if err != nil {
 		return nil, fmt.Errorf("read apteva.yaml: %w", err)
 	}
-	m, err := sdk.ParseManifest(yamlBytes)
+	m, err := parseServerAppManifest(yamlBytes)
 	if err != nil {
 		return nil, fmt.Errorf("parse manifest: %w", err)
 	}

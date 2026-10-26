@@ -49,6 +49,9 @@ func (m *appRuntimeManager) resolvePool(id int64, p *runtimePlacement) error {
 	return nil
 }
 func (m *appRuntimeManager) replicaEligible(d runtimeDeployment) error {
+	if d.Component != nil {
+		return fmt.Errorf("owned components currently use one execution")
+	}
 	if !d.AppCaps.ReplicaSafe || !d.AppCaps.WorkerCoordination || (d.AppCaps.Routing != "stateless" && d.AppCaps.Routing != "key") {
 		return fmt.Errorf("app must declare replica safety, worker coordination and routing through its runtime lifecycle contract")
 	}
