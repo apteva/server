@@ -479,12 +479,22 @@ removes the backend host or unrelated services.
 
 Deployment summaries distinguish current process readiness from app admission.
 A stored active record alone is not a health check; observations expire after
-90 seconds. An app may optionally expose authenticated
+90 seconds. A legacy app without managed activation may optionally expose authenticated
 `/_apteva/runtime/app/status` returning `{"state":"active","admitting":true}`.
 Without that optional status, the console reports process readiness and unknown
 admission, rather than asserting that the app is accepting work. No host CPU
 sampling is added. Domain setup uses the existing managed ingress capabilities;
 only apps with declared public routes and capable backends can select HTTPS.
+
+Apps declaring passive start or drain must report authenticated admission with
+the exact `deployment_id`, numeric `generation`, `state` and `admitting` fields.
+Server verifies the running lifecycle descriptor before activation and requires
+`admitting:true` for that identity before committing routing, replica activation
+or rollback success. HTTP 200 from `activate` alone is insufficient. Capability
+probe failures remain unknown; they never erase persisted release capabilities
+or imply that activation is unsupported. Journal records retain a presence bit
+for an explicitly verified empty capability set; older nonempty records remain
+usable. Reuse is limited to the exact approved manifest/release.
 
 ### Dashboard traffic and managed direct origins
 
@@ -526,6 +536,16 @@ Recovery forces exclusive replacement: the existing deployment controller
 handles draining, confirmed shutdown, replacement and ownership commit for both
 local and remote placement. A process already fenced is not reactivated when
 shutdown confirmation fails.
+
+A currently owned execution reporting `standby` and `admitting:false` for the
+exact deployment/generation is a different recovery case. After two consecutive
+standby observations, Server freshly verifies backend execution ownership,
+executable digest and live lifecycle capabilities. A durable `readmit` operation
+then activates that same process and verifies admission. It does not prepare,
+start, stop, replace or change its generation. Intentional draining, unknown
+status, mismatched identity, conflicting ownership and disabled installations do
+not authorize readmission. The same operation lease, single-execution guard and
+persisted cooldown apply to standby recovery, including after controller restart.
 
 The current owner, absence of a pending lifecycle operation, and recovery budget
 are checked transactionally when queuing replacement. Backoff persists across

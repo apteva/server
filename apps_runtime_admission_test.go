@@ -159,6 +159,7 @@ func TestManagedRuntimeActivationAcknowledgementRequiresAdmission(t *testing.T) 
 func TestManagedRuntimeRollbackRequiresConfirmedAdmission(t *testing.T) {
 	s, m, f, d := recoveryFixture(t)
 	d.Manifest.Runtime.StartupTimeoutSeconds = 1
+	d.Manifest.Runtime.ActivationStrategy = "exclusive"
 	if err := m.saveDeployment(d); err != nil {
 		t.Fatal(err)
 	}
