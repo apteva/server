@@ -22,10 +22,11 @@ const (
 )
 
 type runtimeHealthObservation struct {
-	State, Message, Admission string
-	Recovery                  string
-	Healthy                   bool
-	Load                      *float64
+	State, Message, Admission   string
+	IdentityVerified, Admitting bool
+	Recovery                    string
+	Healthy                     bool
+	Load                        *float64
 }
 type runtimeMonitorEntry struct {
 	Deployment                 runtimeDeployment
@@ -193,7 +194,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 	// A transient failed health poll is not a reason to inspect the host. One
 	// investigation per persistent outage is enough when ownership still verifies.
 	// Failed verification retries are bounded; recovery never grants new ownership.
-	full := d.Placement.local() || due || (health.Recovery == "restart" && !fullOK) || (!probeHealthy && failures == 3 && fullOK) || (probeHealthy && !previousHealthy && previouslyChecked && !fullOK)
+	full := d.Placement.local() || due || (health.Recovery != "" && !fullOK) || (!probeHealthy && failures == 3 && fullOK) || (probeHealthy && !previousHealthy && previouslyChecked && !fullOK)
 	var verifyErr error
 	verifiedAt := time.Time{}
 	if full {
@@ -218,7 +219,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 			health = m.runtimeAppHealth(d, out)
 			probeHealthy = health.Healthy
 		}
-		fullOK = err == nil && out.State == "running" && (out.Ready || health.Recovery == "restart")
+		fullOK = err == nil && out.State == "running" && (out.Ready || health.Recovery != "")
 		if err == nil && out.StoppedConfirmed && d.Placement.local() {
 			// Only a fresh, authoritative local stop can trigger the existing restart
 			// flow. A failed probe or remote observation never authorizes a start.
@@ -240,7 +241,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 	if full && fullOK {
 		save = &out
 	}
-	if health.Recovery == "restart" {
+	if health.Recovery != "" {
 		recoveryFailures++
 	} else {
 		recoveryFailures = 0
@@ -305,6 +306,9 @@ func runtimeVerifiedObservation(d runtimeDeployment, out runtimeExecution) (runt
 // The existing private control endpoint/tunnel is used directly; no host API,
 // SSH, public hostname, or new app/backend route is needed for cheap probes.
 func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExecution) runtimeHealthObservation {
+	return m.runtimeAppHealthContext(m.ctx, d, out)
+}
+func (m *appRuntimeManager) runtimeAppHealthContext(parent context.Context, d runtimeDeployment, out runtimeExecution) runtimeHealthObservation {
 	failed := runtimeHealthObservation{State: "unavailable", Message: "App health check failed; ownership retained", Admission: "unknown"}
 	if d.Manifest.Runtime.Kind == "static" && d.Placement.local() {
 		return runtimeHealthObservation{State: "running", Admission: "unknown", Healthy: true}
@@ -316,7 +320,7 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 	if err != nil {
 		return failed
 	}
-	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	path := d.Manifest.Runtime.HealthCheck
 	if path == "" {
@@ -374,15 +378,21 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 		failed.Message = "App status identity does not match the active deployment; ownership retained"
 		return failed
 	}
+	result.IdentityVerified = status.DeploymentID == d.ID && status.Generation != nil && *status.Generation == d.Generation
 	if status.Admitting == nil {
 		if !live {
 			return failed
 		}
 		return result
 	}
+	if *status.Admitting && (status.State == "standby" || status.State == "fenced" || status.State == "draining" || status.State == "inactive") {
+		failed.Message = "App admission status is inconsistent; ownership retained"
+		return failed
+	}
 	if *status.Admitting && status.DeploymentID == d.ID && status.Generation != nil && *status.Generation == d.Generation && status.Load != nil && *status.Load >= 0 && !math.IsNaN(*status.Load) && !math.IsInf(*status.Load, 0) {
 		result.Load = status.Load
 	}
+	result.Admitting = *status.Admitting
 	result.Admission = "active"
 	result.State = "healthy"
 	result.Message = ""
@@ -397,6 +407,9 @@ func (m *appRuntimeManager) runtimeAppHealth(d runtimeDeployment, out runtimeExe
 	}
 	if !*status.Admitting {
 		result.Message += ": " + result.Admission
+		if status.State == "standby" && result.IdentityVerified {
+			result.Recovery = "activate"
+		}
 		if status.State == "fenced" && status.Recovery.Action == "restart" && status.DeploymentID == d.ID && status.Generation != nil && *status.Generation == d.Generation {
 			result.Recovery = "restart"
 		}

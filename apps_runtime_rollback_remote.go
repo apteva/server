@@ -116,7 +116,7 @@ func (m *appRuntimeManager) rollbackRemoteDeployment(op *runtimeOperation, old, 
 	} else if err = m.startDeployment(&recovery, work); err != nil {
 		return fmt.Errorf("activation failed; previous deployment readiness failed: %w", err)
 	}
-	if err = m.appLifecycle(recovery, "activate"); err != nil {
+	if err = m.activateAndConfirm(recovery, *op); err != nil {
 		return fmt.Errorf("previous deployment could not resume admission")
 	}
 	if err = m.publishIngress(recovery, work); err != nil {

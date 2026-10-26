@@ -261,30 +261,19 @@ func (s *Server) runtimeControlToken(id int64) (string, error) {
 	}
 	return s.appInstallToken(id)
 }
-func (m *appRuntimeManager) appCapabilities(id int64) runtimeAppCaps {
-	var caps runtimeAppCaps
+func (m *appRuntimeManager) appCapabilities(id int64) (runtimeAppCaps, bool) {
 	var base string
-	if err := m.s.store.db.QueryRow(`SELECT sidecar_url_override FROM app_installs WHERE id=?`, id).Scan(&base); err != nil || runtimeSecureURL(base) != nil {
-		return caps
+	if err := m.s.store.db.QueryRow(`SELECT sidecar_url_override FROM app_installs WHERE id=?`, id).Scan(&base); err != nil {
+		return runtimeAppCaps{}, false
 	}
 	token, err := m.s.runtimeControlToken(id)
 	if err != nil {
-		return caps
+		return runtimeAppCaps{}, false
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, runtimeEndpoint(base, runtimeControlPrefix+"app/describe"), nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := m.http.Do(req)
-	if err != nil {
-		return caps
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return caps
-	}
-	_ = json.NewDecoder(io.LimitReader(resp.Body, runtimeResponseLimit)).Decode(&caps)
-	return caps
+	caps, err := m.readAppCapabilities(ctx, base, token)
+	return caps, err == nil
 }
 
 var errRuntimeDraining = errors.New("app has not finished draining")

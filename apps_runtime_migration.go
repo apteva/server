@@ -109,7 +109,7 @@ func (m *appRuntimeManager) existingSource(id int64) (runtimeExistingSource, err
 		d.Execution.State = "running"
 		d.Execution.Ready = true
 		d.Execution.StoppedConfirmed = false
-		d.AppCaps = m.appCapabilities(id)
+		d.AppCaps, d.AppCapsKnown = m.appCapabilities(id)
 		out.Exists = true
 	} else {
 		out.Exists = d.PersistentData || len(manifest.Runtime.Storage) > 0
@@ -131,7 +131,7 @@ func declaredRuntimeCapabilities(manifest sdk.Manifest, p runtimePlacement, old 
 	if p.Package != nil && p.Package.AppCapabilities != nil {
 		return *p.Package.AppCapabilities, true
 	}
-	if runtimeFingerprint(manifest) == runtimeFingerprint(old.Manifest) {
+	if runtimeCapabilitiesKnown(old) && runtimeFingerprint(manifest) == runtimeFingerprint(old.Manifest) {
 		return old.AppCaps, true
 	}
 	return runtimeAppCaps{}, false

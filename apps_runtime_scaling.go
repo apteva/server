@@ -195,7 +195,7 @@ func (m *appRuntimeManager) scaleOperation(op *runtimeOperation) error {
 			_ = m.stopDeployment(&d, *op)
 			return err
 		}
-		if err = m.appLifecycle(d, "activate"); err != nil {
+		if err = m.activateAndConfirm(d, *op); err != nil {
 			return err
 		}
 		d.Status = "active"

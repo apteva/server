@@ -99,7 +99,8 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 	if err := m.s.store.db.QueryRow(`SELECT runtime_generation+1 FROM app_installs WHERE id=?`, id).Scan(&gen); err != nil {
 		return runtimeDeployment{}, err
 	}
-	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", CreatedAt: runtimeTimestamp(), AppCaps: m.appCapabilities(id)}
+	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", CreatedAt: runtimeTimestamp(), AppCaps: runtimeAppCaps{}}
+	d.AppCaps, d.AppCapsKnown = m.releaseCapabilities(id, *manifest, p)
 	component, componentErr := m.s.componentDeployment(id, manifest)
 	if componentErr != nil {
 		return d, componentErr
@@ -111,7 +112,7 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 		if p.Ingress != nil || p.PoolID != "" || replica != 0 {
 			return d, fmt.Errorf("components require private single-execution placement")
 		}
-		d.Component, d.AppCaps = component, component.Capabilities
+		d.Component, d.AppCaps, d.AppCapsKnown = component, component.Capabilities, true
 	}
 	policy, err := m.resourcePolicy(id)
 	if err != nil {
@@ -332,6 +333,12 @@ func (m *appRuntimeManager) beginExpected(id int64, kind, key string, p runtimeP
 			return runtimeOperation{}, err
 		}
 	}
+	if kind == "readmit" {
+		if expected == "" || old.ID != expected {
+			return runtimeOperation{}, fmt.Errorf("readmission requires the current recovery owner")
+		}
+		d = old
+	}
 	if kind == "activate" || kind == "discard" {
 		var pending string
 		m.s.store.db.QueryRow(`SELECT runtime_pending_deployment FROM app_installs WHERE id=?`, id).Scan(&pending)
@@ -513,6 +520,8 @@ func (m *appRuntimeManager) run(id string) {
 		err = m.prepare(&op)
 	case "activate":
 		err = m.activate(&op)
+	case "readmit":
+		err = m.readmitRuntime(&op)
 	case "stop":
 		err = m.stopOperation(&op)
 	case "delete":

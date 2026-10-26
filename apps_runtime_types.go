@@ -169,6 +169,7 @@ type runtimeDeployment struct {
 	Placement            runtimePlacement           `json:"placement"`
 	Manifest             sdk.Manifest               `json:"manifest"`
 	AppCaps              runtimeAppCaps             `json:"app_capabilities"`
+	AppCapsKnown         bool                       `json:"app_capabilities_known,omitempty"`
 	Status               string                     `json:"status"`
 	Execution            runtimeExecution           `json:"execution"`
 	CreatedAt            string                     `json:"created_at"`

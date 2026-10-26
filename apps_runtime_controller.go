@@ -188,7 +188,12 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 		return fmt.Errorf("backend did not preserve the existing state reference")
 	}
 	d.Execution = execution
-	d.AppCaps = execution.AppCapabilities
+	if execution.AppCapabilities != (runtimeAppCaps{}) {
+		if runtimeCapabilitiesKnown(d) && d.AppCaps != execution.AppCapabilities {
+			return fmt.Errorf("backend lifecycle capabilities differ from the approved release")
+		}
+		d.AppCaps, d.AppCapsKnown = execution.AppCapabilities, true
+	}
 	d.Status = "preparing"
 	if err = m.saveDeployment(d); err != nil {
 		return err
@@ -337,6 +342,9 @@ func (m *appRuntimeManager) waitReady(d *runtimeDeployment, op runtimeOperation)
 			if e == nil {
 				resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
+					if err := m.verifyRuntimeCapabilities(d, out.Endpoint, token); err != nil {
+						return err
+					}
 					if err := m.verifyComponentWorker(*d, out.Endpoint, token); err != nil {
 						return err
 					}
@@ -501,7 +509,7 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 	if err = m.checkOwner(*op); err != nil {
 		return err
 	}
-	if err = m.appLifecycle(d, "activate"); err != nil {
+	if err = m.activateAndConfirm(d, *op); err != nil {
 		return m.rollback(op, &old, &d, err)
 	}
 	if err = m.publishIngress(d, *op); err != nil {
@@ -693,7 +701,7 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 		if err := m.startDeployment(old, *op); err != nil {
 			return fmt.Errorf("activation failed; previous deployment readiness failed")
 		}
-		if err := m.appLifecycle(*old, "activate"); err != nil {
+		if err := m.activateAndConfirm(*old, *op); err != nil {
 			return fmt.Errorf("previous deployment could not resume admission")
 		}
 	} else {

@@ -37,13 +37,14 @@ type runtimeBackendFixture struct {
 	failStop                bool
 	failOldRestart          bool
 	oldID                   string
+	admitting               map[string]bool
 	appCaps                 runtimeAppCaps
 	snapshot                []byte
 }
 
 func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 	t.Helper()
-	f := &runtimeBackendFixture{caps: runtimeBackendCaps{Contract: runtimeBackendContract, ID: id, RuntimeKinds: []string{"service", "source"}, Formats: []string{"artifact", "source", "image"}, Platforms: []string{"linux-amd64"}, Protocols: []string{"tcp", "udp"}, ConfirmedStop: true, Snapshots: true, Replicas: true, TargetInspection: true}, executions: map[string]runtimeExecution{}, env: map[string]map[string]string{}, appCaps: runtimeAppCaps{PassiveStart: true, Drain: true, ReplicaSafe: true, WorkerCoordination: true, Routing: "stateless"}}
+	f := &runtimeBackendFixture{caps: runtimeBackendCaps{Contract: runtimeBackendContract, ID: id, RuntimeKinds: []string{"service", "source"}, Formats: []string{"artifact", "source", "image"}, Platforms: []string{"linux-amd64"}, Protocols: []string{"tcp", "udp"}, ConfirmedStop: true, Snapshots: true, Replicas: true, TargetInspection: true}, admitting: map[string]bool{}, executions: map[string]runtimeExecution{}, env: map[string]map[string]string{}, appCaps: runtimeAppCaps{PassiveStart: true, Drain: true, ReplicaSafe: true, WorkerCoordination: true, Routing: "stateless"}}
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -59,6 +60,16 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 				w.WriteHeader(200)
 				return
 			}
+			if strings.HasSuffix(r.URL.Path, "/app/status") {
+				var generation int64
+				fmt.Sscan(f.env[dep]["APTEVA_DEPLOYMENT_GENERATION"], &generation)
+				state := "standby"
+				if f.admitting[dep] {
+					state = "active"
+				}
+				writeJSON(w, map[string]any{"deployment_id": dep, "generation": generation, "admitting": f.admitting[dep], "state": state})
+				return
+			}
 			if strings.HasSuffix(r.URL.Path, "/describe") {
 				json.NewEncoder(w).Encode(f.appCaps)
 				return
@@ -68,6 +79,7 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 				return
 			}
 			if strings.HasSuffix(r.URL.Path, "/activate") {
+				f.admitting[dep] = true
 				w.WriteHeader(200)
 				return
 			}

@@ -60,6 +60,12 @@ func (f *packageBackendFixture) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(200)
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/app/status") {
+			var generation int64
+			fmt.Sscan(f.environments[id]["APTEVA_DEPLOYMENT_GENERATION"], &generation)
+			writeJSON(w, map[string]any{"deployment_id": id, "generation": generation, "admitting": true, "state": "active"})
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/describe") {
 			caps := f.executions[id].AppCapabilities
 			if f.badCapabilities {
