@@ -182,6 +182,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 	previousExecution := entry.Execution
 	failures := entry.HealthFailures
 	recoveryFailures := entry.RecoveryFailures
+	previousRecovery := entry.Health.Recovery
 	m.monitorMu.Unlock()
 	out := d.Execution
 	health := m.runtimeAppHealth(d, out)
@@ -242,7 +243,11 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 		save = &out
 	}
 	if health.Recovery != "" {
-		recoveryFailures++
+		if previousRecovery == health.Recovery {
+			recoveryFailures++
+		} else {
+			recoveryFailures = 1
+		}
 	} else {
 		recoveryFailures = 0
 	}

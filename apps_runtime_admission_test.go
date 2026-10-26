@@ -204,6 +204,55 @@ func TestManagedRuntimeAutomaticStandbyReadmission(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimeUnconfirmedReadmissionFailsAndBacksOff(t *testing.T) {
+	s, m, f, d := recoveryFixture(t)
+	d.Manifest.Runtime.StartupTimeoutSeconds = 1
+	if err := m.saveDeployment(d); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.admitting[d.ID] = false
+	f.events = nil
+	f.mu.Unlock()
+	original := f.server.Config.Handler
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/activate") {
+			w.WriteHeader(200)
+			return
+		}
+		original.ServeHTTP(w, r)
+	})
+	collectRuntimeMonitor(t, m, d.InstallID)
+	nextRuntimeHealth(t, m, d.ID)
+	var opID string
+	if err := s.store.db.QueryRow(`SELECT id FROM app_runtime_operations WHERE kind='readmit'`).Scan(&opID); err != nil {
+		t.Fatal(err)
+	}
+	op, _ := m.operation(opID)
+	op = waitRuntimeOperation(t, m, op)
+	if op.Status != "failed" || !strings.Contains(op.Error, "admission") {
+		t.Fatal("unconfirmed activation reported successful", op.Error)
+	}
+	current, _ := m.active(d.InstallID)
+	if current.ID != d.ID {
+		t.Fatal("failed admission changed process ownership")
+	}
+	collectRuntimeMonitor(t, m, d.InstallID)
+	nextRuntimeHealth(t, m, d.ID)
+	var n int
+	s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_operations WHERE kind='readmit'`).Scan(&n)
+	if n != 1 {
+		t.Fatal("failed admission bypassed persisted recovery cooldown")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, event := range f.events {
+		if strings.HasPrefix(event, "start:") || strings.HasPrefix(event, "stop:") {
+			t.Fatal("failed admission created or killed an execution")
+		}
+	}
+}
+
 func TestManagedRuntimeStandbyReadmissionRequiresOwnership(t *testing.T) {
 	for _, mode := range []string{"wrong-id", "wrong-generation", "auth-failure", "draining", "digest-mismatch"} {
 		t.Run(mode, func(t *testing.T) {

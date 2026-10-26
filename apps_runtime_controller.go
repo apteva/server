@@ -701,13 +701,13 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 		if err := m.startDeployment(old, *op); err != nil {
 			return fmt.Errorf("activation failed; previous deployment readiness failed")
 		}
-		if err := m.activateAndConfirm(*old, *op); err != nil {
-			return fmt.Errorf("previous deployment could not resume admission")
-		}
 	} else {
 		if err := m.waitReady(old, *op); err != nil {
 			return fmt.Errorf("activation failed; previous deployment is not ready")
 		}
+	}
+	if err := m.activateAndConfirm(*old, *op); err != nil {
+		return fmt.Errorf("previous deployment could not resume admission")
 	}
 	old.Status = "active"
 	if err := m.saveDeployment(*old); err != nil {
