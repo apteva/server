@@ -172,17 +172,21 @@ func (s *Server) handleRuntimeOwnership(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "authenticated app required", 403)
 		return
 	}
-	d, err := s.appRuntimeManager().active(id)
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	var deployment string
+	var generation int64
+	var granted int
+	// The authenticated credential identifies the execution. Neither a pending
+	// pointer nor the public routing pointer confers permission to admit work.
+	err = s.store.db.QueryRow(`SELECT d.id,d.generation,COALESCE(o.granted,0)
+	 FROM app_runtime_credentials c JOIN app_runtime_deployments d ON d.id=c.deployment_id
+	 LEFT JOIN app_runtime_execution_owners o ON o.deployment_id=d.id AND o.install_id=d.install_id AND o.generation=d.generation
+	 WHERE c.token_hash=? AND d.install_id=? AND d.status IN ('ready','active','retiring')`, HashAPIKey(token), id).Scan(&deployment, &generation, &granted)
 	if err != nil {
-		http.Error(w, "no active deployment", 409)
+		http.Error(w, "execution ownership unavailable", 409)
 		return
 	}
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	var ref string
-	s.store.db.QueryRow(`SELECT deployment_id FROM app_runtime_credentials WHERE token_hash=?`, HashAPIKey(token)).Scan(&ref)
-	own, e := s.appRuntimeManager().loadDeployment(ref)
-	active := e == nil && own.InstallID == id && own.Generation == d.Generation && own.Status == "active" && d.Status == "active"
-	writeJSON(w, map[string]any{"active": active, "deployment_id": d.ID, "generation": d.Generation, "expires_at": time.Now().Unix() + 15})
+	writeJSON(w, map[string]any{"active": granted == 1, "deployment_id": deployment, "generation": generation, "expires_at": time.Now().Unix() + 15})
 }
 
 func runtimeSignedBrowserToken(s *Server, c runtimeBrowserClaims) string {

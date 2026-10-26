@@ -15,7 +15,7 @@ func (m *appRuntimeManager) cancelOperation(id string, installID int64) error {
 	if op.Status != "queued" && op.Status != "running" {
 		return fmt.Errorf("operation already finished")
 	}
-	if op.Phase == "committing" || op.Phase == "retiring_previous" || op.Phase == "rolling_back" {
+	if op.Phase == "committing" || op.Phase == "ownership_committed" || op.Phase == "publishing" || op.Phase == "retiring_previous" || runtimeRollingBack(op) {
 		return fmt.Errorf("cutover already requires completion; cancellation refused")
 	}
 	_, err = m.s.store.db.Exec(`UPDATE app_runtime_operations SET cancel_requested=1 WHERE id=?`, id)

@@ -195,13 +195,19 @@ func (m *appRuntimeManager) scaleOperation(op *runtimeOperation) error {
 			_ = m.stopDeployment(&d, *op)
 			return err
 		}
+		if err = m.commitExecutionOwnership(d, *op); err != nil {
+			return err
+		}
 		if err = m.activateAndConfirm(d, *op); err != nil {
+			if stopErr := m.stopDeployment(&d, *op); stopErr != nil {
+				return fmt.Errorf("activation failed; replica stop unconfirmed: %w", stopErr)
+			}
+			return err
+		}
+		if err = m.commitReplica(d, *op); err != nil {
 			return err
 		}
 		d.Status = "active"
-		if err = m.saveDeployment(d); err != nil {
-			return err
-		}
 		live = append(live, d)
 	}
 	if m.s.installedApps != nil {

@@ -108,7 +108,7 @@ func (m *appRuntimeManager) activateAndConfirm(d runtimeDeployment, op runtimeOp
 	if !runtimeCapabilitiesKnown(d) {
 		return fmt.Errorf("app lifecycle capabilities are unknown")
 	}
-	if err := m.checkOwner(op); err != nil {
+	if err := m.requireExecutionOwnership(d, op); err != nil {
 		return err
 	}
 	budget := 30 * time.Second
@@ -125,15 +125,15 @@ func (m *appRuntimeManager) activateAndConfirm(d runtimeDeployment, op runtimeOp
 		if !health.Healthy || health.IdentityVerified && !health.Admitting {
 			return fmt.Errorf("app is not admitting work after activation")
 		}
-		return nil
+		return m.confirmExecutionAdmission(d, op)
 	}
 	for {
-		if err := m.checkOwner(op); err != nil {
+		if err := m.requireExecutionOwnership(d, op); err != nil {
 			return err
 		}
 		health := m.runtimeAppHealthContext(ctx, d, d.Execution)
 		if health.Healthy && health.IdentityVerified && health.Admitting {
-			return nil
+			return m.confirmExecutionAdmission(d, op)
 		}
 		if health.Admission == "fenced" || health.Admission == "draining" {
 			return fmt.Errorf("app activation did not admit this execution: %s", health.Admission)

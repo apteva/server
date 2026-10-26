@@ -110,6 +110,12 @@ func (m *appRuntimeManager) readmitRuntime(op *runtimeOperation) error {
 	if err = current(); err != nil {
 		return err
 	}
+	if err = m.saveDeployment(d); err != nil {
+		return err
+	}
+	if err = m.commitExecutionOwnership(d, *op); err != nil {
+		return err
+	}
 	if !health.Admitting {
 		if err = m.phase(op, "activating_owned_execution"); err != nil {
 			return err
@@ -124,6 +130,9 @@ func (m *appRuntimeManager) readmitRuntime(op *runtimeOperation) error {
 		fresh := m.runtimeAppHealth(d, out)
 		if !fresh.Healthy || !fresh.IdentityVerified || !fresh.Admitting {
 			return fmt.Errorf("owned execution admission is no longer confirmed")
+		}
+		if err = m.confirmExecutionAdmission(d, *op); err != nil {
+			return err
 		}
 	}
 	if err = current(); err != nil {

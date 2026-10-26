@@ -134,7 +134,7 @@ func (m *appRuntimeManager) stateTransferContext(op runtimeOperation, p runtimeS
 					cancel()
 					return
 				}
-				if op.Phase != "rolling_back" {
+				if !runtimeRollingBack(op) {
 					var n int
 					if err := m.s.store.db.QueryRowContext(ctx, `SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&n); err != nil || n != 0 {
 						cancel()

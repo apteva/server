@@ -268,6 +268,9 @@ func (m *appRuntimeManager) inspectTargetForIngress(d runtimeDeployment, req run
 	return out.PublicIPv4, nil
 }
 func (m *appRuntimeManager) publishIngress(d runtimeDeployment, op runtimeOperation) error {
+	if err := m.requirePublication(d, op); err != nil {
+		return err
+	}
 	if d.Placement.Ingress == nil {
 		return nil
 	}

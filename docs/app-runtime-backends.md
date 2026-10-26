@@ -496,6 +496,39 @@ or imply that activation is unsupported. Journal records retain a presence bit
 for an explicitly verified empty capability set; older nonempty records remain
 usable. Reuse is limited to the exact approved manifest/release.
 
+### Execution ownership before public routing
+
+Execution ownership is journaled separately from the active routing pointer.
+For a managed cutover, Server verifies the passive candidate, commits its exact
+execution grant, sends activation, confirms identity-bound admission, then
+publishes ingress and atomically updates installation routing/version and MCP
+registration. A pending candidate alone never receives an ownership lease.
+
+The ownership transaction checks the current lifecycle operation lease, expected
+predecessor, pending candidate and generation. Exclusive or non-replica-safe
+lifecycle apps require confirmed predecessor shutdown before ownership transfer;
+active work must drain first. Replica-safe rolling cutovers can retain the old
+execution's grant while it drains, and replicas receive their own exact grants.
+The existing authenticated `/apps/callback/runtime/ownership` response retains
+its shape and grants a renewable 15-second lease for the calling execution's
+own deployment ID and generation, independently of public routing.
+
+Ownership and confirmed admission are separate durable facts. Both are required
+for publication. Resuming a pre-publication operation rechecks readiness and
+admission; it does not re-prepare an already started execution. Rollback intent
+survives intermediate phases and controller restarts. Before restoring another
+exclusive owner, Server revokes the candidate's grant and confirms its shutdown.
+A previously disabled installation remains disabled if activation fails.
+Revocation tombstones prevent migration/restart from restoring a stale grant.
+Existing active installations are imported once without granting pending candidates.
+
+Local ownership tests use an app fixture whose activation only arms admission;
+its status becomes active only after calling the real authenticated ownership
+callback and obtaining its matching lease. Coverage includes fresh/stopped
+installs, drain, CAS loss, invalid status, rollback, controller crashes,
+readmission, replica isolation and lease renewal. These tests require neither
+provider credentials nor a remote server.
+
 ### Dashboard traffic and managed direct origins
 
 Ordinary dashboard HTTP actions, reads, MCP and SSE use the installation-scoped

@@ -27,6 +27,8 @@ func (s *Store) migrateAppRuntime() error {
 		`CREATE TABLE IF NOT EXISTS app_runtime_operations (id TEXT PRIMARY KEY,install_id INTEGER NOT NULL REFERENCES app_installs(id),kind TEXT NOT NULL,status TEXT NOT NULL,cancel_requested INTEGER NOT NULL DEFAULT 0,desired_replicas INTEGER NOT NULL DEFAULT 1,owner TEXT NOT NULL DEFAULT '',lease_until INTEGER NOT NULL DEFAULT 0,idempotency_key TEXT NOT NULL,fingerprint TEXT NOT NULL,record_json TEXT NOT NULL,UNIQUE(install_id,idempotency_key))`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS app_runtime_one_operation ON app_runtime_operations(install_id) WHERE status IN ('queued','running')`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_ports (host_key TEXT NOT NULL,protocol TEXT NOT NULL,port_start INTEGER NOT NULL,port_end INTEGER NOT NULL,install_id INTEGER NOT NULL,deployment_id TEXT NOT NULL REFERENCES app_runtime_deployments(id),UNIQUE(host_key,protocol,port_start,port_end,deployment_id))`,
+		`CREATE TABLE IF NOT EXISTS app_runtime_execution_owners (deployment_id TEXT PRIMARY KEY REFERENCES app_runtime_deployments(id) ON DELETE CASCADE, install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE, generation INTEGER NOT NULL, operation_id TEXT NOT NULL, granted INTEGER NOT NULL DEFAULT 0, admission_confirmed INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE INDEX IF NOT EXISTS app_runtime_execution_owners_install ON app_runtime_execution_owners(install_id)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_credentials (deployment_id TEXT PRIMARY KEY REFERENCES app_runtime_deployments(id),token_hash TEXT NOT NULL UNIQUE)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_browser_revocations (token_hash TEXT PRIMARY KEY,expires_at INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_pools (id TEXT PRIMARY KEY,record_json TEXT NOT NULL)`,
@@ -37,7 +39,7 @@ func (s *Store) migrateAppRuntime() error {
 			return fmt.Errorf("runtime schema: %w", err)
 		}
 	}
-	for _, q := range []string{`ALTER TABLE app_runtime_operations ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE app_runtime_operations ADD COLUMN desired_replicas INTEGER NOT NULL DEFAULT 1`} {
+	for _, q := range []string{`ALTER TABLE app_runtime_execution_owners ADD COLUMN admission_confirmed INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE app_runtime_operations ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE app_runtime_operations ADD COLUMN desired_replicas INTEGER NOT NULL DEFAULT 1`} {
 		if _, e := s.db.Exec(q); e != nil && !isRuntimeDuplicateColumn(e) {
 			return e
 		}
@@ -54,7 +56,14 @@ func (s *Store) migrateAppRuntime() error {
 			return err
 		}
 	}
-	return nil
+	// Upgrade only installations that predate the ownership journal. Revocation
+	// tombstones prevent a later restart from re-authorizing an old route.
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO app_runtime_execution_owners(deployment_id,install_id,generation,operation_id,granted,admission_confirmed)
+	 SELECT d.id,d.install_id,d.generation,'legacy-active',1,1 FROM app_runtime_deployments d
+	 JOIN app_installs i ON i.id=d.install_id JOIN app_runtime_deployments a ON a.id=i.runtime_active_deployment
+	 WHERE i.runtime_managed=1 AND i.status='running' AND d.status='active' AND a.status='active' AND d.generation=a.generation
+	 AND NOT EXISTS(SELECT 1 FROM app_runtime_execution_owners o WHERE o.install_id=i.id)`)
+	return err
 }
 func isRuntimeDuplicateColumn(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "duplicate column name"))
@@ -133,6 +142,11 @@ func (m *appRuntimeManager) operation(id string) (runtimeOperation, error) {
 	return op, err
 }
 func (m *appRuntimeManager) saveOperation(op runtimeOperation) error {
+	// Backend work for a rollback targets its recovery execution; retain the
+	// original candidate identity in the durable lifecycle operation.
+	if op.RollbackID != "" && op.DeploymentID == op.RollbackID {
+		op.DeploymentID = op.FailedID
+	}
 	op.UpdatedAt = runtimeTimestamp()
 	result, err := m.s.store.db.Exec(`UPDATE app_runtime_operations SET status=?,record_json=? WHERE id=? AND owner=?`, op.Status, runtimeJSON(runtimeStoredOperation{op, op.SnapshotPath}), op.ID, m.owner)
 	if err == nil {

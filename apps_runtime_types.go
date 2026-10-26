@@ -185,29 +185,30 @@ type runtimeOperation struct {
 	RetryCount     int    `json:"retry_count,omitempty"`
 	LastFailure    string `json:"last_failure,omitempty"`
 
-	Recovery         bool                        `json:"automatic_recovery,omitempty"`
-	StateTransfer    *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
-	SnapshotSourceID string                      `json:"snapshot_source_id,omitempty"`
-	CandidateStarted bool                        `json:"candidate_started,omitempty"`
-	PreviousStopped  bool                        `json:"previous_stopped,omitempty"`
-	RollbackID       string                      `json:"rollback_deployment_id,omitempty"`
-	FailedID         string                      `json:"failed_deployment_id,omitempty"`
-	ID               string                      `json:"id"`
-	InstallID        int64                       `json:"install_id"`
-	Kind             string                      `json:"kind"`
-	Phase            string                      `json:"phase"`
-	Status           string                      `json:"status"`
-	DeploymentID     string                      `json:"deployment_id,omitempty"`
-	PreviousID       string                      `json:"previous_deployment_id,omitempty"`
-	Error            string                      `json:"error,omitempty"`
-	IdempotencyKey   string                      `json:"idempotency_key"`
-	Fingerprint      string                      `json:"-"`
-	CreatedAt        string                      `json:"created_at"`
-	UpdatedAt        string                      `json:"updated_at"`
-	Owner            string                      `json:"-"`
-	LeaseUntil       int64                       `json:"-"`
-	SnapshotPath     string                      `json:"-"`
-	SnapshotSHA256   string                      `json:"snapshot_sha256,omitempty"`
+	Recovery          bool                        `json:"automatic_recovery,omitempty"`
+	StateTransfer     *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
+	SnapshotSourceID  string                      `json:"snapshot_source_id,omitempty"`
+	CandidateStarted  bool                        `json:"candidate_started,omitempty"`
+	RollbackRequested bool                        `json:"rollback_requested,omitempty"`
+	PreviousStopped   bool                        `json:"previous_stopped,omitempty"`
+	RollbackID        string                      `json:"rollback_deployment_id,omitempty"`
+	FailedID          string                      `json:"failed_deployment_id,omitempty"`
+	ID                string                      `json:"id"`
+	InstallID         int64                       `json:"install_id"`
+	Kind              string                      `json:"kind"`
+	Phase             string                      `json:"phase"`
+	Status            string                      `json:"status"`
+	DeploymentID      string                      `json:"deployment_id,omitempty"`
+	PreviousID        string                      `json:"previous_deployment_id,omitempty"`
+	Error             string                      `json:"error,omitempty"`
+	IdempotencyKey    string                      `json:"idempotency_key"`
+	Fingerprint       string                      `json:"-"`
+	CreatedAt         string                      `json:"created_at"`
+	UpdatedAt         string                      `json:"updated_at"`
+	Owner             string                      `json:"-"`
+	LeaseUntil        int64                       `json:"-"`
+	SnapshotPath      string                      `json:"-"`
+	SnapshotSHA256    string                      `json:"snapshot_sha256,omitempty"`
 }
 type runtimeBackendRequest struct {
 	Resources        *sdk.ResourcePolicy         `json:"resource_policy,omitempty"`

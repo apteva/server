@@ -38,6 +38,9 @@ func (s *Server) managedRuntimeRestart(id int64) error {
 	return err
 }
 func (m *appRuntimeManager) restartOperation(op *runtimeOperation) error {
+	if runtimeRollingBack(*op) {
+		return m.activate(op)
+	}
 	if err := m.prepare(op); err != nil {
 		old, e := m.loadDeployment(op.PreviousID)
 		candidate, ce := m.loadDeployment(op.DeploymentID)
@@ -148,7 +151,7 @@ func (m *appRuntimeManager) retryOperation(id string, installID int64) error {
 	if err = m.s.store.db.QueryRow(`SELECT runtime_pending_deployment,runtime_active_deployment FROM app_installs WHERE id=?`, installID).Scan(&pending, &active); err != nil {
 		return err
 	}
-	if op.DeploymentID != "" && op.DeploymentID != pending && op.DeploymentID != active && op.Phase != "rolling_back" && op.Kind != "scale" {
+	if op.DeploymentID != "" && op.DeploymentID != pending && op.DeploymentID != active && !runtimeRollingBack(op) && op.Kind != "scale" {
 		return fmt.Errorf("operation no longer owns a candidate")
 	}
 	op.Status = "queued"

@@ -96,7 +96,7 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 		return runtimeDeployment{}, err
 	}
 	var gen int64
-	if err := m.s.store.db.QueryRow(`SELECT runtime_generation+1 FROM app_installs WHERE id=?`, id).Scan(&gen); err != nil {
+	if err := m.s.store.db.QueryRow(`SELECT MAX(runtime_generation,COALESCE((SELECT MAX(generation) FROM app_runtime_deployments WHERE install_id=app_installs.id),0))+1 FROM app_installs WHERE id=?`, id).Scan(&gen); err != nil {
 		return runtimeDeployment{}, err
 	}
 	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", CreatedAt: runtimeTimestamp(), AppCaps: runtimeAppCaps{}}
@@ -459,7 +459,7 @@ func (m *appRuntimeManager) launch(id string) {
 	}()
 }
 func (m *appRuntimeManager) phase(op *runtimeOperation, p string) error {
-	if p != "rolling_back" && p != "retiring_previous" && op.RollbackID == "" {
+	if p != "rolling_back" && p != "retiring_previous" && !runtimeRollingBack(*op) {
 		var cancelled int
 		if err := m.s.store.db.QueryRow(`SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&cancelled); err != nil {
 			return err

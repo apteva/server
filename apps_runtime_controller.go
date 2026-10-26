@@ -16,7 +16,7 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 	if err != nil {
 		return err
 	}
-	if d.Status == "prepared" {
+	if d.Status == "prepared" || d.Status == "starting" || d.Status == "ready" || d.Status == "active" {
 		return nil
 	}
 	b, err := m.backend(d)
@@ -67,7 +67,7 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 		return fmt.Errorf("automatic activation blocked by database_upgrade requires_restore")
 	}
 	if op.Kind != "prepare" && op.RollbackID == "" {
-		if old, e := m.loadDeployment(op.PreviousID); e == nil && sameRuntimeTarget(old, d) && (op.Recovery || runtimeExclusive(old, d) || d.Component != nil) && old.Status != "stopped" {
+		if old, e := m.loadDeployment(op.PreviousID); e == nil && sameRuntimeTarget(old, d) && (op.Recovery || runtimeOwnershipExclusive(old, d) || d.Component != nil) && old.Status != "stopped" {
 			if err = m.phase(op, "draining"); err != nil {
 				return err
 			}
@@ -237,6 +237,9 @@ func (m *appRuntimeManager) stopDeployment(d *runtimeDeployment, op runtimeOpera
 	if err = m.checkOwner(op); err != nil {
 		return err
 	}
+	if err = m.revokeExecutionOwnership(*d, op); err != nil {
+		return err
+	}
 	out, err := b.Stop(req)
 	if err != nil || !out.StoppedConfirmed {
 		if !b.Describe().Fencing {
@@ -393,12 +396,17 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 		return oldErr
 	}
 	// Recovery must not be blocked by forward-migration preflight checks.
-	if op.Phase == "rolling_back" {
+	if runtimeRollingBack(*op) {
 		return m.rollback(op, &old, &d, errors.New("recovering interrupted activation"))
 	}
 	if d.Status == "active" {
 		current, e := m.active(d.InstallID)
 		if e == nil && current.ID == d.ID {
+			// A crash after publication must not turn a stale active pointer
+			// into successful completion if this execution lost admission.
+			if err = m.activateAndConfirm(d, *op); err != nil {
+				return fmt.Errorf("published deployment admission requires recovery: %w", err)
+			}
 			return m.retirePrevious(op, old)
 		}
 	}
@@ -428,7 +436,7 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 			return err
 		}
 	}
-	exclusive := op.Recovery || migration || runtimeExclusive(old, d) || d.Component != nil
+	exclusive := op.Recovery || migration || runtimeOwnershipExclusive(old, d) || d.Component != nil
 	if old.ID != "" && exclusive && old.Status != "stopped" {
 		if err = m.phase(op, "draining"); err != nil {
 			return err
@@ -444,12 +452,8 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 			return err
 		}
 		if err = m.stopDeployment(&old, *op); err != nil {
-			if !op.Recovery && m.waitReady(&old, *op) == nil {
-				old.Status = "active"
-				_ = m.saveDeployment(old)
-				_ = m.appLifecycle(old, "activate")
-				_ = m.restoreOldRoute(old)
-			}
+			// Readiness cannot resolve an unknown stop outcome. Keep the grant
+			// revoked; do not claim restoration or authorize another writer.
 			return err
 		}
 	}
@@ -504,13 +508,22 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 	if err = m.checkOwner(*op); err != nil {
 		return err
 	}
+	if err = m.commitExecutionOwnership(d, *op); err != nil {
+		return m.rollback(op, &old, &d, err)
+	}
+	if err = m.phase(op, "ownership_committed"); err != nil {
+		return err
+	}
 	if err = m.activateAndConfirm(d, *op); err != nil {
 		return m.rollback(op, &old, &d, err)
+	}
+	if err = m.phase(op, "publishing"); err != nil {
+		return err
 	}
 	if err = m.publishIngress(d, *op); err != nil {
 		return m.rollback(op, &old, &d, err)
 	}
-	if err = m.commitActive(d); err != nil {
+	if err = m.commitActive(d, *op); err != nil {
 		current, e := m.active(d.InstallID)
 		if e == nil && current.ID == d.ID {
 			return fmt.Errorf("deployment committed; post-activation registration requires reconciliation")
@@ -589,7 +602,7 @@ func (m *appRuntimeManager) drain(d runtimeDeployment, op runtimeOperation) erro
 		}
 	}
 }
-func (m *appRuntimeManager) commitActive(d runtimeDeployment) error {
+func (m *appRuntimeManager) commitActive(d runtimeDeployment, op runtimeOperation) error {
 	d.Status = "active"
 	if d.Placement.local() {
 		ports, e := fixedRuntimePorts(&d.Manifest)
@@ -600,14 +613,17 @@ func (m *appRuntimeManager) commitActive(d runtimeDeployment) error {
 			return e
 		}
 	}
-	if err := m.saveDeployment(d); err != nil {
-		return err
-	}
 	tx, err := m.s.store.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err = m.requirePublicationTx(tx, d, op); err != nil {
+		return err
+	}
+	if err = runtimePublishExecutionTx(tx, d); err != nil {
+		return err
+	}
 	// The active pointer and install routing change in one database transaction.
 	if _, err = tx.Exec(`UPDATE app_runtime_deployments SET status='retiring',record_json=json_set(record_json,'$.status','retiring') WHERE install_id=? AND generation!=? AND status IN ('active','ready')`, d.InstallID, d.Generation); err != nil {
 		return err
@@ -628,19 +644,15 @@ func (m *appRuntimeManager) commitActive(d runtimeDeployment) error {
 	}
 	return nil
 }
-func (m *appRuntimeManager) restoreOldRoute(old runtimeDeployment) error {
-	if old.ID == "" {
-		return nil
-	}
-	_, err := m.s.store.db.Exec(`UPDATE app_installs SET status='running',sidecar_url_override=?,runtime_active_deployment=?,runtime_pending_deployment='',runtime_placement_json=?,status_message='upgrade failed; previous deployment verified',mcp_activation_revision=mcp_activation_revision+1 WHERE id=?`, old.Execution.Endpoint, old.ID, runtimeJSON(old.Placement), old.InstallID)
-	if err == nil && m.s.installedApps != nil {
-		m.s.LoadInstalledApps()
-	}
-	return err
-}
 func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runtimeDeployment, cause error) error {
+	op.RollbackRequested = true
 	if err := m.phase(op, "rolling_back"); err != nil {
 		return err
+	}
+	if candidate.ID != "" {
+		if err := m.revokeExecutionOwnership(*candidate, *op); err != nil {
+			return err
+		}
 	}
 	// Upgrade older operation journals conservatively before touching a possible
 	// writer. A stopped candidate with a verified restore may have already run.
@@ -701,14 +713,16 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 			return fmt.Errorf("activation failed; previous deployment is not ready")
 		}
 	}
-	if err := m.activateAndConfirm(*old, *op); err != nil {
-		return fmt.Errorf("previous deployment could not resume admission")
-	}
-	old.Status = "active"
-	if err := m.saveDeployment(*old); err != nil {
+	if err := m.commitExecutionOwnership(*old, *op); err != nil {
 		return err
 	}
-	if err := m.restoreOldRoute(*old); err != nil {
+	if err := m.activateAndConfirm(*old, *op); err != nil {
+		if stopErr := m.stopDeployment(old, *op); stopErr != nil {
+			return fmt.Errorf("previous deployment could not resume admission; shutdown unconfirmed: %w", stopErr)
+		}
+		return fmt.Errorf("previous deployment could not resume admission: %w", err)
+	}
+	if err := m.commitActive(*old, *op); err != nil {
 		return err
 	}
 	m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, candidate.ID)

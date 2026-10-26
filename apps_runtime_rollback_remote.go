@@ -51,6 +51,9 @@ func (m *appRuntimeManager) rollbackRemoteDeployment(op *runtimeOperation, old, 
 		}
 	}
 	if active, err := m.active(old.InstallID); err == nil && active.ID == recovery.ID && recovery.Status == "active" {
+		if err = m.activateAndConfirm(recovery, *op); err != nil {
+			return fmt.Errorf("published rollback admission requires recovery: %w", err)
+		}
 		return fmt.Errorf("%w; previous deployment restored and verified; database changes are not automatically undone", cause)
 	}
 	work := *op
@@ -116,13 +119,19 @@ func (m *appRuntimeManager) rollbackRemoteDeployment(op *runtimeOperation, old, 
 	} else if err = m.startDeployment(&recovery, work); err != nil {
 		return fmt.Errorf("activation failed; previous deployment readiness failed: %w", err)
 	}
-	if err = m.activateAndConfirm(recovery, *op); err != nil {
-		return fmt.Errorf("previous deployment could not resume admission")
+	if err = m.commitExecutionOwnership(recovery, *op); err != nil {
+		return err
 	}
-	if err = m.publishIngress(recovery, work); err != nil {
+	if err = m.activateAndConfirm(recovery, *op); err != nil {
+		if stopErr := m.stopDeployment(&recovery, *op); stopErr != nil {
+			return fmt.Errorf("previous deployment could not resume admission; recovery shutdown unconfirmed: %w", stopErr)
+		}
+		return fmt.Errorf("previous deployment could not resume admission: %w", err)
+	}
+	if err = m.publishIngress(recovery, *op); err != nil {
 		return fmt.Errorf("previous deployment ingress could not resume: %w", err)
 	}
-	if err = m.commitActive(recovery); err != nil {
+	if err = m.commitActive(recovery, *op); err != nil {
 		return err
 	}
 	if err = m.phase(op, "rolling_back"); err != nil {
