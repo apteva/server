@@ -59,12 +59,12 @@ func terminateProc(p *localProc, grace time.Duration) error {
 		return errors.New("cannot confirm process exit: missing process or reap handle")
 	}
 	pid := p.cmd.Process.Pid
-	termErr := signalLocalProc(pid, syscall.SIGTERM)
+	termErr := signalLocalProcHandle(p, syscall.SIGTERM)
 	select {
 	case <-p.done:
 		return nil
 	case <-time.After(grace):
-		killErr := signalLocalProc(pid, syscall.SIGKILL)
+		killErr := signalLocalProcHandle(p, syscall.SIGKILL)
 		select {
 		case <-p.done:
 			return nil
@@ -153,6 +153,7 @@ type localProc struct {
 	done      chan struct{}
 	stoppedAt time.Time
 	spec      activationSpec
+	identity  *runtimeProcessIdentity // non-child processes owned by the stable host
 }
 
 const appSidecarLogMaxBytes int64 = 16 << 20
@@ -1854,7 +1855,7 @@ func (sup *LocalSupervisor) StopAll(grace time.Duration) {
 	// launched from a terminal or another supervisor.
 	for _, p := range procs {
 		if p != nil && p.cmd != nil && p.cmd.Process != nil {
-			signalLocalProc(p.cmd.Process.Pid, syscall.SIGTERM)
+			signalLocalProcHandle(p, syscall.SIGTERM)
 		}
 	}
 
@@ -1890,7 +1891,7 @@ func (sup *LocalSupervisor) StopAll(grace time.Duration) {
 		case <-p.done:
 		default:
 			remaining++
-			signalLocalProc(p.cmd.Process.Pid, syscall.SIGKILL)
+			signalLocalProcHandle(p, syscall.SIGKILL)
 		}
 	}
 	if remaining == 0 {
