@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +13,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	sdk "github.com/apteva/app-sdk"
@@ -135,7 +135,11 @@ func validateAppArtifact(root string, m *sdk.Manifest) error {
 	want := *m
 	want.Runtime.Artifacts = nil
 	packaged.Runtime.Artifacts = nil
-	if !reflect.DeepEqual(want, *packaged) {
+	// YAML schema numbers decode as int; stored JSON manifests use float64.
+	// Compare the canonical wire form, as remote package validation already does.
+	wantJSON, wantErr := json.Marshal(want)
+	gotJSON, gotErr := json.Marshal(packaged)
+	if wantErr != nil || gotErr != nil || !bytes.Equal(wantJSON, gotJSON) {
 		return errors.New("artifact manifest does not match requested app version and capabilities")
 	}
 	requireFile := func(rel string) error {

@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	sdk "github.com/apteva/app-sdk"
 	"os"
@@ -11,11 +10,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 func localResourceCapabilities() *sdk.ResourceCapabilities {
 	c := &sdk.ResourceCapabilities{Contract: sdk.ResourcePolicyVersion, ProcessControls: []string{}, ProcessApply: "unsupported", WorkloadApply: "cooperative", NetworkApply: "new_sockets"}
-	if os.Getenv("APTEVA_APP_CGROUP_ROOT") != "" {
+	if processResourceRoot() != "" && validateLocalProcessResources(sdk.ProcessResources{CPUWeight: 1}) == nil {
 		c.ProcessControls = []string{"cpu_weight", "cpu_quota_percent", "memory_high_bytes", "memory_max_bytes", "io_weight"}
 		c.ProcessApply = "next_deployment"
 		c.Limitations = []string{"requires delegated cgroup v2 controllers; validated at launch", "inherited ancestor quotas still apply"}
@@ -23,8 +23,11 @@ func localResourceCapabilities() *sdk.ResourceCapabilities {
 	return c
 }
 func validateLocalProcessResources(p sdk.ProcessResources) error {
-	if e := (sdk.ResourcePolicy{Process: p}).Validate(); e != nil {
-		return e
+	if err := (sdk.ResourcePolicy{Process: p}).Validate(); err != nil {
+		return err
+	}
+	if err := validateHostResourcePolicy(sdk.ResourcePolicy{Process: p}); err != nil {
+		return err
 	}
 	if p.Empty() {
 		return nil
@@ -32,35 +35,40 @@ func validateLocalProcessResources(p sdk.ProcessResources) error {
 	if p.Nice != nil {
 		return fmt.Errorf("nice is not supported by local cgroup supervisor")
 	}
-	root := os.Getenv("APTEVA_APP_CGROUP_ROOT")
+	root := processResourceRoot()
 	if root == "" || !filepath.IsAbs(root) {
-		return fmt.Errorf("process controls require an administrator-delegated APTEVA_APP_CGROUP_ROOT")
+		return fmt.Errorf("process controls require an administrator-delegated APTEVA_CGROUP_ROOT (or legacy APTEVA_APP_CGROUP_ROOT)")
+	}
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(root, &fs); err != nil || uint64(fs.Type) != 0x63677270 {
+		return fmt.Errorf("resource root must be a delegated cgroup v2 filesystem")
 	}
 	_, e := os.Stat(filepath.Join(root, "cgroup.controllers"))
 	if e != nil {
 		return fmt.Errorf("delegated cgroup v2 unavailable: %w", e)
 	}
+	if p.CPUWeight > 0 || p.CPUQuotaPercent > 0 {
+		controllers, e := os.ReadFile(filepath.Join(root, "cgroup.subtree_control"))
+		if e != nil || !strings.Contains(" "+strings.TrimSpace(string(controllers))+" ", " cpu ") {
+			return fmt.Errorf("CPU controller is not delegated to workload groups")
+		}
+	}
 	return nil
 }
-func configureLocalProcessResources(cmd *exec.Cmd, env map[string]string) (func(), error) {
+func configureProcessResources(cmd *exec.Cmd, owner processResourceOwner, p sdk.ProcessResources) (func(), error) {
 	noop := func() {}
-	raw := env["APTEVA_RESOURCE_POLICY"]
-	if raw == "" {
-		return noop, nil
-	}
-	var e sdk.ResourceEnvelope
-	if err := json.Unmarshal([]byte(raw), &e); err != nil {
+	prefix, err := owner.prefix()
+	if err != nil {
 		return noop, err
 	}
-	p := e.Policy.Process
 	if err := validateLocalProcessResources(p); err != nil {
 		return noop, err
 	}
 	if p.Empty() {
 		return noop, nil
 	}
-	root := os.Getenv("APTEVA_APP_CGROUP_ROOT")
-	dir, err := os.MkdirTemp(root, "app-"+e.InstallID+"-")
+	root := processResourceRoot()
+	dir, err := os.MkdirTemp(root, prefix)
 	if err != nil {
 		return noop, err
 	}
@@ -98,6 +106,9 @@ func configureLocalProcessResources(cmd *exec.Cmd, env map[string]string) (func(
 		cleanup()
 		return noop, err
 	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
 	cmd.SysProcAttr.UseCgroupFD = true
 	cmd.SysProcAttr.CgroupFD = int(fd.Fd())
 	// CLONE_INTO_CGROUP places the child before application code executes.
@@ -105,6 +116,9 @@ func configureLocalProcessResources(cmd *exec.Cmd, env map[string]string) (func(
 }
 
 func inspectLocalProcessResources(pid int) map[string]string {
+	return inspectProcessResources(pid, processResourceOwner{})
+}
+func inspectProcessResources(pid int, owner processResourceOwner) map[string]string {
 	out := map[string]string{}
 	raw, e := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
 	if e != nil {
@@ -119,10 +133,20 @@ func inspectLocalProcessResources(pid int) map[string]string {
 			return out
 		}
 		dir := filepath.Join("/sys/fs/cgroup", rel)
-		root := os.Getenv("APTEVA_APP_CGROUP_ROOT")
+		root := processResourceRoot()
 		relative, err := filepath.Rel(root, dir)
-		if root == "" || err != nil || relative == "." || strings.HasPrefix(relative, "..") || !strings.HasPrefix(filepath.Base(dir), "app-") {
+		if root == "" || err != nil || relative == "." || strings.HasPrefix(relative, "..") || !ownedProcessResourceDir(dir, owner) {
 			return map[string]string{"scope": "inherited_shared; no per-app attribution"}
+		}
+		out["scope"] = "dedicated"
+		out["cgroup"] = dir
+		for parent := filepath.Dir(dir); strings.HasPrefix(parent, "/sys/fs/cgroup"); parent = filepath.Dir(parent) {
+			if data, e := os.ReadFile(filepath.Join(parent, "cpu.max")); e == nil {
+				out["ancestor:"+parent+":cpu.max"] = strings.TrimSpace(string(data))
+			}
+			if parent == "/sys/fs/cgroup" {
+				break
+			}
 		}
 		for _, name := range []string{"cpu.weight", "cpu.max", "memory.high", "memory.max", "io.weight", "cpu.stat", "cpu.pressure", "memory.pressure", "io.pressure"} {
 			if data, e := os.ReadFile(filepath.Join(dir, name)); e == nil && len(data) <= 2048 {
@@ -131,4 +155,37 @@ func inspectLocalProcessResources(pid int) map[string]string {
 		}
 	}
 	return out
+}
+
+func ownedProcessResourceDir(dir string, owner processResourceOwner) bool {
+	if owner.Kind == "" {
+		return strings.HasPrefix(filepath.Base(dir), "app-")
+	}
+	prefix, e := owner.prefix()
+	return e == nil && strings.HasPrefix(filepath.Base(dir), prefix)
+}
+
+// Reattachment never changes a surviving process's policy. Remove its group
+// only after the exact process lifetime is gone, never during Server shutdown.
+func adoptProcessResources(pid int, owner processResourceOwner) func() {
+	identity, err := readRuntimeProcessIdentity(pid)
+	if err != nil {
+		return func() {}
+	}
+	observed := inspectProcessResources(pid, owner)
+	dir := observed["cgroup"]
+	if observed["scope"] != "dedicated" || dir == "" {
+		return func() {}
+	}
+	return func() {
+		current, e := readRuntimeProcessIdentity(pid)
+		if e == nil && identity.sameProcess(current) {
+			return
+		}
+		if e != nil && !runtimeProcessGone(e) {
+			return
+		}
+		_ = os.WriteFile(filepath.Join(dir, "cgroup.kill"), []byte("1"), 0600)
+		_ = os.Remove(dir)
+	}
 }

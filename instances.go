@@ -27,20 +27,23 @@ import (
 var errAgentAlreadyRunning = errors.New("agent already running")
 
 type runningAgent struct {
-	cmd         *exec.Cmd
-	port        int
-	pid         int
-	coreAPIKey  string         // API key injected into core for auth
-	channels    *AgentChannels // channel infrastructure for this instance
-	reattached  bool           // process was inherited from an older server process
-	runtimeMu   sync.Mutex
-	runtimeInfo coreRuntimeInfo
-	runtimeAt   time.Time
-	waitOnce    sync.Once
-	done        chan struct{}
-	waitErr     error
-	diagMu      sync.Mutex
-	lastProc    string // latest /proc snapshot captured while the child was alive
+	resourceIdentity    *runtimeProcessIdentity
+	releaseResources    func()
+	resourceReleaseOnce sync.Once
+	cmd                 *exec.Cmd
+	port                int
+	pid                 int
+	coreAPIKey          string         // API key injected into core for auth
+	channels            *AgentChannels // channel infrastructure for this instance
+	reattached          bool           // process was inherited from an older server process
+	runtimeMu           sync.Mutex
+	runtimeInfo         coreRuntimeInfo
+	runtimeAt           time.Time
+	waitOnce            sync.Once
+	done                chan struct{}
+	waitErr             error
+	diagMu              sync.Mutex
+	lastProc            string // latest /proc snapshot captured while the child was alive
 }
 
 const coreRuntimeInfoCacheTTL = 5 * time.Second
@@ -54,6 +57,11 @@ func (r *runningAgent) wait() error {
 			r.done = make(chan struct{})
 		}
 		r.waitErr = r.cmd.Wait()
+		r.resourceReleaseOnce.Do(func() {
+			if r.releaseResources != nil {
+				r.releaseResources()
+			}
+		})
 		close(r.done)
 	})
 	if r.done != nil {
@@ -135,6 +143,7 @@ func (r *runningAgent) procSnapshot() string {
 }
 
 type AgentManager struct {
+	LoadProcessResources func(int64) (runtimeResourceRecord, error)
 	internalMCPSecret    string
 	AuthorizeMCPConfig   func(*Agent, map[string]any) error
 	mu                   sync.RWMutex
@@ -527,6 +536,21 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		return fmt.Errorf("%w: instance %d", errAgentAlreadyRunning, inst.ID)
 	}
 
+	var resources runtimeResourceRecord
+	if im.LoadProcessResources != nil {
+		var err error
+		resources, err = im.LoadProcessResources(inst.ID)
+		if err != nil {
+			return fmt.Errorf("agent resource policy unavailable: %w", err)
+		}
+	}
+	if err := validateAgentResources(resources.Policy); err != nil {
+		return err
+	}
+	processResources := resolveProcessResources(resources.Policy.Process)
+	if err := validateLocalProcessResources(processResources); err != nil {
+		return err
+	}
 	port := im.allocPort()
 	dir := im.instanceDir(inst.ID)
 
@@ -786,8 +810,14 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	releaseResources, resourceErr := configureProcessResources(cmd, processResourceOwner{"agent", itoa64(inst.ID)}, processResources)
+	if resourceErr != nil {
+		ic.Stop()
+		return resourceErr
+	}
 	log.Printf("[SPAWN] exec %s --headless dir=%s port=%d providerEnvKeys=%v", im.coreCmd, dir, port, providerEnvKeys(providerEnv))
 	if err := cmd.Start(); err != nil {
+		releaseResources()
 		log.Printf("[SPAWN] exec failed: %v", err)
 		ic.Stop()
 		return fmt.Errorf("failed to start core: %w", err)
@@ -811,6 +841,10 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}(inst.ID, cmd.Process.Pid, port)
 
 	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic, done: make(chan struct{})}
+	ri.releaseResources = releaseResources
+	if identity, e := readRuntimeProcessIdentity(cmd.Process.Pid); e == nil {
+		ri.resourceIdentity = &identity
+	}
 	im.processes[inst.ID] = ri
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
@@ -1340,6 +1374,11 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 
 	proc, _ := os.FindProcess(inst.Pid)
 	ri := &runningAgent{cmd: &exec.Cmd{Process: proc}, port: inst.Port, pid: inst.Pid, coreAPIKey: inst.CoreAPIKey, channels: ic, reattached: true}
+	if identity, e := readRuntimeProcessIdentity(inst.Pid); e == nil {
+		ri.resourceIdentity = &identity
+	}
+	ri.releaseResources = adoptProcessResources(inst.Pid, processResourceOwner{"agent", itoa64(inst.ID)})
+	ri.watchResourceExit()
 	im.mu.Lock()
 	im.processes[inst.ID] = ri
 	im.mu.Unlock()

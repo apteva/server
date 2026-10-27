@@ -42,3 +42,34 @@ func TestLocalResourceCgroupBeforeExec(t *testing.T) {
 		t.Fatalf("child executed outside its group: %s", output)
 	}
 }
+
+func TestAgentResourceCgroupBeforeExec(t *testing.T) {
+	root := os.Getenv("APTEVA_RESOURCE_TEST_CGROUP_ROOT")
+	if root == "" {
+		t.Skip("isolated delegated Linux cgroup required")
+	}
+	t.Setenv("APTEVA_CGROUP_ROOT", root)
+	for _, weight := range []int{0, 200} {
+		cmd := exec.Command("/bin/sh", "-c", `cat /proc/self/cgroup; sleep 0.05`)
+		cleanup, err := configureProcessResources(cmd, processResourceOwner{"agent", "17"}, resolveProcessResources(sdk.ProcessResources{CPUWeight: weight}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		output, err := cmd.CombinedOutput()
+		cleanup()
+		if err != nil {
+			t.Fatal(err, string(output))
+		}
+		if !strings.Contains(string(output), "agent-17-") {
+			t.Fatal("core executed outside its dedicated group", string(output))
+		}
+	}
+}
+func TestProcessResourceOwnerPrefixRejectsOtherAgent(t *testing.T) {
+	if ownedProcessResourceDir("/sys/fs/cgroup/agent-170-abc", processResourceOwner{"agent", "17"}) {
+		t.Fatal("another agent attributed")
+	}
+	if ownedProcessResourceDir("/sys/fs/cgroup/app-17-abc", processResourceOwner{"agent", "17"}) {
+		t.Fatal("app attributed to agent")
+	}
+}

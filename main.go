@@ -640,6 +640,7 @@ func main() {
 		geoCountry:     newManagedGeoCountryLookup(dataDir),
 	}
 	s.agents.internalMCPSecret = s.instanceSecret
+	s.agents.LoadProcessResources = s.store.agentResourcePolicy
 	s.agents.AuthorizeMCPConfig = s.authorizeAgentMCPConfig
 	if _, err := s.store.db.Exec("UPDATE managed_provisioning_requests SET status='error',last_error='server restarted during apply',updated_at=CURRENT_TIMESTAMP WHERE status='applying'"); err != nil {
 		log.Fatalf("recover provisioning: %v", err)
@@ -1385,6 +1386,11 @@ func main() {
 			need = ProjectEditor
 		}
 		if _, ok := s.requireAgentAccess(w, r, agentID, need); !ok {
+			return
+		}
+
+		if path == agentIDPart+"/resources" {
+			s.handleAgentResources(w, r, agentID)
 			return
 		}
 
