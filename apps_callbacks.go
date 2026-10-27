@@ -1596,7 +1596,7 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 	if !ok {
 		return
 	}
-	setup, err := s.findStoredOAuthSetup(userID, pid, app)
+	setup, err := s.findStoredOAuthSetup(userID, pid, app, installID)
 	if err != nil {
 		http.Error(w, "oauth start: "+err.Error(), http.StatusBadRequest)
 		return
