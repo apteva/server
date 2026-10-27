@@ -184,6 +184,12 @@ func (b *localRuntimeBackend) Inspect(req runtimeBackendRequest) (runtimeExecuti
 			return out, nil
 		}
 	}
+	if p.identity != nil {
+		current, err := readRuntimeProcessIdentity(p.cmd.Process.Pid)
+		if err != nil || !p.identity.sameProcess(current) {
+			return out, fmt.Errorf("hosted process identity cannot be confirmed")
+		}
+	}
 	out.State = "running"
 	out.ProcessResources = inspectLocalProcessResources(p.cmd.Process.Pid)
 	out.Endpoint = localSidecarURL(int64(p.port))
