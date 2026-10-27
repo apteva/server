@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -185,6 +184,12 @@ func (b *localRuntimeBackend) Inspect(req runtimeBackendRequest) (runtimeExecuti
 			return out, nil
 		}
 	}
+	if p.identity != nil {
+		current, err := readRuntimeProcessIdentity(p.cmd.Process.Pid)
+		if err != nil || !p.identity.sameProcess(current) {
+			return out, fmt.Errorf("hosted process identity cannot be confirmed")
+		}
+	}
 	out.State = "running"
 	out.ProcessResources = inspectLocalProcessResources(p.cmd.Process.Pid)
 	out.Endpoint = localSidecarURL(int64(p.port))
@@ -275,11 +280,4 @@ func (m *appRuntimeManager) localRecordedPID(d runtimeDeployment) (int, error) {
 		return 0, fmt.Errorf("invalid managed pid record")
 	}
 	return pid, nil
-}
-func runtimeProcessMatches(pid int, bin string) bool {
-	if pid <= 0 || bin == "" {
-		return false
-	}
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
-	return err == nil && strings.TrimSpace(string(out)) == bin
 }
