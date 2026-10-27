@@ -123,11 +123,38 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 	t.Cleanup(telemetry.Close)
 	telemetryURL, _ := url.Parse(telemetry.URL)
 	s.port = telemetryURL.Port()
+	// The text provider is a local protocol fixture too. No AI credentials are
+	// read and neither the shared server nor a deployed receptionist is used.
+	inferences := make(chan struct{}, 8)
+	blockedInferences := make(chan struct{}, 1)
+	textProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(string(request), "Perform one isolated worker iteration.") {
+			select {
+			case inferences <- struct{}{}:
+			default:
+			}
+		}
+		if strings.Contains(string(request), "Blocked synthetic worker.") {
+			select {
+			case blockedInferences <- struct{}{}:
+			default:
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Local worker ran.\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(textProvider.Close)
 	registerRuntimeApp(s, "local-text", "ollama", map[string]string{"OLLAMA_HOST": "{{credentials.host}}"})
-	addConnection(t, s, "local-text", "Local text fixture", "proj-1", map[string]string{"host": telemetry.URL})
+	addConnection(t, s, "local-text", "Local text fixture", "proj-1", map[string]string{"host": textProvider.URL})
 	registerRuntimeApp(s, "local-voice", "google", map[string]string{"GOOGLE_API_KEY": "{{credentials.api_key}}"})
 	addConnection(t, s, "local-voice", "Local voice fixture", "proj-1", map[string]string{"api_key": "local-test-key"})
-	clone, err := s.SpawnAgentInEnvironment(runtime, EnvironmentAgentSpec{UserID: 1, Source: source, ProviderPool: environmentRealtimeTestPool(), StartPaused: true})
+	clone, err := s.SpawnAgentInEnvironment(runtime, EnvironmentAgentSpec{UserID: 1, Source: source, ProviderPool: environmentRealtimeTestPool(), StartPaused: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,6 +169,11 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 	coreURL := fmt.Sprintf("http://127.0.0.1:%d", clone.Port)
 	configJSON := runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodGet, "/config", nil)
 	var config struct {
+		Execution struct {
+			Mode     string `json:"mode"`
+			Scope    string `json:"scope"`
+			ThreadID string `json:"thread_id"`
+		} `json:"execution_control"`
 		Providers []struct {
 			Name    string            `json:"name"`
 			Default bool              `json:"default"`
@@ -150,6 +182,9 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 	}
 	if err := json.Unmarshal(configJSON, &config); err != nil {
 		t.Fatal(err)
+	}
+	if config.Execution.Mode != "auto" || config.Execution.Scope == "thread" || config.Execution.ThreadID != "" {
+		t.Fatalf("voice runtime has a startup execution gate: %+v", config.Execution)
 	}
 	pinned := false
 	for _, provider := range config.Providers {
@@ -181,6 +216,57 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Core did not report realtime.session_started")
+	}
+	// Assert an actual worker request, independently of main's permitted
+	// inference requests. This uses the existing Core without thread scoping.
+	runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodPost, "/threads/execution-local", map[string]any{"directive": "Perform one isolated worker iteration.", "provider": "ollama", "tools": []string{}, "mcp": []string{}})
+	select {
+	case <-inferences:
+	case <-time.After(10 * time.Second):
+		t.Fatal("worker remained frozen without a startup pause")
+	}
+	var status struct {
+		Execution struct {
+			Mode, Scope string
+			ThreadID    string `json:"thread_id"`
+		} `json:"execution_control"`
+	}
+	response := runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodGet, "/config", nil)
+	if err := json.Unmarshal(response, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Execution.Mode != "auto" || status.Execution.ThreadID != "" {
+		t.Fatalf("voice worker acquired a global execution gate: %+v", status.Execution)
+	}
+	// Opting out of startup pause does not exempt workers from an explicit
+	// instance pause later. Verify the restored Core still enforces that gate.
+	runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodPut, "/config", map[string]any{"execution_control": map[string]any{"mode": "paused", "scope": "instance", "breakpoints": []string{"iteration.start"}}})
+	runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodPost, "/threads/execution-blocked", map[string]any{"directive": "Blocked synthetic worker.", "provider": "ollama", "tools": []string{}, "mcp": []string{}})
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var gated struct {
+			Execution struct {
+				Waiting  bool   `json:"waiting"`
+				ThreadID string `json:"active_thread_id"`
+				Phase    string `json:"phase"`
+			} `json:"execution_control"`
+		}
+		response := runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodGet, "/status", nil)
+		if err := json.Unmarshal(response, &gated); err != nil {
+			t.Fatal(err)
+		}
+		if gated.Execution.Waiting && gated.Execution.ThreadID == "execution-blocked" && gated.Execution.Phase == "iteration.start" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("explicit global pause did not gate worker: %+v", gated.Execution)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	select {
+	case <-blockedInferences:
+		t.Fatal("explicit global pause allowed worker inference")
+	default:
 	}
 	unchanged, err := s.store.GetAgentByID(source.ID)
 	if err != nil || unchanged.Config != source.Config {

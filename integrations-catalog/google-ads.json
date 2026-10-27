@@ -661,6 +661,40 @@
       }
     },
     {
+      "name": "custom_audience_mutate",
+      "description": "Create, update, or remove Google custom audience segments from keyword, URL and app members. Uses CustomAudienceService; this operation is not supported by bulk_mutate.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/customAudiences:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "validateOnly": {
+            "type": "boolean"
+          },
+          "responseContentType": {
+            "type": "string",
+            "enum": [
+              "RESOURCE_NAME_ONLY",
+              "MUTABLE_RESOURCE"
+            ]
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
       "name": "user_list_mutate",
       "description": "Create, update, or remove remarketing/customer match user lists. Use this for audience resources that can be targeted from campaigns or ad groups.",
       "method": "POST",

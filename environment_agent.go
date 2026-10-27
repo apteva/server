@@ -45,9 +45,9 @@ type EnvironmentAgentSpec struct {
 	ProviderPool      []ProviderInfo
 	Provider          string
 	Model             string
-	// StartPaused gates the cloned core at main's first iteration.start. This
-	// lets callers inject the opening event into main before the initial
-	// autonomous no-event loop can race ahead.
+	// StartPaused installs an instance-wide iteration.start gate, including
+	// delegated workers. Text cases can inject their task before releasing it.
+	// Realtime callers leave it false so voice workers can delegate immediately.
 	StartPaused bool
 }
 
@@ -315,11 +315,13 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		"mcp_servers":           mcpServers,
 		"include_apteva_server": false,
 		"include_channels":      false,
+		"execution_control":     map[string]any{"mode": "auto"},
 	}
 	sourcePolicy.copyRealtimeConfig(cfg)
 	if spec.StartPaused {
 		cfg["execution_control"] = map[string]any{
 			"mode":        "paused",
+			"scope":       "instance",
 			"breakpoints": []string{"iteration.start"},
 		}
 	}
