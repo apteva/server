@@ -130,18 +130,35 @@ func validateOAuthSetupClient(app *AppTemplate, id, secret string) error {
 	return nil
 }
 
-// findStoredOAuthSetup selects an operator-managed setup in this exact project.
-// A complete pending OAuth setup is usable before an account has authorized.
-// Failed flows and app-owned accounts are not shared configuration sources.
-func (s *Server) findStoredOAuthSetup(userID int64, projectID string, app *AppTemplate) (*oauthSetup, error) {
+// findStoredOAuthSetup prefers operator-managed setup in this exact project.
+// An app may fall back to one of its own active OAuth accounts in the same
+// project. Only client/setup fields are reused; account tokens stay separate.
+// Pending app accounts, other installs, other projects and failed flows are
+// never shared configuration sources.
+func (s *Server) findStoredOAuthSetup(userID int64, projectID string, app *AppTemplate, callerInstallIDs ...int64) (*oauthSetup, error) {
+	var callerInstallID int64
+	if len(callerInstallIDs) == 1 && callerInstallIDs[0] > 0 {
+		callerInstallID = callerInstallIDs[0]
+	}
 	conns, err := s.store.ListConnections(userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list OAuth setup connections: %w", err)
 	}
-	// ListConnections has no ordering guarantee and includes global rows.
-	sort.Slice(conns, func(i, j int) bool { return conns[i].ID > conns[j].ID })
+	// Operator configuration stays authoritative even when an app has a newer
+	// account. Within each tier use the newest record, without mixing clients
+	// or environment fields from different records.
+	sort.Slice(conns, func(i, j int) bool {
+		left, right := isAppOwnedConnection(conns[i]), isAppOwnedConnection(conns[j])
+		if left != right {
+			return !left
+		}
+		return conns[i].ID > conns[j].ID
+	})
 	for _, conn := range conns {
-		if conn.AppSlug != app.Slug || conn.Source != "local" || conn.ProjectID != projectID || isAppOwnedConnection(conn) {
+		if conn.AppSlug != app.Slug || conn.Source != "local" || conn.ProjectID != projectID {
+			continue
+		}
+		if isAppOwnedConnection(conn) && (callerInstallID == 0 || conn.OwnerAppInstallID != callerInstallID || conn.Status != "active" || (conn.AuthType != "oauth1" && conn.AuthType != "oauth2")) {
 			continue
 		}
 		if conn.Status != "active" && conn.Status != "pending" {
