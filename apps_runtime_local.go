@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -275,11 +274,4 @@ func (m *appRuntimeManager) localRecordedPID(d runtimeDeployment) (int, error) {
 		return 0, fmt.Errorf("invalid managed pid record")
 	}
 	return pid, nil
-}
-func runtimeProcessMatches(pid int, bin string) bool {
-	if pid <= 0 || bin == "" {
-		return false
-	}
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
-	return err == nil && strings.TrimSpace(string(out)) == bin
 }

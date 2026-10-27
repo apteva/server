@@ -254,7 +254,10 @@ func (m *appRuntimeManager) stopDeployment(d *runtimeDeployment, op runtimeOpera
 	d.Execution.State = "stopped"
 	d.Execution.StoppedConfirmed = true
 	d.Execution.Ready = false
-	return m.saveDeployment(*d)
+	if err = m.saveDeployment(*d); err != nil {
+		return err
+	}
+	return m.unpublishProviderIngress(*d, op)
 }
 func (m *appRuntimeManager) startDeployment(d *runtimeDeployment, op runtimeOperation) error {
 	b, err := m.backend(*d)
@@ -862,6 +865,18 @@ func (m *appRuntimeManager) retirePrevious(op *runtimeOperation, old runtimeDepl
 }
 
 func runtimeMergeExecution(previous, next runtimeExecution) (runtimeExecution, error) {
+	if previous.IngressUpstream != "" && next.IngressUpstream != "" && previous.IngressUpstream != next.IngressUpstream {
+		return next, fmt.Errorf("execution ingress upstream changed outside preparation")
+	}
+	if previous.IngressHostKey != "" && next.IngressHostKey != "" && previous.IngressHostKey != next.IngressHostKey {
+		return next, fmt.Errorf("execution ingress host identity changed")
+	}
+	if next.IngressHostKey == "" {
+		next.IngressHostKey = previous.IngressHostKey
+	}
+	if next.IngressUpstream == "" {
+		next.IngressUpstream = previous.IngressUpstream
+	}
 	if next.Handle != "" && previous.Handle != "" && next.Handle != previous.Handle {
 		return next, fmt.Errorf("execution handle changed outside preparation")
 	}

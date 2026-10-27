@@ -82,6 +82,10 @@ func (m *appRuntimeManager) stopSync(id int64, remove bool) error {
 	}
 }
 func (s *Server) runtimeProviderInUse(id int64) bool {
+	var owned int
+	if e := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_ingress_bindings WHERE json_extract(record_json,'$.spec.provider.app_install_id')=? AND json_extract(record_json,'$.phase')!='released'`, id).Scan(&owned); e != nil || owned > 0 {
+		return true
+	}
 	rows, err := s.store.db.Query(`SELECT record_json FROM app_runtime_deployments WHERE status != 'deleted'`)
 	if err != nil {
 		return true

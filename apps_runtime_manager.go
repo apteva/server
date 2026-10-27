@@ -47,6 +47,9 @@ func (m *appRuntimeManager) token(d runtimeDeployment) (string, error) {
 	return Decrypt(m.s.secret, d.CredentialEncrypted)
 }
 func (m *appRuntimeManager) request(d runtimeDeployment, op runtimeOperation, action string) (runtimeBackendRequest, error) {
+	if d.Placement.Ingress != nil && d.Placement.Ingress.Provider != nil {
+		runtimeIngressEndpoints(&d)
+	}
 	var project string
 	if err := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
 		return runtimeBackendRequest{}, err
@@ -55,10 +58,13 @@ func (m *appRuntimeManager) request(d runtimeDeployment, op runtimeOperation, ac
 	for k, v := range d.Placement.Options {
 		options[k] = v
 	}
-	if d.Placement.Ingress != nil {
+	if d.Placement.Ingress != nil && d.Placement.Ingress.Provider == nil {
 		options["ingress"] = map[string]any{"hostname": d.Placement.Ingress.Hostname}
 		delete(options, "endpoints")
 		delete(options, "browser_endpoint")
+	}
+	if d.LegacyIngressHostname != "" {
+		options["ingress"] = map[string]any{"hostname": d.LegacyIngressHostname}
 	}
 	if !d.Placement.local() {
 		if v, ok := options["gateway_url"]; ok && v != d.Placement.GatewayURL {
@@ -516,6 +522,8 @@ func (m *appRuntimeManager) run(id string) {
 		}
 	}()
 	switch op.Kind {
+	case "ingress-adopt", "ingress-rollback":
+		err = m.runIngressOperation(&op)
 	case "prepare":
 		err = m.prepare(&op)
 	case "activate":

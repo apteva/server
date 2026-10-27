@@ -164,6 +164,16 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	path := suffix[1]
+	if strings.HasPrefix(path, "deployment/ingress/") {
+		action := strings.TrimPrefix(path, "deployment/ingress/")
+		switch action {
+		case "inspect", "adopt", "status", "rollback":
+			s.handleIngressAdoption(w, r, id, action)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
 	if path == "deployment/resources/runtime" {
 		s.handleRuntimeResourceExecution(w, r, id)
 		return

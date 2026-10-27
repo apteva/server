@@ -91,28 +91,34 @@ func runtimeSecureURL(raw string) error {
 
 type runtimeStateTransferPolicy = sdk.RuntimeStateTransferPolicy
 
+type runtimeIngressProviderHint struct {
+	ID string `json:"id"`
+}
 type runtimeBackendCaps struct {
-	ResourceCapabilities *sdk.ResourceCapabilities   `json:"resource_capabilities,omitempty"`
-	StateTransfer        *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
-	TargetDiscovery      *runtimeTargetDiscovery     `json:"target_discovery,omitempty"`
-	TargetListing        bool                        `json:"target_listing,omitempty"`
-	ManagedIngress       bool                        `json:"managed_ingress,omitempty"`
-	TargetInspection     bool                        `json:"target_inspection,omitempty"`
-	PackageDelivery      *runtimePackageDeliveryCaps `json:"package_delivery,omitempty"`
-	FencingScope         string                      `json:"fencing_scope,omitempty"`
-	Contract             string                      `json:"contract"`
-	ID                   string                      `json:"id"`
-	RuntimeKinds         []string                    `json:"runtime_kinds"`
-	Platforms            []string                    `json:"platforms"`
-	Formats              []string                    `json:"formats"`
-	Protocols            []string                    `json:"protocols"`
-	Snapshots            bool                        `json:"snapshots"`
-	ConfirmedStop        bool                        `json:"confirmed_stop"`
-	Fencing              bool                        `json:"fencing"`
-	Replicas             bool                        `json:"replicas"`
-	ResourceControls     bool                        `json:"resource_controls"`
-	TargetSchema         json.RawMessage             `json:"target_schema,omitempty"`
-	OptionsSchema        json.RawMessage             `json:"options_schema,omitempty"`
+	IngressProvider         *runtimeIngressProviderHint `json:"ingress_provider,omitempty"`
+	IngressUpstream         bool                        `json:"ingress_upstream,omitempty"`
+	IngressIdentityRequired bool                        `json:"requires_host_identity,omitempty"`
+	ResourceCapabilities    *sdk.ResourceCapabilities   `json:"resource_capabilities,omitempty"`
+	StateTransfer           *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`
+	TargetDiscovery         *runtimeTargetDiscovery     `json:"target_discovery,omitempty"`
+	TargetListing           bool                        `json:"target_listing,omitempty"`
+	ManagedIngress          bool                        `json:"managed_ingress,omitempty"`
+	TargetInspection        bool                        `json:"target_inspection,omitempty"`
+	PackageDelivery         *runtimePackageDeliveryCaps `json:"package_delivery,omitempty"`
+	FencingScope            string                      `json:"fencing_scope,omitempty"`
+	Contract                string                      `json:"contract"`
+	ID                      string                      `json:"id"`
+	RuntimeKinds            []string                    `json:"runtime_kinds"`
+	Platforms               []string                    `json:"platforms"`
+	Formats                 []string                    `json:"formats"`
+	Protocols               []string                    `json:"protocols"`
+	Snapshots               bool                        `json:"snapshots"`
+	ConfirmedStop           bool                        `json:"confirmed_stop"`
+	Fencing                 bool                        `json:"fencing"`
+	Replicas                bool                        `json:"replicas"`
+	ResourceControls        bool                        `json:"resource_controls"`
+	TargetSchema            json.RawMessage             `json:"target_schema,omitempty"`
+	OptionsSchema           json.RawMessage             `json:"options_schema,omitempty"`
 }
 type runtimeBackendRegistration struct {
 	DisplayName     string                  `json:"display_name,omitempty"`
@@ -132,6 +138,8 @@ type runtimePortBinding struct {
 	Exclusive bool   `json:"exclusive"`
 }
 type runtimeExecution struct {
+	IngressHostKey      string                `json:"ingress_host_key,omitempty"`
+	IngressUpstream     string                `json:"ingress_upstream,omitempty"`
 	Health              *runtimeBackendHealth `json:"health,omitempty"`
 	ProcessResources    map[string]string     `json:"process_resources,omitempty"`
 	StateEntries        *int64                `json:"state_entries,omitempty"`
@@ -154,36 +162,38 @@ type runtimeExecution struct {
 	Load                *float64              `json:"load,omitempty"` // backend-reported work load; never server CPU sampling.
 }
 type runtimeDeployment struct {
-	Component            *appComponentDeployment    `json:"component,omitempty"`
-	Resources            sdk.ResourcePolicy         `json:"resource_policy,omitempty"`
-	ResourceRevision     int64                      `json:"resource_revision,omitempty"`
-	PersistentData       bool                       `json:"persistent_data,omitempty"`
-	TargetInfo           *sdk.RuntimeTargetInfo     `json:"target_info,omitempty"`
-	Package              *runtimePreparedPackage    `json:"package,omitempty"`
-	PackagePreparation   *runtimePackagePreparation `json:"package_preparation,omitempty"`
-	LocalPID             int                        `json:"-"`
-	ID                   string                     `json:"id"`
-	InstallID            int64                      `json:"install_id"`
-	Generation           int64                      `json:"generation"`
-	Replica              int                        `json:"replica"`
-	Placement            runtimePlacement           `json:"placement"`
-	Manifest             sdk.Manifest               `json:"manifest"`
-	AppCaps              runtimeAppCaps             `json:"app_capabilities"`
-	AppCapsKnown         bool                       `json:"app_capabilities_known,omitempty"`
-	Status               string                     `json:"status"`
-	Execution            runtimeExecution           `json:"execution"`
-	CreatedAt            string                     `json:"created_at"`
-	CredentialEncrypted  string                     `json:"-"`
-	EnvironmentEncrypted string                     `json:"-"`
-	LocalBin             string                     `json:"-"`
-	LocalPort            int                        `json:"-"`
+	LegacyIngressHostname string                     `json:"legacy_backend_ingress,omitempty"`
+	Component             *appComponentDeployment    `json:"component,omitempty"`
+	Resources             sdk.ResourcePolicy         `json:"resource_policy,omitempty"`
+	ResourceRevision      int64                      `json:"resource_revision,omitempty"`
+	PersistentData        bool                       `json:"persistent_data,omitempty"`
+	TargetInfo            *sdk.RuntimeTargetInfo     `json:"target_info,omitempty"`
+	Package               *runtimePreparedPackage    `json:"package,omitempty"`
+	PackagePreparation    *runtimePackagePreparation `json:"package_preparation,omitempty"`
+	LocalPID              int                        `json:"-"`
+	ID                    string                     `json:"id"`
+	InstallID             int64                      `json:"install_id"`
+	Generation            int64                      `json:"generation"`
+	Replica               int                        `json:"replica"`
+	Placement             runtimePlacement           `json:"placement"`
+	Manifest              sdk.Manifest               `json:"manifest"`
+	AppCaps               runtimeAppCaps             `json:"app_capabilities"`
+	AppCapsKnown          bool                       `json:"app_capabilities_known,omitempty"`
+	Status                string                     `json:"status"`
+	Execution             runtimeExecution           `json:"execution"`
+	CreatedAt             string                     `json:"created_at"`
+	CredentialEncrypted   string                     `json:"-"`
+	EnvironmentEncrypted  string                     `json:"-"`
+	LocalBin              string                     `json:"-"`
+	LocalPort             int                        `json:"-"`
 }
 type runtimeOperation struct {
-	ElapsedMS      int64  `json:"elapsed_ms,omitempty"`
-	StartedAt      string `json:"started_at,omitempty"`
-	PhaseStartedAt string `json:"phase_started_at,omitempty"`
-	RetryCount     int    `json:"retry_count,omitempty"`
-	LastFailure    string `json:"last_failure,omitempty"`
+	Ingress        *runtimeIngressOperation `json:"ingress,omitempty"`
+	ElapsedMS      int64                    `json:"elapsed_ms,omitempty"`
+	StartedAt      string                   `json:"started_at,omitempty"`
+	PhaseStartedAt string                   `json:"phase_started_at,omitempty"`
+	RetryCount     int                      `json:"retry_count,omitempty"`
+	LastFailure    string                   `json:"last_failure,omitempty"`
 
 	Recovery          bool                        `json:"automatic_recovery,omitempty"`
 	StateTransfer     *runtimeStateTransferPolicy `json:"state_transfer,omitempty"`

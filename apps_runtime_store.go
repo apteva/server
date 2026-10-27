@@ -16,6 +16,7 @@ func (s *Store) migrateAppRuntime() error {
 		return err
 	}
 	statements := []string{
+		`CREATE TABLE IF NOT EXISTS app_runtime_ingress_bindings (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id),record_json TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_recovery (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id) ON DELETE CASCADE, attempts INTEGER NOT NULL, last_attempt INTEGER NOT NULL, next_attempt INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_resource_policies (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id) ON DELETE CASCADE, revision INTEGER NOT NULL, policy_json TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_ingress (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id),hostname TEXT NOT NULL UNIQUE,record_json TEXT NOT NULL)`,
@@ -82,6 +83,9 @@ type runtimeStoredDeployment struct {
 }
 
 func (m *appRuntimeManager) saveDeployment(d runtimeDeployment) error {
+	if d.Placement.Ingress != nil && d.Placement.Ingress.Provider != nil {
+		runtimeIngressEndpoints(&d)
+	}
 	raw := runtimeJSON(runtimeStoredDeployment{runtimeDeployment: d, Credential: d.CredentialEncrypted, Environment: d.EnvironmentEncrypted, Bin: d.LocalBin, Port: d.LocalPort, PID: d.LocalPID})
 	_, err := m.s.store.db.Exec(`INSERT INTO app_runtime_deployments(id,install_id,generation,replica,status,record_json) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,record_json=excluded.record_json`, d.ID, d.InstallID, d.Generation, d.Replica, d.Status, raw)
 	if err == nil && d.CredentialEncrypted != "" {

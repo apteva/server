@@ -160,7 +160,7 @@ func (m *appRuntimeManager) preflight(ctx context.Context, id int64, project str
 	if manifest.Runtime.DatabaseUpgrade == "requires_restore" {
 		checks = append(checks, runtimeCheck("Database upgrade", "database_restore_required", fmt.Errorf("automatic activation requires an explicit database restore plan")))
 	}
-	if p.Ingress != nil && (!reg.Caps.ManagedIngress || manifest.Runtime.Ingress == nil) {
+	if p.Ingress != nil && ((p.Ingress.Provider == nil && reg.Caps.IngressProvider == nil) || manifest.Runtime.Ingress == nil) {
 		checks = append(checks, runtimeCheck("HTTPS", "ingress_incompatible", fmt.Errorf("app and backend must declare managed public routes")))
 	}
 	var target *sdk.RuntimeTargetInfo

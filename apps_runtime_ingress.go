@@ -16,10 +16,11 @@ import (
 )
 
 type runtimeIngressSpec struct {
-	Hostname     string `json:"hostname"`
-	DNSInstallID int64  `json:"dns_app_install_id,omitempty"`
-	Domain       string `json:"domain,omitempty"`
-	DNSProjectID string `json:"dns_project_id,omitempty"`
+	Provider     *runtimeIngressProviderRef `json:"provider,omitempty"`
+	Hostname     string                     `json:"hostname"`
+	DNSInstallID int64                      `json:"dns_app_install_id,omitempty"`
+	Domain       string                     `json:"domain,omitempty"`
+	DNSProjectID string                     `json:"dns_project_id,omitempty"`
 }
 type runtimeIngressState struct {
 	Spec     *runtimeIngressSpec `json:"spec"`
@@ -28,13 +29,6 @@ type runtimeIngressState struct {
 	OwnDNS   bool                `json:"owns_dns"`
 }
 
-type runtimeIngressPublisher interface {
-	PublishIngress(runtimeBackendRequest) (runtimeExecution, error)
-}
-
-func (b *remoteRuntimeBackend) PublishIngress(req runtimeBackendRequest) (runtimeExecution, error) {
-	return b.invoke("publish-ingress", req)
-}
 func validateRuntimeIngressSpec(v *runtimeIngressSpec) error {
 	if v == nil {
 		return nil
@@ -107,9 +101,15 @@ func (m *appRuntimeManager) prepareIngress(d *runtimeDeployment, b runtimeBacken
 	if v == nil {
 		return nil
 	}
-	if !b.Describe().ManagedIngress {
-		return fmt.Errorf("backend cannot provision managed ingress")
+
+	if v.Provider == nil {
+		hint := b.Describe().IngressProvider
+		if hint == nil || !runtimeID(hint.ID) {
+			return fmt.Errorf("select an independent ingress provider")
+		}
+		v.Provider = &runtimeIngressProviderRef{InstallID: d.Placement.Backend.InstallID, ID: hint.ID, Target: d.Placement.Target, Options: map[string]any{}}
 	}
+
 	if e := sdk.ValidateRuntimeIngress(d.Manifest.Runtime.Ingress); e != nil {
 		return e
 	}
@@ -245,28 +245,37 @@ func (m *appRuntimeManager) prepareIngress(d *runtimeDeployment, b runtimeBacken
 	if _, e = m.s.store.db.Exec(`UPDATE app_runtime_ingress SET record_json=? WHERE install_id=?`, runtimeJSON(state), d.InstallID); e != nil {
 		return e
 	}
-	return m.saveDeployment(*d)
+	return m.prepareProviderIngress(d, b)
 }
 func (m *appRuntimeManager) inspectTargetForIngress(d runtimeDeployment, req runtimeBackendRequest) (string, error) {
-	b, e := m.backend(d)
+	if d.Placement.Ingress == nil || d.Placement.Ingress.Provider == nil {
+		return "", fmt.Errorf("ingress provider required")
+	}
+	ref := *d.Placement.Ingress.Provider
+	provider, e := m.ingressProvider(ref, req.ProjectID)
 	if e != nil {
 		return "", e
 	}
-	remote, ok := b.(*remoteRuntimeBackend)
-	if !ok {
-		return "", fmt.Errorf("remote ingress required")
+	options := map[string]any{}
+	for key, value := range ref.Options {
+		options[key] = value
 	}
+	options["hostname"] = d.Placement.Ingress.Hostname
+	intent := runtimeIngressIntent{Contract: runtimeIngressContract, ControllerID: HashAPIKey("ingress-controller:" + string(m.s.secret)), OperationID: "ingress-target", InstallID: d.InstallID, DeploymentID: d.ID, Generation: d.Generation, ProjectID: req.ProjectID, Target: ref.Target, Hostname: d.Placement.Ingress.Hostname, Routes: d.Manifest.Runtime.Ingress.Routes, Options: options}
 	var out struct {
 		PublicIPv4 string `json:"public_ipv4"`
 	}
-	if e = remote.request(m.ctx, "POST", "inspect-target", &req, &out); e != nil {
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+	if e = ingressProviderRequest(ctx, provider, "inspect-target", &intent, &out); e != nil {
 		return "", e
 	}
 	if ip := net.ParseIP(out.PublicIPv4); ip == nil || ip.To4() == nil || ip.IsLoopback() || ip.IsUnspecified() {
-		return "", fmt.Errorf("invalid target IPv4")
+		return "", fmt.Errorf("ingress provider did not return a valid public IPv4 address")
 	}
 	return out.PublicIPv4, nil
 }
+
 func (m *appRuntimeManager) publishIngress(d runtimeDeployment, op runtimeOperation) error {
 	if err := m.requirePublication(d, op); err != nil {
 		return err
@@ -274,50 +283,17 @@ func (m *appRuntimeManager) publishIngress(d runtimeDeployment, op runtimeOperat
 	if d.Placement.Ingress == nil {
 		return nil
 	}
-	b, e := m.backend(d)
-	if e != nil {
-		return e
+	if d.Placement.Ingress.Provider == nil {
+		return fmt.Errorf("existing proxy must be explicitly migrated to an ingress provider")
 	}
-	publisher, ok := b.(runtimeIngressPublisher)
-	if !ok {
-		return fmt.Errorf("backend cannot publish ingress")
-	}
-	req, e := m.request(d, op, "publish-ingress")
-	if e != nil {
-		return e
-	}
-	if _, e = publisher.PublishIngress(req); e != nil {
-		return e
-	}
-	deadline := time.Now().Add(90 * time.Second)
-	for time.Now().Before(deadline) {
-		if e = m.checkOwner(op); e != nil {
-			return e
-		}
-		ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
-		request, _ := http.NewRequestWithContext(ctx, "GET", "https://"+d.Placement.Ingress.Hostname+"/.well-known/apteva-runtime-ready", nil)
-		response, e := m.http.Do(request)
-		if e == nil {
-			raw, _ := io.ReadAll(io.LimitReader(response.Body, 256))
-			response.Body.Close()
-			cancel()
-			if response.StatusCode == 200 && strings.TrimSpace(string(raw)) == d.ID {
-				return nil
-			}
-		} else {
-			cancel()
-		}
-		select {
-		case <-m.ctx.Done():
-			return m.ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
-	return fmt.Errorf("trusted HTTPS ingress verification timed out")
+	return m.publishProviderIngress(d, op)
 }
 
 // Explicit deletion releases only the exact DNS record this controller created.
 func (m *appRuntimeManager) cleanupIngress(id int64) error {
+	if e := m.releaseProviderIngress(id); e != nil {
+		return e
+	}
 	var raw string
 	if e := m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_ingress WHERE install_id=?`, id).Scan(&raw); e != nil {
 		return nil

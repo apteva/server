@@ -253,6 +253,9 @@ func (m *appRuntimeManager) requirePublication(d runtimeDeployment, op runtimeOp
 	return m.requirePublicationTx(tx, d, op)
 }
 func runtimePublishExecutionTx(tx *sql.Tx, d runtimeDeployment) error {
+	if d.Placement.Ingress != nil && d.Placement.Ingress.Provider != nil {
+		runtimeIngressEndpoints(&d)
+	}
 	d.Status = "active"
 	raw := runtimeJSON(runtimeStoredDeployment{runtimeDeployment: d, Credential: d.CredentialEncrypted, Environment: d.EnvironmentEncrypted, Bin: d.LocalBin, Port: d.LocalPort, PID: d.LocalPID})
 	_, err := tx.Exec(`UPDATE app_runtime_deployments SET status='active',record_json=? WHERE id=?`, raw, d.ID)
