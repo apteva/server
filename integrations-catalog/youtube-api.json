@@ -514,7 +514,7 @@
     },
     {
       "name": "update_video",
-      "description": "Update video metadata (title, description, tags, privacy, category, schedule). IMPORTANT: To schedule a video for future publish, you MUST set privacyStatus to 'private' AND provide publishAt as ISO 8601 datetime. Scheduling does NOT work with 'unlisted' or 'public' status \u2014 YouTube requires the video to be 'private' first. You must provide the full snippet and/or status objects.",
+      "description": "Update video metadata (title, description, tags, privacy, category, schedule). IMPORTANT: To schedule a video for future publish, you MUST set privacyStatus to 'private' AND provide publishAt as ISO 8601 datetime. Scheduling does NOT work with 'unlisted' or 'public' status \u2014 YouTube requires the video to be 'private' first. You must provide the full snippet and/or status objects. status.containsSyntheticMedia declares realistic altered or synthetic content; preserve the creator's saved disclosure on later edits.",
       "method": "PUT",
       "path": "/videos?part=snippet,status",
       "input_schema": {
@@ -582,6 +582,10 @@
               },
               "selfDeclaredMadeForKids": {
                 "type": "boolean"
+              },
+              "containsSyntheticMedia": {
+                "type": "boolean",
+                "description": "Whether the video contains realistic altered or synthetic content. Set explicitly to true or false; omit when no disclosure choice was made."
               }
             }
           }
@@ -679,7 +683,7 @@
     },
     {
       "name": "upload_video_init",
-      "description": "Step 1 of YouTube's resumable video upload protocol. POSTs the video metadata (title, description, privacy, category) to the upload host and gets back a session URL in the Location response header. The caller (typically the social app's publishYoutube flow) then PUTs the actual video bytes to that session URL — that step does NOT go through this integration because Google's session URLs are pre-authorized (no Bearer header needed). Note: the path is absolute because YouTube's upload endpoint lives at googleapis.com/upload/youtube/v3, not the read API host.",
+      "description": "Step 1 of YouTube's resumable video upload protocol. Optional status.containsSyntheticMedia declares realistic altered or synthetic content; omission leaves the disclosure unset. POSTs the video metadata (title, description, privacy, category) to the upload host and gets back a session URL in the Location response header. The caller (typically the social app's publishYoutube flow) then PUTs the actual video bytes to that session URL — that step does NOT go through this integration because Google's session URLs are pre-authorized (no Bearer header needed). Note: the path is absolute because YouTube's upload endpoint lives at googleapis.com/upload/youtube/v3, not the read API host.",
       "method": "POST",
       "path": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
       "input_schema": {
@@ -709,7 +713,11 @@
                 "default": "private"
               },
               "selfDeclaredMadeForKids": { "type": "boolean" },
-              "embeddable": { "type": "boolean" }
+              "embeddable": { "type": "boolean" },
+              "containsSyntheticMedia": {
+                "type": "boolean",
+                "description": "Whether the video contains realistic altered or synthetic content. Set explicitly to true or false; omit when no disclosure choice was made."
+              }
             }
           }
         },
