@@ -683,7 +683,7 @@
     },
     {
       "name": "upload_video_init",
-      "description": "Step 1 of YouTube's resumable video upload protocol. Optional status.containsSyntheticMedia declares realistic altered or synthetic content; omission leaves the disclosure unset. POSTs the video metadata (title, description, privacy, category) to the upload host and gets back a session URL in the Location response header. The caller (typically the social app's publishYoutube flow) then PUTs the actual video bytes to that session URL — that step does NOT go through this integration because Google's session URLs are pre-authorized (no Bearer header needed). Note: the path is absolute because YouTube's upload endpoint lives at googleapis.com/upload/youtube/v3, not the read API host.",
+      "description": "Step 1 of YouTube's resumable video upload protocol. Optional status.containsSyntheticMedia declares realistic altered or synthetic content; omission leaves the disclosure unset. Optional status.publishAt (with privacyStatus 'private') schedules YouTube's release. POSTs the video metadata (title, description, privacy, category) to the upload host and gets back a session URL in the Location response header. The caller (typically the social app's publishYoutube flow) then PUTs the actual video bytes to that session URL — that step does NOT go through this integration because Google's session URLs are pre-authorized (no Bearer header needed). Note: the path is absolute because YouTube's upload endpoint lives at googleapis.com/upload/youtube/v3, not the read API host.",
       "method": "POST",
       "path": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
       "input_schema": {
@@ -705,12 +705,16 @@
           },
           "status": {
             "type": "object",
-            "description": "Privacy + license. privacyStatus is one of public, unlisted, private. Default 'private' for safety.",
+            "description": "Privacy + license. privacyStatus is one of public, unlisted, private. Default 'private' for safety. Set publishAt with privacyStatus 'private' to schedule YouTube's release.",
             "properties": {
               "privacyStatus": {
                 "type": "string",
                 "enum": ["public", "unlisted", "private"],
                 "default": "private"
+              },
+              "publishAt": {
+                "type": "string",
+                "description": "ISO 8601 datetime when YouTube makes the video public. ONLY works when privacyStatus is 'private' and the time is in the future; omit for no scheduled release."
               },
               "selfDeclaredMadeForKids": { "type": "boolean" },
               "embeddable": { "type": "boolean" },
