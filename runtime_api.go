@@ -849,7 +849,7 @@ func (s *Server) handleSpawnRuntimeAgent(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "source_agent_id or draft required", http.StatusBadRequest)
 		return
 	}
-	wa, err := s.SpawnAgentInEnvironment(runtime, EnvironmentAgentSpec{UserID: userID, Source: source, DirectiveOverride: req.Directive, Alias: req.Alias, StartPaused: req.StartPaused, Provider: req.Provider, Model: req.Model})
+	wa, err := s.SpawnAgentInEnvironment(runtime, EnvironmentAgentSpec{UserID: userID, Source: source, DirectiveOverride: req.Directive, Alias: req.Alias, StartPaused: req.StartPaused, StartPausedScope: req.StartPausedScope, StartPausedThreadID: req.StartPausedThreadID, Provider: req.Provider, Model: req.Model})
 	if err != nil {
 		http.Error(w, "spawn runtime agent: "+err.Error(), http.StatusBadGateway)
 		return

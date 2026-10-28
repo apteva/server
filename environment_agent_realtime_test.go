@@ -24,6 +24,16 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches Core with a local voice protocol fixture")
 	}
+	for _, scoped := range []bool{false, true} {
+		name := "auto"
+		if scoped {
+			name = "root_paused"
+		}
+		t.Run(name, func(t *testing.T) { testEnvironmentRealtimeCloneSession(t, scoped) })
+	}
+}
+
+func testEnvironmentRealtimeCloneSession(t *testing.T, scoped bool) {
 	s, runtime, source := runtimeStartupFixture(t)
 	source.Config = `{"realtime_enabled":true,"realtime_provider":"google-realtime","realtime_model":"gemini-3.8-live","realtime_voice":"Kore","realtime_voice_mcp":[]}`
 	if err := s.store.UpdateAgent(source); err != nil {
@@ -154,7 +164,11 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 	addConnection(t, s, "local-text", "Local text fixture", "proj-1", map[string]string{"host": textProvider.URL})
 	registerRuntimeApp(s, "local-voice", "google", map[string]string{"GOOGLE_API_KEY": "{{credentials.api_key}}"})
 	addConnection(t, s, "local-voice", "Local voice fixture", "proj-1", map[string]string{"api_key": "local-test-key"})
-	clone, err := s.SpawnAgentInEnvironment(runtime, EnvironmentAgentSpec{UserID: 1, Source: source, ProviderPool: environmentRealtimeTestPool(), StartPaused: false})
+	spec := EnvironmentAgentSpec{UserID: 1, Source: source, ProviderPool: environmentRealtimeTestPool()}
+	if scoped {
+		spec.StartPaused, spec.StartPausedScope, spec.StartPausedThreadID = true, "thread", "main"
+	}
+	clone, err := s.SpawnAgentInEnvironment(runtime, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,6 +187,10 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 			Mode     string `json:"mode"`
 			Scope    string `json:"scope"`
 			ThreadID string `json:"thread_id"`
+			Threads  map[string]struct {
+				Mode        string
+				Breakpoints []string
+			} `json:"threads"`
 		} `json:"execution_control"`
 		Providers []struct {
 			Name    string            `json:"name"`
@@ -185,6 +203,12 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 	}
 	if config.Execution.Mode != "auto" || config.Execution.Scope == "thread" || config.Execution.ThreadID != "" {
 		t.Fatalf("voice runtime has a startup execution gate: %+v", config.Execution)
+	}
+	if scoped && (config.Execution.Threads["main"].Mode != "paused" || len(config.Execution.Threads) != 1) {
+		t.Fatalf("lost exact root pause: %+v", config.Execution)
+	}
+	if !scoped && len(config.Execution.Threads) != 0 {
+		t.Fatal("default auto acquired thread rules")
 	}
 	pinned := false
 	for _, provider := range config.Providers {
@@ -218,12 +242,12 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 		t.Fatal("Core did not report realtime.session_started")
 	}
 	// Assert an actual worker request, independently of main's permitted
-	// inference requests. This uses the existing Core without thread scoping.
+	// inference requests, including when main has an exact startup pause.
 	runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodPost, "/threads/execution-local", map[string]any{"directive": "Perform one isolated worker iteration.", "provider": "ollama", "tools": []string{}, "mcp": []string{}})
 	select {
 	case <-inferences:
 	case <-time.After(10 * time.Second):
-		t.Fatal("worker remained frozen without a startup pause")
+		t.Fatal("worker remained frozen under the configured startup policy")
 	}
 	var status struct {
 		Execution struct {
@@ -238,7 +262,29 @@ func TestEnvironmentRealtimeCloneSessionUsesPinnedModel(t *testing.T) {
 	if status.Execution.Mode != "auto" || status.Execution.ThreadID != "" {
 		t.Fatalf("voice worker acquired a global execution gate: %+v", status.Execution)
 	}
-	// Opting out of startup pause does not exempt workers from an explicit
+	if scoped {
+		var paused struct {
+			Execution struct {
+				Waiters []struct {
+					ThreadID string `json:"thread_id"`
+					Scope    string
+					Phase    string
+				}
+			} `json:"execution_control"`
+		}
+		data := runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodGet, "/status", nil)
+		if err := json.Unmarshal(data, &paused); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, w := range paused.Execution.Waiters {
+			found = found || w.ThreadID == "main" && w.Scope == "thread" && w.Phase == "iteration.start"
+		}
+		if !found {
+			t.Fatalf("worker execution released the root: %s", data)
+		}
+	}
+	// Opting out of instance startup pause does not exempt workers from an explicit
 	// instance pause later. Verify the restored Core still enforces that gate.
 	runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodPut, "/config", map[string]any{"execution_control": map[string]any{"mode": "paused", "scope": "instance", "breakpoints": []string{"iteration.start"}}})
 	runtimeMCPTestCoreRequest(t, coreURL, clone.APIKey, http.MethodPost, "/threads/execution-blocked", map[string]any{"directive": "Blocked synthetic worker.", "provider": "ollama", "tools": []string{}, "mcp": []string{}})

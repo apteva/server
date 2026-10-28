@@ -34,6 +34,16 @@ type realtimeProxyKeepalive struct {
 	sequence uint64
 	client   realtimeProxyPeerKeepalive
 	core     realtimeProxyPeerKeepalive
+	// writeBudget is the leg's data-write budget. Pings share gorilla's write
+	// lock with data writes, so a ping must never hold it longer than a frame.
+	writeBudget time.Duration
+}
+
+func (k *realtimeProxyKeepalive) pingTimeout() time.Duration {
+	if k.writeBudget > 0 && k.writeBudget < realtimeProxyPingTimeout {
+		return k.writeBudget
+	}
+	return realtimeProxyPingTimeout
 }
 
 type realtimeProxyKeepaliveSnapshot struct {
@@ -57,7 +67,7 @@ func (k *realtimeProxyKeepalive) sendPings(
 	k.core.LastPingUnixMS = sentAtUnixMS
 	k.mu.Unlock()
 
-	deadline := now.Add(realtimeProxyPingTimeout)
+	deadline := now.Add(k.pingTimeout())
 	for _, destination := range []string{"client", "core"} {
 		if err := write(destination, payload, deadline); err != nil {
 			k.mu.Lock()
@@ -242,7 +252,7 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	refreshDeadline := func(conn *websocket.Conn) {
 		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
 	}
-	keepalive := &realtimeProxyKeepalive{}
+	keepalive := &realtimeProxyKeepalive{writeBudget: writeBudget}
 	clientConn.SetPongHandler(func(payload string) error {
 		refreshDeadline(clientConn)
 		keepalive.recordPong("client", payload, time.Now())

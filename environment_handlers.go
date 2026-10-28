@@ -1399,9 +1399,11 @@ func (s *Server) proxyToEnvironmentApp(w http.ResponseWriter, r *http.Request, e
 }
 
 type spawnEnvironmentAgentRequest struct {
-	SourceAgentID int64  `json:"source_agent_id"`
-	Directive     string `json:"directive"`
-	Alias         string `json:"alias"`
+	StartPausedScope    string `json:"start_paused_scope,omitempty"`
+	StartPausedThreadID string `json:"start_paused_thread_id,omitempty"`
+	SourceAgentID       int64  `json:"source_agent_id"`
+	Directive           string `json:"directive"`
+	Alias               string `json:"alias"`
 	// Provider and Model pin a disposable environment agent without changing
 	// the source agent's configured provider pool.
 	Provider    string `json:"provider,omitempty"`
@@ -1448,7 +1450,7 @@ func (s *Server) handleEnvironmentAgent(w http.ResponseWriter, r *http.Request, 
 			Alias:             firstNonEmpty(req.Alias, "main"),
 			Provider:          req.Provider,
 			Model:             req.Model,
-			StartPaused:       req.StartPaused,
+			StartPaused:       req.StartPaused, StartPausedScope: req.StartPausedScope, StartPausedThreadID: req.StartPausedThreadID,
 		})
 		if err != nil {
 			http.Error(w, "spawn environment agent: "+err.Error(), http.StatusBadGateway)
@@ -1500,7 +1502,7 @@ func (s *Server) handleEnvironmentAgents(w http.ResponseWriter, r *http.Request,
 				Alias:             req.Alias,
 				Provider:          req.Provider,
 				Model:             req.Model,
-				StartPaused:       req.StartPaused,
+				StartPaused:       req.StartPaused, StartPausedScope: req.StartPausedScope, StartPausedThreadID: req.StartPausedThreadID,
 			})
 			if err != nil {
 				http.Error(w, "spawn environment agent: "+err.Error(), http.StatusBadGateway)

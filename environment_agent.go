@@ -38,16 +38,19 @@ func waitForCoreListening(port int, budget time.Duration) bool {
 
 // EnvironmentAgentSpec configures spawning an agent copy into a Environment.
 type EnvironmentAgentSpec struct {
-	UserID            int64
-	Source            *Agent // clone directive/mode/config/project from this live agent
-	DirectiveOverride string // optional: run with a modified directive
-	Alias             string // stable environment-local label; defaults to "main"
-	ProviderPool      []ProviderInfo
-	Provider          string
-	Model             string
+	StartPausedScope    string
+	StartPausedThreadID string
+	UserID              int64
+	Source              *Agent // clone directive/mode/config/project from this live agent
+	DirectiveOverride   string // optional: run with a modified directive
+	Alias               string // stable environment-local label; defaults to "main"
+	ProviderPool        []ProviderInfo
+	Provider            string
+	Model               string
 	// StartPaused installs an instance-wide iteration.start gate, including
 	// delegated workers. Text cases can inject their task before releasing it.
-	// Realtime callers leave it false so voice workers can delegate immediately.
+	// An explicit thread scope instead pauses only StartPausedThreadID.
+	// Omitting the scope preserves the existing instance-wide behavior.
 	StartPaused bool
 }
 
@@ -181,6 +184,10 @@ func (wa *EnvironmentAgent) Stop() {
 // real apteva-core for it. The caller drives the core via its HTTP API
 // (Port + APIKey) — or through the /api/environments/<id>/agent/* proxy.
 func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec EnvironmentAgentSpec) (*EnvironmentAgent, error) {
+	executionConfig, err := environmentStartupExecutionControl(spec)
+	if err != nil {
+		return nil, err
+	}
 	if environment == nil || spec.Source == nil {
 		return nil, fmt.Errorf("environment and source agent required")
 	}
@@ -315,16 +322,10 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		"mcp_servers":           mcpServers,
 		"include_apteva_server": false,
 		"include_channels":      false,
-		"execution_control":     map[string]any{"mode": "auto"},
+		"execution_control":     executionConfig,
 	}
 	sourcePolicy.copyRealtimeConfig(cfg)
-	if spec.StartPaused {
-		cfg["execution_control"] = map[string]any{
-			"mode":        "paused",
-			"scope":       "instance",
-			"breakpoints": []string{"iteration.start"},
-		}
-	}
+
 	cfgJSON, _ := json.Marshal(cfg)
 	wAgent.Directive = directive
 	wAgent.Config = string(cfgJSON)
