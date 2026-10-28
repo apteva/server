@@ -533,3 +533,32 @@ func TestRealtimeCallbackPreservesReachableOrigin(t *testing.T) {
   if got := requestReachableBaseURL(r, "https://unrelated-public.example"); got != tc.want {t.Fatalf("got %q want %q", got, tc.want)}
  }
 }
+
+// Pings share gorilla's write lock with audio writes. On a live audio leg a
+// stalled client must fail within the 250 ms data budget, not hold the lock 10 s.
+func TestRealtimeProxyKeepalivePingDeadlineUsesLegWriteBudget(t *testing.T) {
+	now := time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		budget time.Duration
+		want   time.Duration
+	}{
+		{250 * time.Millisecond, 250 * time.Millisecond},
+		{15 * time.Second, realtimeProxyPingTimeout},
+		{0, realtimeProxyPingTimeout},
+	} {
+		keepalive := &realtimeProxyKeepalive{writeBudget: tc.budget}
+		var deadlines []time.Time
+		keepalive.sendPings(now, func(_ string, _ []byte, deadline time.Time) error {
+			deadlines = append(deadlines, deadline)
+			return nil
+		}, nil)
+		if len(deadlines) != 2 {
+			t.Fatalf("budget %s: pings = %d", tc.budget, len(deadlines))
+		}
+		for _, deadline := range deadlines {
+			if got := deadline.Sub(now); got != tc.want {
+				t.Fatalf("budget %s: ping timeout = %s, want %s", tc.budget, got, tc.want)
+			}
+		}
+	}
+}
