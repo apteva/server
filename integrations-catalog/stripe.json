@@ -1295,6 +1295,10 @@
         "description": "Occurs when a PaymentIntent fails"
       },
       {
+        "name": "payment_intent.canceled",
+        "description": "Occurs when a PaymentIntent is canceled"
+      },
+      {
         "name": "customer.created",
         "description": "Occurs when a new customer is created"
       },
@@ -1333,6 +1337,18 @@
       {
         "name": "charge.refunded",
         "description": "Occurs when a charge is refunded"
+      },
+      {
+        "name": "refund.created",
+        "description": "Occurs when a refund is created"
+      },
+      {
+        "name": "refund.updated",
+        "description": "Occurs when a refund is updated"
+      },
+      {
+        "name": "refund.failed",
+        "description": "Occurs when a refund fails"
       }
     ]
   }
