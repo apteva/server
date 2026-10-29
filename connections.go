@@ -894,21 +894,6 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 	}
 	log.Printf("[REMOTE-MCP] app config: url=%s transport=%s auth_header_set=%t", app.MCP.URL, app.MCP.Transport, app.MCP.AuthHeader != nil)
 
-	// Default header pattern matches the TS generator: Authorization:
-	// Bearer {{token}}. Templates can override per-app for vendors that
-	// expect a different header (e.g. X-Auth-Token) or value layout.
-	headerName := "Authorization"
-	headerValue := "Bearer {{token}}"
-	if app.MCP.AuthHeader != nil {
-		if app.MCP.AuthHeader.Name != "" {
-			headerName = app.MCP.AuthHeader.Name
-		}
-		if app.MCP.AuthHeader.Value != "" {
-			headerValue = app.MCP.AuthHeader.Value
-		}
-	}
-	log.Printf("[REMOTE-MCP] header template: %s = %q", headerName, headerValue)
-
 	plain, err := Decrypt(s.secret, encCreds)
 	if err != nil {
 		log.Printf("[REMOTE-MCP] decrypt creds FAILED conn=%d: %v", conn.ID, err)
@@ -925,29 +910,25 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 	}
 	log.Printf("[REMOTE-MCP] cred keys available: %v", credKeys)
 
-	resolved, ok := resolveRemoteMcpCredTemplate(headerValue, credentials)
-	if !ok {
-		log.Printf("[REMOTE-MCP] template resolve FAILED — placeholder unresolved in %q against keys %v", headerValue, credKeys)
-		// At least one {{name}} placeholder did not resolve to a real
-		// credential value. Fail loud — the upstream MCP would reject
-		// the call anyway, and a silent "this connection is broken"
-		// row is worse than a startup error operators can see.
-		return 0, fmt.Errorf("could not resolve auth header %q from connection credentials", headerValue)
+	// Templates resolve against the normalized view (aliases, derived
+	// basic_auth); credentials themselves are not modified.
+	templateCreds := normalizeCredentials(credentials)
+	envKey, resolved, err := resolveRemoteMcpAuthHeader(app, templateCreds)
+	if err != nil {
+		log.Printf("[REMOTE-MCP] header resolve FAILED conn=%d keys=%v: %v", conn.ID, credKeys, err)
+		return 0, err
 	}
 	// Show length only — never log the resolved bearer value itself.
 	log.Printf("[REMOTE-MCP] template resolved OK len=%d prefix=%s", len(resolved), shortPrefix(resolved, 12))
 
-	// probeRemoteMCP / MCPManager.Start read env keys case-sensitively
-	// for "AUTHORIZATION" and "API_KEY". Normalize standard headers to
-	// those keys; pass through any other header verbatim under its
-	// upper-cased name so the proxy can apply it generically.
-	envKey := strings.ToUpper(headerName)
-	if envKey == "AUTHORIZATION" || envKey == "API_KEY" || envKey == "X-API-KEY" {
-		// X-Api-Key ends up under API_KEY for the existing branch.
-		if envKey == "X-API-KEY" {
-			envKey = "API_KEY"
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mcpURL, err := resolveRemoteMcpURL(ctx, app, templateCreds)
+	if err != nil {
+		log.Printf("[REMOTE-MCP] url resolve FAILED conn=%d keys=%v: %v", conn.ID, credKeys, err)
+		return 0, err
 	}
+
 	envMap := map[string]string{envKey: resolved}
 	envJSON, _ := json.Marshal(envMap)
 	encEnv, err := Encrypt(s.secret, string(envJSON))
@@ -980,7 +961,7 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 	} else if conn.AppName != "" && !strings.HasPrefix(description, conn.AppName) {
 		description = conn.AppName + " " + description
 	}
-	log.Printf("[REMOTE-MCP] inserting mcp_servers row name=%s desc=%q upstream_id=%s url=%s", mcpName, description, upstreamID, app.MCP.URL)
+	log.Printf("[REMOTE-MCP] inserting mcp_servers row name=%s desc=%q upstream_id=%s url=%s", mcpName, description, upstreamID, mcpURL)
 
 	rec, err := s.store.CreateMCPServerExt(MCPServerInput{
 		UserID:       userID,
@@ -989,7 +970,7 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 		ProjectID:    conn.ProjectID,
 		Source:       "remote",
 		Transport:    "http",
-		URL:          app.MCP.URL,
+		URL:          mcpURL,
 		ConnectionID: conn.ID,
 		EncryptedEnv: encEnv,
 		UpstreamID:   upstreamID,
@@ -1062,24 +1043,11 @@ func (s *Server) refreshRemoteMcpAuth(serverID int64, connectionID int64, env ma
 
 	// Re-resolve the auth header template against the refreshed
 	// credentials and rewrite the mcp_servers row's env so the next
-	// upstream call picks up the new access token.
-	headerName := "Authorization"
-	headerValue := "Bearer {{token}}"
-	if app.MCP.AuthHeader != nil {
-		if app.MCP.AuthHeader.Name != "" {
-			headerName = app.MCP.AuthHeader.Name
-		}
-		if app.MCP.AuthHeader.Value != "" {
-			headerValue = app.MCP.AuthHeader.Value
-		}
-	}
-	resolved, ok := resolveRemoteMcpCredTemplate(headerValue, credentials)
-	if !ok {
-		return fmt.Errorf("template resolve failed after refresh: %q", headerValue)
-	}
-	envKey := strings.ToUpper(headerName)
-	if envKey == "X-API-KEY" {
-		envKey = "API_KEY"
+	// upstream call picks up the new access token. normalizeCredentials
+	// returns a copy, so the derived keys never reach the persisted creds.
+	envKey, resolved, err := resolveRemoteMcpAuthHeader(app, normalizeCredentials(credentials))
+	if err != nil {
+		return fmt.Errorf("template resolve failed after refresh: %w", err)
 	}
 	newEnvMap := map[string]string{envKey: resolved}
 	envJSON, _ := json.Marshal(newEnvMap)
