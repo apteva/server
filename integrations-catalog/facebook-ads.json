@@ -1495,7 +1495,7 @@
     },
     {
       "name": "pixel_create",
-      "description": "Create a Facebook pixel for conversion tracking.",
+      "description": "Create a Pixel owned by an ad account. Meta rejects this edge for many business-managed accounts (error 6200); use business_pixel_create plus pixel_share_with_ad_account when the ad account belongs to a Business.",
       "method": "POST",
       "path": "/{adAccountId}/adspixels",
       "input_schema": {
@@ -1518,7 +1518,7 @@
     },
     {
       "name": "pixel_send_event",
-      "description": "Send conversion events via the Conversions API. Each event needs: event_name, event_time (unix), action_source, and optional user_data/custom_data.",
+      "description": "Send conversion events via the Conversions API. Each event needs: event_name, event_time (unix), action_source, and optional user_data/custom_data. events_received only means the API accepted the payload: events sent with test_event_code appear only in an open Events Manager Test Events session whose code matches, and are never used for reporting or optimization. Read the response messages for code-mismatch warnings.",
       "method": "POST",
       "path": "/{pixelId}/events",
       "input_schema": {
@@ -1543,6 +1543,255 @@
         "required": [
           "pixelId",
           "data"
+        ]
+      }
+    },
+    {
+      "name": "ad_account_get",
+      "description": "Read one ad account, including the Business that owns it. Use fields=business to find where business-owned Pixels must be created.",
+      "method": "GET",
+      "path": "/{adAccountId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,account_id,name,business{id,name}",
+            "description": "Comma-separated ad account fields"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
+    },
+    {
+      "name": "business_pixel_list",
+      "description": "List Pixels owned by a Business, including Pixels not yet shared with any ad account.",
+      "method": "GET",
+      "path": "/{businessId}/owned_pixels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "businessId": {
+            "type": "string",
+            "description": "Business ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,last_fired_time,is_unavailable,creation_time",
+            "description": "Comma-separated Pixel fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum number of Pixels"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "businessId"
+        ]
+      }
+    },
+    {
+      "name": "business_pixel_create",
+      "description": "Create a Pixel owned by a Business. The new Pixel is not usable by an ad account until pixel_share_with_ad_account associates it.",
+      "method": "POST",
+      "path": "/{businessId}/adspixels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "businessId": {
+            "type": "string",
+            "description": "Business ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Pixel name"
+          }
+        },
+        "required": [
+          "businessId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "pixel_share_with_ad_account",
+      "description": "Associate a business-owned Pixel with an ad account so the account can report on and optimize for it.",
+      "method": "POST",
+      "path": "/{pixelId}/shared_accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pixelId": {
+            "type": "string",
+            "description": "Pixel ID"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Numeric ad account ID without the act_ prefix"
+          },
+          "business": {
+            "type": "string",
+            "description": "ID of the Business that owns the Pixel"
+          }
+        },
+        "required": [
+          "pixelId",
+          "account_id",
+          "business"
+        ]
+      }
+    },
+    {
+      "name": "pixel_shared_accounts_list",
+      "description": "List ad accounts a Pixel is shared with by its owning Business.",
+      "method": "GET",
+      "path": "/{pixelId}/shared_accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pixelId": {
+            "type": "string",
+            "description": "Pixel ID"
+          },
+          "business": {
+            "type": "string",
+            "description": "ID of the Business that owns the Pixel"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,account_id,name",
+            "description": "Comma-separated ad account fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "pixelId",
+          "business"
+        ]
+      }
+    },
+    {
+      "name": "pixel_get",
+      "description": "Read one Pixel's ownership and configuration. is_unavailable=false does not mean events from a given domain are accepted or usable for ads; check pixel_stats and pixel_diagnostics.",
+      "method": "GET",
+      "path": "/{pixelId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pixelId": {
+            "type": "string",
+            "description": "Pixel ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,owner_business{id,name},owner_ad_account{id,account_id},is_created_by_business,is_unavailable,last_fired_time,creation_time,data_use_setting,first_party_cookie_status,enable_automatic_matching",
+            "description": "Comma-separated Pixel fields"
+          }
+        },
+        "required": [
+          "pixelId"
+        ]
+      }
+    },
+    {
+      "name": "pixel_stats",
+      "description": "Count events Meta actually received for a Pixel, aggregated by event, host, url, event_source and similar dimensions. Use aggregation=host to verify a specific domain is sending events.",
+      "method": "GET",
+      "path": "/{pixelId}/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pixelId": {
+            "type": "string",
+            "description": "Pixel ID"
+          },
+          "aggregation": {
+            "type": "string",
+            "enum": [
+              "event",
+              "host",
+              "url",
+              "url_by_rule",
+              "event_source",
+              "event_total_counts",
+              "device_type",
+              "browser_type",
+              "pixel_fire",
+              "match_keys"
+            ],
+            "default": "event",
+            "description": "Dimension to aggregate counts by"
+          },
+          "event": {
+            "type": "string",
+            "description": "Restrict counts to one event name, such as Lead or CompleteRegistration"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Window start as a Unix timestamp or ISO-8601 time"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "Window end as a Unix timestamp or ISO-8601 time"
+          }
+        },
+        "required": [
+          "pixelId"
+        ]
+      }
+    },
+    {
+      "name": "pixel_diagnostics",
+      "description": "Run Meta's data-quality checks (da_checks) for a Pixel. Each result has a key, title, description, result and remediation; anything other than passed needs attention.",
+      "method": "GET",
+      "path": "/{pixelId}/da_checks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pixelId": {
+            "type": "string",
+            "description": "Pixel ID"
+          },
+          "checks": {
+            "type": "string",
+            "description": "Comma-separated check keys to run; omit to run every available check"
+          },
+          "connection_method": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "APP",
+              "BROWSER",
+              "SERVER"
+            ],
+            "description": "Restrict checks to one event connection method"
+          },
+          "fields": {
+            "type": "string",
+            "default": "key,title,description,result,action_uri,user_message",
+            "description": "Comma-separated check fields"
+          }
+        },
+        "required": [
+          "pixelId"
         ]
       }
     },
