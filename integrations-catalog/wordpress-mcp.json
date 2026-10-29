@@ -1,0 +1,53 @@
+{
+  "slug": "wordpress-mcp",
+  "name": "WordPress (MCP Adapter)",
+  "description": "Connect to your own WordPress site through the official MCP Adapter plugin. Install and activate the plugin, then mark the abilities you want agents to use as public; the plugin keeps abilities private by default. Authenticates with a WordPress application password.",
+  "logo": "https://www.google.com/s2/favicons?domain=wordpress.org&sz=128",
+  "categories": [
+    "cms",
+    "blog",
+    "wordpress",
+    "content",
+    "mcp"
+  ],
+  "kind": "remote_mcp",
+  "base_url": "{{site_url}}",
+  "mcp": {
+    "transport": "http",
+    "url": "{{site_url}}/wp-json/mcp/mcp-adapter-default-server",
+    "auth_header": {
+      "name": "Authorization",
+      "value": "Basic {{basic_auth}}"
+    }
+  },
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "site_url",
+        "label": "Site URL",
+        "description": "Your WordPress site's public https address, e.g. https://example.com.",
+        "required": true
+      },
+      {
+        "name": "username",
+        "label": "Username",
+        "description": "The WordPress user the agent acts as. Its role limits what the agent can do.",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Application password",
+        "description": "Create one in WordPress admin under Users > Profile > Application Passwords. This is not your login password.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": []
+}

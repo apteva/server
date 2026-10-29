@@ -1376,6 +1376,7 @@ func normalizeCredentials(c map[string]string) map[string]string {
 func basicAuthPair(c map[string]string) (user, pass string) {
 	pairs := [][2]string{
 		{"username", "password"},
+		{"username", "application_password"}, // WordPress application passwords
 		{"login", "password"},
 		{"account_sid", "auth_token"},
 		{"api_key", "api_secret"},

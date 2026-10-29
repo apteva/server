@@ -642,6 +642,7 @@ func main() {
 	s.agents.internalMCPSecret = s.instanceSecret
 	s.agents.LoadProcessResources = s.store.agentResourcePolicy
 	s.agents.AuthorizeMCPConfig = s.authorizeAgentMCPConfig
+	s.mcpManager.guardRemote = s.remoteMCPHostIsUserSupplied
 	if _, err := s.store.db.Exec("UPDATE managed_provisioning_requests SET status='error',last_error='server restarted during apply',updated_at=CURRENT_TIMESTAMP WHERE status='applying'"); err != nil {
 		log.Fatalf("recover provisioning: %v", err)
 	}
