@@ -101,7 +101,7 @@ func (t *automaticTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 	}
 	base := t.base
 	if base == nil {
-		base = http.DefaultTransport
+		base = sidecarTransport()
 	}
 	// Preserve cleanup even if a custom transport panics; let net/http retain
 	// its normal panic handling after releasing admission resources.

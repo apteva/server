@@ -59,7 +59,7 @@ func (s *Server) appCallbackClient() *http.Client {
 	s.appCallbackClientOnce.Do(func() {
 		s.appCallbackHTTPClient = &http.Client{Transport: &automaticTransport{
 			server: s,
-			base:   http.DefaultTransport,
+			base:   sidecarTransport(),
 		}}
 	})
 	return s.appCallbackHTTPClient
