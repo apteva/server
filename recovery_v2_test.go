@@ -400,12 +400,12 @@ func TestEdgeNeverCachesTruncatedOrStreamingResponse(t *testing.T) {
 
 func TestIntegrationPoolNormalizesTLSCredentialFieldNames(t *testing.T) {
 	plain := &AppTemplate{}
-	if _, err := integrationHTTPClient(plain, nil, time.Second); err != nil {
+	if _, err := integrationHTTPClient(plain, nil, time.Second, false); err != nil {
 		t.Fatal(err)
 	}
 	secured := &AppTemplate{}
 	secured.Auth.MTLS = &MutualTLSConfig{CertField: " cert ", KeyField: " key "}
-	if _, err := integrationHTTPClient(secured, map[string]string{"cert": "invalid certificate", "key": "invalid private key"}, time.Second); err == nil {
+	if _, err := integrationHTTPClient(secured, map[string]string{"cert": "invalid certificate", "key": "invalid private key"}, time.Second, false); err == nil {
 		t.Fatal("TLS configuration reused an unauthenticated transport instead of validating its credentials")
 	}
 }

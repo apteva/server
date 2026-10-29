@@ -18,7 +18,9 @@ var integrationTransports = struct {
 	order   [][32]byte
 }{entries: make(map[[32]byte]*http.Transport)}
 
-func integrationHTTPClient(app *AppTemplate, credentials map[string]string, timeout time.Duration) (*http.Client, error) {
+// guardHost routes dials through the private-address guard; set it when
+// the request host came from credentials (integration_dial_guard.go).
+func integrationHTTPClient(app *AppTemplate, credentials map[string]string, timeout time.Duration, guardHost bool) (*http.Client, error) {
 	proxy, _, err := integrationProxyURL(app)
 	if err != nil {
 		return nil, err
@@ -34,7 +36,7 @@ func integrationHTTPClient(app *AppTemplate, credentials map[string]string, time
 		}
 		cert, key = normalizeCredentialPEM(credentials[cf]), normalizeCredentialPEM(credentials[kf])
 	}
-	encoded, _ := json.Marshal([]string{fmt.Sprintf("%p", http.DefaultTransport), proxy, cert, key})
+	encoded, _ := json.Marshal([]string{fmt.Sprintf("%p", http.DefaultTransport), proxy, cert, key, fmt.Sprint(guardHost)})
 	identity := sha256.Sum256(encoded)
 	integrationTransports.Lock()
 	defer integrationTransports.Unlock()
@@ -46,6 +48,9 @@ func integrationHTTPClient(app *AppTemplate, credentials map[string]string, time
 		return nil, err
 	}
 	tr := client.Transport.(*http.Transport)
+	if guardHost {
+		guardIntegrationTransport(tr)
+	}
 	tr.MaxIdleConns = 128
 	tr.MaxIdleConnsPerHost = 16
 	tr.MaxConnsPerHost = 64
