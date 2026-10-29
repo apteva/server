@@ -15,10 +15,10 @@
   "base_url": "{{site_url}}/wp-json/wp/v2",
   "auth": {
     "types": [
-      "bearer"
+      "basic"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Basic {{basic_auth}}"
     },
     "credential_fields": [
       {
