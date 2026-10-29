@@ -29,6 +29,11 @@ func TestNormalizeCredentials_DerivesBasicAuth(t *testing.T) {
 			"alice:wonderland",
 		},
 		{
+			"wordpress application password",
+			map[string]string{"site_url": "https://example.com", "username": "admin", "application_password": "abcd efgh ijkl"},
+			"admin:abcd efgh ijkl",
+		},
+		{
 			"login password basic",
 			map[string]string{"login": "api@example.com", "password": "secret"},
 			"api@example.com:secret",
