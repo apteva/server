@@ -507,6 +507,9 @@ type MCPManager struct {
 	starting  map[int64]*mcpStart
 	mu        sync.RWMutex
 	processes map[int64]*MCPProcess // serverID → process
+	// guardRemote reports remote rows whose URL came from connection
+	// credentials; their probe dials go through the private-address guard.
+	guardRemote func(*MCPServerRecord) bool
 }
 
 func NewMCPManager() *MCPManager {
@@ -579,7 +582,11 @@ func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stder
 		if record.URL == "" {
 			return nil, fmt.Errorf("remote MCP server %d has no URL", record.ID)
 		}
-		tools, err := probeRemoteMCPContext(ctx, record.URL, env)
+		probeCtx := ctx
+		if m.guardRemote != nil && m.guardRemote(record) {
+			probeCtx = withUserSuppliedHost(ctx)
+		}
+		tools, err := probeRemoteMCPContext(probeCtx, record.URL, env)
 		if err != nil {
 			return nil, fmt.Errorf("probe %s: %w", record.URL, err)
 		}
@@ -1175,7 +1182,7 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 				_ = json.Unmarshal([]byte(plain), &env)
 			}
 		}
-		if probed, perr := probeRemoteMCP(record.URL, env); perr == nil {
+		if probed, perr := probeRemoteMCPContext(s.remoteMCPContext(context.Background(), record), record.URL, env); perr == nil {
 			tools = append(tools, probed...)
 			if len(tools) > 0 && len(tools) != record.ToolCount {
 				s.store.UpdateMCPServerStatus(record.ID, "reachable", len(tools), record.Pid)
@@ -1338,7 +1345,8 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "remote mcp row has no URL", http.StatusInternalServerError)
 			return
 		}
-		result, err := callRemoteMCPTool(record.URL, body.Tool, body.Args, env)
+		remoteCtx := s.remoteMCPContext(context.Background(), record)
+		result, err := callRemoteMCPToolContext(remoteCtx, record.URL, body.Tool, body.Args, env)
 		if err != nil && isRemoteMcpAuthError(err) && record.ConnectionID != 0 {
 			// Access token most likely expired (HubSpot OAuth tokens
 			// die after 30 min). Refresh against the source connection
@@ -1353,7 +1361,7 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			log.Printf("[CALL-TOOL] auto-refresh OK server=%d — retrying tools/call", serverID)
-			result, err = callRemoteMCPTool(record.URL, body.Tool, body.Args, env)
+			result, err = callRemoteMCPToolContext(remoteCtx, record.URL, body.Tool, body.Args, env)
 		}
 		if err != nil {
 			writeJSON(w, map[string]any{"success": false, "status": 0, "data": err.Error()})
@@ -1552,6 +1560,10 @@ func isRemoteMcpAuthError(err error) bool {
 // MCP spec shape: `{ content: [{ type: "text" | "image", text?, data?, ... }], isError?: bool }`.
 // Callers are responsible for surfacing that shape to the dashboard.
 func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[string]string) (json.RawMessage, error) {
+	return callRemoteMCPToolContext(context.Background(), rawURL, toolName, args, env)
+}
+
+func callRemoteMCPToolContext(ctx context.Context, rawURL, toolName string, args map[string]any, env map[string]string) (json.RawMessage, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 		"Accept":       "application/json, text/event-stream",
@@ -1563,12 +1575,7 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 		headers["X-Api-Key"] = key
 	}
 
-	client := &http.Client{
-		Timeout: 60 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := remoteMCPHTTPClient(ctx, 60*time.Second)
 
 	// MCP Streamable HTTP spec: the server's initialize response MAY
 	// return a Mcp-Session-Id header that the client MUST echo on every
@@ -1585,7 +1592,7 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 		log.Printf("[CALL-RPC] → POST %s method=%s body_len=%d", targetURL, method, len(body))
 		currentURL := targetURL
 		for attempt := 0; attempt < 4; attempt++ {
-			httpReq, err := http.NewRequestWithContext(context.Background(), "POST", currentURL, strings.NewReader(string(body)))
+			httpReq, err := http.NewRequestWithContext(ctx, "POST", currentURL, strings.NewReader(string(body)))
 			if err != nil {
 				return nil, "", err
 			}
@@ -1719,12 +1726,7 @@ func probeRemoteMCPContext(ctx context.Context, rawURL string, env map[string]st
 
 	// Disable auto-redirects so we can manually re-issue the POST with the
 	// body intact against the Location header.
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := remoteMCPHTTPClient(ctx, 15*time.Second)
 
 	call := func(id int64, method string, params any, targetURL string) (json.RawMessage, string, error) {
 		req := jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}

@@ -2520,7 +2520,7 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	}
 
 	timeout := integrationTimeoutFromContext(requestCtx, tool, 30*time.Second)
-	client, err := integrationHTTPClient(app, credentials, timeout)
+	client, err := integrationHTTPClient(app, credentials, timeout, integrationURLHostIsTemplated(baseURL))
 	if err != nil {
 		return nil, err
 	}
