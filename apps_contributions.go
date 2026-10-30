@@ -23,7 +23,10 @@ import (
 //	GET  /apps/callback/contributions?project_id=&kind=&contract=&resource_type=&slot=&cursor=&limit=
 //	POST /apps/callback/contributions/exports/read   body: sdk.AppExportReadRequest
 //
-// Both require platform.contributions.read. Being in the catalog is not a
+// Both require platform.contributions.read. A caller only sees and reads
+// contributions matching its own requires.contributions (installing it is the
+// operator's consent), and an export that declares permissions only for
+// callers the operator bound to the producer. Being in the catalog is not a
 // grant: the producer's export handler decides what the caller may see.
 
 const contributionsDefaultLimit = 100
@@ -47,22 +50,53 @@ func (s *Server) handleCallbackContributions(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+type contributionsCaller struct {
+	installID, userID int64
+	projectID         string
+	requires          []sdk.ContributionRequirement
+}
+
 // contributionsCaller authenticates the calling install, checks the
 // permission and resolves the project the request runs in.
-func (s *Server) contributionsCaller(w http.ResponseWriter, r *http.Request, requestedProject string) (int64, int64, string, bool) {
+func (s *Server) contributionsCaller(w http.ResponseWriter, r *http.Request, requestedProject string) (*contributionsCaller, bool) {
 	callerInstallID, err := requireInstallID(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return 0, 0, "", false
+		return nil, false
 	}
 	if !s.requireRuntimePermission(w, callerInstallID, sdk.PermContributionsRead) {
-		return 0, 0, "", false
+		return nil, false
+	}
+	metadata, err := s.appMetadata(callerInstallID)
+	if err != nil || metadata.manifestErr != nil {
+		http.Error(w, "calling app manifest unavailable", http.StatusForbidden)
+		return nil, false
 	}
 	userID, projectID, ok := s.runtimeCallerProject(w, r, callerInstallID, requestedProject, ProjectViewer)
 	if !ok {
-		return 0, 0, "", false
+		return nil, false
 	}
-	return callerInstallID, userID, projectID, true
+	return &contributionsCaller{installID: callerInstallID, userID: userID, projectID: projectID, requires: metadata.manifest.Requires.Contributions}, true
+}
+
+// allows reports whether the caller may see a contribution: it must match one
+// of the caller's requires.contributions, and an export guarded by producer
+// permissions needs an operator binding from the caller to that producer.
+func (s *Server) allows(caller *contributionsCaller, item sdk.AppContribution) bool {
+	requested := false
+	for _, req := range caller.requires {
+		if req.Kind != "" && (contributionSelector{kind: req.Kind, contract: req.Contract, resourceType: req.ResourceType, slot: req.Slot}).matches(item) {
+			requested = true
+			break
+		}
+	}
+	if !requested {
+		return false
+	}
+	if item.Kind == sdk.ContributionKindExport && len(item.Export.Permissions) > 0 {
+		return installBoundAppID(s, caller.installID, item.App) == item.InstallID
+	}
+	return true
 }
 
 type contributionSelector struct {
@@ -108,9 +142,9 @@ func (sel contributionSelector) matches(item sdk.AppContribution) bool {
 // contributionCatalog lists contributions from running installs visible to
 // projectID. Exports from installs without a reachable sidecar are left out,
 // since they could not be read.
-func (s *Server) contributionCatalog(projectID string, sel contributionSelector) []sdk.AppContribution {
+func (s *Server) contributionCatalog(caller *contributionsCaller, sel contributionSelector) []sdk.AppContribution {
 	items := []sdk.AppContribution{}
-	for _, entry := range s.installedApps.ListForProject(projectID) {
+	for _, entry := range s.installedApps.ListForProject(caller.projectID) {
 		if isPlatformBackupApp(entry) {
 			continue
 		}
@@ -127,7 +161,7 @@ func (s *Server) contributionCatalog(projectID string, sel contributionSelector)
 			if item.Kind == sdk.ContributionKindExport && entry.SidecarURL == "" {
 				continue
 			}
-			if item.Validate() != nil || !sel.matches(item) {
+			if item.Validate() != nil || !sel.matches(item) || !s.allows(caller, item) {
 				continue
 			}
 			items = append(items, item)
@@ -159,7 +193,7 @@ func parseContributionLimit(raw string) (int, error) {
 
 func (s *Server) handleContributionsDiscover(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	_, _, projectID, ok := s.contributionsCaller(w, r, q.Get("project_id"))
+	caller, ok := s.contributionsCaller(w, r, q.Get("project_id"))
 	if !ok {
 		return
 	}
@@ -181,7 +215,7 @@ func (s *Server) handleContributionsDiscover(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	items := s.contributionCatalog(projectID, sel)
+	items := s.contributionCatalog(caller, sel)
 	page := sdk.ContributionPage{Items: []sdk.AppContribution{}}
 	if offset < len(items) {
 		end := min(offset+limit, len(items))
@@ -199,7 +233,7 @@ func (s *Server) handleContributionsExportRead(w http.ResponseWriter, r *http.Re
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	callerInstallID, userID, projectID, ok := s.contributionsCaller(w, r, req.ProjectID)
+	caller, ok := s.contributionsCaller(w, r, req.ProjectID)
 	if !ok {
 		return
 	}
@@ -220,7 +254,7 @@ func (s *Server) handleContributionsExportRead(w http.ResponseWriter, r *http.Re
 
 	// Installs outside the caller's project look the same as missing ones.
 	target := s.installedApps.Get(req.InstallID)
-	if target == nil || (target.ProjectID != "" && target.ProjectID != projectID) || isPlatformBackupApp(target) {
+	if target == nil || (target.ProjectID != "" && target.ProjectID != caller.projectID) || isPlatformBackupApp(target) {
 		http.Error(w, "export not found", http.StatusNotFound)
 		return
 	}
@@ -235,11 +269,16 @@ func (s *Server) handleContributionsExportRead(w http.ResponseWriter, r *http.Re
 		http.Error(w, "export not found", http.StatusNotFound)
 		return
 	}
+	item := sdk.AppContribution{InstallID: target.InstallID, ProjectID: target.ProjectID, App: target.AppName, Version: target.Manifest.Version, Kind: sdk.ContributionKindExport, ID: export.ID, Export: export}
+	if !s.allows(caller, item) {
+		http.Error(w, "export access denied", http.StatusForbidden)
+		return
+	}
 	if target.SidecarURL == "" {
 		http.Error(w, "export provider is not running", http.StatusServiceUnavailable)
 		return
 	}
-	callerAppName := strings.TrimSpace(s.callerAppName(callerInstallID))
+	callerAppName := strings.TrimSpace(s.callerAppName(caller.installID))
 	if callerAppName == "" {
 		http.Error(w, "calling app is not running", http.StatusUnauthorized)
 		return
@@ -250,7 +289,7 @@ func (s *Server) handleContributionsExportRead(w http.ResponseWriter, r *http.Re
 		http.Error(w, "invalid export endpoint", http.StatusInternalServerError)
 		return
 	}
-	params := url.Values{"project_id": {projectID}}
+	params := url.Values{"project_id": {caller.projectID}}
 	if req.Cursor != "" {
 		params.Set("cursor", req.Cursor)
 	}
@@ -268,14 +307,14 @@ func (s *Server) handleContributionsExportRead(w http.ResponseWriter, r *http.Re
 		return
 	}
 	out.Header.Set("Accept", "application/json")
-	setBoundAppCallHeaders(out, target, callerInstallID, callerAppName, userID, projectID)
+	setBoundAppCallHeaders(out, target, caller.installID, callerAppName, caller.userID, caller.projectID)
 	sdk.SetClientIPHeaders(out, resolvedClientIP(r), target.Token)
 
 	client := *s.appCallbackClient()
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(out)
 	if err != nil {
-		http.Error(w, "export provider unreachable", http.StatusBadGateway)
+		http.Error(w, "export provider unreachable", http.StatusServiceUnavailable)
 		return
 	}
 	defer resp.Body.Close()
@@ -286,6 +325,10 @@ func (s *Server) handleContributionsExportRead(w http.ResponseWriter, r *http.Re
 		return
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 		http.Error(w, "export unavailable", http.StatusNotFound)
+		return
+	case resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout:
+		// The SDK reports 503 as ErrContributionUnavailable.
+		http.Error(w, "export provider unavailable", http.StatusServiceUnavailable)
 		return
 	default:
 		http.Error(w, "export provider returned HTTP "+strconv.Itoa(resp.StatusCode), http.StatusBadGateway)

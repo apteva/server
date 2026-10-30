@@ -41,11 +41,23 @@ type contributionsFixture struct {
 	lastAuth  string
 	lastPath  string
 	lastHdrs  http.Header
+	status    int // upstream status override for /exports/overview
+}
+
+// worldsRequires asks for both shared data contracts.
+var worldsRequires = []sdk.ContributionRequirement{
+	{Kind: sdk.ContributionKindExport, Contract: sdk.SummaryExportContract, Optional: true},
+	{Kind: sdk.ContributionKindExport, Contract: sdk.EntitiesExportContract, Optional: true},
 }
 
 // newContributionsFixture registers a running crm producer and a consumer
-// ("worlds") holding platform.contributions.read, both in proj-1.
+// ("worlds") holding platform.contributions.read, both in proj-1. The
+// consumer requests both shared contracts and is bound to crm.
 func newContributionsFixture(t *testing.T, consumerPerms ...sdk.Permission) *contributionsFixture {
+	return newContributionsFixtureWith(t, worldsRequires, true, consumerPerms...)
+}
+
+func newContributionsFixtureWith(t *testing.T, requires []sdk.ContributionRequirement, bound bool, consumerPerms ...sdk.Permission) *contributionsFixture {
 	t.Helper()
 	f := &contributionsFixture{s: newTestServer(t)}
 	f.s.installedApps = NewInstalledAppsRegistry()
@@ -54,6 +66,10 @@ func newContributionsFixture(t *testing.T, consumerPerms ...sdk.Permission) *con
 		f.lastPath, f.lastQuery, f.lastAuth, f.lastHdrs = r.URL.Path, r.URL.RawQuery, r.Header.Get("Authorization"), r.Header.Clone()
 		switch r.URL.Path {
 		case "/exports/overview":
+			if f.status != 0 {
+				http.Error(w, "down", f.status)
+				return
+			}
 			_, _ = io.WriteString(w, `{"contract":"apteva.summary/v1","sections":[]}`)
 		case "/exports/tickets":
 			http.Error(w, "export access denied", http.StatusForbidden)
@@ -75,8 +91,13 @@ func newContributionsFixture(t *testing.T, consumerPerms ...sdk.Permission) *con
 	if consumerPerms == nil {
 		consumerPerms = []sdk.Permission{sdk.PermContributionsRead}
 	}
-	worlds := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "worlds", Version: "1.0.0", Requires: sdk.Requires{Permissions: consumerPerms}}
-	f.worldsID = seedInstallWithBindings(t, f.s, "worlds", worlds, nil)
+	worlds := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "worlds", Version: "1.0.0", Requires: sdk.Requires{Permissions: consumerPerms, Contributions: requires}}
+	var bindings map[string]any
+	if bound {
+		worlds.Requires.Apps = []sdk.RequiredAppRef{{Name: "crm"}}
+		bindings = map[string]any{"crm": f.crmID}
+	}
+	f.worldsID = seedInstallWithBindings(t, f.s, "worlds", worlds, bindings)
 	f.s.installedApps.Add(&InstalledApp{
 		InstallID: f.worldsID, AppName: "worlds", ProjectID: "proj-1",
 		Manifest: worlds, SidecarURL: "http://127.0.0.1:1", Token: "worlds-token",
@@ -188,5 +209,65 @@ func TestContributions_ReadExportResolvesEndpointAndSwapsToken(t *testing.T) {
 		`{"project_id":"proj-1","app_install_id":`+itoa(f.crmID)+`,"export_id":"missing"}`)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown export: status=%d", rec.Code)
+	}
+}
+
+func TestContributions_OnlyRequestedContractsAreVisible(t *testing.T) {
+	f := newContributionsFixtureWith(t, worldsRequires[1:], true)
+	rec := f.call(http.MethodGet, "/apps/callback/contributions?project_id=proj-1", "")
+	var page sdk.ContributionPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.Items[0].ID != "tickets" {
+		t.Fatalf("status=%d items=%+v", rec.Code, page.Items)
+	}
+	rec = f.call(http.MethodPost, "/apps/callback/contributions/exports/read",
+		`{"project_id":"proj-1","app_install_id":`+itoa(f.crmID)+`,"export_id":"overview"}`)
+	if rec.Code != http.StatusForbidden || f.lastPath != "" {
+		t.Fatalf("unrequested contract read: status=%d upstream=%q", rec.Code, f.lastPath)
+	}
+
+	f = newContributionsFixtureWith(t, nil, true)
+	rec = f.call(http.MethodGet, "/apps/callback/contributions?project_id=proj-1", "")
+	page = sdk.ContributionPage{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || len(page.Items) != 0 {
+		t.Fatalf("no requirements: items=%+v", page.Items)
+	}
+}
+
+func TestContributions_PermissionedExportsNeedBinding(t *testing.T) {
+	f := newContributionsFixtureWith(t, worldsRequires, false)
+	rec := f.call(http.MethodGet, "/apps/callback/contributions?project_id=proj-1&kind=export", "")
+	var page sdk.ContributionPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.Items[0].ID != "tickets" {
+		t.Fatalf("unbound caller saw items=%+v", page.Items)
+	}
+	rec = f.call(http.MethodPost, "/apps/callback/contributions/exports/read",
+		`{"project_id":"proj-1","app_install_id":`+itoa(f.crmID)+`,"export_id":"overview"}`)
+	if rec.Code != http.StatusForbidden || f.lastPath != "" {
+		t.Fatalf("unbound read of crm.read export: status=%d upstream=%q", rec.Code, f.lastPath)
+	}
+	// Exports without declared permissions stay readable; the producer decides.
+	rec = f.call(http.MethodPost, "/apps/callback/contributions/exports/read",
+		`{"project_id":"proj-1","app_install_id":`+itoa(f.crmID)+`,"export_id":"tickets"}`)
+	if f.lastPath != "/exports/tickets" {
+		t.Fatalf("unpermissioned export not forwarded: status=%d", rec.Code)
+	}
+}
+
+func TestContributions_ProducerOutageIsUnavailable(t *testing.T) {
+	f := newContributionsFixture(t)
+	read := `{"project_id":"proj-1","app_install_id":` + itoa(f.crmID) + `,"export_id":"overview"}`
+	for _, code := range []int{http.StatusServiceUnavailable, http.StatusBadGateway, http.StatusGatewayTimeout} {
+		f.status = code
+		if rec := f.call(http.MethodPost, "/apps/callback/contributions/exports/read", read); rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("upstream %d: status=%d", code, rec.Code)
+		}
+	}
+	f.status = http.StatusInternalServerError
+	if rec := f.call(http.MethodPost, "/apps/callback/contributions/exports/read", read); rec.Code != http.StatusBadGateway {
+		t.Fatalf("upstream 500: status=%d", rec.Code)
+	}
+	f.upstream.Close()
+	if rec := f.call(http.MethodPost, "/apps/callback/contributions/exports/read", read); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unreachable: status=%d", rec.Code)
 	}
 }
