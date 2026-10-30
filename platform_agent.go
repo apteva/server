@@ -65,6 +65,25 @@ func isCoreListening(port int) bool {
 //
 // Users without a provider configured at boot time get their
 // helper spawned lazily on their first helper request once they add a provider.
+// bootPlatformHelpersEnabled reports whether activated Helpers start at
+// boot. On unless APTEVA_BOOT_META_AGENTS explicitly disables it.
+func bootPlatformHelpersEnabled(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
+
+// startPlatformHelper starts (or confirms) the user's activated Helper.
+// Tests replace the starter to avoid spawning a core.
+func (s *Server) startPlatformHelper(userID int64) (*Agent, error) {
+	if s.platformHelperStarter != nil {
+		return s.platformHelperStarter(userID)
+	}
+	return s.ensureMetaAgentRunning(userID)
+}
+
 func (s *Server) bootMetaAgents() {
 	// Brief delay so the HTTP listener is definitely accepting
 	// connections before we start spawning cores (the spawned cores
@@ -90,7 +109,7 @@ func (s *Server) bootMetaAgents() {
 			// provider and request the helper.
 			continue
 		}
-		if _, err := s.ensureMetaAgentRunning(u.ID); err != nil {
+		if _, err := s.startPlatformHelper(u.ID); err != nil {
 			fmt.Fprintf(os.Stderr, "[boot] meta-agent for user=%d: %v\n", u.ID, err)
 			continue
 		}
@@ -929,7 +948,19 @@ func (s *Server) handlePlatformHelperEnsureDefault(w http.ResponseWriter, r *htt
 	unlock := s.lockPlatformHelperActivation(userID)
 	defer unlock()
 	status := s.currentPlatformHelperStatus(userID)
-	if cloneQuarantineEnabled() || !status.DefaultEnabled || !status.ConversationsInstalled || !status.ProviderConfigured || status.Activated {
+	if status.Activated {
+		// Activated means kept running: bring back a Helper that stopped
+		// (crash, failed boot start) the next time the dashboard checks.
+		if status.State != "running" && status.ProviderConfigured && !cloneQuarantineEnabled() {
+			if _, err := s.startPlatformHelper(userID); err != nil {
+				log.Printf("[PLATFORM-HELPER] restart activated helper user=%d: %v", userID, err)
+			}
+			status = s.currentPlatformHelperStatus(userID)
+		}
+		writeJSON(w, status)
+		return
+	}
+	if cloneQuarantineEnabled() || !status.DefaultEnabled || !status.ConversationsInstalled || !status.ProviderConfigured {
 		writeJSON(w, status)
 		return
 	}
