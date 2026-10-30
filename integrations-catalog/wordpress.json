@@ -43,22 +43,10 @@
       "name": "list_posts",
       "description": "List posts from a WordPress site",
       "method": "GET",
-      "path": "/list-posts",
+      "path": "/posts",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL (e.g., https://example.com)"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "per_page": {
             "type": "number",
             "description": "Posts per page (default: 10)"
@@ -83,39 +71,23 @@
             "type": "string",
             "description": "Filter by tag IDs (comma-separated)"
           }
-        },
-        "required": [
-          "site_url"
-        ]
+        }
       }
     },
     {
       "name": "get_post",
       "description": "Get a single post by ID",
       "method": "GET",
-      "path": "/get-post",
+      "path": "/posts/{post_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "post_id": {
             "type": "number",
             "description": "Post ID"
           }
         },
         "required": [
-          "site_url",
           "post_id"
         ]
       }
@@ -124,22 +96,10 @@
       "name": "create_post",
       "description": "Create a new post",
       "method": "POST",
-      "path": "/create-post",
+      "path": "/posts",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "title": {
             "type": "string",
             "description": "Post title"
@@ -180,9 +140,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "title",
           "content"
         ]
@@ -191,23 +148,11 @@
     {
       "name": "update_post",
       "description": "Update an existing post",
-      "method": "PUT",
-      "path": "/update-post",
+      "method": "POST",
+      "path": "/posts/{post_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "post_id": {
             "type": "number",
             "description": "Post ID"
@@ -252,9 +197,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "post_id"
         ]
       }
@@ -263,22 +205,10 @@
       "name": "delete_post",
       "description": "Delete a post",
       "method": "DELETE",
-      "path": "/delete-post",
+      "path": "/posts/{post_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "post_id": {
             "type": "number",
             "description": "Post ID to delete"
@@ -289,9 +219,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "post_id"
         ]
       }
@@ -300,22 +227,10 @@
       "name": "list_pages",
       "description": "List pages from a WordPress site",
       "method": "GET",
-      "path": "/list-pages",
+      "path": "/pages",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "per_page": {
             "type": "number",
             "description": "Pages per page (default: 10)"
@@ -332,39 +247,23 @@
             "type": "string",
             "description": "Search term"
           }
-        },
-        "required": [
-          "site_url"
-        ]
+        }
       }
     },
     {
       "name": "get_page",
       "description": "Get a single page by ID",
       "method": "GET",
-      "path": "/get-page",
+      "path": "/pages/{page_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "page_id": {
             "type": "number",
             "description": "Page ID"
           }
         },
         "required": [
-          "site_url",
           "page_id"
         ]
       }
@@ -373,22 +272,10 @@
       "name": "create_page",
       "description": "Create a new page",
       "method": "POST",
-      "path": "/create-page",
+      "path": "/pages",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "title": {
             "type": "string",
             "description": "Page title"
@@ -423,9 +310,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "title",
           "content"
         ]
@@ -434,23 +318,11 @@
     {
       "name": "update_page",
       "description": "Update an existing page",
-      "method": "PUT",
-      "path": "/update-page",
+      "method": "POST",
+      "path": "/pages/{page_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "page_id": {
             "type": "number",
             "description": "Page ID"
@@ -489,9 +361,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "page_id"
         ]
       }
@@ -500,22 +369,10 @@
       "name": "delete_page",
       "description": "Delete a page",
       "method": "DELETE",
-      "path": "/delete-page",
+      "path": "/pages/{page_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "page_id": {
             "type": "number",
             "description": "Page ID to delete"
@@ -526,9 +383,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "page_id"
         ]
       }
@@ -537,22 +391,10 @@
       "name": "list_media",
       "description": "List media items from a WordPress site",
       "method": "GET",
-      "path": "/list-media",
+      "path": "/media",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "per_page": {
             "type": "number",
             "description": "Items per page (default: 10)"
@@ -577,70 +419,42 @@
             "type": "number",
             "description": "Filter by author ID"
           }
-        },
-        "required": [
-          "site_url"
-        ]
+        }
       }
     },
     {
       "name": "get_media",
       "description": "Get a single media item by ID",
       "method": "GET",
-      "path": "/get-media",
+      "path": "/media/{media_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "media_id": {
             "type": "number",
             "description": "Media ID"
           }
         },
         "required": [
-          "site_url",
           "media_id"
         ]
       }
     },
     {
       "name": "upload_media",
-      "description": "Upload media to WordPress from a URL",
+      "description": "Upload a file to the WordPress media library",
       "method": "POST",
-      "path": "/upload-media",
+      "path": "/media",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
+          "file": {
             "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
-          "file_url": {
-            "type": "string",
-            "description": "URL of file to upload"
+            "description": "File contents as a blobref:// handle, base64, data URL, or binary envelope"
           },
           "filename": {
             "type": "string",
-            "description": "Override filename"
+            "description": "File name with extension (e.g. photo.jpg); WordPress uses it to detect the media type"
           },
           "title": {
             "type": "string",
@@ -657,36 +471,38 @@
           "description": {
             "type": "string",
             "description": "Media description"
+          },
+          "post": {
+            "type": "number",
+            "description": "ID of the post to attach the media to"
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
-          "file_url"
+          "file",
+          "filename"
+        ]
+      },
+      "multipart_form": {
+        "file_fields": {
+          "file": "file"
+        },
+        "field_names": [
+          "title",
+          "alt_text",
+          "caption",
+          "description",
+          "post"
         ]
       }
     },
     {
       "name": "update_media",
       "description": "Update media metadata",
-      "method": "PUT",
-      "path": "/update-media",
+      "method": "POST",
+      "path": "/media/{media_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "media_id": {
             "type": "number",
             "description": "Media ID"
@@ -709,9 +525,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "media_id"
         ]
       }
@@ -720,36 +533,22 @@
       "name": "delete_media",
       "description": "Delete media from WordPress",
       "method": "DELETE",
-      "path": "/delete-media",
+      "path": "/media/{media_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "media_id": {
             "type": "number",
             "description": "Media ID to delete"
           },
           "force": {
             "type": "boolean",
-            "description": "Permanently delete (default: true)"
+            "description": "Must be true; WordPress does not trash media"
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
-          "media_id"
+          "media_id",
+          "force"
         ]
       }
     },
@@ -757,22 +556,10 @@
       "name": "list_comments",
       "description": "List comments from a WordPress site",
       "method": "GET",
-      "path": "/list-comments",
+      "path": "/comments",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "per_page": {
             "type": "number",
             "description": "Comments per page (default: 10)"
@@ -797,39 +584,23 @@
             "type": "string",
             "description": "Search term"
           }
-        },
-        "required": [
-          "site_url"
-        ]
+        }
       }
     },
     {
       "name": "get_comment",
       "description": "Get a single comment by ID",
       "method": "GET",
-      "path": "/get-comment",
+      "path": "/comments/{comment_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "comment_id": {
             "type": "number",
             "description": "Comment ID"
           }
         },
         "required": [
-          "site_url",
           "comment_id"
         ]
       }
@@ -838,22 +609,10 @@
       "name": "create_comment",
       "description": "Create a new comment",
       "method": "POST",
-      "path": "/create-comment",
+      "path": "/comments",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "post": {
             "type": "number",
             "description": "Post ID to comment on"
@@ -884,7 +643,6 @@
           }
         },
         "required": [
-          "site_url",
           "post",
           "content"
         ]
@@ -893,23 +651,11 @@
     {
       "name": "update_comment",
       "description": "Update an existing comment",
-      "method": "PUT",
-      "path": "/update-comment",
+      "method": "POST",
+      "path": "/comments/{comment_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "comment_id": {
             "type": "number",
             "description": "Comment ID"
@@ -924,9 +670,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "comment_id"
         ]
       }
@@ -935,22 +678,10 @@
       "name": "delete_comment",
       "description": "Delete a comment",
       "method": "DELETE",
-      "path": "/delete-comment",
+      "path": "/comments/{comment_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "comment_id": {
             "type": "number",
             "description": "Comment ID to delete"
@@ -961,9 +692,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "comment_id"
         ]
       }
@@ -972,22 +700,10 @@
       "name": "list_categories",
       "description": "List categories from a WordPress site",
       "method": "GET",
-      "path": "/list-categories",
+      "path": "/categories",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "per_page": {
             "type": "number",
             "description": "Categories per page (default: 100)"
@@ -1004,39 +720,23 @@
             "type": "boolean",
             "description": "Hide empty categories (default: false)"
           }
-        },
-        "required": [
-          "site_url"
-        ]
+        }
       }
     },
     {
       "name": "get_category",
       "description": "Get a single category by ID",
       "method": "GET",
-      "path": "/get-category",
+      "path": "/categories/{category_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "category_id": {
             "type": "number",
             "description": "Category ID"
           }
         },
         "required": [
-          "site_url",
           "category_id"
         ]
       }
@@ -1045,22 +745,10 @@
       "name": "create_category",
       "description": "Create a new category",
       "method": "POST",
-      "path": "/create-category",
+      "path": "/categories",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "name": {
             "type": "string",
             "description": "Category name"
@@ -1079,9 +767,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "name"
         ]
       }
@@ -1089,23 +774,11 @@
     {
       "name": "update_category",
       "description": "Update an existing category",
-      "method": "PUT",
-      "path": "/update-category",
+      "method": "POST",
+      "path": "/categories/{category_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "category_id": {
             "type": "number",
             "description": "Category ID"
@@ -1128,9 +801,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "category_id"
         ]
       }
@@ -1139,36 +809,22 @@
       "name": "delete_category",
       "description": "Delete a category",
       "method": "DELETE",
-      "path": "/delete-category",
+      "path": "/categories/{category_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "category_id": {
             "type": "number",
             "description": "Category ID to delete"
           },
           "force": {
             "type": "boolean",
-            "description": "Permanently delete (default: true)"
+            "description": "Must be true; WordPress does not trash categories"
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
-          "category_id"
+          "category_id",
+          "force"
         ]
       }
     },
@@ -1176,22 +832,10 @@
       "name": "list_tags",
       "description": "List tags from a WordPress site",
       "method": "GET",
-      "path": "/list-tags",
+      "path": "/tags",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "per_page": {
             "type": "number",
             "description": "Tags per page (default: 100)"
@@ -1208,39 +852,23 @@
             "type": "boolean",
             "description": "Hide empty tags (default: false)"
           }
-        },
-        "required": [
-          "site_url"
-        ]
+        }
       }
     },
     {
       "name": "get_tag",
       "description": "Get a single tag by ID",
       "method": "GET",
-      "path": "/get-tag",
+      "path": "/tags/{tag_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "tag_id": {
             "type": "number",
             "description": "Tag ID"
           }
         },
         "required": [
-          "site_url",
           "tag_id"
         ]
       }
@@ -1249,22 +877,10 @@
       "name": "create_tag",
       "description": "Create a new tag",
       "method": "POST",
-      "path": "/create-tag",
+      "path": "/tags",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "name": {
             "type": "string",
             "description": "Tag name"
@@ -1279,9 +895,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "name"
         ]
       }
@@ -1289,23 +902,11 @@
     {
       "name": "update_tag",
       "description": "Update an existing tag",
-      "method": "PUT",
-      "path": "/update-tag",
+      "method": "POST",
+      "path": "/tags/{tag_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "tag_id": {
             "type": "number",
             "description": "Tag ID"
@@ -1324,9 +925,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "tag_id"
         ]
       }
@@ -1335,36 +933,22 @@
       "name": "delete_tag",
       "description": "Delete a tag",
       "method": "DELETE",
-      "path": "/delete-tag",
+      "path": "/tags/{tag_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "tag_id": {
             "type": "number",
             "description": "Tag ID to delete"
           },
           "force": {
             "type": "boolean",
-            "description": "Permanently delete (default: true)"
+            "description": "Must be true; WordPress does not trash tags"
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
-          "tag_id"
+          "tag_id",
+          "force"
         ]
       }
     },
@@ -1372,22 +956,10 @@
       "name": "list_users",
       "description": "List users from a WordPress site (requires admin)",
       "method": "GET",
-      "path": "/list-users",
+      "path": "/users",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress admin username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "per_page": {
             "type": "number",
             "description": "Users per page (default: 10)"
@@ -1404,70 +976,53 @@
             "type": "string",
             "description": "Filter by role: administrator, editor, author, contributor, subscriber"
           }
-        },
-        "required": [
-          "site_url",
-          "username",
-          "application_password"
-        ]
+        }
       }
     },
     {
       "name": "get_user",
       "description": "Get a single user by ID",
       "method": "GET",
-      "path": "/get-user",
+      "path": "/users/{user_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress admin username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "user_id": {
             "type": "number",
             "description": "User ID"
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "user_id"
         ]
+      }
+    },
+    {
+      "name": "get_current_user",
+      "description": "Get the user the connection authenticates as (useful to verify credentials and capabilities)",
+      "method": "GET",
+      "path": "/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "string",
+            "description": "Response context: view, embed, or edit (edit includes roles and capabilities)"
+          }
+        }
       }
     },
     {
       "name": "create_user",
       "description": "Create a new user (requires admin)",
       "method": "POST",
-      "path": "/create-user",
+      "path": "/users",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
           "username": {
             "type": "string",
-            "description": "WordPress admin username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
-          "new_username": {
-            "type": "string",
-            "description": "Username for new user"
+            "description": "Login name for the new user"
           },
           "email": {
             "type": "string",
@@ -1506,10 +1061,7 @@
           }
         },
         "required": [
-          "site_url",
           "username",
-          "application_password",
-          "new_username",
           "email",
           "password"
         ]
@@ -1518,23 +1070,11 @@
     {
       "name": "update_user",
       "description": "Update an existing user",
-      "method": "PUT",
-      "path": "/update-user",
+      "method": "POST",
+      "path": "/users/{user_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress admin username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "user_id": {
             "type": "number",
             "description": "User ID"
@@ -1576,9 +1116,6 @@
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
           "user_id"
         ]
       }
@@ -1587,22 +1124,10 @@
       "name": "delete_user",
       "description": "Delete a user (requires admin)",
       "method": "DELETE",
-      "path": "/delete-user",
+      "path": "/users/{user_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress admin username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "user_id": {
             "type": "number",
             "description": "User ID to delete"
@@ -1613,14 +1138,13 @@
           },
           "force": {
             "type": "boolean",
-            "description": "Permanently delete (default: true)"
+            "description": "Must be true; WordPress does not trash users"
           }
         },
         "required": [
-          "site_url",
-          "username",
-          "application_password",
-          "user_id"
+          "user_id",
+          "force",
+          "reassign"
         ]
       }
     },
@@ -1632,18 +1156,6 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "site_url": {
-            "type": "string",
-            "description": "WordPress site URL"
-          },
-          "username": {
-            "type": "string",
-            "description": "WordPress username"
-          },
-          "application_password": {
-            "type": "string",
-            "description": "WordPress application password"
-          },
           "search": {
             "type": "string",
             "description": "Search term"
@@ -1666,10 +1178,12 @@
           }
         },
         "required": [
-          "site_url",
           "search"
         ]
       }
     }
-  ]
+  ],
+  "health_check": {
+    "tool": "get_current_user"
+  }
 }
