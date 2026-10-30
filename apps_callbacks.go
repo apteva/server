@@ -106,6 +106,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackIntegrationWebhooks(w, r, parts[1:])
 	case "apps":
 		s.handleCallbackApps(w, r, parts[1:])
+	case "contributions":
+		s.handleCallbackContributions(w, r, parts[1:])
 	case "agent-tools":
 		s.handleCallbackAgentTools(w, r, parts[1:])
 	case "oauth":
@@ -1488,25 +1490,31 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		originalDirector(req)
 		req.URL.Path = "/" + strings.Join(tailParts, "/")
 		req.URL.RawPath = ""
-		req.Header.Set("X-User-ID", strconv.FormatInt(callerUserID, 10))
-		req.Header.Del("X-Apteva-Project-ID")
-		if requestedProjectID != "" {
-			req.Header.Set("X-Apteva-Project-ID", requestedProjectID)
-		}
-		req.Header.Del("X-Apteva-Subject-Type")
-		req.Header.Del("X-Apteva-Original-Authorization")
-		if target.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+target.Token)
-		} else {
-			req.Header.Del("Authorization")
-		}
-		req.Header.Set("X-Apteva-App-Install-ID", strconv.FormatInt(target.InstallID, 10))
-		req.Header.Del("X-Apteva-Operator-ID")
-		req.Header.Set("X-Apteva-Bound-Caller-Install-ID", strconv.FormatInt(callerInstallID, 10))
-		req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
+		setBoundAppCallHeaders(req, target, callerInstallID, callerAppName, callerUserID, requestedProjectID)
 	}
 	configureAppClientIP(proxy, r, target.Token)
 	proxy.ServeHTTP(w, r)
+}
+
+// setBoundAppCallHeaders replaces the caller's identity headers with the
+// target's token and the platform-asserted caller, user and project.
+func setBoundAppCallHeaders(req *http.Request, target *InstalledApp, callerInstallID int64, callerAppName string, userID int64, projectID string) {
+	req.Header.Set("X-User-ID", strconv.FormatInt(userID, 10))
+	req.Header.Del("X-Apteva-Project-ID")
+	if projectID != "" {
+		req.Header.Set("X-Apteva-Project-ID", projectID)
+	}
+	req.Header.Del("X-Apteva-Subject-Type")
+	req.Header.Del("X-Apteva-Original-Authorization")
+	if target.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+target.Token)
+	} else {
+		req.Header.Del("Authorization")
+	}
+	req.Header.Set("X-Apteva-App-Install-ID", strconv.FormatInt(target.InstallID, 10))
+	req.Header.Del("X-Apteva-Operator-ID")
+	req.Header.Set("X-Apteva-Bound-Caller-Install-ID", strconv.FormatInt(callerInstallID, 10))
+	req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
 }
 
 // ─── helpers ───────────────────────────────────────────────────────
