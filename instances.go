@@ -2293,6 +2293,9 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		restrictAgentConfig(r, inst)
+		if inst.Kind == "platform_helper" {
+			inst.Config = platformHelperResponseConfig(inst.Config)
+		}
 		writeJSON(w, inst)
 
 	case http.MethodPut, http.MethodPatch:
@@ -3632,7 +3635,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		needsRewrite := resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet && (corePath == "/status" || corePath == "/threads" || strings.HasPrefix(corePath, "/threads/"))
+		needsRewrite := resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet && (corePath == "/status" || corePath == "/threads" || strings.HasPrefix(corePath, "/threads/") || (corePath == "/config" && inst.Kind == "platform_helper"))
 		if !needsRewrite {
 			for k, v := range resp.Header {
 				w.Header()[k] = v
@@ -3657,6 +3660,8 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				body, rewritten = s.enrichAgentStatusBody(inst.ID, body, time.Now(), inst)
 			case "/threads":
 				body, rewritten = s.enrichAgentThreadsBody(inst.ID, body, time.Now())
+			case "/config":
+				body, rewritten = redactPlatformHelperConfigBody(body)
 			default:
 				if strings.HasPrefix(corePath, "/threads/") {
 					body, rewritten = sanitizeDirectiveJSON(body)
@@ -3845,6 +3850,9 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		}
 		if out["mcp_servers"] == nil {
 			out["mcp_servers"] = []any{}
+		}
+		if inst.Kind == "platform_helper" {
+			out["mcp_servers"] = redactMCPServerEntries(out["mcp_servers"])
 		}
 		s.behaviorMetadata(inst, out)
 		sanitizeDirectiveFields(out)
