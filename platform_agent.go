@@ -820,6 +820,7 @@ func sanitizedPlatformHelper(helper *Agent, running bool) *Agent {
 	copy.Name = "Apteva Helper"
 	copy.Directive = "Platform assistant for dashboard help, agent design, and quick agent creation."
 	copy.Kind = "platform_helper"
+	copy.Config = platformHelperResponseConfig(helper.Config)
 	return &copy
 }
 
