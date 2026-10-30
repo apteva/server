@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -674,7 +675,13 @@ func (s *Server) startLocalOAuthResolved(userID int64, app *AppTemplate, connNam
 	return conn, s.localOAuthAuthorizeURL(app, state, challenge, clientID), nil
 }
 
-func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, string, error) {
+// startLocalOAuthReauth starts a browser OAuth dance that writes fresh tokens
+// back onto the existing connection connID. optionalScopes (OAuth2 only) must
+// be declared in the integration's optional_scopes and are requested on top of
+// the base scopes. appInstallID/returnURL are stamped on the state row for
+// app-initiated reauth so the callback 302s back into the app; the dashboard
+// passes 0/"" and keeps the auto-close result page.
+func (s *Server) startLocalOAuthReauth(userID, connID int64, optionalScopes []string, appInstallID int64, returnURL string) (*Connection, string, error) {
 	conn, encCreds, err := s.store.GetConnection(userID, connID)
 	if err != nil || conn == nil {
 		return nil, "", fmt.Errorf("connection not found")
@@ -688,6 +695,16 @@ func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, strin
 	app := s.catalog.Get(conn.AppSlug)
 	if app == nil || (app.Auth.OAuth2 == nil && app.Auth.OAuth1 == nil) {
 		return nil, "", fmt.Errorf("app %s has no browser OAuth config", conn.AppSlug)
+	}
+	var extraScopes []string
+	if len(optionalScopes) > 0 {
+		if conn.AuthType != "oauth2" {
+			return nil, "", fmt.Errorf("optional scopes are only supported for OAuth2 connections")
+		}
+		extraScopes, err = resolveOptionalOAuthScopes(app, optionalScopes)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
 	creds := map[string]string{}
@@ -722,7 +739,7 @@ func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, strin
 		if clientID == "" || clientSecret == "" {
 			return nil, "", fmt.Errorf("missing OAuth consumer key or secret for %s", app.Slug)
 		}
-		return s.startOAuth1Authorization(userID, app, conn, clientID, clientSecret, 0, "", oauthStatePurposeReauth)
+		return s.startOAuth1Authorization(userID, app, conn, clientID, clientSecret, appInstallID, returnURL, oauthStatePurposeReauth)
 	}
 	if app.Auth.OAuth2.ClientIDRequired && clientID == "" {
 		return nil, "", fmt.Errorf("missing client_id for %s — set it on an OAuth connection or via env var OAUTH_%s_CLIENT_ID",
@@ -736,11 +753,11 @@ func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, strin
 			return nil, "", err
 		}
 	}
-	state, err := s.store.mintOAuthState(userID, conn.ID, app.Slug, verifier, 10*time.Minute, 0, "", oauthStatePurposeReauth)
+	state, err := s.store.mintOAuthState(userID, conn.ID, app.Slug, verifier, 10*time.Minute, appInstallID, returnURL, oauthStatePurposeReauth)
 	if err != nil {
 		return nil, "", err
 	}
-	return conn, s.localOAuthAuthorizeURL(app, state, challenge, clientID), nil
+	return conn, s.localOAuthAuthorizeURL(app, state, challenge, clientID, extraScopes...), nil
 }
 
 // POST /connections/:id/reauth — start the connection's catalog-declared auth
@@ -770,9 +787,25 @@ func (s *Server) handleReauthConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Optional body: {"optional_scopes": [...]}. No/empty body keeps the
+	// historical behaviour (base scopes only).
+	var body struct {
+		OptionalScopes []string `json:"optional_scopes"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if len(body.OptionalScopes) > 0 && conn.AuthType != "oauth2" {
+		http.Error(w, "optional scopes are only supported for OAuth2 connections", http.StatusBadRequest)
+		return
+	}
 	switch conn.AuthType {
 	case "oauth1", "oauth2":
-		conn, authURL, err := s.startLocalOAuthReauth(userID, connID)
+		conn, authURL, err := s.startLocalOAuthReauth(userID, connID, body.OptionalScopes, 0, "")
 		if err != nil {
 			http.Error(w, "oauth reauth: "+err.Error(), http.StatusBadRequest)
 			return
@@ -803,7 +836,42 @@ func (s *Server) handleReauthConnection(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (s *Server) localOAuthAuthorizeURL(app *AppTemplate, state, challenge, clientID string) string {
+// resolveOptionalOAuthScopes validates requested optional scopes against the
+// integration's auth.oauth2.optional_scopes declaration. It trims, drops
+// blanks and de-duplicates, preserving request order. Any scope not declared
+// is an error (callers surface it as a 400 before minting state).
+func resolveOptionalOAuthScopes(app *AppTemplate, requested []string) ([]string, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	if app == nil || app.Auth.OAuth2 == nil {
+		return nil, fmt.Errorf("optional scopes require an OAuth2 integration")
+	}
+	declared := make(map[string]bool, len(app.Auth.OAuth2.OptionalScopes))
+	for _, opt := range app.Auth.OAuth2.OptionalScopes {
+		declared[strings.TrimSpace(opt.Scope)] = true
+	}
+	out := make([]string, 0, len(requested))
+	seen := make(map[string]bool, len(requested))
+	for _, raw := range requested {
+		scope := strings.TrimSpace(raw)
+		if scope == "" || seen[scope] {
+			continue
+		}
+		if !declared[scope] {
+			return nil, fmt.Errorf("scope %q is not a declared optional scope of %s", scope, app.Slug)
+		}
+		seen[scope] = true
+		out = append(out, scope)
+	}
+	return out, nil
+}
+
+// localOAuthAuthorizeURL builds the provider authorize URL. extraScopes are
+// appended to cfg.Scopes (de-duplicated, same separator); callers must have
+// validated them with resolveOptionalOAuthScopes. With no extras the output
+// is identical to the base-scopes URL.
+func (s *Server) localOAuthAuthorizeURL(app *AppTemplate, state, challenge, clientID string, extraScopes ...string) string {
 	cfg := app.Auth.OAuth2
 	// Most providers use the OAuth 2.0 standard parameter name "client_id".
 	// TikTok is the notable outlier — it demands "client_key" and rejects
@@ -823,8 +891,20 @@ func (s *Server) localOAuthAuthorizeURL(app *AppTemplate, state, challenge, clie
 	q.Set("response_type", "code")
 	q.Set(clientIDParam, clientID)
 	q.Set("redirect_uri", s.localOAuthRedirectURI())
-	if len(cfg.Scopes) > 0 {
-		q.Set("scope", strings.Join(cfg.Scopes, scopeSep))
+	scopes := cfg.Scopes
+	if len(extraScopes) > 0 {
+		scopes = make([]string, 0, len(cfg.Scopes)+len(extraScopes))
+		seen := make(map[string]bool, len(cfg.Scopes)+len(extraScopes))
+		for _, scope := range append(append([]string{}, cfg.Scopes...), extraScopes...) {
+			if seen[scope] {
+				continue
+			}
+			seen[scope] = true
+			scopes = append(scopes, scope)
+		}
+	}
+	if len(scopes) > 0 {
+		q.Set("scope", strings.Join(scopes, scopeSep))
 	}
 	q.Set("state", state)
 	if cfg.PKCE {

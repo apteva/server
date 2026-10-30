@@ -912,69 +912,14 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	delegatedProject, executionInput := sanitizeIntegrationCallbackInput(body.Input)
 
-	// 2. Permission check.
-	if !installHasPermission(s, installID, sdk.PermConnectionsExecute) {
-		log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d reason=missing-permission", installID, connID)
-		http.Error(w, "missing permission: "+string(sdk.PermConnectionsExecute), http.StatusForbidden)
-		return
-	}
-
-	// Look up connection up-front so the access decision can read
-	// owner_app_install_id and created_via.
+	// 2–4. Permission + reachability + role-compatibility. Shared with
+	// POST /oauth/reauth so an app can only re-authorize a connection it
+	// is already allowed to execute tools against.
 	userID := getUserID(r)
-	conn, encCreds, err := s.store.GetConnection(userID, connID)
-	if err != nil || conn == nil {
-		http.Error(w, "connection not found", http.StatusNotFound)
+	conn, encCreds, status, msg := s.authorizeCallbackConnectionUse(installID, userID, connID, delegatedProject, body.Tool)
+	if status != 0 {
+		http.Error(w, msg, status)
 		return
-	}
-
-	// 3. Reachability — accept any of:
-	//    a. role-bound via integration_bindings,
-	//    b. owned by this install (created itself via oauth.start),
-	//    c. operator-installed integration (created_via='integration').
-	role, bound := installBoundConnection(s, installID, connID)
-	ownerID := connectionOwnerInstallID(s, connID)
-	createdVia := connectionCreatedVia(s, connID)
-	debugLogf("[INTEGRATIONS-EXEC] install=%d conn=%d slug=%s tool=%s bound=%t role=%q owner=%d created_via=%q",
-		installID, connID, conn.AppSlug, body.Tool, bound, role, ownerID, createdVia)
-	switch {
-	case bound:
-		// 4. Slug-compatibility — only meaningful for role-bound (3a).
-		// Owner / operator paths have no role-dep to validate against
-		// and the caller already passed the permission check.
-		dep, err := installRoleDep(s, installID, role)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
-			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=incompatible-role role=%q", installID, connID, conn.AppSlug, role)
-			http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
-			return
-		}
-	case ownerID == installID:
-		debugLogf("[INTEGRATIONS-EXEC] grant=owner install=%d conn=%d", installID, connID)
-	case createdVia == "integration":
-		debugLogf("[INTEGRATIONS-EXEC] grant=operator install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
-	default:
-		// Dynamic bypass — caller declares requires.dynamic_integration_
-		// access and is identified as official (apps_dynamic_call.go).
-		// Project isolation is preserved: the connection's project_id
-		// must match the caller install's.
-		if ok, msg := s.resolveDynamicIntegration(installID, connID, conn.ProjectID, delegatedProject); ok {
-			debugLogf("[INTEGRATIONS-EXEC] grant=dynamic install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
-		} else if msg != "" {
-			// Eligible caller, wrong project — distinct diagnostic so
-			// consumers can tell this apart from "not eligible".
-			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d reason=%s", installID, connID, msg)
-			http.Error(w, msg, http.StatusForbidden)
-			return
-		} else {
-			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=not-bound-not-owned-not-operator owner=%d created_via=%q",
-				installID, connID, conn.AppSlug, ownerID, createdVia)
-			http.Error(w, "connection not reachable by this install (not bound, not owned, not operator-installed)", http.StatusForbidden)
-			return
-		}
 	}
 
 	// Resolve catalog tool. Accept the same three forms as
@@ -1189,6 +1134,78 @@ func sanitizeIntegrationCallbackInput(input map[string]any) (string, map[string]
 		clean[key] = value
 	}
 	return strings.TrimSpace(projectID), clean
+}
+
+// authorizeCallbackConnectionUse is the access gate for a sidecar acting on
+// a user connection: the install must declare platform.connections.execute
+// and the connection must be reachable by it (role-bound with a compatible
+// slug, owned by the install, operator-installed, or reachable through the
+// official dynamic-integration bypass within the same project).
+//
+// It is the single implementation behind POST /integrations/:connID/execute
+// and POST /oauth/reauth, so an app can only ask the user to re-authorize a
+// connection it is already allowed to execute integration tools against.
+// tool is used only for diagnostics. A zero status means allowed; otherwise
+// status/msg are the HTTP error to return.
+func (s *Server) authorizeCallbackConnectionUse(installID, userID, connID int64, delegatedProject, tool string) (*Connection, string, int, string) {
+	// 2. Permission check.
+	if !installHasPermission(s, installID, sdk.PermConnectionsExecute) {
+		log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d reason=missing-permission", installID, connID)
+		return nil, "", http.StatusForbidden, "missing permission: " + string(sdk.PermConnectionsExecute)
+	}
+
+	// Look up connection up-front so the access decision can read
+	// owner_app_install_id and created_via.
+	conn, encCreds, err := s.store.GetConnection(userID, connID)
+	if err != nil || conn == nil {
+		return nil, "", http.StatusNotFound, "connection not found"
+	}
+
+	// 3. Reachability — accept any of:
+	//    a. role-bound via integration_bindings,
+	//    b. owned by this install (created itself via oauth.start),
+	//    c. operator-installed integration (created_via='integration').
+	role, bound := installBoundConnection(s, installID, connID)
+	ownerID := connectionOwnerInstallID(s, connID)
+	createdVia := connectionCreatedVia(s, connID)
+	debugLogf("[INTEGRATIONS-EXEC] install=%d conn=%d slug=%s tool=%s bound=%t role=%q owner=%d created_via=%q",
+		installID, connID, conn.AppSlug, tool, bound, role, ownerID, createdVia)
+	switch {
+	case bound:
+		// 4. Slug-compatibility — only meaningful for role-bound (3a).
+		// Owner / operator paths have no role-dep to validate against
+		// and the caller already passed the permission check.
+		dep, err := installRoleDep(s, installID, role)
+		if err != nil {
+			return nil, "", http.StatusInternalServerError, err.Error()
+		}
+		if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
+			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=incompatible-role role=%q", installID, connID, conn.AppSlug, role)
+			return nil, "", http.StatusForbidden, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role)
+		}
+	case ownerID == installID:
+		debugLogf("[INTEGRATIONS-EXEC] grant=owner install=%d conn=%d", installID, connID)
+	case createdVia == "integration":
+		debugLogf("[INTEGRATIONS-EXEC] grant=operator install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
+	default:
+		// Dynamic bypass — caller declares requires.dynamic_integration_
+		// access and is identified as official (apps_dynamic_call.go).
+		// Project isolation is preserved: the connection's project_id
+		// must match the caller install's.
+		if ok, msg := s.resolveDynamicIntegration(installID, connID, conn.ProjectID, delegatedProject); ok {
+			debugLogf("[INTEGRATIONS-EXEC] grant=dynamic install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
+		} else if msg != "" {
+			// Eligible caller, wrong project — distinct diagnostic so
+			// consumers can tell this apart from "not eligible".
+			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d reason=%s", installID, connID, msg)
+			return nil, "", http.StatusForbidden, msg
+		} else {
+			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=not-bound-not-owned-not-operator owner=%d created_via=%q",
+				installID, connID, conn.AppSlug, ownerID, createdVia)
+			return nil, "", http.StatusForbidden, "connection not reachable by this install (not bound, not owned, not operator-installed)"
+		}
+	}
+	return conn, encCreds, 0, ""
 }
 
 // ─── /apps/:appName/call ───────────────────────────────────────────
@@ -1546,8 +1563,12 @@ func bindingsForInstall(s *Server, installID int64) map[string]any {
 //
 // Authorization: install must declare platform.oauth.start.
 func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) == 1 && parts[0] == "reauth" && r.Method == http.MethodPost {
+		s.handleCallbackOAuthReauth(w, r)
+		return
+	}
 	if len(parts) != 1 || parts[0] != "start" || r.Method != http.MethodPost {
-		http.Error(w, "POST /oauth/start only", http.StatusMethodNotAllowed)
+		http.Error(w, "POST /oauth/start or /oauth/reauth only", http.StatusMethodNotAllowed)
 		return
 	}
 	installID, err := requireInstallID(r)
@@ -1614,6 +1635,81 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 		return
 	}
 	// 10-minute window matches mintOAuthState's TTL.
+	expiresAt := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
+	writeJSON(w, map[string]any{
+		"connection_id": conn.ID,
+		"authorize_url": authURL,
+		"expires_at":    expiresAt,
+	})
+}
+
+// POST /oauth/reauth
+//
+// Body: {connection_id, optional_scopes?, return_url, project_id?}
+//
+// Asks the user to re-authorize ONE existing OAuth2 connection, optionally
+// adding scopes the integration declares in auth.oauth2.optional_scopes.
+// The callback writes fresh tokens onto that same connection (no new row)
+// and 302s the browser to return_url?conn_id=<id>&status=ok.
+//
+// Authorization: install must declare platform.oauth.start, AND the
+// connection must pass authorizeCallbackConnectionUse — the exact gate
+// /integrations/:connID/execute applies (platform.connections.execute +
+// bound/owned/operator/dynamic reachability). An app can therefore only
+// re-authorize connections it can already execute tools against.
+func (s *Server) handleCallbackOAuthReauth(w http.ResponseWriter, r *http.Request) {
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if !installHasPermission(s, installID, sdk.PermOAuthStart) {
+		http.Error(w, "missing permission platform.oauth.start", http.StatusForbidden)
+		return
+	}
+	var body struct {
+		ConnectionID   int64    `json:"connection_id"`
+		OptionalScopes []string `json:"optional_scopes"`
+		ReturnURL      string   `json:"return_url"`
+		ProjectID      string   `json:"project_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<19)).Decode(&body); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.ConnectionID <= 0 {
+		http.Error(w, "connection_id required", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.ReturnURL) == "" {
+		http.Error(w, "return_url required", http.StatusBadRequest)
+		return
+	}
+	userID := getUserID(r)
+	conn, _, status, msg := s.authorizeCallbackConnectionUse(installID, userID, body.ConnectionID, strings.TrimSpace(body.ProjectID), "oauth.reauth")
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	if conn.AuthType != "oauth2" {
+		http.Error(w, "oauth reauth is only supported for OAuth2 connections", http.StatusBadRequest)
+		return
+	}
+	app := s.catalog.Get(conn.AppSlug)
+	if app == nil || app.Auth.OAuth2 == nil {
+		http.Error(w, conn.AppSlug+" has no OAuth2 config", http.StatusBadRequest)
+		return
+	}
+	if _, err := resolveOptionalOAuthScopes(app, body.OptionalScopes); err != nil {
+		http.Error(w, "oauth reauth: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	conn, authURL, err := s.startLocalOAuthReauth(userID, conn.ID, body.OptionalScopes, installID, body.ReturnURL)
+	if err != nil {
+		http.Error(w, "oauth reauth: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	log.Printf("[OAUTH-REAUTH] install=%d conn=%d slug=%s optional_scopes=%d", installID, conn.ID, conn.AppSlug, len(body.OptionalScopes))
 	expiresAt := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
 	writeJSON(w, map[string]any{
 		"connection_id": conn.ID,

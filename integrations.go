@@ -496,13 +496,27 @@ type CredentialField struct {
 	Exposure    string   `json:"exposure,omitempty"` // "secret" (default) or "public"
 }
 
+// OAuthOptionalScope is one entry of auth.oauth2.optional_scopes.
+type OAuthOptionalScope struct {
+	Scope       string `json:"scope"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
 type OAuthConfig struct {
-	AuthorizeURL         string   `json:"authorize_url"`
-	TokenURL             string   `json:"token_url"`
-	Scopes               []string `json:"scopes"`
-	ClientIDRequired     bool     `json:"client_id_required"`
-	PKCE                 bool     `json:"pkce"`
-	ClientSecretRequired bool     `json:"client_secret_required,omitempty"`
+	AuthorizeURL string   `json:"authorize_url"`
+	TokenURL     string   `json:"token_url"`
+	Scopes       []string `json:"scopes"`
+	// OptionalScopes are declared but never requested by default. An
+	// operator (dashboard reauth) or an app (POST /oauth/reauth) can ask
+	// the user to re-authorize ONE existing connection with some of them
+	// added on top of Scopes — e.g. YouTube's allowlisted
+	// channel-memberships.creator scope, which must not appear in every
+	// YouTube consent.
+	OptionalScopes       []OAuthOptionalScope `json:"optional_scopes,omitempty"`
+	ClientIDRequired     bool                 `json:"client_id_required"`
+	PKCE                 bool                 `json:"pkce"`
+	ClientSecretRequired bool                 `json:"client_secret_required,omitempty"`
 	// ClientIDParamName overrides the parameter name carrying the client
 	// id on both the authorize-URL build and the token-exchange POST
 	// body. Defaults to "client_id" (the OAuth 2.0 standard). TikTok is
