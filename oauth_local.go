@@ -130,9 +130,10 @@ func validateOAuthSetupClient(app *AppTemplate, id, secret string) error {
 	return nil
 }
 
-// findStoredOAuthSetup prefers operator-managed setup in this exact project.
-// An app may fall back to one of its own active OAuth accounts in the same
-// project. Only client/setup fields are reused; account tokens stay separate.
+// findStoredOAuthSetup prefers operator-managed setup in this project, then
+// an app's own active OAuth account in this project, then the same two tiers
+// among global connections (visible from every project), then env vars.
+// Only client/setup fields are reused; account tokens stay separate.
 // Pending app accounts, other installs, other projects and failed flows are
 // never shared configuration sources.
 func (s *Server) findStoredOAuthSetup(userID int64, projectID string, app *AppTemplate, callerInstallIDs ...int64) (*oauthSetup, error) {
@@ -144,18 +145,28 @@ func (s *Server) findStoredOAuthSetup(userID int64, projectID string, app *AppTe
 	if err != nil {
 		return nil, fmt.Errorf("list OAuth setup connections: %w", err)
 	}
-	// Operator configuration stays authoritative even when an app has a newer
-	// account. Within each tier use the newest record, without mixing clients
-	// or environment fields from different records.
+	// Project configuration wins over global, and operator configuration stays
+	// authoritative even when an app has a newer account. Within each tier use
+	// the newest record, without mixing clients or environment fields from
+	// different records.
+	tier := func(conn Connection) int {
+		rank := 0
+		if conn.ProjectID != projectID {
+			rank += 2
+		}
+		if isAppOwnedConnection(conn) {
+			rank++
+		}
+		return rank
+	}
 	sort.Slice(conns, func(i, j int) bool {
-		left, right := isAppOwnedConnection(conns[i]), isAppOwnedConnection(conns[j])
-		if left != right {
-			return !left
+		if left, right := tier(conns[i]), tier(conns[j]); left != right {
+			return left < right
 		}
 		return conns[i].ID > conns[j].ID
 	})
 	for _, conn := range conns {
-		if conn.AppSlug != app.Slug || conn.Source != "local" || conn.ProjectID != projectID {
+		if conn.AppSlug != app.Slug || conn.Source != "local" || (conn.ProjectID != projectID && conn.ProjectID != "") {
 			continue
 		}
 		if isAppOwnedConnection(conn) && (callerInstallID == 0 || conn.OwnerAppInstallID != callerInstallID || conn.Status != "active" || (conn.AuthType != "oauth1" && conn.AuthType != "oauth2")) {
