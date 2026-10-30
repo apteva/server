@@ -674,14 +674,6 @@ func main() {
 		go s.startWorkspaceLifecycle()
 	}
 
-	// Platform helpers are lazy by default. Eagerly booting one helper
-	// per provider-backed user makes updates noisy and can emit a burst of
-	// telemetry before anyone asks for dashboard help. Keep an
-	// opt-in escape hatch for deployments that prefer warm helpers.
-	if !quarantined && hosted == nil && envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
-		go s.bootMetaAgents()
-	}
-
 	if !quarantined {
 		s.initSlack()
 		s.initEmail()
@@ -1792,7 +1784,12 @@ func main() {
 	// Apps are healthy and the installedApps registry is populated.
 	// Now safe to spawn agents — their MCP proxies will resolve.
 	resumeInstancesAfterApps()
-	if !quarantined && hosted != nil && !existingSchema && envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
+	// An activated Helper is kept running like a user agent: start every
+	// activated Helper once apps are healthy (its Conversations MCP must
+	// resolve). Restart recovery skips platform-owned agents, so this is
+	// what brings them back. APTEVA_BOOT_META_AGENTS=0 opts out. A hosted
+	// handoff onto an existing schema leaves helpers to lazy start.
+	if !quarantined && (hosted == nil || !existingSchema) && bootPlatformHelpersEnabled(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
 		go s.bootMetaAgents()
 	}
 	runtimeCtx, stopRuntimeMonitor := context.WithCancel(context.Background())
