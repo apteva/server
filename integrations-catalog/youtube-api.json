@@ -51,7 +51,8 @@
         "https://www.googleapis.com/auth/youtube.upload",
         "https://www.googleapis.com/auth/youtube.readonly",
         "https://www.googleapis.com/auth/youtubepartner",
-        "https://www.googleapis.com/auth/yt-analytics.readonly"
+        "https://www.googleapis.com/auth/yt-analytics.readonly",
+        "https://www.googleapis.com/auth/youtube.channel-memberships.creator"
       ],
       "client_id_required": true,
       "pkce": false,
@@ -1334,6 +1335,115 @@
           "totalResults": 1,
           "resultsPerPage": 50
         }
+      }
+    },
+    {
+      "name": "list_membership_levels",
+      "description": "List the channel's membership levels (tiers), lowest to highest. Requires a channel allowlisted by Google for the members API; otherwise YouTube answers 403. Connections made before the channel-memberships scope was added must reconnect once. Calls GET /membershipsLevels.",
+      "method": "GET",
+      "path": "/membershipsLevels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "Parts to include: id,snippet",
+            "default": "id,snippet"
+          }
+        },
+        "required": [
+          "part"
+        ]
+      },
+      "mock_response": {
+        "kind": "youtube#membershipsLevelListResponse",
+        "items": [
+          {
+            "kind": "youtube#membershipsLevel",
+            "id": "level-1",
+            "snippet": {
+              "creatorChannelId": "UC0000000000000000000001",
+              "levelDetails": {
+                "displayName": "Supporter"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "list_members",
+      "description": "List the channel's current paying members, newest first, with each member's highest level and tenure. Requires a channel allowlisted by Google for the members API; otherwise YouTube answers 403. Connections made before the channel-memberships scope was added must reconnect once. Page with nextPageToken until it is absent; a token belongs to the mode it came from. Costs 2 quota units per call. Calls GET /members.",
+      "method": "GET",
+      "path": "/members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "Parts to include: snippet",
+            "default": "snippet"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "all_current",
+              "updates"
+            ],
+            "description": "all_current lists current members; updates streams joins and upgrades since the previous call",
+            "default": "all_current"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Members per page (0-1000)",
+            "default": 1000
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token from a previous response in the same mode"
+          },
+          "hasAccessToLevel": {
+            "type": "string",
+            "description": "Only members with access to at least this level ID"
+          },
+          "filterByMemberChannelId": {
+            "type": "string",
+            "description": "Comma-separated member channel IDs to check (max 100)"
+          }
+        },
+        "required": [
+          "part"
+        ]
+      },
+      "mock_response": {
+        "kind": "youtube#memberListResponse",
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 1000
+        },
+        "items": [
+          {
+            "kind": "youtube#member",
+            "snippet": {
+              "creatorChannelId": "UC0000000000000000000001",
+              "memberDetails": {
+                "channelId": "UC0000000000000000000002",
+                "displayName": "Member"
+              },
+              "membershipsDetails": {
+                "highestAccessibleLevel": "level-1",
+                "highestAccessibleLevelDisplayName": "Supporter",
+                "accessibleLevels": [
+                  "level-1"
+                ],
+                "membershipsDuration": {
+                  "memberSince": "2026-01-01T00:00:00Z",
+                  "memberTotalDurationMonths": 9
+                }
+              }
+            }
+          }
+        ]
       }
     }
   ]
