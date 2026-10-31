@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -38,8 +39,14 @@ func (s *Server) handleUILayoutGlobalSurface(w http.ResponseWriter, r *http.Requ
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		layout, revision, err := s.store.PatchUserUILayoutGlobalSurface(userID, surface, body.Value)
+		expected, err := ifMatchRevision(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		layout, revision, err := s.store.PatchUserUILayoutGlobalSurface(userID, surface, body.Value, expected)
 		if errors.Is(err, errUILayoutConflict) {
+			w.Header().Set("ETag", strconv.Quote(strconv.FormatInt(revision, 10)))
 			writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "layout changed in another session", "ui_layout": layout, "revision": revision})
 			return
 		}
@@ -47,13 +54,14 @@ func (s *Server) handleUILayoutGlobalSurface(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "failed to update layout", http.StatusBadRequest)
 			return
 		}
+		w.Header().Set("ETag", strconv.Quote(strconv.FormatInt(revision, 10)))
 		writeJSON(w, map[string]any{"value": entries, "ui_layout": layout, "revision": revision})
 	default:
 		http.Error(w, "PATCH only", http.StatusMethodNotAllowed)
 	}
 }
 
-func (s *Store) PatchUserUILayoutGlobalSurface(userID int64, surface string, value json.RawMessage) (json.RawMessage, int64, error) {
+func (s *Store) PatchUserUILayoutGlobalSurface(userID int64, surface string, value json.RawMessage, expectedRevision *int64) (json.RawMessage, int64, error) {
 	if len(value) > 64<<10 || !json.Valid(value) {
 		return nil, 0, errors.New("surface layout must be valid JSON no larger than 64 KiB")
 	}
@@ -63,6 +71,9 @@ func (s *Store) PatchUserUILayoutGlobalSurface(userID int64, surface string, val
 	}
 	for attempt := 0; attempt < 8; attempt++ {
 		current, revision := s.GetUserUILayoutWithRevision(userID)
+		if expectedRevision != nil && *expectedRevision != revision {
+			return current, revision, errUILayoutConflict
+		}
 		var document map[string]any
 		if err := json.Unmarshal(current, &document); err != nil || document == nil {
 			document = map[string]any{}

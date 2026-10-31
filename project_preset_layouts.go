@@ -10,8 +10,8 @@ import (
 )
 
 var presetAgentWidgets = []dashboardWidgetDefinition{
-	{Component: "native:agent-activity", Label: "Recent activity", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
-	{Component: "native:agent-results", Label: "Recent responses", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
+	{Component: "native:agent-activity", Label: "Recent activity", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half"},
+	{Component: "native:agent-results", Label: "Recent responses", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half"},
 }
 
 func portablePresetWidgets(widgets []dashboardWidgetInstance, agentKeys map[int64]string) []ProjectPresetWidget {
@@ -78,7 +78,7 @@ func validatePresetLayouts(preset ProjectPreset) error {
 		ids := map[string]bool{}
 		for _, widget := range widgets {
 			app, name, ok := strings.Cut(widget.Component, ":")
-			if !ok || !validPresetIdentifier(app) || !validPresetIdentifier(name) || widget.ID == "" || len(widget.ID) > 160 || ids[widget.ID] || (widget.Size != "half" && widget.Size != "full") {
+			if !ok || !validPresetIdentifier(app) || !validPresetIdentifier(name) || widget.ID == "" || len(widget.ID) > 160 || ids[widget.ID] || !validDashboardWidgetSize(widget.Size) {
 				return fmt.Errorf("invalid preset widget %q", widget.Component)
 			}
 			ids[widget.ID] = true
