@@ -224,7 +224,7 @@ func validatePresetEnvelope(preset Preset) error {
 		return errors.New("preset may contain at most 50 agents and 50 widgets")
 	}
 	for _, widget := range preset.Definition.DashboardLayout {
-		if widget.Component == "" || len(widget.Component) > 160 || (widget.Size != "half" && widget.Size != "full") {
+		if widget.Component == "" || len(widget.Component) > 160 || !validDashboardWidgetSize(widget.Size) {
 			return errors.New("preset contains an invalid dashboard widget")
 		}
 	}

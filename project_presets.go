@@ -713,7 +713,7 @@ func (s *Server) compileProjectPresetDashboardLayout(projectID string, preset Pr
 			warnings = append(warnings, fmt.Sprintf("dashboard widget %s is unavailable until its app is installed", captured.Component))
 			continue
 		}
-		if captured.Size != "full" {
+		if !validDashboardWidgetSize(captured.Size) {
 			captured.Size = "half"
 		}
 		if captured.ID == "" {

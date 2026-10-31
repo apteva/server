@@ -54,14 +54,10 @@ func (s *Server) handleUILayoutSurface(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		var expected *int64
-		if raw := strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`); raw != "" && raw != "*" {
-			value, err := strconv.ParseInt(raw, 10, 64)
-			if err != nil || value < 0 {
-				http.Error(w, "invalid If-Match revision", http.StatusBadRequest)
-				return
-			}
-			expected = &value
+		expected, err := ifMatchRevision(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		layout, revision, err := s.store.PatchUserUILayoutSurface(userID, projectID, surface, body.Value, expected)
 		if errors.Is(err, errUILayoutConflict) {
@@ -81,6 +77,20 @@ func (s *Server) handleUILayoutSurface(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "GET or PATCH only", http.StatusMethodNotAllowed)
 	}
+}
+
+// ifMatchRevision reads the layout document revision a write was based on.
+// Without If-Match (or with "*") the write is unconditional.
+func ifMatchRevision(r *http.Request) (*int64, error) {
+	raw := strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`)
+	if raw == "" || raw == "*" {
+		return nil, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value < 0 {
+		return nil, errors.New("invalid If-Match revision")
+	}
+	return &value, nil
 }
 
 func validUILayoutSurface(surface string) bool {

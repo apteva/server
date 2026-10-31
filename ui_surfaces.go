@@ -44,21 +44,28 @@ type dashboardWidgetDefinition struct {
 	ProjectSurfaces []sdk.UISurface                `json:"project_surfaces,omitempty"`
 }
 
+// Widget widths in quarters of the dashboard canvas, narrowest first.
+var dashboardWidgetSizes = []string{"quarter", "half", "three-quarter", "full"}
+
+func validDashboardWidgetSize(size string) bool {
+	return containsString(dashboardWidgetSizes, size)
+}
+
 var dashboardHomeBuiltins = []dashboardWidgetDefinition{
-	{Component: "native:helper", Kind: "builtin", Label: "Apteva Helper", Description: "Build through the existing Conversations chat widget.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
-	{Component: "native:system-map", Kind: "builtin", Label: "System map", Description: "Explore agents and their configured capabilities.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
-	{Component: "native:result-preview", Kind: "builtin", Label: "Result / preview", Description: "Inspect selected activity and app outputs.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
-	{Component: "native:workspace-summary", Kind: "builtin", Label: "Workspace overview", Description: "A compact view of the resources and state in this workspace.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
-	{Component: "native:quick-actions", Kind: "builtin", Label: "Quick actions", Description: "Start common workspace actions without leaving the page.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
-	{Component: "native:context-inspector", Kind: "builtin", Label: "Inspector", Description: "Inspect and act on the item selected in another widget.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
-	{Component: "native:readiness", Kind: "builtin", Label: "Needs attention", Description: "Reported resource issues in this scope.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
-	{Component: "native:agents", Kind: "builtin", Label: "Agents", Description: "Your agents and their current state.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
-	{Component: "native:apps", Kind: "builtin", Label: "Apps", Description: "Installed apps available in this workspace.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
-	{Component: "native:integrations", Kind: "builtin", Label: "Integrations", Description: "Connected services and the tools they provide.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
-	{Component: "native:skills", Kind: "builtin", Label: "Skills", Description: "Reusable instructions available to your agents.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
-	{Component: "native:agent-activity", Kind: "builtin", Label: "Agent activity", Description: "Current work, progress, blockers, and next steps across your agents.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
+	{Component: "native:helper", Kind: "builtin", Label: "Apteva Helper", Description: "Build through the existing Conversations chat widget.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half"},
+	{Component: "native:system-map", Kind: "builtin", Label: "System map", Description: "Explore agents and their configured capabilities.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "full"},
+	{Component: "native:result-preview", Kind: "builtin", Label: "Result / preview", Description: "Inspect selected activity and app outputs.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half"},
+	{Component: "native:workspace-summary", Kind: "builtin", Label: "Workspace overview", Description: "A compact view of the resources and state in this workspace.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "full"},
+	{Component: "native:quick-actions", Kind: "builtin", Label: "Quick actions", Description: "Start common workspace actions without leaving the page.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half"},
+	{Component: "native:context-inspector", Kind: "builtin", Label: "Inspector", Description: "Inspect and act on the item selected in another widget.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half"},
+	{Component: "native:readiness", Kind: "builtin", Label: "Needs attention", Description: "Reported resource issues in this scope.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half"},
+	{Component: "native:agents", Kind: "builtin", Label: "Agents", Description: "Your agents and their current state.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:apps", Kind: "builtin", Label: "Apps", Description: "Installed apps available in this workspace.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:integrations", Kind: "builtin", Label: "Integrations", Description: "Connected services and the tools they provide.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:skills", Kind: "builtin", Label: "Skills", Description: "Reusable instructions available to your agents.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:agent-activity", Kind: "builtin", Label: "Agent activity", Description: "Current work, progress, blockers, and next steps across your agents.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "full"},
 	{Component: "native:usage", Kind: "builtin", Label: "Usage summary", Description: "Agents, calls, tokens, errors, and cost for the last 24 hours.", SupportedSizes: []string{"full"}, DefaultSize: "full"},
-	{Component: "native:activity", Kind: "builtin", Label: "Live activity", Description: "Thoughts, tools, events, and results across this scope.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
+	{Component: "native:activity", Kind: "builtin", Label: "Live activity", Description: "Thoughts, tools, events, and results across this scope.", SupportedSizes: dashboardWidgetSizes, DefaultSize: "full"},
 }
 
 // GET /api/ui/surfaces/dashboard.home resolves the user's portable layout and
@@ -163,20 +170,30 @@ func (s *Server) installedWidgetDefinitionsForSlot(projectID, slot string, nativ
 	return definitions
 }
 
+// normalizedDashboardWidgetSizes keeps the widths a manifest declares, in
+// canvas order. A widget that works at half and full width also gets three
+// quarters; quarter width is only offered when the app declares it.
 func normalizedDashboardWidgetSizes(component sdk.UIComponent) []string {
-	seen := map[string]bool{}
-	var sizes []string
+	declared := map[string]bool{}
 	for _, size := range component.SupportedSizes {
-		if (size == "half" || size == "full") && !seen[size] {
-			seen[size] = true
-			sizes = append(sizes, size)
+		if validDashboardWidgetSize(size) {
+			declared[size] = true
 		}
 	}
-	if len(sizes) == 0 {
+	if len(declared) == 0 {
 		if component.DefaultWidth == 2 {
 			return []string{"full"}
 		}
 		return []string{"half"}
+	}
+	if declared["half"] && declared["full"] {
+		declared["three-quarter"] = true
+	}
+	var sizes []string
+	for _, size := range dashboardWidgetSizes {
+		if declared[size] {
+			sizes = append(sizes, size)
+		}
 	}
 	return sizes
 }
@@ -250,7 +267,7 @@ func resolvedWidgetLayout(document json.RawMessage, projectID, slot string) []da
 		if widget.ID == "" {
 			widget.ID = "widget:" + itoa(int64(index)) + ":" + widget.Component
 		}
-		if widget.Size != "full" {
+		if !validDashboardWidgetSize(widget.Size) {
 			widget.Size = "half"
 		}
 		layout = append(layout, widget)
