@@ -34,35 +34,7 @@ func (s *Store) migrateTelemetryMetrics() error {
 	if _, err := tx.Exec(schema); err != nil {
 		return err
 	}
-	numeric := func(field string, integer bool) string {
-		value := "json_extract(doc,'$." + field + "')"
-		if integer {
-			value = "CAST(" + value + " AS INTEGER)"
-		}
-		return "CASE WHEN json_type(doc,'$." + field + "') IN ('integer','real') THEN " + value + " ELSE 0 END"
-	}
-	usage := func(normal, text, audio string) string {
-		return "CASE WHEN kind='realtime.usage' THEN (" + numeric(text, true) + "+" + numeric(audio, true) + ") ELSE " + numeric(normal, true) + " END"
-	}
-	projection := func(prefix string) string {
-		return `SELECT event_id,agent_id,thread_id,kind,substr(time,1,19)||'.'||CASE WHEN substr(time,20,1)='.' THEN substr(substr(time,21,length(time)-21)||'000000000',1,9) ELSE '000000000' END||'Z',valid,` +
-			usage("tokens_in", "text_input_tokens", "audio_input_tokens") + `,` +
-			usage("tokens_out", "text_output_tokens", "audio_output_tokens") + `,` +
-			usage("tokens_cached", "text_cached_tokens", "audio_cached_tokens") + `,
-  CASE WHEN kind='realtime.usage' THEN ` + numeric("cost", false) + ` ELSE ` + numeric("cost_usd", false) + ` END,
-  CASE WHEN kind='realtime.usage' THEN valid ELSE COALESCE(json_type(doc,'$.cost_usd') IN ('integer','real'),0) END,
-  CASE WHEN json_type(doc,'$.duration_ms') IN ('integer','real') THEN json_extract(doc,'$.duration_ms') ELSE NULL END,
-  CASE WHEN json_type(doc,'$.name')='text' AND json_extract(doc,'$.name')!='' THEN json_extract(doc,'$.name') WHEN json_type(doc,'$.tool')='text' THEN json_extract(doc,'$.tool') ELSE '' END,
-  COALESCE(json_type(doc,'$.is_error')='true',0)
-  FROM (SELECT ` + prefix + `id AS event_id,` + prefix + `agent_id AS agent_id,` + prefix + `thread_id AS thread_id,` + prefix + `type AS kind,` + prefix + `time AS time,
-   CASE WHEN json_valid(` + prefix + `data) THEN ` + prefix + `data ELSE '{}' END AS doc,
-   CASE WHEN json_valid(` + prefix + `data) THEN (json_type(` + prefix + `data) IN ('object','null')) ELSE 0 END AS valid` + func() string {
-			if prefix == "" {
-				return " FROM telemetry"
-			}
-			return ""
-		}() + `)`
-	}
+	projection := func(prefix string) string { return telemetryMetricsProjection(prefix, false) }
 	if _, err := tx.Exec("INSERT INTO telemetry_metrics " + projection("")); err != nil {
 		return fmt.Errorf("backfill metrics: %w", err)
 	}
@@ -244,4 +216,44 @@ func (s *Store) TelemetryTimelineByProjectContext(ctx context.Context, userID in
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time < out[j].Time })
 	return out, rows.Err()
+}
+
+// telemetryMetricsProjection selects one telemetry row (or the NEW row in a
+// trigger when prefix is "NEW.") in telemetry_metrics column order.
+// withModel appends the model and provider columns added by migration 7.
+func telemetryMetricsProjection(prefix string, withModel bool) string {
+	numeric := func(field string, integer bool) string {
+		value := "json_extract(doc,'$." + field + "')"
+		if integer {
+			value = "CAST(" + value + " AS INTEGER)"
+		}
+		return "CASE WHEN json_type(doc,'$." + field + "') IN ('integer','real') THEN " + value + " ELSE 0 END"
+	}
+	usage := func(normal, text, audio string) string {
+		return "CASE WHEN kind='realtime.usage' THEN (" + numeric(text, true) + "+" + numeric(audio, true) + ") ELSE " + numeric(normal, true) + " END"
+	}
+	text := func(field string) string {
+		return "CASE WHEN json_type(doc,'$." + field + "')='text' THEN json_extract(doc,'$." + field + "') ELSE '' END"
+	}
+	model := ""
+	if withModel {
+		model = ",\n  " + text("model") + "," + text("provider")
+	}
+	return `SELECT event_id,agent_id,thread_id,kind,substr(time,1,19)||'.'||CASE WHEN substr(time,20,1)='.' THEN substr(substr(time,21,length(time)-21)||'000000000',1,9) ELSE '000000000' END||'Z',valid,` +
+		usage("tokens_in", "text_input_tokens", "audio_input_tokens") + `,` +
+		usage("tokens_out", "text_output_tokens", "audio_output_tokens") + `,` +
+		usage("tokens_cached", "text_cached_tokens", "audio_cached_tokens") + `,
+  CASE WHEN kind='realtime.usage' THEN ` + numeric("cost", false) + ` ELSE ` + numeric("cost_usd", false) + ` END,
+  CASE WHEN kind='realtime.usage' THEN valid ELSE COALESCE(json_type(doc,'$.cost_usd') IN ('integer','real'),0) END,
+  CASE WHEN json_type(doc,'$.duration_ms') IN ('integer','real') THEN json_extract(doc,'$.duration_ms') ELSE NULL END,
+  CASE WHEN json_type(doc,'$.name')='text' AND json_extract(doc,'$.name')!='' THEN json_extract(doc,'$.name') WHEN json_type(doc,'$.tool')='text' THEN json_extract(doc,'$.tool') ELSE '' END,
+  COALESCE(json_type(doc,'$.is_error')='true',0)` + model + `
+  FROM (SELECT ` + prefix + `id AS event_id,` + prefix + `agent_id AS agent_id,` + prefix + `thread_id AS thread_id,` + prefix + `type AS kind,` + prefix + `time AS time,
+   CASE WHEN json_valid(` + prefix + `data) THEN ` + prefix + `data ELSE '{}' END AS doc,
+   CASE WHEN json_valid(` + prefix + `data) THEN (json_type(` + prefix + `data) IN ('object','null')) ELSE 0 END AS valid` + func() string {
+		if prefix == "" {
+			return " FROM telemetry"
+		}
+		return ""
+	}() + `)`
 }
