@@ -141,10 +141,18 @@ var usagePeriods = map[string]usagePeriod{
 
 var usageGroupings = map[string]bool{"agent": true, "model": true, "provider": true, "project": true}
 
+// flatRateProviders are covered by a flat monthly fee but not marked with the
+// "subscription" capability in provider_types (see the OpenCode Go note in
+// modelPricingTable).
+var flatRateProviders = []string{"opencode-go"}
+
 // subscriptionProviderKeys lists provider keys whose usage is covered by a
 // subscription rather than billed per token.
 func (s *Store) subscriptionProviderKeys() map[string]bool {
 	out := map[string]bool{}
+	for _, key := range flatRateProviders {
+		out[key] = true
+	}
 	types, err := s.ListProviderTypes()
 	if err != nil {
 		return out
@@ -257,12 +265,12 @@ func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project,
 			g.TokensIn += in
 			g.TokensOut += out
 			g.TokensCached += cached
-			g.UnpricedCalls += count - present
 			if included {
 				g.IncludedCost += cost
 				g.subscription = true
 			} else {
 				g.Cost += cost
+				g.UnpricedCalls += count - present
 				g.metered = true
 			}
 		} else {
@@ -333,11 +341,11 @@ func addUsage(t *UsageTotals, isCall, included bool, count, in, out, cached int,
 	t.TokensIn += in
 	t.TokensOut += out
 	t.TokensCached += cached
-	t.UnpricedCalls += count - present
 	if included {
 		t.IncludedCost += cost
 	} else {
 		t.Cost += cost
+		t.UnpricedCalls += count - present
 	}
 }
 
