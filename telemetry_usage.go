@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,8 +22,8 @@ import (
 
 const usageFactTypes = `'llm.done','realtime.usage','llm.error','tool.error','realtime.error'`
 
-// usageBackfillWindow bounds the one-off model/provider backfill; the Usage
-// page reads at most two 30-day windows.
+// usageBackfillWindow bounds the one-off model/provider backfill. Older facts
+// still count toward totals but group under an empty model and provider.
 const usageBackfillWindow = 90 * 24 * time.Hour
 
 // migrateTelemetryUsageColumns adds model and provider to telemetry_metrics
@@ -118,6 +119,8 @@ type UsageReport struct {
 	GroupBy       string        `json:"group_by"`
 	Since         string        `json:"since"`
 	Until         string        `json:"until"`
+	Timezone      string        `json:"timezone"`
+	Bucket        string        `json:"bucket"` // hour, day or week
 	BucketMinutes int           `json:"bucket_minutes"`
 	Agents        int           `json:"agents"`
 	Totals        UsageTotals   `json:"totals"`
@@ -128,15 +131,108 @@ type UsageReport struct {
 	Groups        []UsageGroup  `json:"groups"`
 }
 
-type usagePeriod struct {
-	length        time.Duration
-	bucketMinutes int
+// Rolling presets, used when no from/to dates are given.
+var usagePeriods = map[string]time.Duration{
+	"24h": 24 * time.Hour,
+	"7d":  7 * 24 * time.Hour,
+	"30d": 30 * 24 * time.Hour,
+	"90d": 90 * 24 * time.Hour,
 }
 
-var usagePeriods = map[string]usagePeriod{
-	"24h": {24 * time.Hour, 60},
-	"7d":  {7 * 24 * time.Hour, 360},
-	"30d": {30 * 24 * time.Hour, 1440},
+const usageMaxRange = 366 * 24 * time.Hour
+
+// UsageRange is the window a report covers. Buckets are aligned in the
+// viewer's timezone, so a day bar is the day on their calendar.
+type UsageRange struct {
+	Start    time.Time
+	End      time.Time // exclusive; may lie past now for the rest of today
+	Location *time.Location
+	Bucket   string // hour, day or week
+	Period   string // rolling preset or "custom"
+}
+
+var usageBucketMinutes = map[string]int{"hour": 60, "day": 1440, "week": 10080}
+
+// usageResolution keeps a chart between roughly 24 and 92 bars.
+func usageResolution(span time.Duration) string {
+	switch {
+	case span <= 50*time.Hour:
+		return "hour"
+	case span <= 92*24*time.Hour:
+		return "day"
+	default:
+		return "week"
+	}
+}
+
+// ResolveUsageRange reads from/to (YYYY-MM-DD, inclusive, in tz) or, without
+// them, a rolling period preset ending now.
+func ResolveUsageRange(q url.Values, now time.Time) (UsageRange, error) {
+	r := UsageRange{Location: time.UTC}
+	if name := strings.TrimSpace(q.Get("tz")); name != "" {
+		loc, err := time.LoadLocation(name)
+		if err != nil {
+			return r, fmt.Errorf("unknown tz %q", name)
+		}
+		r.Location = loc
+	}
+	if from := strings.TrimSpace(q.Get("from")); from != "" {
+		start, err := time.ParseInLocation("2006-01-02", from, r.Location)
+		if err != nil {
+			return r, fmt.Errorf("from must be YYYY-MM-DD")
+		}
+		last := start
+		if to := strings.TrimSpace(q.Get("to")); to != "" {
+			if last, err = time.ParseInLocation("2006-01-02", to, r.Location); err != nil {
+				return r, fmt.Errorf("to must be YYYY-MM-DD")
+			}
+		}
+		r.Start, r.End, r.Period = start, last.AddDate(0, 0, 1), "custom"
+	} else {
+		r.Period = q.Get("period")
+		length, ok := usagePeriods[r.Period]
+		if !ok {
+			r.Period, length = "24h", usagePeriods["24h"]
+		}
+		r.Start, r.End = now.Add(-length), now
+	}
+	if !r.End.After(r.Start) {
+		return r, fmt.Errorf("to must not be before from")
+	}
+	if r.End.Sub(r.Start) > usageMaxRange {
+		return r, fmt.Errorf("range is limited to 366 days")
+	}
+	r.Bucket = usageResolution(r.End.Sub(r.Start))
+	return r, nil
+}
+
+// bucketStarts lists bucket boundaries from the one holding Start to End.
+func (r UsageRange) bucketStarts() []time.Time {
+	t := r.Start.In(r.Location)
+	switch r.Bucket {
+	case "hour":
+		t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, r.Location)
+	case "day":
+		t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, r.Location)
+	default:
+		t = time.Date(t.Year(), t.Month(), t.Day()-(int(t.Weekday())+6)%7, 0, 0, 0, 0, r.Location)
+	}
+	var out []time.Time
+	for ; t.Before(r.End); t = r.nextBucket(t) {
+		out = append(out, t)
+	}
+	return out
+}
+
+func (r UsageRange) nextBucket(t time.Time) time.Time {
+	switch r.Bucket {
+	case "hour":
+		return t.Add(time.Hour)
+	case "day":
+		return t.AddDate(0, 0, 1)
+	default:
+		return t.AddDate(0, 0, 7)
+	}
 }
 
 var usageGroupings = map[string]bool{"agent": true, "model": true, "provider": true, "project": true}
@@ -167,29 +263,37 @@ func (s *Store) subscriptionProviderKeys() map[string]bool {
 	return out
 }
 
-func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project, period, groupBy string, now time.Time) (*UsageReport, error) {
-	p, ok := usagePeriods[period]
-	if !ok {
-		period, p = "24h", usagePeriods["24h"]
-	}
+func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project string, rng UsageRange, groupBy string, now time.Time) (*UsageReport, error) {
 	if !usageGroupings[groupBy] {
 		groupBy = "agent"
 	}
 	now = now.UTC()
-	since := now.Add(-p.length)
-	width := int64(p.bucketMinutes) * 60
+	since := rng.Start.UTC()
+	until := rng.End.UTC()
+	if until.After(now) {
+		until = now
+	}
 	report := &UsageReport{
-		Period: period, GroupBy: groupBy, BucketMinutes: p.bucketMinutes,
-		Since: since.Format(time.RFC3339), Until: now.Format(time.RFC3339),
+		Period: rng.Period, GroupBy: groupBy, Timezone: rng.Location.String(),
+		Bucket: rng.Bucket, BucketMinutes: usageBucketMinutes[rng.Bucket],
+		Since: since.Format(time.RFC3339), Until: rng.End.UTC().Format(time.RFC3339),
 		Timeline: []UsageBucket{}, Groups: []UsageGroup{},
 	}
-	for start := since.Unix() / width * width; start <= now.Unix(); start += width {
-		report.Timeline = append(report.Timeline, UsageBucket{Time: time.Unix(start, 0).UTC().Format(time.RFC3339), Series: map[string]UsageSeriesPoint{}})
+	starts := rng.bucketStarts()
+	for _, start := range starts {
+		report.Timeline = append(report.Timeline, UsageBucket{Time: start.Format(time.RFC3339), Series: map[string]UsageSeriesPoint{}})
 	}
 
 	agents, err := s.listAgentsForTelemetry(userID, project)
 	if err != nil {
 		return nil, err
+	}
+	// The platform Helper belongs to no project and is left out of agent
+	// lists, but its calls are usage too.
+	if project == "" {
+		if helper, err := s.GetPlatformHelper(userID); err == nil {
+			agents = append(agents, *helper)
+		}
 	}
 	report.Agents = len(agents)
 	if len(agents) == 0 {
@@ -209,29 +313,31 @@ func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project,
 	}
 	subscription := s.subscriptionProviderKeys()
 
+	// Facts are summed per 15 minutes in SQL and folded into the viewer's
+	// buckets here, which keeps day and week boundaries in their timezone.
+	const slot = 900
 	ids, args := metricIDs(agents)
-	query := `SELECT agent_id,(unixepoch(substr(time,1,19)||'Z')/?)*? AS bucket,time>=? AS cur,type,model,provider,
+	query := `SELECT agent_id,(unixepoch(substr(time,1,19)||'Z')/?)*? AS slot,time>=? AS cur,type,model,provider,
  COUNT(*),SUM(tokens_in),SUM(tokens_out),SUM(tokens_cached),SUM(cost),SUM(cost_present)
  FROM telemetry_metrics WHERE agent_id IN (` + ids + `) AND type IN (` + usageFactTypes + `) AND time>=? AND time<=?
- GROUP BY agent_id,bucket,cur,type,model,provider`
-	params := append([]any{width, width, since.Format(metricTimeLayout)}, args...)
-	params = append(params, since.Add(-p.length).Format(metricTimeLayout), now.Format(metricTimeLayout))
+ GROUP BY agent_id,slot,cur,type,model,provider`
+	params := append([]any{slot, slot, since.Format(metricTimeLayout)}, args...)
+	params = append(params, since.Add(-rng.End.Sub(rng.Start)).Format(metricTimeLayout), until.Format(metricTimeLayout))
 	rows, err := s.db.QueryContext(ctx, query, params...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	firstBucket := since.Unix() / width * width
 	groups := map[string]*UsageGroup{}
 	active := map[int64]bool{}
 	for rows.Next() {
-		var agentID, bucket int64
+		var agentID, slotStart int64
 		var current bool
 		var kind, model, provider string
 		var count, in, out, cached, present int
 		var cost float64
-		if err := rows.Scan(&agentID, &bucket, &current, &kind, &model, &provider, &count, &in, &out, &cached, &cost, &present); err != nil {
+		if err := rows.Scan(&agentID, &slotStart, &current, &kind, &model, &provider, &count, &in, &out, &cached, &cost, &present); err != nil {
 			return nil, err
 		}
 		isCall := kind == "llm.done" || kind == "realtime.usage"
@@ -277,7 +383,7 @@ func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project,
 			g.Errors += count
 		}
 
-		index := int((bucket - firstBucket) / width)
+		index := sort.Search(len(starts), func(i int) bool { return starts[i].Unix() > slotStart }) - 1
 		if index < 0 || index >= len(report.Timeline) {
 			continue
 		}
@@ -414,7 +520,8 @@ func (s *Store) usageRunRate(ctx context.Context, ids string, args []any, subscr
 	return billed / days, days, nil
 }
 
-// GET /telemetry/usage?project_id=&period=24h|7d|30d&group_by=agent|model|provider|project
+// GET /telemetry/usage?project_id=&from=YYYY-MM-DD&to=YYYY-MM-DD&tz=Europe/Paris&group_by=agent|model|provider|project
+// period=24h|7d|30d|90d stands in for from/to as a rolling window ending now.
 // Without project_id the report covers every agent the caller can see.
 func (s *Server) handleTelemetryUsage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -429,7 +536,13 @@ func (s *Server) handleTelemetryUsage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	report, err := s.store.TelemetryUsageReport(r.Context(), userID, projectID, q.Get("period"), q.Get("group_by"), time.Now())
+	now := time.Now()
+	rng, err := ResolveUsageRange(q, now)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	report, err := s.store.TelemetryUsageReport(r.Context(), userID, projectID, rng, q.Get("group_by"), now)
 	if err != nil {
 		http.Error(w, "usage report failed", http.StatusInternalServerError)
 		return

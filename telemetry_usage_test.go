@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -21,6 +22,15 @@ func usageEvent(t *testing.T, agentID int64, kind string, at time.Time, data map
 }
 
 func nearly(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+func rolling(t *testing.T, period string, now time.Time) UsageRange {
+	t.Helper()
+	rng, err := ResolveUsageRange(url.Values{"period": {period}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rng
+}
 
 // seedUsage creates two agents in one project: "writer" on a metered model
 // and "coder" on the openai-codex subscription, plus one older event in the
@@ -69,7 +79,7 @@ func TestTelemetryMetricsCaptureModelAndProvider(t *testing.T) {
 
 func TestUsageReportSplitsBilledAndSubscriptionSpend(t *testing.T) {
 	s, userID, project, now := seedUsage(t)
-	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, "24h", "agent", now)
+	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, rolling(t, "24h", now), "agent", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +123,7 @@ func TestUsageReportSplitsBilledAndSubscriptionSpend(t *testing.T) {
 
 func TestUsageReportGroupsByModel(t *testing.T) {
 	s, userID, project, now := seedUsage(t)
-	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, "24h", "model", now)
+	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, rolling(t, "24h", now), "model", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +157,7 @@ func TestUsageReportDoesNotFlagSubscriptionCallsAsUnpriced(t *testing.T) {
 	if err := s.store.InsertTelemetry(events); err != nil {
 		t.Fatal(err)
 	}
-	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, "24h", "agent", now)
+	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, rolling(t, "24h", now), "agent", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,6 +168,118 @@ func TestUsageReportDoesNotFlagSubscriptionCallsAsUnpriced(t *testing.T) {
 		if g.Label == "planner" && (g.UnpricedCalls != 0 || g.Billing != "subscription") {
 			t.Fatalf("planner=%+v", g)
 		}
+	}
+}
+
+func TestResolveUsageRangePicksResolution(t *testing.T) {
+	now := time.Date(2026, 10, 31, 14, 0, 0, 0, time.UTC)
+	cases := []struct {
+		q      url.Values
+		bucket string
+		bars   int
+	}{
+		{url.Values{"from": {"2026-10-31"}, "tz": {"Europe/Paris"}}, "hour", 24},
+		{url.Values{"from": {"2026-10-25"}, "to": {"2026-10-31"}, "tz": {"Europe/Paris"}}, "day", 7},
+		{url.Values{"from": {"2026-08-03"}, "to": {"2026-10-31"}}, "day", 90},
+		{url.Values{"from": {"2026-01-05"}, "to": {"2026-10-31"}}, "week", 43},
+		{url.Values{"period": {"7d"}}, "day", 8},
+	}
+	for _, c := range cases {
+		rng, err := ResolveUsageRange(c.q, now)
+		if err != nil {
+			t.Fatalf("%v: %v", c.q, err)
+		}
+		if rng.Bucket != c.bucket || len(rng.bucketStarts()) != c.bars {
+			t.Fatalf("%v: bucket=%s bars=%d, want %s and %d", c.q, rng.Bucket, len(rng.bucketStarts()), c.bucket, c.bars)
+		}
+	}
+	for _, bad := range []url.Values{
+		{"from": {"2026-10-31"}, "to": {"2026-10-01"}},
+		{"from": {"2024-01-01"}, "to": {"2026-10-31"}},
+		{"from": {"31/10/2026"}},
+		{"from": {"2026-10-31"}, "tz": {"Mars/Olympus"}},
+	} {
+		if _, err := ResolveUsageRange(bad, now); err == nil {
+			t.Fatalf("%v: want an error", bad)
+		}
+	}
+}
+
+// Day buckets follow the viewer's calendar: 23:30 UTC on Oct 30 is already
+// Oct 31 in Paris.
+func TestUsageReportBucketsDaysInViewerTimezone(t *testing.T) {
+	s := newTestServer(t)
+	userID := ensureTestAdmin(t, s)
+	project, err := s.store.CreateProject(userID, "Night", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(userID, "night", "", "cautious", "{}", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	late := time.Date(2026, 10, 30, 23, 30, 0, 0, time.UTC)
+	if err := s.store.InsertTelemetry([]TelemetryEvent{
+		usageEvent(t, agent.ID, "llm.done", late, map[string]any{"model": "claude-sonnet", "provider": "anthropic", "tokens_in": 70, "tokens_out": 7, "cost_usd": 0.1}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)
+	rng, err := ResolveUsageRange(url.Values{"from": {"2026-10-29"}, "to": {"2026-10-31"}, "tz": {"Europe/Paris"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, rng, "agent", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Bucket != "day" || len(report.Timeline) != 3 || report.Timezone != "Europe/Paris" {
+		t.Fatalf("bucket=%s timeline=%d tz=%s", report.Bucket, len(report.Timeline), report.Timezone)
+	}
+	last := report.Timeline[2]
+	if last.Time != "2026-10-31T00:00:00+01:00" || last.Calls != 1 || last.TokensIn != 70 {
+		t.Fatalf("Oct 31 bucket=%+v", last)
+	}
+	if report.Timeline[1].Calls != 0 {
+		t.Fatalf("Oct 30 bucket=%+v, want empty", report.Timeline[1])
+	}
+}
+
+// The platform Helper has no project and is hidden from agent lists, but its
+// calls count toward all-project usage.
+func TestUsageReportIncludesPlatformHelperAcrossProjects(t *testing.T) {
+	s, userID, project, now := seedUsage(t)
+	helper, err := s.store.CreateAgent(userID, "Apteva Helper", "", "cautious", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`UPDATE agents SET kind='platform_helper' WHERE id=?`, helper.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.InsertTelemetry([]TelemetryEvent{
+		usageEvent(t, helper.ID, "llm.done", now.Add(-5*time.Minute), map[string]any{"model": "gpt-5.6", "provider": "openai-codex", "tokens_in": 40, "tokens_out": 4}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.store.TelemetryUsageReport(context.Background(), userID, "", rolling(t, "24h", now), "project", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var none *UsageGroup
+	for i := range all.Groups {
+		if all.Groups[i].Key == "none" {
+			none = &all.Groups[i]
+		}
+	}
+	if none == nil || none.Calls != 1 || none.Label != "No project" {
+		t.Fatalf("groups=%+v, want the Helper under No project", all.Groups)
+	}
+	scoped, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, rolling(t, "24h", now), "agent", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scoped.Totals.Calls != 4 {
+		t.Fatalf("project totals=%+v, want the Helper left out", scoped.Totals)
 	}
 }
 
@@ -183,7 +305,7 @@ func TestUsageEndpointChecksProjectAccess(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
 				t.Fatal(err)
 			}
-			if report.Period != "7d" || report.GroupBy != "provider" || report.BucketMinutes != 360 {
+			if report.Period != "7d" || report.GroupBy != "provider" || report.Bucket != "day" || report.BucketMinutes != 1440 {
 				t.Fatalf("report header=%+v", report)
 			}
 		}
