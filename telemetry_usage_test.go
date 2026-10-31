@@ -132,6 +132,35 @@ func TestUsageReportGroupsByModel(t *testing.T) {
 	}
 }
 
+// A subscription call with no list price is covered by the plan, so it must
+// not be reported as unpriced spend.
+func TestUsageReportDoesNotFlagSubscriptionCallsAsUnpriced(t *testing.T) {
+	s, userID, project, now := seedUsage(t)
+	agent, err := s.store.CreateAgent(userID, "planner", "", "cautious", "{}", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []TelemetryEvent{
+		usageEvent(t, agent.ID, "llm.done", now.Add(-20*time.Minute), map[string]any{"model": "unlisted-codex-model", "provider": "openai-codex", "tokens_in": 100, "tokens_out": 10}),
+		usageEvent(t, agent.ID, "llm.done", now.Add(-10*time.Minute), map[string]any{"model": "unlisted-flat-rate-model", "provider": "opencode-go", "tokens_in": 100, "tokens_out": 10}),
+	}
+	if err := s.store.InsertTelemetry(events); err != nil {
+		t.Fatal(err)
+	}
+	report, err := s.store.TelemetryUsageReport(context.Background(), userID, project.ID, "24h", "agent", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Totals.Calls != 6 || report.Totals.UnpricedCalls != 1 {
+		t.Fatalf("totals=%+v, want 6 calls with only the metered mystery-model call unpriced", report.Totals)
+	}
+	for _, g := range report.Groups {
+		if g.Label == "planner" && (g.UnpricedCalls != 0 || g.Billing != "subscription") {
+			t.Fatalf("planner=%+v", g)
+		}
+	}
+}
+
 func TestUsageEndpointChecksProjectAccess(t *testing.T) {
 	s, userID, project, _ := seedUsage(t)
 	other, err := s.store.CreateUser("outsider@test.local", "hash")
