@@ -812,6 +812,7 @@ func main() {
 	apiMux.HandleFunc("/telemetry/agents-last-active", s.authMiddleware(s.handleAgentsLastActive))
 	apiMux.HandleFunc("/telemetry/project-stats", s.authMiddleware(s.handleTelemetryProjectStats))
 	apiMux.HandleFunc("/telemetry/project-timeline", s.authMiddleware(s.handleTelemetryProjectTimeline))
+	apiMux.HandleFunc("/telemetry/usage", s.authMiddleware(s.handleTelemetryUsage))
 	apiMux.HandleFunc("/telemetry/project-tools", s.authMiddleware(s.handleTelemetryProjectTools))
 	apiMux.HandleFunc("/telemetry/stream", s.authMiddleware(s.handleTelemetryStream)) // SSE — cookie or API key auth
 	// Agent cores use their row-scoped core_ credential here. The handler

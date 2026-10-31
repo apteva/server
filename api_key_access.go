@@ -59,7 +59,7 @@ func readOnlyAPIRequestAllowed(r *http.Request) bool {
 		"/projects", "/agents", "/instances",
 		"/telemetry", "/telemetry/timeline", "/telemetry/stats",
 		"/telemetry/project-activity", "/telemetry/agents-last-active", "/telemetry/project-stats",
-		"/telemetry/project-timeline", "/telemetry/project-tools", "/telemetry/stream",
+		"/telemetry/project-timeline", "/telemetry/project-tools", "/telemetry/stream", "/telemetry/usage",
 		"/settings/server", "/settings/new-agent-provider":
 		return true
 	}
