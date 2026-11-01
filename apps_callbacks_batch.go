@@ -306,7 +306,7 @@ func (s *Server) dispatchInternalAppBatch(ctx context.Context, target *appCallTa
 	}
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(target.callerInstallID, 10))
 	req.Header.Set(sdk.HeaderBoundCallerAppName, target.callerAppName)
-	setAppCallbackOperatorHeaders(req, requestContext, target.effectiveProject)
+	setAppCallbackCallerHeaders(req, requestContext, target.effectiveProject)
 	if deadline, ok := requestContext.Deadline(); ok {
 		req.Header.Set(sdk.HeaderAppCallDeadline, strconv.FormatInt(deadline.UnixMilli(), 10))
 	}
@@ -394,19 +394,20 @@ func safeTargetServerTiming(raw string) string {
 	return strings.Join(out, ", ")
 }
 
-// setAppCallbackOperatorHeaders retains the platform operator that explicitly
-// accompanied an authenticated app callback. The calling app remains the
-// service principal; a platform session must never be converted into a
-// delegated application-user subject at the target app.
-func setAppCallbackOperatorHeaders(req *http.Request, ctx context.Context, projectID string) {
+// setAppCallbackCallerHeaders forwards the project this app call was
+// authorized for, which the target SDK reads as Caller.ProjectID, and retains
+// the platform operator that explicitly accompanied the callback. The calling
+// app remains the service principal; a platform session must never be
+// converted into a delegated application-user subject at the target app.
+func setAppCallbackCallerHeaders(req *http.Request, ctx context.Context, projectID string) {
+	if projectID != "" {
+		req.Header.Set("X-Apteva-Project-ID", projectID)
+	}
 	principal, ok := ctx.Value(appCallbackPrincipalKey{}).(appCallbackPrincipal)
 	if !ok || !principal.userSession || principal.userID <= 0 {
 		return
 	}
 	req.Header.Set("X-Apteva-Operator-ID", strconv.FormatInt(principal.userID, 10))
-	if projectID != "" {
-		req.Header.Set("X-Apteva-Project-ID", projectID)
-	}
 }
 
 func (s *Server) dispatchAppCallback(ctx context.Context, target *appCallTarget, tool string, input map[string]any, direct bool, budget *atomic.Int64) (appCallDispatchResult, error) {
@@ -451,7 +452,7 @@ func (s *Server) dispatchAppCallback(ctx context.Context, target *appCallTarget,
 	}
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(target.callerInstallID, 10))
 	req.Header.Set(sdk.HeaderBoundCallerAppName, target.callerAppName)
-	setAppCallbackOperatorHeaders(req, requestContext, target.effectiveProject)
+	setAppCallbackCallerHeaders(req, requestContext, target.effectiveProject)
 	if deadline, ok := requestContext.Deadline(); ok {
 		req.Header.Set(sdk.HeaderAppCallDeadline, strconv.FormatInt(deadline.UnixMilli(), 10))
 	}
