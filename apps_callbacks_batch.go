@@ -588,6 +588,14 @@ func (s *Server) handleCallbackAppBatch(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	for i := range body.Calls {
+		var probe struct {
+			ProjectID any `json:"project_id"`
+		}
+		_ = json.Unmarshal(body.Calls[i].Input, &probe)
+		if err := s.projectArgConflict(map[string]any{"project_id": probe.ProjectID}, target.effectiveProject); err != nil {
+			http.Error(w, fmt.Sprintf("calls[%d]: %v", i, err), http.StatusForbidden)
+			return
+		}
 		input, err := pinAppCallProjectRaw(body.Calls[i].Input, target.effectiveProject)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("calls[%d].input: %v", i, err), http.StatusBadRequest)

@@ -435,6 +435,16 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// An agent granted this app in other projects may name one per call.
+	// Without a grant (or without the parameter) routing below is unchanged.
+	var grantRoute *projectGrantRoute
+	if isAppMCPCall {
+		var handled bool
+		if grantRoute, handled = s.projectGrantForAppMCP(w, r, appName); handled {
+			return
+		}
+	}
+	rerouted := grantRoute != nil && grantRoute.entry != nil
 
 	rawQuery := r.URL.Query()
 	_, hasProjectIDKey := rawQuery["project_id"]
@@ -461,7 +471,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			r.URL.RawQuery = rawQuery.Encode()
 		}
 	}
-	if isAppMCPCall {
+	if isAppMCPCall && !rerouted {
 		threadProjectID, err := s.appMCPThreadProject(r)
 		if err != nil {
 			http.Error(w, "resolve MCP thread project: "+err.Error(), http.StatusInternalServerError)
@@ -484,7 +494,12 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var entry *InstalledApp
-	if pathInstallID > 0 {
+	if rerouted {
+		entry = grantRoute.entry
+		requestedProjectID = grantRoute.project
+		rawQuery.Set("project_id", requestedProjectID)
+		r.URL.RawQuery = rawQuery.Encode()
+	} else if pathInstallID > 0 {
 		if installIDRaw := rawQuery.Get("install_id"); installIDRaw != "" && installIDRaw != strconv.FormatInt(pathInstallID, 10) {
 			http.Error(w, "install_id query does not match app path", http.StatusBadRequest)
 			return
@@ -571,6 +586,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		defer releaseBody()
 	}
 	if effectiveProjectID != "" && tail == "/mcp" && r.Method == http.MethodPost {
+		if body, err := s.mcpProjectArgConflict(r, effectiveProjectID); err != nil {
+			writePlatformGatewayToolError(w, body, err)
+			return
+		}
 		if err := injectProjectIntoMCPRequest(r, effectiveProjectID); err != nil {
 			http.Error(w, "invalid MCP request: "+err.Error(), http.StatusBadRequest)
 			return
@@ -659,6 +678,11 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			// augments the response. Both consumers see the same handle.
 			if isAppMCPCall {
 				if err := s.storeAppBlobResponse(r, resp); err != nil {
+					return err
+				}
+			}
+			if grantRoute != nil && grantRoute.listing != nil {
+				if err := grantRoute.rewriteToolList(resp); err != nil {
 					return err
 				}
 			}

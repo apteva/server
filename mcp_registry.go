@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -46,6 +47,7 @@ type mcpToolDef struct {
 	Description  string         `json:"description"`
 	InputSchema  map[string]any `json:"inputSchema"`
 	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	Annotations  map[string]any `json:"annotations,omitempty"`
 	Meta         map[string]any `json:"_meta,omitempty"`
 }
 
@@ -1327,6 +1329,10 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := r.URL.Query().Get("project_id")
 	if projectID != "" && record.Source == "app" {
+		if err := s.projectArgConflict(body.Args, projectID); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 		injectProjectArgAny(body.Args, projectID)
 	}
 
@@ -1418,6 +1424,49 @@ func injectProjectArgAny(args map[string]any, projectID string) {
 	// caller-supplied value: doing so lets a request routed and authorised
 	// for one project execute a global app against another project.
 	args["_project_id"] = projectID
+}
+
+// projectArgConflict refuses a project_id argument that names a different
+// Apteva project from the one a call was routed and authorised for. The
+// platform sets _project_id, but several apps read project_id first, so
+// without this a caller could act in any project whose id it knew. Values that
+// are not project ids pass through: some apps use project_id for their own
+// records.
+func (s *Server) projectArgConflict(args map[string]any, projectID string) error {
+	if projectID == "" || args == nil {
+		return nil
+	}
+	value, _ := args["project_id"].(string)
+	value = strings.TrimSpace(value)
+	if value == "" || value == projectID {
+		return nil
+	}
+	if _, isProject := s.projectName(value); !isProject {
+		return nil
+	}
+	if name, ok := s.projectName(projectID); ok {
+		return fmt.Errorf("project_id %q is another project; this call runs in project %s (%s)", value, name, projectID)
+	}
+	return fmt.Errorf("project_id %q is another project; this call runs in project %s", value, projectID)
+}
+
+// mcpProjectArgConflict applies projectArgConflict to an MCP tools/call body.
+// It returns the body so a refusal can answer with the request's id.
+func (s *Server) mcpProjectArgConflict(r *http.Request, projectID string) ([]byte, error) {
+	body, err := readRequestBody(r)
+	if err != nil || !bytes.Contains(body, []byte(`"project_id"`)) {
+		return body, nil
+	}
+	var rpc struct {
+		Method string `json:"method"`
+		Params struct {
+			Arguments map[string]any `json:"arguments"`
+		} `json:"params"`
+	}
+	if decodeMCPProxyRequest(body, &rpc) != nil || rpc.Method != "tools/call" {
+		return body, nil
+	}
+	return body, s.projectArgConflict(rpc.Params.Arguments, projectID)
 }
 
 func addQueryParam(rawURL, key, value string) string {
