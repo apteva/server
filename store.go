@@ -1686,6 +1686,20 @@ func (s *Store) migrate() error {
 		)
 	`)
 	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_thread_scopes_project ON agent_thread_scopes(project_id)`)
+	// One row lets one agent use one app (or the Apteva Server tools) in
+	// projects other than its own. No row = the agent stays in its project.
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS agent_project_grants (
+			agent_id     INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+			target       TEXT NOT NULL,
+			all_projects INTEGER NOT NULL DEFAULT 0,
+			project_ids  TEXT NOT NULL DEFAULT '[]',
+			tools        TEXT NOT NULL DEFAULT '[]',
+			created_by   INTEGER NOT NULL DEFAULT 0,
+			updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (agent_id, target)
+		)
+	`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS delegated_provider_usage (
 			id                   INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1280,6 +1280,10 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	// Replace rather than preserve routing metadata. The value above is
 	// pinned by the caller install or validated against its owning user.
 	delete(body.Input, "_project_id")
+	if err := s.projectArgConflict(body.Input, effectiveProjectID); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	injectProjectArgAny(body.Input, effectiveProjectID)
 
 	// Construct an MCP tools/call JSON-RPC request and POST to the

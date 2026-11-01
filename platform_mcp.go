@@ -97,6 +97,18 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 	if agent.Kind == "platform_helper" && s.handleHelperAppTool(w, r, agent, threadID, projectID, body) {
 		return
 	}
+	if agent.Kind != "platform_helper" && projectID != "" {
+		// Only an agent granted the Apteva Server tools elsewhere may name
+		// another project; for everyone else project_id is still overwritten.
+		target, grantErr := s.platformGrantProject(agent, body)
+		if grantErr != nil {
+			writePlatformGatewayToolError(w, body, grantErr)
+			return
+		}
+		if target != "" {
+			projectID = target
+		}
+	}
 	if projectID != "" {
 		body, err = s.scopeProjectGatewayRequest(body, projectID)
 		if err != nil {
@@ -156,6 +168,9 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 					list = append(list, helperAppToolDefinitions()...)
 				}
 				result["tools"] = list
+				if agent.Kind != "platform_helper" {
+					s.platformGrantToolList(agent, result)
+				}
 				response, _ = json.Marshal(reply)
 			}
 		}

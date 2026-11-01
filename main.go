@@ -87,6 +87,7 @@ type Server struct {
 	handoffWork          int
 	liveBindingLocks     sync.Map
 	liveBindingWorkers   sync.Map
+	grantToolHints       sync.Map // app install id -> grantToolHint
 	automatic            automaticRuntime
 	store                *Store
 	dbPath               string // path to apteva-server.db on disk (needed for staged restore)
@@ -1398,6 +1399,13 @@ func main() {
 		// inventory rows without making callers replace the complete config.
 		if strings.HasSuffix(path, "/mcp-servers") {
 			s.handleAgentMCPServers(w, r)
+			return
+		}
+
+		// /instances/:id/project-grants — let attached apps run in other
+		// projects. No grant keeps the agent in its own project.
+		if path == agentIDPart+"/project-grants" {
+			s.handleAgentProjectGrants(w, r, agentID)
 			return
 		}
 
