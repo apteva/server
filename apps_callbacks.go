@@ -1314,7 +1314,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	// through an agent-facing MCP connection.
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(installID, 10))
 	req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
-	setAppCallbackOperatorHeaders(req, requestContext, effectiveProjectID)
+	setAppCallbackCallerHeaders(req, requestContext, effectiveProjectID)
 	if deadline, ok := requestContext.Deadline(); ok {
 		req.Header.Set(sdk.HeaderAppCallDeadline, strconv.FormatInt(deadline.UnixMilli(), 10))
 	}
