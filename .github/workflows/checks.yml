@@ -36,7 +36,38 @@ jobs:
           go mod download github.com/apteva/app-sdk
       - run: go test ./... -count=1 -timeout=10m
       - run: go vet ./...
-      - run: go test -race ./... -short -count=1 -timeout=30m
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - run: go build -o /tmp/apteva-server .
+
+  # The race detector slows the root package ~6x; it sat at 29.5-30 min
+  # against a 30 min budget and started timing out. Runs alongside `test`
+  # so wall time stays close to the race run alone.
+  race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: server
+      - name: Checkout integration catalog sources for parity tests
+        uses: actions/checkout@v4
+        with:
+          repository: apteva/integrations
+          path: integrations
+      - name: Checkout Core for managed MCP startup test
+        uses: actions/checkout@v4
+        with:
+          repository: apteva/core
+          path: core
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+      - name: Resolve published SDK
+        run: |
+          go mod edit -dropreplace=github.com/apteva/app-sdk
+          go mod download github.com/apteva/app-sdk
+      - run: go test -race ./... -short -count=1 -timeout=60m
