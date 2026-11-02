@@ -48,6 +48,7 @@
       "token_url": "https://oauth2.googleapis.com/token",
       "scopes": [
         "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
         "https://www.googleapis.com/auth/youtube.upload",
         "https://www.googleapis.com/auth/youtube.readonly",
         "https://www.googleapis.com/auth/youtubepartner",
@@ -1267,6 +1268,275 @@
           },
           "totalReplyCount": 0
         }
+      }
+    },
+    {
+      "name": "list_channel_comment_threads",
+      "description": "List comment threads on all of the authorized channel's videos, newest activity first with order=time. A thread whose newest reply is recent moves to the top, so older videos receiving new replies are included. Embedded replies may be incomplete; when snippet.totalReplyCount exceeds the replies included, page list_comment_replies for the thread. Costs 1 quota unit per page. Calls GET /commentThreads with allThreadsRelatedToChannelId.",
+      "method": "GET",
+      "path": "/commentThreads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "Parts to include",
+            "default": "snippet,replies"
+          },
+          "allThreadsRelatedToChannelId": {
+            "type": "string",
+            "description": "The authorized channel's ID"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "time",
+              "relevance"
+            ],
+            "default": "time",
+            "description": "time returns the most recently active threads first"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Threads per page (1-100)",
+            "default": 100
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token from a previous response"
+          },
+          "moderationStatus": {
+            "type": "string",
+            "enum": [
+              "published",
+              "heldForReview",
+              "likelySpam"
+            ],
+            "description": "Threads in this moderation state (owner only); default published"
+          },
+          "textFormat": {
+            "type": "string",
+            "enum": [
+              "plainText",
+              "html"
+            ],
+            "default": "plainText"
+          }
+        },
+        "required": [
+          "part",
+          "allThreadsRelatedToChannelId"
+        ]
+      },
+      "mock_response": {
+        "kind": "youtube#commentThreadListResponse",
+        "items": [
+          {
+            "kind": "youtube#commentThread",
+            "id": "UgThread001",
+            "snippet": {
+              "channelId": "UC0000000000000000000001",
+              "videoId": "dQw4w9WgXcQ",
+              "totalReplyCount": 1,
+              "canReply": true,
+              "topLevelComment": {
+                "id": "UgThread001",
+                "snippet": {
+                  "textOriginal": "Great video!",
+                  "authorDisplayName": "@viewer1",
+                  "authorChannelId": {
+                    "value": "UC0000000000000000000002"
+                  },
+                  "publishedAt": "2026-05-21T08:00:00Z",
+                  "updatedAt": "2026-05-21T08:00:00Z"
+                }
+              }
+            },
+            "replies": {
+              "comments": [
+                {
+                  "id": "UgThread001.reply001",
+                  "snippet": {
+                    "parentId": "UgThread001",
+                    "textOriginal": "Thanks!",
+                    "authorDisplayName": "Channel",
+                    "authorChannelId": {
+                      "value": "UC0000000000000000000001"
+                    },
+                    "publishedAt": "2026-05-21T09:00:00Z"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 100
+        }
+      }
+    },
+    {
+      "name": "list_comment_replies",
+      "description": "List every reply to one top-level comment. Use it when a thread's embedded replies are incomplete. Page with nextPageToken until it is absent. Costs 1 quota unit per page. Calls GET /comments with parentId.",
+      "method": "GET",
+      "path": "/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "Parts to include",
+            "default": "snippet"
+          },
+          "parentId": {
+            "type": "string",
+            "description": "Top-level comment ID (the thread ID)"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Replies per page (1-100)",
+            "default": 100
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token from a previous response"
+          },
+          "textFormat": {
+            "type": "string",
+            "enum": [
+              "plainText",
+              "html"
+            ],
+            "default": "plainText"
+          }
+        },
+        "required": [
+          "part",
+          "parentId"
+        ]
+      },
+      "mock_response": {
+        "kind": "youtube#commentListResponse",
+        "items": [
+          {
+            "id": "UgThread001.reply001",
+            "snippet": {
+              "parentId": "UgThread001",
+              "textOriginal": "Thanks!",
+              "authorDisplayName": "Channel",
+              "authorChannelId": {
+                "value": "UC0000000000000000000001"
+              },
+              "publishedAt": "2026-05-21T09:00:00Z"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply_to_comment",
+      "description": "Reply to a comment. snippet.parentId must be the top-level comment ID: YouTube threads are one level deep, so a reply to a reply goes under the same top-level comment. Costs 50 quota units. Requires the youtube.force-ssl scope. Calls POST /comments.",
+      "method": "POST",
+      "path": "/comments?part=snippet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snippet": {
+            "type": "object",
+            "properties": {
+              "parentId": {
+                "type": "string",
+                "description": "Top-level comment ID to reply under"
+              },
+              "textOriginal": {
+                "type": "string",
+                "description": "Reply text"
+              }
+            },
+            "required": [
+              "parentId",
+              "textOriginal"
+            ]
+          }
+        },
+        "required": [
+          "snippet"
+        ]
+      },
+      "mock_response": {
+        "kind": "youtube#comment",
+        "id": "UgThread001.reply002",
+        "snippet": {
+          "parentId": "UgThread001",
+          "textOriginal": "(reply)",
+          "authorDisplayName": "Channel",
+          "authorChannelId": {
+            "value": "UC0000000000000000000001"
+          },
+          "publishedAt": "2026-05-22T12:00:00Z"
+        }
+      }
+    },
+    {
+      "name": "set_comment_moderation_status",
+      "description": "Hide (rejected), hold (heldForReview) or restore (published) comments on the authorized channel's videos. Only the channel owner can moderate. Costs 50 quota units. Calls POST /comments/setModerationStatus.",
+      "method": "POST",
+      "path": "/comments/setModerationStatus",
+      "query_params": [
+        "id",
+        "moderationStatus",
+        "banAuthor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Comma-separated comment IDs"
+          },
+          "moderationStatus": {
+            "type": "string",
+            "enum": [
+              "published",
+              "heldForReview",
+              "rejected"
+            ]
+          },
+          "banAuthor": {
+            "type": "boolean",
+            "description": "Also ban the author (only with rejected)",
+            "default": false
+          }
+        },
+        "required": [
+          "id",
+          "moderationStatus"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "delete_comment",
+      "description": "Delete a comment written by the authorized channel. Other viewers' comments cannot be deleted; hide them with set_comment_moderation_status rejected. Costs 50 quota units. Calls DELETE /comments.",
+      "method": "DELETE",
+      "path": "/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Comment ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
