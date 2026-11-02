@@ -1715,6 +1715,195 @@
           }
         ]
       }
+    },
+    {
+      "name": "list_reporting_report_types",
+      "description": "List the bulk report types the YouTube Reporting API can generate for the authenticated channel, for example the reach reports with thumbnail impressions and click-through rate. Bulk reports are daily CSV files produced by a job; they are separate from query_analytics_report, which answers live queries but has no impressions data.",
+      "method": "GET",
+      "path": "https://youtubereporting.googleapis.com/v1/reportTypes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "includeSystemManaged": {
+            "type": "boolean",
+            "description": "Include system-managed report types (content owners only)."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Token from the previous page's nextPageToken."
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Maximum results per page."
+          }
+        }
+      },
+      "mock_response": {
+        "reportTypes": [
+          {
+            "id": "channel_reach_basic_a1",
+            "name": "Channel reach basic"
+          }
+        ]
+      }
+    },
+    {
+      "name": "list_reporting_jobs",
+      "description": "List the YouTube Reporting API jobs of the authenticated channel. A job generates one report type every day from its creation.",
+      "method": "GET",
+      "path": "https://youtubereporting.googleapis.com/v1/jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "includeSystemManaged": {
+            "type": "boolean",
+            "description": "Include system-managed jobs (content owners only)."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Token from the previous page's nextPageToken."
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Maximum results per page."
+          }
+        }
+      },
+      "mock_response": {
+        "jobs": [
+          {
+            "id": "job-1",
+            "reportTypeId": "channel_reach_basic_a1",
+            "name": "Social reach",
+            "createTime": "2026-11-02T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create_reporting_job",
+      "description": "Create a YouTube Reporting API job for one report type. Google starts producing daily reports for it within about 48 hours and adds historical data where available. Create one job per report type; list_reporting_jobs first to avoid duplicates.",
+      "method": "POST",
+      "path": "https://youtubereporting.googleapis.com/v1/jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reportTypeId": {
+            "type": "string",
+            "description": "Report type ID from list_reporting_report_types."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for the job."
+          }
+        },
+        "required": [
+          "reportTypeId",
+          "name"
+        ]
+      },
+      "mock_response": {
+        "id": "job-1",
+        "reportTypeId": "channel_reach_basic_a1",
+        "name": "Social reach",
+        "createTime": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "name": "list_reporting_reports",
+      "description": "List the daily reports a YouTube Reporting API job has produced. Each report covers one day (startTime to endTime) and has a downloadUrl; download it with download_reporting_report.",
+      "method": "GET",
+      "path": "https://youtubereporting.googleapis.com/v1/jobs/{jobId}/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job ID from list_reporting_jobs."
+          },
+          "createdAfter": {
+            "type": "string",
+            "description": "Only reports created after this RFC 3339 time."
+          },
+          "startTimeAtOrAfter": {
+            "type": "string",
+            "description": "Only reports whose data starts at or after this RFC 3339 time."
+          },
+          "startTimeBefore": {
+            "type": "string",
+            "description": "Only reports whose data starts before this RFC 3339 time."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Token from the previous page's nextPageToken."
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Maximum results per page."
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      },
+      "mock_response": {
+        "reports": [
+          {
+            "id": "report-1",
+            "jobId": "job-1",
+            "startTime": "2026-11-01T07:00:00Z",
+            "endTime": "2026-11-02T07:00:00Z",
+            "createTime": "2026-11-02T12:00:00Z",
+            "downloadUrl": "https://youtubereporting.googleapis.com/v1/media/CHANNEL/UC000/jobs/job-1/reports/report-1?alt=media"
+          }
+        ]
+      }
+    },
+    {
+      "name": "download_reporting_report",
+      "description": "Download one YouTube Reporting API report file (CSV) by the channel, job and report IDs from its downloadUrl (https://youtubereporting.googleapis.com/v1/media/CHANNEL/{channelId}/jobs/{jobId}/reports/{reportId}?alt=media). Returns the file as a binary envelope.",
+      "method": "GET",
+      "path": "https://youtubereporting.googleapis.com/v1/media/CHANNEL/{channelId}/jobs/{jobId}/reports/{reportId}",
+      "query_params": [
+        "alt"
+      ],
+      "response_type": "binary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Channel ID from the downloadUrl."
+          },
+          "jobId": {
+            "type": "string",
+            "description": "Job ID."
+          },
+          "reportId": {
+            "type": "string",
+            "description": "Report ID."
+          },
+          "alt": {
+            "type": "string",
+            "description": "Must be media to download the file.",
+            "default": "media",
+            "enum": [
+              "media"
+            ]
+          }
+        },
+        "required": [
+          "channelId",
+          "jobId",
+          "reportId",
+          "alt"
+        ]
+      },
+      "mock_response": {
+        "_binary": true,
+        "base64": "ZGF0ZSx2aWRlb19pZAo=",
+        "mimeType": "application/octet-stream"
+      }
     }
   ]
 }
