@@ -34,6 +34,7 @@ type runtimePlacement struct {
 	Options    map[string]any      `json:"options,omitempty"`
 	GatewayURL string              `json:"gateway_url,omitempty"`
 	Package    *runtimePackageSpec `json:"package,omitempty"`
+	HostSetup  *runtimeHostSetup   `json:"host_setup,omitempty"`
 }
 
 func (p runtimePlacement) local() bool { return p.Type == "" || p.Type == "local" }
@@ -50,10 +51,13 @@ func (p runtimePlacement) validate() error {
 		return fmt.Errorf("managed ingress currently requires a remote backend")
 	}
 	if p.local() {
-		if p.Backend.InstallID != 0 || p.PoolID != "" || p.Target.InstallID != 0 || len(p.Options) > 0 || p.Package != nil {
+		if p.Backend.InstallID != 0 || p.PoolID != "" || p.Target.InstallID != 0 || len(p.Options) > 0 || p.Package != nil || p.HostSetup != nil {
 			return fmt.Errorf("local placement cannot select a backend or pool")
 		}
 		return nil
+	}
+	if e := sdk.ValidateHostProfiles(p.approvedHostProfiles()); e != nil {
+		return fmt.Errorf("host_setup: %w", e)
 	}
 	if p.Type != "backend" || p.Backend.InstallID <= 0 || !runtimeID(p.Backend.ID) {
 		return fmt.Errorf("backend placement requires app_install_id and backend_id")
@@ -119,6 +123,7 @@ type runtimeBackendCaps struct {
 	ResourceControls        bool                        `json:"resource_controls"`
 	TargetSchema            json.RawMessage             `json:"target_schema,omitempty"`
 	OptionsSchema           json.RawMessage             `json:"options_schema,omitempty"`
+	HostProfiles            []string                    `json:"host_profiles,omitempty"` // profiles the backend can install on approval
 }
 type runtimeBackendRegistration struct {
 	DisplayName     string                  `json:"display_name,omitempty"`
@@ -241,6 +246,9 @@ type runtimeBackendRequest struct {
 	Execution        runtimeExecution            `json:"execution,omitempty"`
 	ArtifactPlatform string                      `json:"artifact_platform,omitempty"`
 	StateRef         string                      `json:"state_ref,omitempty"`
+	// ApprovedHostProfiles are the manifest's host profiles the placement lets
+	// the backend install on the target.
+	ApprovedHostProfiles []string `json:"approved_host_profiles,omitempty"`
 }
 type runtimeBackend interface {
 	Describe() runtimeBackendCaps

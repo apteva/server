@@ -114,6 +114,9 @@ func (m *appRuntimeManager) inspectPackageTarget(d *runtimeDeployment, op *runti
 	if err = runtimeReleaseTargetCompatibility(d.Manifest, d.Placement, b.registration, &info); err != nil {
 		return err
 	}
+	if _, _, err = runtimeHostSetupStatus(d.Manifest, d.Placement, b.Describe(), &info); err != nil {
+		return err
+	}
 	if d.Placement.Package == nil {
 		d.Placement.Package = &runtimePackageSpec{}
 	}

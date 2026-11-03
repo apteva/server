@@ -74,6 +74,11 @@ func (m *appRuntimeManager) request(d runtimeDeployment, op runtimeOperation, ac
 	}
 	req := runtimeBackendRequest{StateTransfer: op.StateTransfer, TargetInfo: d.TargetInfo, Contract: runtimeBackendContract, OperationID: op.ID, IdempotencyKey: op.ID + ":" + d.ID, DeploymentID: d.ID, InstallID: d.InstallID, Generation: d.Generation, ProjectID: project, Target: d.Placement.Target, Options: options, Manifest: d.Manifest, Execution: d.Execution, StateRef: d.Execution.StateRef, GatewayURL: d.Placement.GatewayURL}
 	req.Resources = &d.Resources
+	for _, name := range runtimeRequiredHostProfiles(d.Manifest) {
+		if !d.Placement.local() && runtimeContains(d.Placement.approvedHostProfiles(), name) {
+			req.ApprovedHostProfiles = append(req.ApprovedHostProfiles, name)
+		}
+	}
 	if d.Package != nil {
 		if v, ok := options["artifact_id"]; ok && v != d.Package.Metadata.ID {
 			return req, fmt.Errorf("artifact option conflicts with prepared package")

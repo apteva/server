@@ -184,6 +184,9 @@ func (m *appRuntimeManager) preflight(ctx context.Context, id int64, project str
 		}
 	}
 	checks = append(checks, runtimeCheck("Package requirements", "package_incompatible", runtimeReleaseTargetCompatibility(manifest, p, reg, target)))
+	if len(runtimeRequiredHostProfiles(manifest)) > 0 && !p.local() {
+		checks = append(checks, runtimeHostSetupCheck(manifest, p, reg.Caps, target))
+	}
 	if id > 0 {
 		source, err := m.existingSource(id)
 		if err != nil {
