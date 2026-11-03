@@ -105,7 +105,7 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 	if err := m.s.store.db.QueryRow(`SELECT MAX(runtime_generation,COALESCE((SELECT MAX(generation) FROM app_runtime_deployments WHERE install_id=app_installs.id),0))+1 FROM app_installs WHERE id=?`, id).Scan(&gen); err != nil {
 		return runtimeDeployment{}, err
 	}
-	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", CreatedAt: runtimeTimestamp(), AppCaps: runtimeAppCaps{}}
+	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", Unprepared: true, CreatedAt: runtimeTimestamp(), AppCaps: runtimeAppCaps{}}
 	d.AppCaps, d.AppCapsKnown = m.releaseCapabilities(id, *manifest, p)
 	component, componentErr := m.s.componentDeployment(id, manifest)
 	if componentErr != nil {

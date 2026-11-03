@@ -180,6 +180,7 @@ type runtimeDeployment struct {
 	AppCaps               runtimeAppCaps             `json:"app_capabilities"`
 	AppCapsKnown          bool                       `json:"app_capabilities_known,omitempty"`
 	Status                string                     `json:"status"`
+	Unprepared            bool                       `json:"unprepared,omitempty"` // Set at creation, cleared before the first Prepare; absent on older records, which may be prepared.
 	Execution             runtimeExecution           `json:"execution"`
 	CreatedAt             string                     `json:"created_at"`
 	CredentialEncrypted   string                     `json:"-"`

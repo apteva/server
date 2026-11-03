@@ -40,6 +40,11 @@ type runtimeBackendFixture struct {
 	admitting               map[string]bool
 	appCaps                 runtimeAppCaps
 	snapshot                []byte
+	// Like the Instances native backend: actions other than prepare cannot
+	// establish ownership of an ID the backend never recorded.
+	unknownNotFound    bool
+	failValidateTarget bool
+	failPrepare        bool
 }
 
 func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
@@ -117,11 +122,27 @@ func newRuntimeBackendFixture(t *testing.T, id string) *runtimeBackendFixture {
 		}
 		action := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
 		f.events = append(f.events, action+":"+req.DeploymentID)
-		out := f.executions[req.DeploymentID]
+		out, known := f.executions[req.DeploymentID]
+		if f.unknownNotFound && !known && action != "validate-target" && action != "prepare" {
+			http.Error(w, "deployment not found; ownership cannot be established", 404)
+			return
+		}
 		switch action {
 		case "validate-target":
+			if f.failValidateTarget {
+				http.Error(w, "gateway unreachable from target", 400)
+				return
+			}
 			out.HostKey = runtimeHostKey(req.Target)
+			if f.unknownNotFound && !known {
+				json.NewEncoder(w).Encode(out)
+				return
+			}
 		case "prepare":
+			if f.failPrepare {
+				http.Error(w, "prepare rejected", 409)
+				return
+			}
 			if f.rejectConcurrentPrepare {
 				for id, execution := range f.executions {
 					if id != req.DeploymentID && execution.State == "running" {

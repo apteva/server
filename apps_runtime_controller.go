@@ -92,10 +92,17 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 			}
 		}
 	}
+	// A remote backend journals the request itself, once its target validated.
+	if d.Unprepared && d.Placement.local() {
+		if err = m.markPrepareRequested(d.ID); err != nil {
+			return err
+		}
+	}
 	execution, err := b.Prepare(req)
 	if err != nil {
 		return err
 	}
+	d.Unprepared = false
 	if saved, e := m.loadDeployment(d.ID); e == nil {
 		d.LocalBin = saved.LocalBin
 		d.LocalPort = saved.LocalPort
@@ -778,6 +785,15 @@ func (m *appRuntimeManager) deleteOperation(op *runtimeOperation) error {
 	if err != nil {
 		return err
 	}
+	var active string
+	if err = m.s.store.db.QueryRow(`SELECT runtime_active_deployment FROM app_installs WHERE id=?`, op.InstallID).Scan(&active); err != nil {
+		return err
+	}
+	// Check every deployment before deleting any and delete the published one
+	// last, so a failed backend delete never leaves the install pointing at a
+	// deleted deployment. A retried delete resumes with what remains.
+	var remaining []runtimeDeployment
+	var published *runtimeDeployment
 	for _, d := range ds {
 		if d.Status == "deleted" {
 			continue
@@ -785,17 +801,25 @@ func (m *appRuntimeManager) deleteOperation(op *runtimeOperation) error {
 		if d.Status != "stopped" && d.Status != "prepared" && d.Status != "preparing" {
 			return fmt.Errorf("deployment resources are not safe to delete")
 		}
-		b, err := m.backend(d)
-		if err != nil {
-			return err
+		if d.ID == active {
+			published = &d
+			continue
 		}
-		req, _ := m.request(d, *op, "delete")
-		if err = b.Delete(req); err != nil {
+		remaining = append(remaining, d)
+	}
+	if published != nil {
+		remaining = append(remaining, *published)
+	}
+	for _, d := range remaining {
+		if err = m.deleteBackendDeployment(d, *op); err != nil {
 			return err
 		}
 		m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID)
 		d.Status = "deleted"
 		if err = m.saveDeployment(d); err != nil {
+			return err
+		}
+		if _, err = m.s.store.db.Exec(`UPDATE app_installs SET runtime_pending_deployment='',pending_manifest_json='' WHERE id=? AND runtime_pending_deployment=?`, op.InstallID, d.ID); err != nil {
 			return err
 		}
 	}
@@ -806,6 +830,27 @@ func (m *appRuntimeManager) deleteOperation(op *runtimeOperation) error {
 	// deployment. The placement and backend-owned persistent data are retained.
 	_, err = m.s.store.db.Exec(`UPDATE app_installs SET runtime_active_deployment='',runtime_pending_deployment='',sidecar_url_override='',local_pid=0,local_port=0 WHERE id=?`, op.InstallID)
 	return err
+}
+
+// Journal a Prepare before sending it: a lost response may still leave the
+// backend owning this deployment ID.
+func (m *appRuntimeManager) markPrepareRequested(id string) error {
+	_, err := m.s.store.db.Exec(`UPDATE app_runtime_deployments SET record_json=json_remove(record_json,'$.unprepared') WHERE id=?`, id)
+	return err
+}
+
+// A backend cannot vouch for an ID it was never asked to prepare, so there is
+// nothing to delete there and its "not found" must not block the discard.
+func (m *appRuntimeManager) deleteBackendDeployment(d runtimeDeployment, op runtimeOperation) error {
+	if d.Unprepared {
+		return nil
+	}
+	b, err := m.backend(d)
+	if err != nil {
+		return err
+	}
+	req, _ := m.request(d, op, "delete")
+	return b.Delete(req)
 }
 func (m *appRuntimeManager) deployments(id int64) ([]runtimeDeployment, error) {
 	rows, err := m.s.store.db.Query(`SELECT id FROM app_runtime_deployments WHERE install_id=? ORDER BY generation,replica`, id)
