@@ -269,8 +269,9 @@ func TestManagedRuntimeMonitorDiscardsOldGenerationResult(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("inspection not started")
 	}
-	// Simulate a generation switch while a slow response is in transit.
-	if _, err := s.store.db.Exec(`UPDATE app_installs SET runtime_generation=runtime_generation+1 WHERE id=?`, id); err != nil {
+	// Simulate publication of a newer generation while a slow response is in
+	// transit. A merely allocated candidate generation leaves this one published.
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET runtime_active_deployment='published-successor',runtime_generation=runtime_generation+1 WHERE id=?`, id); err != nil {
 		t.Fatal(err)
 	}
 	close(release)

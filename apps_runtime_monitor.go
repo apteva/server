@@ -45,7 +45,7 @@ type runtimeMonitorEntry struct {
 // Only active generations enter this bounded cache. UI reads the corresponding
 // stored health observation; autoscaling reads fresh identity-bound workload from the same collector.
 func (m *appRuntimeManager) queueRuntimeObservations(installID int64, immediate bool) {
-	rows, err := m.s.store.db.Query(`SELECT d.id FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE i.runtime_managed=1 AND i.runtime_generation=d.generation AND d.status='active' AND i.status='running' AND (?=0 OR i.id=?) AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`, installID, installID)
+	rows, err := m.s.store.db.Query(`SELECT d.id FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE i.runtime_managed=1 AND d.generation=`+runtimePublishedGeneration+` AND d.status='active' AND i.status='running' AND (?=0 OR i.id=?) AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`, installID, installID)
 	if err != nil {
 		return
 	}
@@ -224,9 +224,7 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 		if err == nil && out.StoppedConfirmed && d.Placement.local() {
 			// Only a fresh, authoritative local stop can trigger the existing restart
 			// flow. A failed probe or remote observation never authorizes a start.
-			if m.runtimeMonitorCurrent(d) {
-				_, _ = m.begin(d.InstallID, "restart", "reconcile-"+d.ID, d.Placement, nil)
-			}
+			m.restartExitedRuntime(d)
 			return
 		}
 	} else {
@@ -247,6 +245,9 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 			recoveryFailures++
 		} else {
 			recoveryFailures = 1
+		}
+		if pending, e := m.runtimePendingCandidate(d.InstallID); e != nil || pending != "" {
+			health.Message += "; " + runtimeRecoveryWaits
 		}
 	} else {
 		recoveryFailures = 0
@@ -291,6 +292,43 @@ func (m *appRuntimeManager) checkRuntimeObservation(id string, entry *runtimeMon
 		}
 	}
 }
+func (m *appRuntimeManager) runtimePendingCandidate(installID int64) (string, error) {
+	var pending string
+	err := m.s.store.db.QueryRow(`SELECT runtime_pending_deployment FROM app_installs WHERE id=?`, installID).Scan(&pending)
+	return pending, err
+}
+
+// Record a confirmed local exit before restarting, so a dead process is never
+// described by its last healthy observation, and keep it recorded with the
+// reason whenever the restart cannot start.
+func (m *appRuntimeManager) restartExitedRuntime(d runtimeDeployment) {
+	if !m.runtimeMonitorCurrent(d) {
+		return
+	}
+	exited := runtimeHealthObservation{State: "unavailable", Message: "Process exited; restarting", Admission: "unknown"}
+	// begin refuses a restart while a candidate is pending; say so instead of
+	// asking again on every check.
+	if pending, err := m.runtimePendingCandidate(d.InstallID); err != nil || pending != "" {
+		exited.Message = "Process exited; " + runtimeRecoveryWaits
+		_, _ = m.persistRuntimeObservation(d, exited, nil)
+		return
+	}
+	if stored, err := m.persistRuntimeObservation(d, exited, nil); !stored || err != nil {
+		return
+	}
+	op, err := m.begin(d.InstallID, "restart", "reconcile-"+d.ID, d.Placement, nil)
+	switch {
+	case err != nil:
+		exited.Message = "Process exited; automatic restart did not start: " + err.Error()
+	case op.Status == "failed" || op.Status == "cancelled":
+		// The idempotency key returns this deployment's earlier attempt.
+		exited.Message = "Process exited; automatic restart " + op.Status + ": " + op.Error
+	default:
+		return
+	}
+	_, _ = m.persistRuntimeObservation(d, exited, nil)
+}
+
 func runtimeVerifiedObservation(d runtimeDeployment, out runtimeExecution) (runtimeExecution, error) {
 	if !d.Placement.local() && (out.Handle == "" || out.HostKey == "" || out.ReleaseDigest == "") {
 		return out, fmt.Errorf("backend inspection omitted execution identity")
@@ -424,9 +462,16 @@ func (m *appRuntimeManager) runtimeAppHealthContext(parent context.Context, d ru
 	return result
 }
 
-// Guard every publication/update by the current generation and absence of an
+// The published primary's generation. A prepared or failed candidate advances
+// the installation's generation counter but does not replace the execution
+// that still serves it, so monitoring and recovery follow the published one.
+const runtimePublishedGeneration = `(SELECT p.generation FROM app_runtime_deployments p WHERE p.id=i.runtime_active_deployment AND p.install_id=i.id)`
+
+const runtimeRecoveryWaits = "automatic recovery waits for the pending deployment to be activated or discarded"
+
+// Guard every publication/update by the published generation and absence of an
 // in-progress lifecycle operation. A slow old probe cannot revive old routing.
-const runtimeMonitorGuard = `d.id=? AND d.generation=? AND d.status='active' AND i.runtime_managed=1 AND i.runtime_generation=d.generation AND i.status='running' AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`
+const runtimeMonitorGuard = `d.id=? AND d.generation=? AND d.status='active' AND i.runtime_managed=1 AND d.generation=` + runtimePublishedGeneration + ` AND i.status='running' AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`
 
 func (m *appRuntimeManager) runtimeMonitorCurrent(d runtimeDeployment) bool {
 	var n int

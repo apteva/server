@@ -73,12 +73,14 @@ func (m *appRuntimeManager) prepare(op *runtimeOperation) error {
 			}
 			if err = m.drain(old, *op); err != nil {
 				if !op.Recovery {
-					_ = m.appLifecycle(old, "activate")
+					return m.restorePreviousAdmission(old, *op, err)
 				}
 				return err
 			}
 			if err = m.phase(op, "stopping_previous"); err != nil {
-				_ = m.appLifecycle(old, "activate")
+				if !op.Recovery {
+					return m.restorePreviousAdmission(old, *op, err)
+				}
 				return err
 			}
 			if err = m.s.markExclusiveActivationUnavailable(d.InstallID); err != nil {
@@ -452,10 +454,15 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 			return err
 		}
 		if err = m.drain(old, *op); err != nil {
+			if !op.Recovery {
+				return m.restorePreviousAdmission(old, *op, err)
+			}
 			return err
 		}
 		if err = m.phase(op, "stopping_previous"); err != nil {
-			_ = m.appLifecycle(old, "activate")
+			if !op.Recovery {
+				return m.restorePreviousAdmission(old, *op, err)
+			}
 			return err
 		}
 		if err = m.s.markExclusiveActivationUnavailable(d.InstallID); err != nil {

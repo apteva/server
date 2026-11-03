@@ -237,6 +237,11 @@ func (m *appRuntimeManager) autoscale() {
 		if err != nil || m.replicaEligible(active) != nil {
 			continue
 		}
+		// The published execution stays monitored while a candidate is pending,
+		// but a scale operation would be refused until the candidate resolves.
+		if pending, e := m.runtimePendingCandidate(p.InstallID); e != nil || pending != "" {
+			continue
+		}
 		ds, _ := m.deployments(p.InstallID)
 		var total float64
 		count := 0

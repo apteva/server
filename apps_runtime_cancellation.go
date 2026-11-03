@@ -45,7 +45,11 @@ func (m *appRuntimeManager) discardOperation(op *runtimeOperation) error {
 		return err
 	}
 	active, _ := m.active(op.InstallID)
-	_, err = m.s.store.db.Exec(`UPDATE app_installs SET runtime_pending_deployment='',runtime_placement_json=?,pending_manifest_json='' WHERE id=? AND runtime_pending_deployment=?`, runtimeJSON(active.Placement), op.InstallID, d.ID)
+	// The discarded candidate's generation was never published. Return the
+	// installation to its published generation so ownership checks, readmission
+	// and recovery of the retained execution apply again; new generations are
+	// still allocated above every recorded deployment.
+	_, err = m.s.store.db.Exec(`UPDATE app_installs SET runtime_pending_deployment='',runtime_placement_json=?,pending_manifest_json='',runtime_generation=COALESCE((SELECT generation FROM app_runtime_deployments WHERE id=app_installs.runtime_active_deployment AND install_id=app_installs.id),runtime_generation) WHERE id=? AND runtime_pending_deployment=?`, runtimeJSON(active.Placement), op.InstallID, d.ID)
 	if d.Placement.local() {
 		m.s.localApps.DiscardPendingFixedPorts(d.InstallID)
 	}
