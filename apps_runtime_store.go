@@ -64,6 +64,14 @@ func (s *Store) migrateAppRuntime() error {
 	 JOIN app_installs i ON i.id=d.install_id JOIN app_runtime_deployments a ON a.id=i.runtime_active_deployment
 	 WHERE i.runtime_managed=1 AND i.status='running' AND d.status='active' AND a.status='active' AND d.generation=a.generation
 	 AND NOT EXISTS(SELECT 1 FROM app_runtime_execution_owners o WHERE o.install_id=i.id)`)
+	if err != nil {
+		return err
+	}
+	// Earlier discards left the generation of a never-published candidate on the
+	// installation, which blocked readmission and recovery of the execution it
+	// kept. With no candidate pending, the published generation is current.
+	_, err = s.db.Exec(`UPDATE app_installs SET runtime_generation=(SELECT a.generation FROM app_runtime_deployments a WHERE a.id=app_installs.runtime_active_deployment AND a.install_id=app_installs.id)
+	 WHERE runtime_managed=1 AND runtime_pending_deployment='' AND runtime_generation>(SELECT a.generation FROM app_runtime_deployments a WHERE a.id=app_installs.runtime_active_deployment AND a.install_id=app_installs.id)`)
 	return err
 }
 func isRuntimeDuplicateColumn(err error) bool {

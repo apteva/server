@@ -13,6 +13,11 @@ func (m *appRuntimeManager) maybeRecoverRuntime(d runtimeDeployment, health runt
 	if !runtimeRecoveryRequested(health) || !m.runtimeMonitorCurrent(d) {
 		return
 	}
+	// The operator activates or discards a pending candidate first; until then
+	// an inspection here could only be refused by the recovery claim.
+	if pending, err := m.runtimePendingCandidate(d.InstallID); err != nil || pending != "" {
+		return
+	}
 	var next int64
 	err := m.s.store.db.QueryRow(`SELECT next_attempt FROM app_runtime_recovery WHERE install_id=?`, d.InstallID).Scan(&next)
 	if err != nil && err != sql.ErrNoRows || time.Now().Unix() < next {

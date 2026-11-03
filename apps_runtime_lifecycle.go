@@ -145,3 +145,37 @@ func (m *appRuntimeManager) activateAndConfirm(d runtimeDeployment, op runtimeOp
 		}
 	}
 }
+
+// A cutover abandoned after draining the previous execution must restore its
+// admission. The activation acknowledgement only re-arms it, so the failure
+// reports the retained execution as admitting only once its authenticated,
+// exact-generation status says so. A controller that lost the operation
+// leaves the execution to the one that now owns the cutover.
+func (m *appRuntimeManager) restorePreviousAdmission(old runtimeDeployment, op runtimeOperation, cause error) error {
+	if !old.AppCaps.Drain || m.ctx.Err() != nil || m.checkOwner(op) != nil {
+		return cause
+	}
+	if err := m.appLifecycle(old, "activate"); err != nil {
+		return fmt.Errorf("%w; previous execution retained but not re-armed: %v", cause, err)
+	}
+	budget := 30 * time.Second
+	if old.Manifest.Runtime.StartupTimeoutSeconds > 0 {
+		budget = time.Duration(old.Manifest.Runtime.StartupTimeoutSeconds) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(m.ctx, budget)
+	defer cancel()
+	for {
+		health := m.runtimeAppHealthContext(ctx, old, old.Execution)
+		if health.Healthy && health.IdentityVerified && health.Admitting {
+			return fmt.Errorf("%w; previous execution retained and admitting", cause)
+		}
+		if health.Admission == "fenced" {
+			return fmt.Errorf("%w; previous execution retained but fenced", cause)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w; previous execution retained but its admission was not confirmed (%s)", cause, health.Admission)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
