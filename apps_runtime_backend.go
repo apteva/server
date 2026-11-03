@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const runtimeResponseLimit = 1 << 20
@@ -64,7 +66,14 @@ func (b *remoteRuntimeBackend) request(ctx context.Context, method, action strin
 		var problem struct {
 			Code string `json:"code"`
 		}
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 32<<10)).Decode(&problem)
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
+		_ = json.Unmarshal(raw, &problem)
+		// Backend text stays in the server log; only a code reaches operators.
+		deployment := ""
+		if execution, ok := in.(*runtimeBackendRequest); ok && execution != nil {
+			deployment = execution.DeploymentID
+		}
+		log.Printf("runtime backend %s %s deployment=%q returned HTTP %d: %s", b.registration.ID, action, deployment, resp.StatusCode, runtimeBackendReason(raw))
 		return &runtimeBackendHTTPError{Action: action, Status: resp.StatusCode, Code: problem.Code}
 	}
 	if out == nil {
@@ -78,6 +87,28 @@ func (b *remoteRuntimeBackend) request(ctx context.Context, method, action strin
 		return &runtimeInspectionProtocolError{message: "backend returned invalid JSON"}
 	}
 	return nil
+}
+
+// runtimeBackendReason flattens a backend error body (JSON or http.Error
+// text) to one bounded, printable line for the server log.
+func runtimeBackendReason(raw []byte) string {
+	var problem struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+		Code    string `json:"code"`
+	}
+	text := string(raw)
+	if json.Unmarshal(raw, &problem) == nil {
+		text = strings.TrimSpace(strings.Join([]string{problem.Code, problem.Error, problem.Message}, " "))
+	}
+	text = strings.Join(strings.FieldsFunc(text, func(r rune) bool { return unicode.IsSpace(r) || !unicode.IsPrint(r) }), " ")
+	if len(text) > 300 {
+		text = strings.ToValidUTF8(text[:300], "") + "…"
+	}
+	if text == "" {
+		return "(no reason given)"
+	}
+	return text
 }
 func (b *remoteRuntimeBackend) invoke(action string, in runtimeBackendRequest) (runtimeExecution, error) {
 	ctx, cancel := context.WithTimeout(b.manager.ctx, 30*time.Second)
@@ -109,6 +140,9 @@ func (b *remoteRuntimeBackend) Prepare(in runtimeBackendRequest) (runtimeExecuti
 	}
 	if target.HostKey == "" {
 		return runtimeExecution{}, fmt.Errorf("backend did not resolve a physical host identity")
+	}
+	if err = b.manager.markPrepareRequested(in.DeploymentID); err != nil {
+		return runtimeExecution{}, err
 	}
 	prepared, err := b.invoke("prepare", in)
 	if err != nil {

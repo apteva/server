@@ -34,12 +34,7 @@ func (m *appRuntimeManager) discardOperation(op *runtimeOperation) error {
 	if d.Status == "active" {
 		return fmt.Errorf("active deployment cannot be discarded")
 	}
-	b, err := m.backend(d)
-	if err != nil {
-		return err
-	}
-	req, _ := m.request(d, *op, "delete")
-	if err = b.Delete(req); err != nil {
+	if err = m.deleteBackendDeployment(d, *op); err != nil {
 		return err
 	}
 	d.Status = "deleted"

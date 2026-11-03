@@ -12,7 +12,6 @@ import (
 	sdk "github.com/apteva/app-sdk"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -780,7 +779,7 @@ func (m *appRuntimeManager) releaseProviderIngress(id int64) error {
 func ingressProviderRequest(ctx context.Context, p *remoteRuntimeBackend, action string, in, out any) error {
 	e := p.request(ctx, "POST", action, in, out)
 	var problem *runtimeBackendHTTPError
-	if errors.As(e, &problem) && regexp.MustCompile(`^[a-z_]{1,128}$`).MatchString(problem.Code) {
+	if errors.As(e, &problem) && runtimeBackendCode.MatchString(problem.Code) {
 		return fmt.Errorf("ingress %s: %s", action, problem.Code)
 	}
 	return e

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -25,7 +26,12 @@ type runtimeBackendHTTPError struct {
 	Code   string
 }
 
+var runtimeBackendCode = regexp.MustCompile(`^[a-z_]{1,128}$`)
+
 func (e *runtimeBackendHTTPError) Error() string {
+	if runtimeBackendCode.MatchString(e.Code) {
+		return fmt.Sprintf("backend %s returned HTTP %d (%s)", e.Action, e.Status, e.Code)
+	}
 	return fmt.Sprintf("backend %s returned HTTP %d", e.Action, e.Status)
 }
 
