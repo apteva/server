@@ -40,12 +40,17 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - run: go build -o /tmp/apteva-server .
 
-  # The race detector slows the root package ~6x; it sat at 29.5-30 min
-  # against a 30 min budget and started timing out. Runs alongside `test`
-  # so wall time stays close to the race run alone.
+  # The root package's tests run sequentially and the race detector slows
+  # them ~9x (~45 min on a fast laptop, over 60 min on CI), so they are
+  # split round-robin by test name across parallel shards; shard 0 also
+  # races every other package.
   race:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     defaults:
       run:
         working-directory: server
@@ -70,4 +75,14 @@ jobs:
         run: |
           go mod edit -dropreplace=github.com/apteva/app-sdk
           go mod download github.com/apteva/app-sdk
-      - run: go test -race ./... -short -count=1 -timeout=60m
+      - name: Race tests (shard ${{ matrix.shard }} of 4)
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 4
+        run: |
+          tests=$(go test -race -list '^Test' . | grep '^Test' | awk -v n="$SHARDS" -v s="$SHARD" '(NR-1)%n==s' | paste -sd'|' -)
+          test -n "$tests"
+          go test -race -short -count=1 -timeout=40m -run "^($tests)\$" .
+          if [ "$SHARD" = 0 ]; then
+            go test -race -short -count=1 -timeout=20m $(go list ./... | grep -vx github.com/apteva/server)
+          fi
