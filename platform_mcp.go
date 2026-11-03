@@ -27,6 +27,7 @@ var projectConversationGatewayTools = map[string]bool{
 	"agents_list": true, "agents_get": true, "agents_create": true,
 	"agents_update": true, "agents_start": true, "agents_stop": true,
 	"agents_send_event": true, "agents_delete": true, "agent_list_activity": true,
+	"agents_health": true, "agents_threads": true, "agents_usage": true, "agents_tool_usage": true, "agents_errors": true,
 	"apps_list": true, "apps_get": true, "apps_marketplace": true, "apps_install": true,
 	"apps_upgrade": true, "apps_uninstall": true,
 	"list_connections": true, "list_mcp_servers": true, "list_server_tools": true,
@@ -222,7 +223,7 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 		if lookupErr != nil || row == nil || (row.ProjectID != "" && row.ProjectID != projectID) {
 			return body, fmt.Errorf("MCP server is not available in the trusted project")
 		}
-	case "agent_list_activity":
+	case "agent_list_activity", "agents_health", "agents_threads", "agents_usage", "agents_tool_usage", "agents_errors":
 		if rawID, exists := args["agent_id"]; exists {
 			id, parseErr := parseIntArg(rawID)
 			target, lookupErr := s.store.GetAgentByID(id)

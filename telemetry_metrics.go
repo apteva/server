@@ -63,7 +63,7 @@ func (s *Store) TelemetryStatsContext(ctx context.Context, id int64, since time.
  COALESCE(SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_out ELSE 0 END),0),
  COALESCE(SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN cost ELSE 0 END),0),
  COALESCE(SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN duration_sum ELSE 0 END)/NULLIF(SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN duration_samples ELSE 0 END),0),0),
- COALESCE(SUM(CASE WHEN type='thread.spawn' THEN samples ELSE 0 END),0),COALESCE(SUM(CASE WHEN type='thread.done' THEN samples ELSE 0 END),0),COALESCE(SUM(CASE WHEN type='tool.call' THEN samples ELSE 0 END),0),COALESCE(SUM(CASE WHEN type LIKE '%.error' THEN samples ELSE 0 END),0)
+ COALESCE(SUM(CASE WHEN type='thread.spawn' THEN samples ELSE 0 END),0),COALESCE(SUM(CASE WHEN type='thread.done' THEN samples ELSE 0 END),0),COALESCE(SUM(CASE WHEN type='tool.call' THEN samples ELSE 0 END),0),COALESCE(SUM(`+windowErrors+`),0)
  FROM `+metricsWindow(since)+` WHERE agent_id=? AND time>=?`, id, since.UTC().Format(metricTimeLayout)).Scan(&result.TotalEvents, &result.LLMCalls, &result.TotalTokensIn, &result.TotalTokensOut, &result.TotalCost, &result.AvgDurationMs, &result.ThreadsSpawned, &result.ThreadsDone, &result.ToolCalls, &result.Errors)
 	return result, err
 }
@@ -76,7 +76,7 @@ func (s *Store) TelemetryTimelineContext(ctx context.Context, id int64, since ti
 		return nil, fmt.Errorf("bucket width must be positive")
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT (unixepoch(time)/?)*? AS bucket,CASE WHEN type='llm.done' THEN thread_id ELSE '' END AS thread,
- SUM(CASE WHEN type='llm.done' THEN samples ELSE 0 END),SUM(CASE WHEN type='tool.call' THEN samples ELSE 0 END),SUM(CASE WHEN type='llm.error' THEN samples ELSE 0 END),SUM(CASE WHEN type='llm.done' THEN tokens_in ELSE 0 END),SUM(CASE WHEN type='llm.done' THEN tokens_out ELSE 0 END),SUM(CASE WHEN type='llm.done' THEN cost ELSE 0 END)
+ SUM(CASE WHEN type='llm.done' THEN samples ELSE 0 END),SUM(CASE WHEN type='tool.call' THEN samples ELSE 0 END),SUM(`+windowErrors+`),SUM(CASE WHEN type='llm.done' THEN tokens_in ELSE 0 END),SUM(CASE WHEN type='llm.done' THEN tokens_out ELSE 0 END),SUM(CASE WHEN type='llm.done' THEN cost ELSE 0 END)
  FROM `+metricsWindow(since)+` WHERE agent_id=? AND time>=? GROUP BY bucket,thread ORDER BY bucket`, minutes*60, minutes*60, id, since.UTC().Format(metricTimeLayout))
 	if err != nil {
 		return nil, err
@@ -143,8 +143,8 @@ func (s *Store) TelemetryStatsByProjectContext(ctx context.Context, userID int64
 	args = append(args, since.UTC().Format(metricTimeLayout))
 	rows, err := s.db.QueryContext(ctx, `SELECT agent_id,SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN samples ELSE 0 END),
  SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_in ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_out ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_cached ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN cost ELSE 0 END),
- SUM(CASE WHEN type IN ('llm.error','tool.error','realtime.error') THEN samples ELSE 0 END),SUM(CASE WHEN type='tool.call' THEN samples ELSE 0 END),COALESCE(SUM(CASE WHEN type='llm.done' THEN duration_sum ELSE 0 END)/NULLIF(SUM(CASE WHEN type='llm.done' THEN duration_samples ELSE 0 END),0),0),COUNT(DISTINCT CASE WHEN type IN ('llm.done','realtime.usage') AND thread_id!='' THEN thread_id END)
- FROM `+metricsWindow(since)+` WHERE agent_id IN (`+ids+`) AND time>=? AND type IN ('llm.done','realtime.usage','tool.call','llm.error','tool.error','realtime.error') GROUP BY agent_id ORDER BY 6 DESC`, args...)
+ SUM(`+windowErrors+`),SUM(CASE WHEN type='tool.call' THEN samples ELSE 0 END),COALESCE(SUM(CASE WHEN type='llm.done' THEN duration_sum ELSE 0 END)/NULLIF(SUM(CASE WHEN type='llm.done' THEN duration_samples ELSE 0 END),0),0),COUNT(DISTINCT CASE WHEN type IN ('llm.done','realtime.usage') AND thread_id!='' THEN thread_id END)
+ FROM `+metricsWindow(since)+` WHERE agent_id IN (`+ids+`) AND time>=? AND type IN ('llm.done','realtime.usage','tool.call','tool.result',`+errorEventTypes+`) GROUP BY agent_id ORDER BY 6 DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -179,8 +179,8 @@ func (s *Store) TelemetryTimelineByProjectContext(ctx context.Context, userID in
 	ids, args := metricIDs(agents)
 	args = append([]any{minutes * 60, minutes * 60}, args...)
 	args = append(args, since.UTC().Format(metricTimeLayout))
-	rows, err := s.db.QueryContext(ctx, `SELECT (unixepoch(time)/?)*? AS bucket,agent_id,SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN samples ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_in ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_out ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN cost ELSE 0 END),SUM(CASE WHEN type IN ('llm.error','tool.error','realtime.error') THEN samples ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN cost_samples ELSE 0 END)
- FROM `+metricsWindow(since)+` WHERE agent_id IN (`+ids+`) AND time>=? AND type IN ('llm.done','realtime.usage','llm.error','tool.error','realtime.error') GROUP BY bucket,agent_id ORDER BY bucket`, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT (unixepoch(time)/?)*? AS bucket,agent_id,SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN samples ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_in ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN tokens_out ELSE 0 END),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN cost ELSE 0 END),SUM(`+windowErrors+`),SUM(CASE WHEN type IN ('llm.done','realtime.usage') THEN cost_samples ELSE 0 END)
+ FROM `+metricsWindow(since)+` WHERE agent_id IN (`+ids+`) AND time>=? AND type IN ('llm.done','realtime.usage','tool.result',`+errorEventTypes+`) GROUP BY bucket,agent_id ORDER BY bucket`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func telemetryMetricsProjection(prefix string, withModel bool) string {
   CASE WHEN kind='realtime.usage' THEN valid ELSE COALESCE(json_type(doc,'$.cost_usd') IN ('integer','real'),0) END,
   CASE WHEN json_type(doc,'$.duration_ms') IN ('integer','real') THEN json_extract(doc,'$.duration_ms') ELSE NULL END,
   CASE WHEN json_type(doc,'$.name')='text' AND json_extract(doc,'$.name')!='' THEN json_extract(doc,'$.name') WHEN json_type(doc,'$.tool')='text' THEN json_extract(doc,'$.tool') ELSE '' END,
-  COALESCE(json_type(doc,'$.is_error')='true',0)` + model + `
+  CASE WHEN json_type(doc,'$.is_error')='true' THEN 1 WHEN kind='tool.result' AND ` + toolResultFailed("doc") + ` THEN 1 ELSE 0 END` + model + `
   FROM (SELECT ` + prefix + `id AS event_id,` + prefix + `agent_id AS agent_id,` + prefix + `thread_id AS thread_id,` + prefix + `type AS kind,` + prefix + `time AS time,
    CASE WHEN json_valid(` + prefix + `data) THEN ` + prefix + `data ELSE '{}' END AS doc,
    CASE WHEN json_valid(` + prefix + `data) THEN (json_type(` + prefix + `data) IN ('object','null')) ELSE 0 END AS valid` + func() string {
