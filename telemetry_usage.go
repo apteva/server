@@ -73,8 +73,12 @@ type UsageTotals struct {
 	TokensOut     int     `json:"tokens_out"`
 	TokensCached  int     `json:"tokens_cached"`
 	Errors        int     `json:"errors"`
+	MeteredCalls  int     `json:"metered_calls"` // calls billed per token, priced or not
 	UnpricedCalls int     `json:"unpriced_calls"`
-	ActiveAgents  int     `json:"active_agents"`
+	// UnpricedIncluded counts subscription calls with no price, whose value
+	// is therefore missing from IncludedCost.
+	UnpricedIncluded int `json:"unpriced_included_calls"`
+	ActiveAgents     int `json:"active_agents"`
 }
 
 type UsageSeriesPoint struct {
@@ -96,22 +100,25 @@ type UsageBucket struct {
 }
 
 type UsageGroup struct {
-	Key           string  `json:"key"`
-	Label         string  `json:"label"`
-	Billing       string  `json:"billing"` // metered, subscription or mixed
-	AgentID       int64   `json:"agent_id,omitempty"`
-	ProjectID     string  `json:"project_id,omitempty"`
-	Status        string  `json:"status,omitempty"`
-	Cost          float64 `json:"cost"`
-	IncludedCost  float64 `json:"included_cost"`
-	Calls         int     `json:"calls"`
-	TokensIn      int     `json:"tokens_in"`
-	TokensOut     int     `json:"tokens_out"`
-	TokensCached  int     `json:"tokens_cached"`
-	Errors        int     `json:"errors"`
-	UnpricedCalls int     `json:"unpriced_calls"`
-	metered       bool
-	subscription  bool
+	Key              string  `json:"key"`
+	Label            string  `json:"label"`
+	Billing          string  `json:"billing"` // metered, subscription or mixed
+	AgentID          int64   `json:"agent_id,omitempty"`
+	ProjectID        string  `json:"project_id,omitempty"`
+	Status           string  `json:"status,omitempty"`
+	ThreadID         string  `json:"thread_id,omitempty"`
+	Cost             float64 `json:"cost"`
+	IncludedCost     float64 `json:"included_cost"`
+	Calls            int     `json:"calls"`
+	TokensIn         int     `json:"tokens_in"`
+	TokensOut        int     `json:"tokens_out"`
+	TokensCached     int     `json:"tokens_cached"`
+	Errors           int     `json:"errors"`
+	MeteredCalls     int     `json:"metered_calls"`
+	UnpricedCalls    int     `json:"unpriced_calls"`
+	UnpricedIncluded int     `json:"unpriced_included_calls"`
+	metered          bool
+	subscription     bool
 }
 
 type UsageReport struct {
@@ -235,7 +242,7 @@ func (r UsageRange) nextBucket(t time.Time) time.Time {
 	}
 }
 
-var usageGroupings = map[string]bool{"agent": true, "model": true, "provider": true, "project": true}
+var usageGroupings = map[string]bool{"agent": true, "model": true, "provider": true, "project": true, "thread": true}
 
 // flatRateProviders are covered by a flat monthly fee but not marked with the
 // "subscription" capability in provider_types (see the OpenCode Go note in
@@ -264,6 +271,23 @@ func (s *Store) subscriptionProviderKeys() map[string]bool {
 }
 
 func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project string, rng UsageRange, groupBy string, now time.Time) (*UsageReport, error) {
+	agents, err := s.listAgentsForTelemetry(userID, project)
+	if err != nil {
+		return nil, err
+	}
+	// The platform Helper belongs to no project and is left out of agent
+	// lists, but its calls are usage too.
+	if project == "" {
+		if helper, err := s.GetPlatformHelper(userID); err == nil {
+			agents = append(agents, *helper)
+		}
+	}
+	return s.TelemetryUsageReportForAgents(ctx, userID, agents, rng, groupBy, now)
+}
+
+// TelemetryUsageReportForAgents reports usage for exactly these agents, which
+// the caller has already checked the user may see.
+func (s *Store) TelemetryUsageReportForAgents(ctx context.Context, userID int64, agents []Agent, rng UsageRange, groupBy string, now time.Time) (*UsageReport, error) {
 	if !usageGroupings[groupBy] {
 		groupBy = "agent"
 	}
@@ -284,17 +308,6 @@ func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project 
 		report.Timeline = append(report.Timeline, UsageBucket{Time: start.Format(time.RFC3339), Series: map[string]UsageSeriesPoint{}})
 	}
 
-	agents, err := s.listAgentsForTelemetry(userID, project)
-	if err != nil {
-		return nil, err
-	}
-	// The platform Helper belongs to no project and is left out of agent
-	// lists, but its calls are usage too.
-	if project == "" {
-		if helper, err := s.GetPlatformHelper(userID); err == nil {
-			agents = append(agents, *helper)
-		}
-	}
 	report.Agents = len(agents)
 	if len(agents) == 0 {
 		return report, nil
@@ -317,10 +330,14 @@ func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project 
 	// buckets here, which keeps day and week boundaries in their timezone.
 	const slot = 900
 	ids, args := metricIDs(agents)
-	query := `SELECT agent_id,(unixepoch(substr(time,1,19)||'Z')/?)*? AS slot,time>=? AS cur,type,model,provider,
+	thread := "''"
+	if groupBy == "thread" {
+		thread = "thread_id"
+	}
+	query := `SELECT agent_id,(unixepoch(substr(time,1,19)||'Z')/?)*? AS slot,time>=? AS cur,type,model,provider,` + thread + ` AS thread,
  COUNT(*),SUM(tokens_in),SUM(tokens_out),SUM(tokens_cached),SUM(cost),SUM(cost_present)
- FROM telemetry_metrics WHERE agent_id IN (` + ids + `) AND type IN (` + usageFactTypes + `) AND time>=? AND time<=?
- GROUP BY agent_id,slot,cur,type,model,provider`
+ FROM telemetry_metrics WHERE agent_id IN (` + ids + `) AND (type IN (` + usageFactTypes + `) OR (type='tool.result' AND is_error=1)) AND time>=? AND time<=?
+ GROUP BY agent_id,slot,cur,type,model,provider,thread`
 	params := append([]any{slot, slot, since.Format(metricTimeLayout)}, args...)
 	params = append(params, since.Add(-rng.End.Sub(rng.Start)).Format(metricTimeLayout), until.Format(metricTimeLayout))
 	rows, err := s.db.QueryContext(ctx, query, params...)
@@ -334,10 +351,10 @@ func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project 
 	for rows.Next() {
 		var agentID, slotStart int64
 		var current bool
-		var kind, model, provider string
+		var kind, model, provider, threadID string
 		var count, in, out, cached, present int
 		var cost float64
-		if err := rows.Scan(&agentID, &slotStart, &current, &kind, &model, &provider, &count, &in, &out, &cached, &cost, &present); err != nil {
+		if err := rows.Scan(&agentID, &slotStart, &current, &kind, &model, &provider, &threadID, &count, &in, &out, &cached, &cost, &present); err != nil {
 			return nil, err
 		}
 		isCall := kind == "llm.done" || kind == "realtime.usage"
@@ -355,31 +372,40 @@ func (s *Store) TelemetryUsageReport(ctx context.Context, userID int64, project 
 		}
 
 		agent := byID[agentID]
-		key, label := usageGroupKey(groupBy, agent, model, provider, projectNames)
+		key, label := usageGroupKey(groupBy, agent, model, provider, threadID, projectNames)
+		// Tool failures carry no model or provider, so those groupings count
+		// them in the totals and timeline only.
+		modelless := kind == "tool.result" && (groupBy == "model" || groupBy == "provider")
 		g := groups[key]
-		if g == nil {
+		if g == nil && !modelless {
 			g = &UsageGroup{Key: key, Label: label}
-			if groupBy == "agent" {
+			if groupBy == "agent" || groupBy == "thread" {
 				g.AgentID, g.ProjectID, g.Status = agent.ID, agent.ProjectID, agent.Status
 			} else if groupBy == "project" {
 				g.ProjectID = agent.ProjectID
 			}
+			if groupBy == "thread" {
+				g.ThreadID = threadID
+			}
 			groups[key] = g
 		}
-		if isCall {
+		switch {
+		case isCall:
 			g.Calls += count
 			g.TokensIn += in
 			g.TokensOut += out
 			g.TokensCached += cached
 			if included {
 				g.IncludedCost += cost
+				g.UnpricedIncluded += count - present
 				g.subscription = true
 			} else {
 				g.Cost += cost
+				g.MeteredCalls += count
 				g.UnpricedCalls += count - present
 				g.metered = true
 			}
-		} else {
+		case !modelless:
 			g.Errors += count
 		}
 
@@ -449,14 +475,22 @@ func addUsage(t *UsageTotals, isCall, included bool, count, in, out, cached int,
 	t.TokensCached += cached
 	if included {
 		t.IncludedCost += cost
+		t.UnpricedIncluded += count - present
 	} else {
 		t.Cost += cost
+		t.MeteredCalls += count
 		t.UnpricedCalls += count - present
 	}
 }
 
-func usageGroupKey(groupBy string, agent Agent, model, provider string, projectNames map[string]string) (string, string) {
+func usageGroupKey(groupBy string, agent Agent, model, provider, threadID string, projectNames map[string]string) (string, string) {
 	switch groupBy {
+	case "thread":
+		key, name := usageGroupKey("agent", agent, "", "", "", nil)
+		if threadID == "" {
+			return key + "/", name + " / no thread"
+		}
+		return key + "/" + threadID, name + " / " + threadID
 	case "model":
 		if model == "" {
 			return "unknown", "Unknown model"

@@ -31,19 +31,41 @@ func (s *Store) migrateTelemetryRollups() error {
 	if _, err := tx.Exec(`INSERT INTO telemetry_rollups (` + cols + `) SELECT (COALESCE(unixepoch(substr(time,1,19)||'Z'),0)/60)*60,agent_id,thread_id,type,COUNT(*),SUM(valid),SUM(tokens_in),SUM(tokens_out),SUM(tokens_cached),SUM(cost),SUM(cost_present),COALESCE(SUM(duration),0),COUNT(duration) FROM telemetry_metrics GROUP BY agent_id,(COALESCE(unixepoch(substr(time,1,19)||'Z'),0)/60)*60,thread_id,type`); err != nil {
 		return err
 	}
-	insert := `CREATE TRIGGER telemetry_rollup_insert AFTER INSERT ON telemetry_metrics BEGIN
- INSERT INTO telemetry_rollups (` + cols + `) VALUES((COALESCE(unixepoch(substr(NEW.time,1,19)||'Z'),0)/60)*60,NEW.agent_id,NEW.thread_id,NEW.type,1,NEW.valid,NEW.tokens_in,NEW.tokens_out,NEW.tokens_cached,NEW.cost,NEW.cost_present,COALESCE(NEW.duration,0),NEW.duration IS NOT NULL)
- ON CONFLICT(agent_id,bucket,thread_id,type) DO UPDATE SET samples=samples+1,valid_samples=valid_samples+NEW.valid,tokens_in=tokens_in+NEW.tokens_in,tokens_out=tokens_out+NEW.tokens_out,tokens_cached=tokens_cached+NEW.tokens_cached,cost=cost+NEW.cost,cost_samples=cost_samples+NEW.cost_present,duration_sum=duration_sum+COALESCE(NEW.duration,0),duration_samples=duration_samples+(NEW.duration IS NOT NULL); END`
-	deletion := `CREATE TRIGGER telemetry_rollup_delete AFTER DELETE ON telemetry_metrics BEGIN
- UPDATE telemetry_rollups SET samples=samples-1,valid_samples=valid_samples-OLD.valid,tokens_in=tokens_in-OLD.tokens_in,tokens_out=tokens_out-OLD.tokens_out,tokens_cached=tokens_cached-OLD.tokens_cached,cost=cost-OLD.cost,cost_samples=cost_samples-OLD.cost_present,duration_sum=duration_sum-COALESCE(OLD.duration,0),duration_samples=duration_samples-(OLD.duration IS NOT NULL)
- WHERE agent_id=OLD.agent_id AND bucket=(COALESCE(unixepoch(substr(OLD.time,1,19)||'Z'),0)/60)*60 AND thread_id=OLD.thread_id AND type=OLD.type;
- DELETE FROM telemetry_rollups WHERE agent_id=OLD.agent_id AND bucket=(COALESCE(unixepoch(substr(OLD.time,1,19)||'Z'),0)/60)*60 AND thread_id=OLD.thread_id AND type=OLD.type AND samples=0; END`
+	insert, deletion := telemetryRollupTriggers(false)
 	for _, q := range []string{insert, deletion, "INSERT INTO server_schema_migrations(version) VALUES(3)"} {
 		if _, err := tx.Exec(q); err != nil {
 			return fmt.Errorf("telemetry rollup migration: %w", err)
 		}
 	}
 	return tx.Commit()
+}
+
+func rollupBucket(prefix string) string {
+	return "(COALESCE(unixepoch(substr(" + prefix + "time,1,19)||'Z'),0)/60)*60"
+}
+
+// telemetryRollupTriggers keeps rollups in step with telemetry_metrics.
+// withErrors maintains the errors column added by migration 8.
+func telemetryRollupTriggers(withErrors bool) (string, string) {
+	cols := "bucket,agent_id,thread_id,type,samples,valid_samples,tokens_in,tokens_out,tokens_cached,cost,cost_samples,duration_sum,duration_samples"
+	values := rollupBucket("NEW.") + ",NEW.agent_id,NEW.thread_id,NEW.type,1,NEW.valid,NEW.tokens_in,NEW.tokens_out,NEW.tokens_cached,NEW.cost,NEW.cost_present,COALESCE(NEW.duration,0),NEW.duration IS NOT NULL"
+	add := ",duration_samples=duration_samples+(NEW.duration IS NOT NULL)"
+	subtract := ",duration_samples=duration_samples-(OLD.duration IS NOT NULL)"
+	if withErrors {
+		cols += ",errors"
+		values += ",NEW.is_error"
+		add += ",errors=errors+NEW.is_error"
+		subtract += ",errors=errors-OLD.is_error"
+	}
+	key := "agent_id=OLD.agent_id AND bucket=" + rollupBucket("OLD.") + " AND thread_id=OLD.thread_id AND type=OLD.type"
+	insert := `CREATE TRIGGER telemetry_rollup_insert AFTER INSERT ON telemetry_metrics BEGIN
+ INSERT INTO telemetry_rollups (` + cols + `) VALUES(` + values + `)
+ ON CONFLICT(agent_id,bucket,thread_id,type) DO UPDATE SET samples=samples+1,valid_samples=valid_samples+NEW.valid,tokens_in=tokens_in+NEW.tokens_in,tokens_out=tokens_out+NEW.tokens_out,tokens_cached=tokens_cached+NEW.tokens_cached,cost=cost+NEW.cost,cost_samples=cost_samples+NEW.cost_present,duration_sum=duration_sum+COALESCE(NEW.duration,0)` + add + `; END`
+	deletion := `CREATE TRIGGER telemetry_rollup_delete AFTER DELETE ON telemetry_metrics BEGIN
+ UPDATE telemetry_rollups SET samples=samples-1,valid_samples=valid_samples-OLD.valid,tokens_in=tokens_in-OLD.tokens_in,tokens_out=tokens_out-OLD.tokens_out,tokens_cached=tokens_cached-OLD.tokens_cached,cost=cost-OLD.cost,cost_samples=cost_samples-OLD.cost_present,duration_sum=duration_sum-COALESCE(OLD.duration,0)` + subtract + `
+ WHERE ` + key + `;
+ DELETE FROM telemetry_rollups WHERE ` + key + ` AND samples=0; END`
+	return insert, deletion
 }
 
 // Whole minutes use rollups, including the current minute: their triggers run
@@ -58,8 +80,8 @@ func metricsWindow(since time.Time) string {
 		boundary = boundary.Add(time.Minute)
 	}
 	unix := strconv.FormatInt(boundary.Unix(), 10)
-	return `(SELECT agent_id,thread_id,type,strftime('%Y-%m-%dT%H:%M:%S.000000000Z',bucket,'unixepoch') AS time,samples,valid_samples,tokens_in,tokens_out,tokens_cached,cost,cost_samples,duration_sum,duration_samples
+	return `(SELECT agent_id,thread_id,type,strftime('%Y-%m-%dT%H:%M:%S.000000000Z',bucket,'unixepoch') AS time,samples,valid_samples,tokens_in,tokens_out,tokens_cached,cost,cost_samples,duration_sum,duration_samples,errors
  FROM telemetry_rollups WHERE bucket>=` + unix + `
- UNION ALL SELECT agent_id,thread_id,type,time,1,valid,tokens_in,tokens_out,tokens_cached,cost,cost_present,COALESCE(duration,0),duration IS NOT NULL
+ UNION ALL SELECT agent_id,thread_id,type,time,1,valid,tokens_in,tokens_out,tokens_cached,cost,cost_present,COALESCE(duration,0),duration IS NOT NULL,is_error
  FROM telemetry_metrics WHERE time>='` + since.Format(metricTimeLayout) + `' AND time<'` + boundary.Format(metricTimeLayout) + `')`
 }

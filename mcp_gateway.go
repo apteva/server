@@ -58,9 +58,27 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		Required   []string             `json:"required,omitempty"`
 	}
 	type toolDef struct {
-		Name        string     `json:"name"`
-		Description string     `json:"description"`
-		InputSchema toolSchema `json:"inputSchema"`
+		Name        string         `json:"name"`
+		Description string         `json:"description"`
+		InputSchema toolSchema     `json:"inputSchema"`
+		Annotations map[string]any `json:"annotations,omitempty"`
+	}
+	readOnly := map[string]any{"readOnlyHint": true}
+	monitorParams := func(extra map[string]toolParam) map[string]toolParam {
+		params := map[string]toolParam{
+			"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."},
+			"agent_id":   {Type: "integer", Description: "Optional agent ID; omit for every agent in the project."},
+			"period":     {Type: "string", Description: "1h, 24h, 7d, 30d or 90d ending now."},
+			"from":       {Type: "string", Description: "Start date YYYY-MM-DD, inclusive, in tz. Replaces period."},
+			"to":         {Type: "string", Description: "End date YYYY-MM-DD, inclusive, in tz. Defaults to from."},
+			"tz":         {Type: "string", Description: "IANA timezone for from/to, default UTC."},
+			"limit":      {Type: "integer", Description: "Page size, default 20 and maximum 100"},
+			"offset":     {Type: "integer", Description: "Zero-based page offset"},
+		}
+		for key, param := range extra {
+			params[key] = param
+		}
+		return params
 	}
 
 	tools := []toolDef{
@@ -77,6 +95,29 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "agents_send_event", Description: "Send a work instruction to a running Apteva agent through the server's normal Core event delivery. The target must belong to the trusted current project, or project_id must be supplied explicitly when this gateway has no project context. Pass a stable event_id to opt into idempotent delivery and a lifecycle-tracked execution receipt; tracked and untracked events both default to main when thread_id is omitted.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Target agent ID"}, "message": {Type: "string", Description: "Work instruction to deliver"}, "project_id": {Type: "string", Description: "Target project ID. Required when the gateway has no trusted project context."}, "thread_id": {Type: "string", Description: "Optional target thread ID. Defaults to main."}, "event_id": {Type: "string", Description: "Optional stable idempotency key. Reusing it with the same message returns duplicate=true and the same execution_id without waking another turn."}}, Required: []string{"id", "message"}}},
 		{Name: "agents_delete", Description: "Delete an agent and return an authoritative receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agent_list_activity", Description: "List recent agent activity. Defaults to 25 compact rows; payloads are opt-in and raw debugging is capped at 10 rows.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "agent_id": {Type: "integer", Description: "Optional agent ID. Omit to list activity for all agents in the project."}, "thread_id": {Type: "string", Description: "Optional thread ID filter, e.g. main."}, "kind": {Type: "string", Description: "Optional filter: all, thought, tool, thread, event, or error."}, "status": {Type: "string", Description: "Optional filter: all, running, success, error, or info."}, "period": {Type: "string", Description: "Lookback window such as 1h, 24h, 7d, 30d, or a Go duration like 15m. Defaults to 24h."}, "since": {Type: "string", Description: "Optional RFC3339 timestamp; overrides period."}, "limit": {Type: "integer", Description: "Maximum action rows, default 25 and maximum 100."}, "query": {Type: "string", Description: "Optional text search across agent, thread, title and detail."}, "include_payloads": {Type: "boolean", Description: "Include bounded thought text and tool arguments/results."}, "include_raw": {Type: "boolean", Description: "Include raw telemetry for debugging; limits results to 10 rows."}}}},
+		{Name: "agents_health", Annotations: readOnly, Description: "Current agent health: a state (stopped, unknown, failing, working, waiting, idle) with reasons, Core's live inference health, last call and failure times, window error counts and unsettled tracked executions. Up to 25 agents per page. Threads are listed when agent_id is set or include_threads=true.", InputSchema: toolSchema{Type: "object", Properties: monitorParams(map[string]toolParam{
+			"period":          {Type: "string", Description: "Window for the error counts: 1h (default), 24h, 7d, 30d or 90d."},
+			"include_threads": {Type: "boolean", Description: "List live threads with their inference health; defaults to true when agent_id is set."},
+			"limit":           {Type: "integer", Description: "Page size, default 20 and maximum 25"},
+		})}},
+		{Name: "agents_threads", Annotations: readOnly, Description: "Threads across the project's agents in one list: live threads with Core's inference health, saved threads of stopped agents, and threads active in the window that have ended, each with window calls, errors and tool use plus last activity and last error times.", InputSchema: toolSchema{Type: "object", Properties: monitorParams(map[string]toolParam{
+			"state": {Type: "string", Description: "Optional filter: failing, live, stopped, ended or unknown"},
+			"query": {Type: "string", Description: "Optional thread id, thread name or agent name search"},
+			"sort":  {Type: "string", Description: "activity (default), errors or calls"},
+		})}},
+		{Name: "agents_usage", Annotations: readOnly, Description: "Model usage for a window: calls, tokens, cache rate, estimated cost with its pricing status, and errors, grouped by agent, thread, model, provider or project, plus totals for the previous window. Coverage says whether retention removed part of the window.", InputSchema: toolSchema{Type: "object", Properties: monitorParams(map[string]toolParam{
+			"group_by":         {Type: "string", Description: "agent (default), thread, model, provider or project"},
+			"include_timeline": {Type: "boolean", Description: "Add hourly, daily or weekly buckets."},
+		})}},
+		{Name: "agents_tool_usage", Annotations: readOnly, Description: "Tool calls, failures, failure rate and duration per tool, or per agent and tool, for a window, with event ids of the latest failures.", InputSchema: toolSchema{Type: "object", Properties: monitorParams(map[string]toolParam{
+			"tool":     {Type: "string", Description: "Optional tool name search"},
+			"group_by": {Type: "string", Description: "tool (default) or agent"},
+			"sort":     {Type: "string", Description: "calls (default), failures or duration"},
+		})}},
+		{Name: "agents_errors", Annotations: readOnly, Description: "Failures for a window grouped by signature: category, count, first and last seen, affected agents and threads, and evidence event ids. Provider attempt failures and failed executions are listed but not counted as errors. Raw messages only with include_details=true.", InputSchema: toolSchema{Type: "object", Properties: monitorParams(map[string]toolParam{
+			"category":        {Type: "string", Description: "all (default), model, provider, tool, realtime or runtime"},
+			"include_details": {Type: "boolean", Description: "Add up to 3 raw messages per group."},
+		})}},
 		// Apps
 		{Name: "apps_list", Description: "List compact installed-app summaries with short descriptions. Searchable and paginated; defaults to the current project and includes global installs. Use apps_get only when full metadata for one install is needed.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional app name or description search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset; use next_offset from the previous result"}}}},
 		{Name: "apps_get", Description: "Get details for one installed app without returning dashboard UI component schemas.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "integer", Description: "Installed app ID"}, "project_id": {Type: "string", Description: "Optional project scope; defaults to the current project"}}, Required: []string{"install_id"}}},
@@ -120,6 +161,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 	// Handler dispatch
 	handle := func(name string, args map[string]any) (any, error) {
+		if gatewayMonitoringTools[name] {
+			return handleGatewayMonitoringTool(name, args, projectID, serverAPI, store)
+		}
 		if strings.HasPrefix(name, "agents_") || name == "agent_list_activity" {
 			return handleGatewayAgentTool(name, args, projectID, serverAPI, store, selfPath)
 		}
@@ -1354,6 +1398,14 @@ func newGatewayAPIClient(userID int64) gatewayAPIClient {
 }
 
 func (c gatewayAPIClient) do(method, path string, body any, out any) error {
+	timeout := 30 * time.Second
+	if strings.HasSuffix(path, "/setup/apply") {
+		timeout = 10 * time.Minute
+	}
+	return c.doWithTimeout(method, path, body, out, timeout)
+}
+
+func (c gatewayAPIClient) doWithTimeout(method, path string, body any, out any, timeout time.Duration) error {
 	if c.instanceSecret == "" {
 		return fmt.Errorf("internal server API auth unavailable: INSTANCE_SECRET is not set")
 	}
@@ -1373,10 +1425,6 @@ func (c gatewayAPIClient) do(method, path string, body any, out any) error {
 	req.Header.Set("X-Apteva-MCP-User-ID", strconv.FormatInt(c.userID, 10))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
-	}
-	timeout := 30 * time.Second
-	if strings.HasSuffix(path, "/setup/apply") {
-		timeout = 10 * time.Minute
 	}
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
