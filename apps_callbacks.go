@@ -187,6 +187,7 @@ func (s *Server) handleCallbackPlatformInfo(w http.ResponseWriter, r *http.Reque
 		"file_references":            sdk.FileReferencesVersion,
 		"file_reference_dispatch":    map[string]bool{"app_mcp": true, "integration_mcp": true, "integration_mcp_thread_header": true, "app_integration_callback": true, "server_blobs": true},
 		"public_url":                 publicURL,
+		"thread_provider_selection":  sdk.ThreadProviderSelectionVersion,
 		"version":                    Version,
 	})
 }
@@ -1750,14 +1751,15 @@ func (s *Server) handleCallbackEnsureThread(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	result, err := s.resolver().EnsureOpaqueThread(
+	result, err := s.resolver().ensureThreadOnProvider(
 		inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral, body.Events, body.ProfileHash,
+		s.threadProviderChoiceFor(agent, body.Provider),
 	)
 	if err != nil {
 		if scopeCreated {
 			_ = s.store.DeleteAgentThreadScope(agent.ID, body.ThreadID)
 		}
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeThreadCallbackError(w, err)
 		return
 	}
 	writeJSON(w, result)
@@ -1806,14 +1808,15 @@ func (s *Server) handleCallbackSpawnThread(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	result, err := s.resolver().SpawnOpaqueThreadWithEvents(
+	result, err := s.resolver().spawnThreadOnProvider(
 		inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral, body.Events,
+		s.threadProviderChoiceFor(agent, body.Provider),
 	)
 	if err != nil {
 		if scopeCreated {
 			_ = s.store.DeleteAgentThreadScope(agent.ID, body.ThreadID)
 		}
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeThreadCallbackError(w, err)
 		return
 	}
 	writeJSON(w, result)
