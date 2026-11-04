@@ -599,6 +599,10 @@ func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, dire
 // shared by embedded Channels and public app-sdk callers so receipt validation
 // cannot drift between the two paths.
 func (r *serverResolver) SpawnOpaqueThreadWithEvents(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool, events []sdk.ThreadEvent) (sdk.ThreadSpawnResult, error) {
+	return r.postOpaqueThread(inst, threadID, directiveSuffix, tools, mcp, ephemeral, events, "")
+}
+
+func (r *serverResolver) postOpaqueThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool, events []sdk.ThreadEvent, provider string) (sdk.ThreadSpawnResult, error) {
 	if inst.Port == 0 {
 		return sdk.ThreadSpawnResult{}, fmt.Errorf("agent %d has no core port — is it running?", inst.ID)
 	}
@@ -610,6 +614,9 @@ func (r *serverResolver) SpawnOpaqueThreadWithEvents(inst framework.InstanceInfo
 	}
 	if len(events) > 0 {
 		payload["events"] = events
+	}
+	if provider != "" {
+		payload["provider"] = provider
 	}
 	body, _ := json.Marshal(payload)
 	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
@@ -634,6 +641,9 @@ func (r *serverResolver) SpawnOpaqueThreadWithEvents(inst framework.InstanceInfo
 		detail := strings.TrimSpace(string(responseBody))
 		if detail == "" {
 			return sdk.ThreadSpawnResult{}, fmt.Errorf("spawn thread %q: HTTP %d", threadID, resp.StatusCode)
+		}
+		if provider != "" && resp.StatusCode == http.StatusBadRequest && strings.Contains(detail, "unknown provider") {
+			return sdk.ThreadSpawnResult{}, &threadProviderUnavailableError{provider: provider, reason: detail}
 		}
 		return sdk.ThreadSpawnResult{}, fmt.Errorf("spawn thread %q: HTTP %d: %s", threadID, resp.StatusCode, detail)
 	}
@@ -665,6 +675,13 @@ func (r *serverResolver) SpawnOpaqueThreadWithEvents(inst framework.InstanceInfo
 // PUT surface applies the profile and stable inbox events in one request; a
 // missing thread continues to use the atomic POST spawn path above.
 func (r *serverResolver) EnsureOpaqueThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool, events []sdk.ThreadEvent, profileHash string) (sdk.ThreadEnsureResult, error) {
+	return r.ensureThreadOnProvider(inst, threadID, directiveSuffix, tools, mcp, ephemeral, events, profileHash, threadProviderChoice{})
+}
+
+// ensureThreadOnProvider is EnsureOpaqueThread with a provider choice. A choice
+// only applies when creating the thread: reconciling an existing thread's profile
+// never touches its provider, whether the request names one or not.
+func (r *serverResolver) ensureThreadOnProvider(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool, events []sdk.ThreadEvent, profileHash string, choice threadProviderChoice) (sdk.ThreadEnsureResult, error) {
 	if inst.Port == 0 {
 		return sdk.ThreadEnsureResult{}, fmt.Errorf("agent %d has no core port — is it running?", inst.ID)
 	}
@@ -673,7 +690,10 @@ func (r *serverResolver) EnsureOpaqueThread(inst framework.InstanceInfo, threadI
 		return sdk.ThreadEnsureResult{}, err
 	}
 	if !found {
-		spawned, err := r.SpawnOpaqueThreadWithEvents(inst, threadID, directiveSuffix, tools, mcp, ephemeral, events)
+		if err := choice.refusalForNewThread(); err != nil {
+			return sdk.ThreadEnsureResult{}, err
+		}
+		spawned, err := r.postOpaqueThread(inst, threadID, directiveSuffix, tools, mcp, ephemeral, events, choice.name)
 		if err != nil {
 			return sdk.ThreadEnsureResult{}, err
 		}
@@ -686,14 +706,23 @@ func (r *serverResolver) EnsureOpaqueThread(inst framework.InstanceInfo, threadI
 		// legacy contract does not alter that winner's profile. Re-enter once
 		// without events so the live profile is authoritative too.
 		if spawned.Status == "exists" {
-			reconciled, err := r.EnsureOpaqueThread(inst, threadID, directiveSuffix, tools, mcp, ephemeral, nil, profileHash)
+			reconciled, err := r.ensureThreadOnProvider(inst, threadID, directiveSuffix, tools, mcp, ephemeral, nil, profileHash, choice)
 			if err != nil {
 				return sdk.ThreadEnsureResult{}, err
 			}
 			reconciled.Events = spawned.Events
 			return reconciled, nil
 		}
+		if choice.name != "" {
+			result.Provider, err = r.confirmThreadProvider(inst, threadID, choice.name)
+			if err != nil {
+				return sdk.ThreadEnsureResult{}, err
+			}
+		}
 		return result, nil
+	}
+	if err := choice.conflictWith(threadID, current); err != nil {
+		return sdk.ThreadEnsureResult{}, err
 	}
 
 	mainDirective, err := r.MainDirective(inst)
@@ -707,7 +736,7 @@ func (r *serverResolver) EnsureOpaqueThread(inst framework.InstanceInfo, threadI
 
 	result := sdk.ThreadEnsureResult{
 		Status: "unchanged", Thread: sdk.ThreadRef{AgentID: inst.ID, ThreadID: threadID},
-		ProfileHash: profileHash, Reconciled: true,
+		ProfileHash: profileHash, Reconciled: true, Provider: threadProviderStatus(current),
 	}
 	if profileChanged {
 		receipt, status, err := r.updateOpaqueThreadWithEvents(inst, threadID, directiveSuffix, tools, mcp, events)
@@ -1099,6 +1128,11 @@ type threadIDRow struct {
 	Tools     []string `json:"tools,omitempty"`
 	MCPNames  []string `json:"mcp_names,omitempty"`
 	Ephemeral bool     `json:"ephemeral,omitempty"`
+	// Provider is what the thread runs on now. Core versions without pins don't
+	// report the other two.
+	Provider        string `json:"provider,omitempty"`
+	ProviderPin     string `json:"provider_pin,omitempty"`
+	ProviderMissing bool   `json:"provider_missing,omitempty"`
 }
 
 // ThreadTools returns stored tool grants for internal thread profile checks.
