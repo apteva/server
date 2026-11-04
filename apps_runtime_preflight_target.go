@@ -142,6 +142,9 @@ func validateRuntimeTargetInfo(info sdk.RuntimeTargetInfo, caps runtimeBackendCa
 			return fmt.Errorf("invalid target library inventory")
 		}
 	}
+	if err := validateRuntimeHostProfileStates(info.HostProfiles); err != nil {
+		return fmt.Errorf("invalid target host profiles: %w", err)
+	}
 	seen := map[string]bool{}
 	for _, check := range info.Checks {
 		if seen[check.Name] {
