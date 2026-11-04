@@ -87,7 +87,12 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 			return nil, false
 		}
 	} else {
-		targetInstallID = s.installBoundAppMetadata(caller, targetAppName)
+		var bindingErr error
+		targetInstallID, bindingErr = s.installBoundAppMetadataForProject(caller, targetAppName, effectiveProjectID)
+		if bindingErr != nil {
+			http.Error(w, bindingErr.Error(), http.StatusForbidden)
+			return nil, false
+		}
 	}
 	if targetInstallID == 0 {
 		id, msg, resolved := s.resolveDynamicTarget(installID, targetAppName, effectiveProjectID)
