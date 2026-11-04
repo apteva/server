@@ -1446,7 +1446,19 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
 		return
 	}
-	targetInstallID := installBoundAppID(s, callerInstallID, targetAppName)
+	q := r.URL.Query()
+	caller, err := s.appMetadata(callerInstallID)
+	if err != nil {
+		http.Error(w, "calling app unavailable", http.StatusUnauthorized)
+		return
+	}
+	// The requested project only picks among installs this app is already bound
+	// to. runtimeCallerProject authorizes it below, before anything is forwarded.
+	targetInstallID, err := s.installBoundAppMetadataForProject(caller, targetAppName, strings.TrimSpace(q.Get("project_id")))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if targetInstallID == 0 {
 		http.Error(w, "target app is not bound: "+targetAppName, http.StatusForbidden)
 		return
@@ -1465,7 +1477,6 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "calling app is not running", http.StatusUnauthorized)
 		return
 	}
-	q := r.URL.Query()
 	callerUserID, requestedProjectID, ok := s.runtimeCallerProject(
 		w, r, callerInstallID, q.Get("project_id"), ProjectViewer,
 	)
@@ -2409,47 +2420,72 @@ func installBoundAppID(s *Server, installID int64, appName string) int64 {
 }
 
 func (s *Server) installBoundAppMetadata(metadata *appInstallMetadata, appName string) int64 {
+	id, _ := s.installBoundAppMetadataForProject(metadata, appName, "")
+	return id
+}
+
+// Global callers can explicitly bind several project-scoped instances of the
+// same dependency. Select only an already-bound instance in the authorized
+// project. Scalar bindings and calls without a project retain their existing
+// behavior; this never discovers or grants access to an unbound installation.
+func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata, appName, projectID string) (int64, error) {
 	if metadata.manifestErr != nil {
-		return 0
+		return 0, nil
 	}
 	m := &metadata.manifest
 	bindings := metadata.bindings
-	resolve := func(key string) int64 {
+	resolve := func(key string) (int64, error) {
 		raw, ok := bindings[key]
 		if !ok || raw == nil {
-			return 0
+			return 0, nil
 		}
 		ids, defaultID := appBindingIDs(raw)
 		boundInstallID := defaultID
 		if boundInstallID == 0 && len(ids) > 0 {
 			boundInstallID = ids[0]
 		}
+		if metadata.project == "" && projectID != "" && len(ids) > 1 {
+			matched := int64(0)
+			for _, id := range ids {
+				bound, err := s.appMetadata(id)
+				if err != nil || bound.name != appName || bound.status != "running" || bound.project != projectID {
+					continue
+				}
+				if matched != 0 {
+					return 0, fmt.Errorf("multiple bound %s installations in project", appName)
+				}
+				matched = id
+			}
+			if matched != 0 {
+				boundInstallID = matched
+			}
+		}
 		if boundInstallID == 0 {
-			return 0
+			return 0, nil
 		}
 		bound, err := s.appMetadata(boundInstallID)
 		if err != nil || bound.name != appName || bound.status != "running" {
-			return 0
+			return 0, nil
 		}
-		return boundInstallID
+		return boundInstallID, nil
 	}
 	for _, dep := range m.Requires.Apps {
 		if dep.Name != appName {
 			continue
 		}
-		if id := resolve(dep.Name); id != 0 {
-			return id
+		if id, err := resolve(dep.Name); id != 0 || err != nil {
+			return id, err
 		}
 	}
 	for _, dep := range m.Requires.Integrations {
 		if dep.Kind != "app" {
 			continue
 		}
-		if id := resolve(dep.Role); id != 0 {
-			return id
+		if id, err := resolve(dep.Role); id != 0 || err != nil {
+			return id, err
 		}
 	}
-	return 0
+	return 0, nil
 }
 
 func contains(xs []string, v string) bool {
