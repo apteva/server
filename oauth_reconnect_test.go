@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 
 	sdk "github.com/apteva/app-sdk"
@@ -29,7 +30,7 @@ func TestAppOAuthReconnectPreservesConnection130(t *testing.T) {
 			s := newTestServer(t)
 			ensureTestAdmin(t, s)
 			install := managedConnectionTestInstall(t, s, "social", sdk.PermOAuthStart)
-			var verifyAction func()
+			var verifyAction atomic.Pointer[func()]
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
@@ -42,8 +43,8 @@ func TestAppOAuthReconnectPreservesConnection130(t *testing.T) {
 					if r.Header.Get("Authorization") != "Bearer candidate" || r.URL.Query().Get("mine") != "true" {
 						t.Error("identity must be read with the candidate credentials")
 					}
-					if verifyAction != nil {
-						verifyAction()
+					if action := verifyAction.Load(); action != nil {
+						(*action)()
 					}
 					fmt.Fprintf(w, `{"items":[{"id":%q}]}`, tc.providerChannel)
 				default:
@@ -90,19 +91,24 @@ func TestAppOAuthReconnectPreservesConnection130(t *testing.T) {
 				return call("/status", map[string]any{"id": start.ID, "project_id": "proj-1", "cancel": cancel})
 			}
 			wantCreds := old
+			if tc.changeCredentials {
+				wantCreds, err = Encrypt(s.secret, `{"access_token":"concurrent-change"}`)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			action := func() {
 				if tc.cancel {
 					status(true)
 				}
 				if tc.changeCredentials {
-					wantCreds, _ = Encrypt(s.secret, `{"access_token":"concurrent-change"}`)
 					if err := s.store.UpdateConnectionCredentials(130, wantCreds); err != nil {
 						t.Error(err)
 					}
 				}
 			}
 			if tc.duringVerification {
-				verifyAction = action
+				verifyAction.Store(&action)
 			} else {
 				action()
 			}
