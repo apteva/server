@@ -1051,6 +1051,19 @@ func (s *Store) migrate() error {
 	// The local mcp_servers.id remains stable when an upstream identity changes.
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN upstream_id TEXT NOT NULL DEFAULT ''")
 
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS app_oauth_reconnects (
+		id TEXT PRIMARY KEY,
+		oauth_state TEXT NOT NULL UNIQUE,
+		connection_id INTEGER NOT NULL,
+		install_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		project_id TEXT NOT NULL,
+		expected_identities TEXT NOT NULL,
+		credential_digest TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		expires_at INTEGER NOT NULL
+	)`)
+
 	// Pending-OAuth state table for local catalog OAuth2 flows.
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS oauth_states (
 		state TEXT PRIMARY KEY,
