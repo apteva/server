@@ -3741,17 +3741,6 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	if ctx.MasterConnID != 0 {
 		persistTargetID = ctx.MasterConnID
 	}
-	persist := func(updated map[string]string) error {
-		blob, err := json.Marshal(updated)
-		if err != nil {
-			return err
-		}
-		enc, err := Encrypt(s.secret, string(blob))
-		if err != nil {
-			return err
-		}
-		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
-	}
 	environmentID := r.Header.Get("X-Apteva-Environment-Id")
 	if environmentID == "" {
 		environmentID = r.Header.Get("X-Apteva-Environment-Id")
@@ -3761,7 +3750,7 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID)
 	}
 	if err != nil {
 		if isAdmissionFailure(err) {

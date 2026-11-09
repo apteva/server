@@ -1069,17 +1069,6 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	if ctx.MasterConnID != 0 {
 		persistTargetID = ctx.MasterConnID
 	}
-	persist := func(updated map[string]string) error {
-		blob, err := json.Marshal(updated)
-		if err != nil {
-			return err
-		}
-		enc, err := Encrypt(s.secret, string(blob))
-		if err != nil {
-			return err
-		}
-		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
-	}
 	environmentID := r.Header.Get("X-Apteva-Environment-Id")
 	if environmentID == "" {
 		environmentID = r.Header.Get("X-Apteva-Environment-Id")
@@ -1098,7 +1087,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID)
 	}
 	if err == nil && result != nil && result.Success && fileCallerContext.agentID != 0 {
 		result.Data, err = s.storeToolBlobValue(r.Context(), result.Data, fileCallerContext)
@@ -1572,6 +1561,16 @@ func bindingsForInstall(s *Server, installID int64) map[string]any {
 //
 // Authorization: install must declare platform.oauth.start.
 func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if r.Method == http.MethodPost && len(parts) >= 1 && parts[0] == "reconnect" {
+		switch {
+		case len(parts) == 1:
+			s.handleAppOAuthReconnect(w, r, false)
+			return
+		case len(parts) == 2 && parts[1] == "status":
+			s.handleAppOAuthReconnect(w, r, true)
+			return
+		}
+	}
 	if len(parts) != 1 || parts[0] != "start" || r.Method != http.MethodPost {
 		http.Error(w, "POST /oauth/start only", http.StatusMethodNotAllowed)
 		return
