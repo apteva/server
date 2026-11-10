@@ -1,0 +1,153 @@
+{
+  "slug": "agmail",
+  "name": "AGmail",
+  "description": "Create AGmail inboxes, send and read email, and search messages.",
+  "logo": "https://www.google.com/s2/favicons?domain=agmail.ai&sz=128",
+  "categories": [
+    "email",
+    "communication"
+  ],
+  "base_url": "https://api.agmail.ai/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "AGmail API key from the AGmail console."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_inboxes"
+  },
+  "tools": [
+    {
+      "name": "list_inboxes",
+      "description": "List AGmail inboxes.",
+      "method": "GET",
+      "path": "/inboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_inbox",
+      "description": "Create an AGmail inbox.",
+      "method": "POST",
+      "path": "/inboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Local part of the new email address." },
+          "domain": { "type": "string", "description": "Domain for the inbox. Defaults to agmail.ai." },
+          "display_name": { "type": "string", "description": "Sender display name." }
+        },
+        "required": ["username"]
+      }
+    },
+    {
+      "name": "get_inbox",
+      "description": "Get an AGmail inbox by ID.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List messages in an AGmail inbox.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Read an AGmail message by ID.",
+      "method": "GET",
+      "path": "/messages/{message_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "Message ID returned by the provider." }
+        },
+        "required": ["message_id"]
+      }
+    },
+    {
+      "name": "send_email",
+      "description": "Send email from an AGmail inbox. Set reply_to_message_id to reply in an existing thread.",
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "to": { "type": "string", "description": "Recipient email address." },
+          "subject": { "type": "string", "description": "Email subject." },
+          "body": { "type": "string", "description": "Plain text email body." },
+          "html": { "type": "string", "description": "HTML email body." },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CC email addresses."
+          },
+          "reply_to_message_id": { "type": "string", "description": "Parent message ID for a threaded reply." }
+        },
+        "required": ["inbox_id", "to", "subject"]
+      }
+    },
+    {
+      "name": "get_thread",
+      "description": "Read an AGmail thread and its messages.",
+      "method": "GET",
+      "path": "/threads/{thread_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thread_id": { "type": "string", "description": "Thread ID returned by the provider." }
+        },
+        "required": ["thread_id"]
+      }
+    },
+    {
+      "name": "search_emails",
+      "description": "Search AGmail messages using a natural language query.",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Search query." },
+          "inbox_id": { "type": "string", "description": "Restrict search to this inbox ID." },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of results to return."
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
