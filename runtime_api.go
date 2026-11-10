@@ -409,18 +409,47 @@ func (s *Server) handleRuntimeApps(w http.ResponseWriter, r *http.Request, runti
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxRuntimeRequestBytes)
+		decoder := json.NewDecoder(r.Body)
+		decoder.UseNumber()
 		var req struct {
 			Tool       string         `json:"tool"`
 			Input      map[string]any `json:"input"`
 			AgentAlias string         `json:"agent_alias"`
 		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Tool) == "" {
+		if decoder.Decode(&req) != nil || strings.TrimSpace(req.Tool) == "" || decoder.Decode(new(any)) != io.EOF {
 			http.Error(w, "tool required", http.StatusBadRequest)
 			return
 		}
+		req.Tool = strings.TrimSpace(req.Tool)
 		inst, ok := runtime.Install(appName)
-		if !ok {
+		if !ok || inst.ProjectID != runtime.ID {
 			http.Error(w, "runtime app is not install-backed", http.StatusBadRequest)
+			return
+		}
+		var agentID string
+		if alias := strings.TrimSpace(req.AgentAlias); alias != "" {
+			agent := runtime.AgentByAlias(alias)
+			if agent == nil {
+				http.Error(w, "runtime agent alias not found", http.StatusBadRequest)
+				return
+			}
+			agentID = strconv.FormatInt(agent.AgentID, 10)
+		}
+		for _, key := range []string{"project_id", "_project_id"} {
+			if scope, present := req.Input[key]; present && scope != inst.ProjectID {
+				http.Error(w, "runtime project override is not allowed", http.StatusBadRequest)
+				return
+			}
+		}
+		operatorPath := ""
+		if agentID == "" {
+			operatorPath = runtimeOperatorPaths[appName][req.Tool]
+		}
+		if operatorPath != "" && !s.requireRuntimePermission(w, runtime.OwnerInstallID(), sdk.PermRuntimesManage) {
+			return
+		}
+		if err := resolveRuntimeInstallRefs(req.Input, runtime); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		token, err := s.appInstallToken(inst.InstallID)
@@ -428,16 +457,14 @@ func (s *Server) handleRuntimeApps(w http.ResponseWriter, r *http.Request, runti
 			http.Error(w, "runtime app credential unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		var agentID string
-		if strings.TrimSpace(req.AgentAlias) != "" {
-			agent := runtime.AgentByAlias(req.AgentAlias)
-			if agent == nil {
-				http.Error(w, "runtime agent alias not found", http.StatusBadRequest)
-				return
-			}
-			agentID = strconv.FormatInt(agent.AgentID, 10)
+		var result json.RawMessage
+		if operatorPath != "" {
+			delete(req.Input, "project_id")
+			delete(req.Input, "_project_id")
+			result, err = callRuntimeOperatorOperation(r.Context(), inst, token, operatorPath, req.Input)
+		} else {
+			result, err = callAppMCPToolScoped(r.Context(), inst.SidecarURL+"/mcp", token, inst.ProjectID, agentID, 0, "", req.Tool, req.Input)
 		}
-		result, err := callAppMCPToolAsAgent(inst.SidecarURL+"/mcp", token, agentID, req.Tool, req.Input)
 		if err != nil {
 			http.Error(w, "call runtime app: "+err.Error(), http.StatusBadRequest)
 			return
