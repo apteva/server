@@ -732,6 +732,7 @@ func main() {
 	apiMux.HandleFunc("/platform-status", s.handlePlatformStatus)
 	apiMux.HandleFunc("/platform-status/refresh", s.handlePlatformStatusRefresh)
 	apiMux.HandleFunc("/platform-update", s.authMiddleware(s.handlePlatformUpdate))
+	apiMux.HandleFunc("/fleet-platform-update", s.handleFleetPlatformUpdate)
 
 	apiMux.HandleFunc("/auth/status", s.handleAuthStatus)
 	apiMux.HandleFunc("/auth/register", s.handleRegister)

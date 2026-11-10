@@ -17,21 +17,27 @@ import (
 // This JSON contract is also consumed by apteva/update_job.go. Installation
 // identity comes from the server, never from browser-supplied command arguments.
 type platformUpdateJob struct {
-	ID        string    `json:"id"`
-	State     string    `json:"state"`
-	Message   string    `json:"message"`
-	Target    string    `json:"target_version"`
-	Previous  string    `json:"previous_version"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Backup    string    `json:"backup,omitempty"`
+	ID         string    `json:"id"`
+	State      string    `json:"state"`
+	Message    string    `json:"message"`
+	Target     string    `json:"target_version"`
+	Previous   string    `json:"previous_version"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Backup     string    `json:"backup,omitempty"`
+	Reconciled string    `json:"reconciled_version,omitempty"`
+	Request    *struct {
+		ID          string `json:"request_id,omitempty"`
+		AgentPolicy string `json:"agent_policy,omitempty"`
+	} `json:"request,omitempty"`
 }
 type platformUpdateView struct {
-	Supported bool               `json:"supported"`
-	Reason    string             `json:"reason,omitempty"`
-	Job       *platformUpdateJob `json:"job,omitempty"`
+	Supported     bool               `json:"supported"`
+	Reason        string             `json:"reason,omitempty"`
+	Job           *platformUpdateJob `json:"job,omitempty"`
+	FleetProtocol int                `json:"fleet_update_protocol,omitempty"`
 }
 
-func (s *Server) platformUpdater(ctx context.Context, start bool, target, policy string) (platformUpdateView, error) {
+func (s *Server) platformUpdater(ctx context.Context, start bool, target, policy, requestID string) (platformUpdateView, error) {
 	view := platformUpdateView{}
 	// Preserve the job across restarts, including when the candidate cannot
 	// run its CLI. No sensitive updater input is returned to the browser.
@@ -95,9 +101,11 @@ func (s *Server) platformUpdater(ctx context.Context, start bool, target, policy
 		}
 		serverPID = state.PID
 	}
-	body, _ := json.Marshal(map[string]any{"home": home, "db_path": dbPath, "port": port, "server_pid": serverPID, "method": method, "target_version": target, "agent_policy": policy})
+	body, _ := json.Marshal(map[string]any{"home": home, "db_path": dbPath, "port": port, "server_pid": serverPID, "method": method, "target_version": target, "agent_policy": policy, "request_id": requestID})
 	mode := "--dashboard-probe"
-	if start {
+	if requestID != "" {
+		mode = "--dashboard-fleet-start"
+	} else if start {
 		mode = "--dashboard-start"
 	}
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
@@ -131,13 +139,21 @@ func (s *Server) handlePlatformUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		view, err := s.platformUpdater(r.Context(), false, "", "restart")
+		if s.fleetUpdatePolicyEnabled() {
+			writeJSON(w, platformUpdateView{Reason: "Use Fleet or the local Apteva CLI to update this installation."})
+			return
+		}
+		view, err := s.platformUpdater(r.Context(), false, "", "restart", "")
 		if err != nil {
 			view.Supported = false
 			view.Reason = err.Error()
 		}
 		writeJSON(w, view)
 	case http.MethodPost:
+		if s.fleetUpdatePolicyEnabled() {
+			http.Error(w, "use Fleet or the local Apteva CLI to update this installation", http.StatusForbidden)
+			return
+		}
 		var body struct {
 			Version     string `json:"version"`
 			AgentPolicy string `json:"agent_policy"`
@@ -160,7 +176,7 @@ func (s *Server) handlePlatformUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "release changed or no update is available; check for updates again", http.StatusConflict)
 			return
 		}
-		view, err := s.platformUpdater(r.Context(), true, body.Version, body.AgentPolicy)
+		view, err := s.platformUpdater(r.Context(), true, body.Version, body.AgentPolicy, "")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
