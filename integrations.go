@@ -597,6 +597,8 @@ type AppToolDef struct {
 	BaseURL     string            `json:"base_url,omitempty"`
 	Path        string            `json:"path"`
 	Headers     map[string]string `json:"headers,omitempty"`
+	// MCPTool names a tool on a stateless MCP endpoint. Auth body params become tool arguments.
+	MCPTool string `json:"mcp_tool,omitempty"`
 	// OmitAuthHeaders removes selected app-level auth headers for this tool.
 	// Presigned upload URLs authenticate in their query string and reject a
 	// forwarded provider Authorization header.

@@ -2256,6 +2256,25 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	if tool.BodyNone {
 		// Explicitly send no body, and do not move unused body inputs into the
 		// query string: a resumable-upload probe must retain its session URL.
+	} else if tool.MCPTool != "" {
+		args := buildAuthBodyParams(app.Auth.BodyParams, credentials)
+		properties, _ := tool.InputSchema["properties"].(map[string]any)
+		for name := range properties {
+			value, present := input[name]
+			_, reserved := app.Auth.BodyParams[name]
+			if present && !reserved {
+				args[name] = value
+			}
+		}
+		payload, err := json.Marshal(jsonRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: map[string]any{
+			"name": tool.MCPTool, "arguments": args,
+		}})
+		if err != nil {
+			return nil, fmt.Errorf("marshal MCP tool call: %w", err)
+		}
+		bodyReader = bytes.NewReader(payload)
+		headers["Accept"] = "application/json, text/event-stream"
+		headers["Content-Type"] = "application/json"
 	} else if tool.Method != "GET" && tool.Method != "OPTIONS" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
 		// Raw-body path: tool declared a single input field that
 		// carries the request body verbatim (S3 PutObject, R2
@@ -2524,6 +2543,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	if err != nil {
 		return nil, err
 	}
+	if tool.MCPTool != "" {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	if err := waitForIntegrationToolRateLimit(req.Context(), app, tool, credentials); err != nil {
 		return nil, err
 	}
@@ -2577,6 +2599,10 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			},
 			Headers: hdrs,
 		}, nil
+	}
+
+	if tool.MCPTool != "" {
+		return decodeCatalogMCPResult(resp.StatusCode, ct, respBody, hdrs, buildAuthBodyParams(app.Auth.BodyParams, credentials)), nil
 	}
 
 	var data any

@@ -1,0 +1,196 @@
+{
+  "slug": "dead-simple-email",
+  "name": "Dead Simple Email",
+  "description": "Create Dead Simple Email inboxes and send, read, and reply to email.",
+  "logo": "https://www.google.com/s2/favicons?domain=deadsimple.email&sz=128",
+  "categories": [
+    "email",
+    "communication"
+  ],
+  "base_url": "https://api.deadsimple.email/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Dead Simple Email API key from the Dead Simple Email dashboard."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_inboxes"
+  },
+  "tools": [
+    {
+      "name": "list_inboxes",
+      "description": "List inboxes available to this Dead Simple Email API key.",
+      "method": "GET",
+      "path": "/inboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of results to return."
+          },
+          "cursor": { "type": "string", "description": "Next cursor from the previous response." },
+          "domain": { "type": "string", "description": "Filter by inbox domain." }
+        }
+      }
+    },
+    {
+      "name": "create_inbox",
+      "description": "Create a Dead Simple Email inbox.",
+      "method": "POST",
+      "path": "/inboxes",
+      "request_transform": { "type": "json_wrap", "fields": ["display_name", "local_part", "domain", "tags"] },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "display_name": { "type": "string", "description": "Sender display name." },
+          "local_part": { "type": "string", "description": "Local part of the new email address." },
+          "domain": { "type": "string", "description": "Domain for the inbox." },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to attach to the inbox."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_inbox",
+      "description": "Get a Dead Simple Email inbox by ID.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List messages in a Dead Simple Email inbox.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of results to return."
+          },
+          "cursor": { "type": "string", "description": "Next cursor from the previous response." },
+          "labels": { "type": "string", "description": "Comma-separated message labels to filter by." },
+          "include_spam": { "type": "boolean", "description": "Include messages flagged as spam." }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Read a Dead Simple Email message by ID.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages/{message_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "message_id": { "type": "string", "description": "Message ID returned by the provider." }
+        },
+        "required": ["inbox_id", "message_id"]
+      }
+    },
+    {
+      "name": "send_email",
+      "description": "Send an email from a Dead Simple Email inbox. Provide text_body or html_body.",
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "Recipient email address or list of addresses."
+          },
+          "subject": { "type": "string", "description": "Email subject." },
+          "text_body": { "type": "string", "description": "Plain text email body." },
+          "html_body": { "type": "string", "description": "HTML email body." },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CC email addresses."
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "BCC email addresses."
+          },
+          "reply_to": { "type": "string", "description": "Email address that should receive replies." }
+        },
+        "required": ["inbox_id", "to", "subject"]
+      }
+    },
+    {
+      "name": "reply_to_message",
+      "description": "Send a threaded reply from a Dead Simple Email inbox. Provide text_body or html_body.",
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages/{message_id}/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "message_id": { "type": "string", "description": "Message ID returned by the provider." },
+          "text_body": { "type": "string", "description": "Plain text email body." },
+          "html_body": { "type": "string", "description": "HTML email body." }
+        },
+        "required": ["inbox_id", "message_id"]
+      }
+    },
+    {
+      "name": "get_thread",
+      "description": "Read a Dead Simple Email thread and its messages.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/threads/{thread_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "thread_id": { "type": "string", "description": "Thread ID returned by the provider." }
+        },
+        "required": ["inbox_id", "thread_id"]
+      }
+    }
+  ]
+}
