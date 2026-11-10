@@ -188,6 +188,8 @@ func openStore(path string, migrate bool) (*Store, error) {
 	// SQLite writer contention, while this cap prevents an unbounded
 	// pile-up of pooled connections under dashboard reload bursts.
 	db.SetMaxOpenConns(sqliteMaxOpenConns)
+	// Retain connections opened during bursts to avoid reloading the SQLite schema.
+	db.SetMaxIdleConns(sqliteMaxOpenConns)
 
 	// Belt-and-suspenders: also fire the pragmas via Exec so the
 	// initial connection has them even if the DSN parsing changes

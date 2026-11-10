@@ -74,7 +74,8 @@ func (s *Server) appInstallForToken(token string) (installID, installedBy int64,
 		return 0, 0, "", sql.ErrNoRows
 	}
 	err = s.store.db.QueryRow(
-		`SELECT id, COALESCE(installed_by,0), status FROM app_installs WHERE app_token_hash=?`,
+		`SELECT id, COALESCE(installed_by,0), status FROM app_installs
+		  WHERE app_token_hash=? AND app_token_hash <> ''`,
 		HashAPIKey(token),
 	).Scan(&installID, &installedBy, &status)
 	if err == sql.ErrNoRows {
