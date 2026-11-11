@@ -74,17 +74,14 @@
     },
     {
       "name": "listen",
-      "description": "Speech-to-text transcription of pre-recorded audio via Deepgram's Nova models (default: nova-3, their latest and most accurate, multilingual). Accepts the audio two ways — pick exactly one: (a) `url` for a publicly-reachable HTTPS link Deepgram will fetch (best for S3/CDN/public Drive links), or (b) `audio` as a blobref:// handle returned by an upstream download tool. By default you get ONLY the transcript text + paragraph-level structure; per-word timestamps are always stripped server-side (they're typically 90%+ of Deepgram's payload and not needed for analysis). Do NOT enable paragraphs/utterances/diarize/topics/intents/sentiment/summarize unless you specifically need that extra data — each one balloons the response and risks blowing the agent's context window on audio >5 minutes. Override the default via `model` for domain-tuned variants (nova-2-meeting, nova-2-phonecall) or Whisper.",
+      "description": "Speech-to-text transcription of pre-recorded audio via Deepgram's Nova models (default: nova-3, their latest and most accurate, multilingual). Accepts the audio two ways — pick exactly one: (a) `url` for a publicly-reachable HTTPS link Deepgram will fetch (best for S3/CDN/public Drive links), or (b) `audio` as a blobref:// handle returned by an upstream download tool. Preserves per-word timestamps in channel alternatives and utterances, plus provider request and audio identity, for precise editing and Media persistence. Full responses can be large; use Media's transcript views and pagination for granular retrieval. Do NOT enable paragraphs/utterances/diarize/topics/intents/sentiment/summarize unless you specifically need that extra data — each one balloons the response and risks blowing the agent's context window on audio >5 minutes. Override the default via `model` for domain-tuned variants (nova-2-meeting, nova-2-phonecall) or Whisper.",
       "method": "POST",
       "path": "/v1/listen",
       "body_binary_param": "audio",
       "timeout_ms": 600000,
       "response_omit": [
-        "metadata.sha256",
         "metadata.model_info",
-        "metadata.request_id",
-        "metadata.transaction_key",
-        "results.channels[].alternatives[].words"
+        "metadata.transaction_key"
       ],
       "input_schema": {
         "type": "object",
