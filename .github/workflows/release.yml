@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.6'
+          go-version: '1.26.11'
       - run: |
           go mod edit -dropreplace=github.com/apteva/app-sdk
           go mod download github.com/apteva/app-sdk
@@ -44,7 +44,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.6'
+          go-version: '1.26.11'
 
       # Local monorepo builds overlay ../app-sdk, but the standalone server
       # release checkout has no sibling directory. Release against the pinned
