@@ -1225,8 +1225,9 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		return
 	}
 	var body struct {
-		Tool  string         `json:"tool"`
-		Input map[string]any `json:"input"`
+		TargetInstallID int64          `json:"target_install_id,omitempty"`
+		Tool            string         `json:"tool"`
+		Input           map[string]any `json:"input"`
 	}
 	// 50 MiB is generous enough for typical file-bearing tool calls
 	// (storage.files_upload with a base64 PDF, media uploads, etc.).
@@ -1250,7 +1251,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	authorized, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID)
+	authorized, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID, body.TargetInstallID)
 	if !ok {
 		return
 	}

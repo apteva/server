@@ -748,6 +748,7 @@ func main() {
 	apiMux.HandleFunc("/auth/mfa/recovery-codes", s.authMiddleware(s.handleMFARecoveryCodes))
 	apiMux.HandleFunc("/auth/preferences", s.authMiddleware(s.handleAuthPreferences))
 	apiMux.HandleFunc("/auth/delegated-users", s.authMiddleware(s.handleCreateDelegatedUser))
+	apiMux.HandleFunc("/ui-layout/tools", s.authMiddleware(s.handleWorkspacePageTool))
 	apiMux.HandleFunc("/ui-layout/pages", s.authMiddleware(s.handleUIPages))
 	apiMux.HandleFunc("/ui-layout/projects/", s.authMiddleware(s.handleUILayoutSurface))
 	apiMux.HandleFunc("/ui-layout/global/surfaces/", s.authMiddleware(s.handleUILayoutGlobalSurface))
@@ -1176,6 +1177,8 @@ func main() {
 			return
 		}
 		switch {
+		case path == idPart+"/installation":
+			s.handleAppInstallation(w, r, installID)
 		case path == idPart+"/components" || strings.HasPrefix(path, idPart+"/components/"):
 			s.handleAppComponents(w, r, installID)
 		case strings.Contains(path, "/deployment/") || strings.HasSuffix(path, "/placement") || strings.HasSuffix(path, "/deployment"):

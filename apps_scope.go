@@ -33,8 +33,8 @@ package main
 // Safety:
 //   - Single SQL transaction wraps app_installs + connections
 //     UPDATEs. A crash partway leaves nothing modified.
-//   - Refuses when another install of the same app already occupies
-//     the target scope (UNIQUE(app_id, project_id)).
+//   - Refuses when the same installation key already occupies the target
+//     scope. A moving install yields to the target scope's selected default.
 //   - Sidecar gets stopped + resumed via the existing supervisor
 //     path so WhoAmI returns the new scope (the SDK caches it at
 //     boot — without a restart the sidecar would think it's still
@@ -90,17 +90,18 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 	// scope list to validate the move + the app_id for the UNIQUE
 	// collision check.
 	var (
-		appID        int64
-		oldProjectID string
-		manifestJSON string
-		appName      string
+		appID           int64
+		oldProjectID    string
+		manifestJSON    string
+		appName         string
+		installationKey string
 	)
 	err = s.store.db.QueryRow(
 		`SELECT i.app_id, COALESCE(i.project_id,''),
-		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.name
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.name,i.installation_key
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&appID, &oldProjectID, &manifestJSON, &appName)
+	).Scan(&appID, &oldProjectID, &manifestJSON, &appName, &installationKey)
 	if err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
@@ -148,14 +149,13 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// UNIQUE(app_id, project_id) — refuse if the target scope is
-	// already taken by another install of the same app. Cheap
+	// Refuse if the installation key is already used in the target scope. Cheap
 	// pre-check so the operator gets a real id rather than the raw
 	// SQLite constraint error.
 	var conflictID int64
 	_ = s.store.db.QueryRow(
-		`SELECT id FROM app_installs WHERE app_id = ? AND COALESCE(project_id,'') = ?`,
-		appID, target,
+		`SELECT id FROM app_installs WHERE app_id = ? AND COALESCE(project_id,'') = ? AND installation_key=?`,
+		appID, target, installationKey,
 	).Scan(&conflictID)
 	if conflictID != 0 && conflictID != installID {
 		http.Error(w, fmt.Sprintf(
@@ -184,6 +184,11 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		http.Error(w, "begin tx: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err = tx.Exec(`UPDATE app_installs SET is_default=0 WHERE id=? AND EXISTS(SELECT 1 FROM app_installs WHERE app_id=? AND project_id=? AND is_default=1)`, installID, appID, target); err != nil {
+		tx.Rollback()
+		http.Error(w, "update installation scope default", 500)
 		return
 	}
 	defer func() {

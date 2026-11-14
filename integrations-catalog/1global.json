@@ -1,0 +1,1752 @@
+{
+  "slug": "1global",
+  "name": "1GLOBAL",
+  "description": "Provision 1GLOBAL Connect subscriptions and SIM profiles, manage customer accounts, browse plans, top up subscriptions, and track orders. Uses production client credentials and API version 2026-02-05.",
+  "logo": "https://www.google.com/s2/favicons?domain=1global.com&sz=128",
+  "categories": [
+    "telephony",
+    "esim",
+    "connectivity"
+  ],
+  "base_url": "https://api.1global.com/connect",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "token_exchange": {
+      "url": "https://api.1global.com/auth/realms/1global-connect/protocol/openid-connect/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{credential.client_id}}",
+        "client_secret": "{{credential.client_secret}}"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in"
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/hal+json,application/problem+json",
+      "Api-Version": "2026-02-05"
+    },
+    "credential_fields": [
+      {
+        "name": "client_id",
+        "label": "Client ID",
+        "description": "Production Connect API client ID supplied during 1GLOBAL onboarding.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "client_secret",
+        "label": "Client Secret",
+        "description": "Production client secret supplied by 1GLOBAL. Apteva obtains and renews access tokens automatically.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_product_offerings",
+    "input": {
+      "limit": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_product_offerings",
+      "description": "List available 1GLOBAL plans and add-ons. Preserve the returned pagination links or cursor for subsequent pages.",
+      "method": "GET",
+      "path": "/product-offerings",
+      "query_params": [
+        "status",
+        "type",
+        "cursor",
+        "limit"
+      ],
+      "query_param_aliases": {
+        "allowances[coverage_area][countries]": "allowances[coverage-area][countries]"
+      },
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "status": {
+            "type": "string",
+            "description": "The Product Offering status",
+            "enum": ["active", "inactive"]
+          },
+          "type": {
+            "type": "string",
+            "description": "The Product Offering type",
+            "enum": ["plan", "addon", "non_service"]
+          },
+          "allowances[coverage_area][countries]": { "type": "string", "description": "The country code according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)" },
+          "cursor": { "type": "string", "description": "A base64 encoded string that uniquely identifies the first entry of a query result." },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 40,
+            "description": "The page size filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_product_offering",
+      "description": "Read a 1GLOBAL product offering, its allowances, coverage, and pricing.",
+      "method": "GET",
+      "path": "/product-offerings/{product_offering_id}",
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "product_offering_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a Product Offering",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "product_offering_id"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List 1GLOBAL customer accounts.",
+      "method": "GET",
+      "path": "/accounts",
+      "query_params": [
+        "cursor",
+        "limit"
+      ],
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "cursor": { "type": "string", "description": "A base64 encoded string that uniquely identifies the first entry of a query result." },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 40,
+            "description": "The page size filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Read a 1GLOBAL customer account.",
+      "method": "GET",
+      "path": "/accounts/{account_id}",
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "account_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies an Account",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "list_subscribers",
+      "description": "List 1GLOBAL subscribers.",
+      "method": "GET",
+      "path": "/subscribers",
+      "query_params": [
+        "cursor",
+        "limit"
+      ],
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "cursor": { "type": "string", "description": "A base64 encoded string that uniquely identifies the first entry of a query result." },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 40,
+            "description": "The page size filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_subscriber",
+      "description": "Create a subscriber under an existing account. Reuse idempotency_key when retrying this request.",
+      "method": "POST",
+      "path": "/subscribers",
+      "header_params": {
+        "correlation_id": "Correlation-Id",
+        "idempotency_key": "Idempotency-Key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "idempotency_key": {
+            "description": "An unique identifier provided by the client that uniquely identifies a request allowing the application of idempotence rules.",
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies an Account",
+            "maxLength": 100
+          },
+          "locale": { "type": "string", "description": "The locale to be associated on the subscriber, if no value is passed it sets the default one 'en-GB'" },
+          "first_name": { "type": "string", "description": "The Subscriber's first name" },
+          "last_name": { "type": "string", "description": "The Subscriber's last name" },
+          "email": { "type": "string", "description": "The Subscriber's email" },
+          "address": {
+            "type": "object",
+            "oneOf": [
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "description": "Address format for countries other than US, state is not required.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "line1": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "line2": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "city": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "country": {
+                        "type": "string",
+                        "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                        "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                      },
+                      "postal_code": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Za-z-_ ]+$",
+                        "description": "The postal code or Zip Code"
+                      }
+                    },
+                    "required": [
+                      "country"
+                    ]
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "description": "Address format for US, requiring state.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "line1": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "line2": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "city": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "AS", "DC", "GU", "MP", "PR", "VI", "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"],
+                        "description": "Required for US and CA countries"
+                      },
+                      "country": {
+                        "type": "string",
+                        "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                        "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                      },
+                      "postal_code": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Za-z-_ ]+$",
+                        "description": "The postal code or Zip Code"
+                      }
+                    },
+                    "required": [
+                      "country",
+                      "state"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "description": "The Subscriber's address"
+          },
+          "birth_date": {
+            "description": "The Subscriber's birthdate. Depending on the country the field might be required.",
+            "type": "string",
+            "format": "date"
+          },
+          "identifications": {
+            "type": "array",
+            "description": "List of identifications of the subscriber",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "description": "Type of identification",
+                      "enum": ["passport"]
+                    },
+                    "number": { "type": "string", "description": "Identification number" },
+                    "nationality": {
+                      "type": "string",
+                      "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                      "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "number"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "description": "Type of identification",
+                      "enum": ["identity_card"]
+                    },
+                    "number": { "type": "string", "description": "Identification number" }
+                  },
+                  "required": [
+                    "type",
+                    "number"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "description": "Type of identification",
+                      "enum": ["eu_identity_card"]
+                    },
+                    "number": { "type": "string", "description": "Identification number" }
+                  },
+                  "required": [
+                    "type",
+                    "number"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "description": "Type of identification",
+                      "enum": ["pesel"]
+                    },
+                    "number": { "type": "string", "description": "Identification number" }
+                  },
+                  "required": [
+                    "type",
+                    "number"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "description": "Type of identification",
+                      "enum": ["tax_id"]
+                    },
+                    "country": {
+                      "type": "string",
+                      "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                      "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                    },
+                    "number": { "type": "string", "description": "Identification number" }
+                  },
+                  "required": [
+                    "type",
+                    "number",
+                    "country"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "description": "Type of identification",
+                      "enum": ["nie"]
+                    },
+                    "number": { "type": "string", "description": "Identification number" }
+                  },
+                  "required": [
+                    "type",
+                    "number"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "account_id",
+          "first_name",
+          "last_name",
+          "email",
+          "address",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "get_subscriber",
+      "description": "Read a 1GLOBAL subscriber.",
+      "method": "GET",
+      "path": "/subscribers/{subscriber_id}",
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "subscriber_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a Subscriber",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "subscriber_id"
+        ]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List subscriptions, optionally filtered by account, subscriber, or status.",
+      "method": "GET",
+      "path": "/subscriptions",
+      "query_params": [
+        "cursor",
+        "limit",
+        "status"
+      ],
+      "query_param_aliases": {
+        "account_id": "account-id",
+        "subscriber_id": "subscriber-id"
+      },
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "account_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies an Account",
+            "maxLength": 100
+          },
+          "subscriber_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a Subscriber",
+            "maxLength": 100
+          },
+          "cursor": { "type": "string", "description": "A base64 encoded string that uniquely identifies the first entry of a query result." },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 40,
+            "description": "The page size filter"
+          },
+          "status": {
+            "type": "string",
+            "description": "The Subscription's status",
+            "enum": ["created", "active", "grace", "suspended", "deactivated", "terminated", "canceled"]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Read a subscription and its SIM profile references.",
+      "method": "GET",
+      "path": "/subscriptions/{subscription_id}",
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "subscription_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a Subscription",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "suspend_subscription",
+      "description": "Suspend a subscription. Reuse idempotency_key when retrying this operation.",
+      "method": "POST",
+      "path": "/subscriptions/{subscription_id}/suspend",
+      "header_params": {
+        "correlation_id": "Correlation-Id",
+        "idempotency_key": "Idempotency-Key"
+      },
+      "body_none": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a Subscription",
+            "maxLength": 100
+          },
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "idempotency_key": {
+            "description": "An unique identifier provided by the client that uniquely identifies a request allowing the application of idempotence rules.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscription_id",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "resume_subscription",
+      "description": "Resume a suspended subscription. Reuse idempotency_key when retrying this operation.",
+      "method": "POST",
+      "path": "/subscriptions/{subscription_id}/resume",
+      "header_params": {
+        "correlation_id": "Correlation-Id",
+        "idempotency_key": "Idempotency-Key"
+      },
+      "body_none": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a Subscription",
+            "maxLength": 100
+          },
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "idempotency_key": {
+            "description": "An unique identifier provided by the client that uniquely identifies a request allowing the application of idempotence rules.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscription_id",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List provisioning and top-up orders, optionally filtered by status.",
+      "method": "GET",
+      "path": "/orders",
+      "query_params": [
+        "cursor",
+        "limit",
+        "status"
+      ],
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "cursor": { "type": "string", "description": "A base64 encoded string that uniquely identifies the first entry of a query result." },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 40,
+            "description": "The page size filter"
+          },
+          "status": {
+            "type": "string",
+            "description": "The Order status",
+            "enum": ["accepted", "fulfilling", "completed", "failed", "scheduled", "canceled", "on_hold", "expired"]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Read an asynchronous order to track provisioning or top-up completion.",
+      "method": "GET",
+      "path": "/orders/{order_id}",
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "order_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies an Order",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_sim_profile",
+      "description": "Read SIM profile information and available installation details.",
+      "method": "GET",
+      "path": "/sim-profiles/{sim_id}",
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "sim_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a SIM",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "sim_id"
+        ]
+      }
+    },
+    {
+      "name": "list_phone_numbers",
+      "description": "List phone numbers, optionally filtered by subscription or status.",
+      "method": "GET",
+      "path": "/phone-numbers",
+      "query_params": [
+        "limit",
+        "cursor",
+        "status"
+      ],
+      "query_param_aliases": {
+        "subscription_id": "subscription-id"
+      },
+      "header_params": {
+        "correlation_id": "Correlation-Id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 40,
+            "description": "The page size filter"
+          },
+          "cursor": { "type": "string", "description": "A base64 encoded string that uniquely identifies the first entry of a query result." },
+          "subscription_id": {
+            "type": "string",
+            "description": "A string that uniquely identifies a Subscription",
+            "maxLength": 100
+          },
+          "status": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "description": "The Phone Number status",
+              "enum": ["active", "grace", "pending_termination", "terminated", "ported_out"]
+            },
+            "description": "Filter phone numbers by status. Multiple status values can be provided."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_personal_account",
+      "description": "Create a personal 1GLOBAL account. Reuse idempotency_key for retries.",
+      "method": "POST",
+      "path": "/accounts",
+      "header_params": {
+        "correlation_id": "Correlation-Id",
+        "idempotency_key": "Idempotency-Key"
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "metadata",
+          "name",
+          "owner"
+        ],
+        "constants": {
+          "type": "personal"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "idempotency_key": {
+            "description": "An unique identifier provided by the client that uniquely identifies a request allowing the application of idempotence rules.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "owner": {
+            "type": "object",
+            "properties": {
+              "first_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "last_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "tax_id": { "type": "string", "description": "The taxpayer identification number for the individual or entity, formatted according to the rules of their country" },
+              "address": {
+                "oneOf": [
+                  {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "description": "Address format for countries other than US, state is not required.",
+                        "additionalProperties": false,
+                        "properties": {
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "city": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "country": {
+                            "type": "string",
+                            "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                            "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                          },
+                          "postal_code": {
+                            "type": "string",
+                            "pattern": "^[0-9A-Za-z-_ ]+$",
+                            "description": "The postal code or Zip Code"
+                          }
+                        },
+                        "required": [
+                          "country"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "description": "Address format for US, requiring state.",
+                        "additionalProperties": false,
+                        "properties": {
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "city": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "AS", "DC", "GU", "MP", "PR", "VI", "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"],
+                            "description": "Required for US and CA countries"
+                          },
+                          "country": {
+                            "type": "string",
+                            "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                            "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                          },
+                          "postal_code": {
+                            "type": "string",
+                            "pattern": "^[0-9A-Za-z-_ ]+$",
+                            "description": "The postal code or Zip Code"
+                          }
+                        },
+                        "required": [
+                          "country",
+                          "state"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "billing_address": {
+                "oneOf": [
+                  {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "description": "Address format for countries other than US, state is not required.",
+                        "additionalProperties": false,
+                        "properties": {
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "city": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "country": {
+                            "type": "string",
+                            "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                            "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                          },
+                          "postal_code": {
+                            "type": "string",
+                            "pattern": "^[0-9A-Za-z-_ ]+$",
+                            "description": "The postal code or Zip Code"
+                          }
+                        },
+                        "required": [
+                          "country"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "description": "Address format for US, requiring state.",
+                        "additionalProperties": false,
+                        "properties": {
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "city": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "AS", "DC", "GU", "MP", "PR", "VI", "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"],
+                            "description": "Required for US and CA countries"
+                          },
+                          "country": {
+                            "type": "string",
+                            "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                            "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                          },
+                          "postal_code": {
+                            "type": "string",
+                            "pattern": "^[0-9A-Za-z-_ ]+$",
+                            "description": "The postal code or Zip Code"
+                          }
+                        },
+                        "required": [
+                          "country",
+                          "state"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "first_name",
+              "last_name",
+              "address"
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Optional metadata key-value pairs for the account. Both the key and the value are strings.",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "owner",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "create_business_account",
+      "description": "Create a business 1GLOBAL account. Reuse idempotency_key for retries.",
+      "method": "POST",
+      "path": "/accounts",
+      "header_params": {
+        "correlation_id": "Correlation-Id",
+        "idempotency_key": "Idempotency-Key"
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "address",
+          "billing_address",
+          "company_name",
+          "metadata",
+          "name",
+          "regon",
+          "tax_id"
+        ],
+        "constants": {
+          "type": "business"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "idempotency_key": {
+            "description": "An unique identifier provided by the client that uniquely identifies a request allowing the application of idempotence rules.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "company_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "tax_id": { "type": "string", "description": "The taxpayer identification number for the individual or entity, formatted according to the rules of their country" },
+          "regon": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 14,
+            "description": "The REGON (Rejestr Gospodarki Narodowej) is a unique identification number assigned to entities in Poland for statistical and administrative purposes. It consists of 9 digits, where the first 4 digits represent the entity's classification and the next 5 digits uniquely identify the entity. In some cases, a 14-digit REGON may be used for entities with multiple branches or complex organizational structures."
+          },
+          "address": {
+            "oneOf": [
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "description": "Address format for countries other than US, state is not required.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "line1": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "line2": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "city": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "country": {
+                        "type": "string",
+                        "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                        "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                      },
+                      "postal_code": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Za-z-_ ]+$",
+                        "description": "The postal code or Zip Code"
+                      }
+                    },
+                    "required": [
+                      "country"
+                    ]
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "description": "Address format for US, requiring state.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "line1": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "line2": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "city": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "AS", "DC", "GU", "MP", "PR", "VI", "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"],
+                        "description": "Required for US and CA countries"
+                      },
+                      "country": {
+                        "type": "string",
+                        "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                        "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                      },
+                      "postal_code": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Za-z-_ ]+$",
+                        "description": "The postal code or Zip Code"
+                      }
+                    },
+                    "required": [
+                      "country",
+                      "state"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "billing_address": {
+            "oneOf": [
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "description": "Address format for countries other than US, state is not required.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "line1": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "line2": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "city": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "country": {
+                        "type": "string",
+                        "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                        "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                      },
+                      "postal_code": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Za-z-_ ]+$",
+                        "description": "The postal code or Zip Code"
+                      }
+                    },
+                    "required": [
+                      "country"
+                    ]
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "description": "Address format for US, requiring state.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "line1": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "line2": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "city": {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "AS", "DC", "GU", "MP", "PR", "VI", "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"],
+                        "description": "Required for US and CA countries"
+                      },
+                      "country": {
+                        "type": "string",
+                        "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+                        "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+                      },
+                      "postal_code": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Za-z-_ ]+$",
+                        "description": "The postal code or Zip Code"
+                      }
+                    },
+                    "required": [
+                      "country",
+                      "state"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Optional metadata key-value pairs for the account. Both the key and the value are strings.",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "company_name",
+          "address",
+          "tax_id",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "activate_subscription",
+      "description": "Create a billed connectivity activation order. Use sim_profile.sim_type=esim for an eSIM. Poll get_order and get_sim_profile for readiness. Reuse the same idempotency_key on retries.",
+      "method": "POST",
+      "path": "/orders",
+      "header_params": {
+        "correlation_id": "Correlation-Id",
+        "idempotency_key": "Idempotency-Key"
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "products",
+          "purchase_location",
+          "sim_profile",
+          "subscriber_id"
+        ],
+        "constants": {
+          "type": "activate_subscription"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "idempotency_key": {
+            "description": "An unique identifier provided by the client that uniquely identifies a request allowing the application of idempotence rules.",
+            "type": "string"
+          },
+          "subscriber_id": {
+            "type": "string",
+            "description": "The Subscriber Id",
+            "maxLength": 100
+          },
+          "purchase_location": {
+            "type": "string",
+            "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+            "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+          },
+          "sim_profile": {
+            "description": "The SIM Profile of this Subscription",
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "sim_type": {
+                    "type": "string",
+                    "description": "The SIM Type",
+                    "enum": ["esim"]
+                  }
+                },
+                "required": [
+                  "sim_type"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "sim_type": {
+                    "type": "string",
+                    "description": "The SIM Type",
+                    "enum": ["psim"]
+                  },
+                  "reservation_id": {
+                    "type": "string",
+                    "description": "A string that uniquely identifies a Reservation",
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "sim_type",
+                  "reservation_id"
+                ]
+              }
+            ]
+          },
+          "products": {
+            "type": "object",
+            "description": "The products to buy with this order.",
+            "properties": {
+              "plan": {
+                "type": "object",
+                "description": "The plan to buy with this order. Note that a plan activation mode is always immediate",
+                "properties": {
+                  "product_offering_id": {
+                    "type": "string",
+                    "description": "The Product Offering Id",
+                    "maxLength": 100
+                  },
+                  "phone_number": {
+                    "type": "object",
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reservation_id": {
+                            "description": "The Phone Number Reservation Id",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reservation_id"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "phone_number_id": {
+                            "type": "string",
+                            "description": "A string that uniquely identifies a Phone Number",
+                            "maxLength": 100
+                          }
+                        },
+                        "required": [
+                          "phone_number_id"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "product_offering_id"
+                ]
+              },
+              "addons": {
+                "type": "array",
+                "maxItems": 15,
+                "description": "The add-ons to buy with this order. Up to 15 data add-ons, and up to 1 voice add-on of each type.",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "anyOf": [
+                        {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "activation_mode": {
+                                  "type": "string",
+                                  "enum": ["first_usage"]
+                                }
+                              },
+                              "required": [
+                                "activation_mode"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_offering_id": {
+                                  "type": "string",
+                                  "description": "The Product Offering Id",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "product_offering_id"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "activation_mode": {
+                                  "type": "string",
+                                  "enum": ["immediate"]
+                                }
+                              },
+                              "required": [
+                                "activation_mode"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_offering_id": {
+                                  "type": "string",
+                                  "description": "The Product Offering Id",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "product_offering_id"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "activation_mode": {
+                                  "type": "string",
+                                  "enum": ["scheduled"]
+                                }
+                              },
+                              "required": [
+                                "activation_mode"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_offering_id": {
+                                  "type": "string",
+                                  "description": "The Product Offering Id",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "product_offering_id"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "start_at": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "description": "When the Product should start. Formated as [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)"
+                                }
+                              },
+                              "required": [
+                                "start_at"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "product_offering_id": {
+                          "type": "string",
+                          "description": "The Product Offering Id",
+                          "maxLength": 100
+                        },
+                        "phone_number": {
+                          "type": "object",
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reservation_id": {
+                                  "description": "The Phone Number Reservation Id",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "reservation_id"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "phone_number_id": {
+                                  "type": "string",
+                                  "description": "A string that uniquely identifies a Phone Number",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "phone_number_id"
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "product_offering_id"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "plan"
+            ]
+          }
+        },
+        "required": [
+          "subscriber_id",
+          "purchase_location",
+          "sim_profile",
+          "products",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
+      "name": "top_up_subscription",
+      "description": "Create a billed subscription top-up order using product offering IDs. Reuse the same idempotency_key on retries and poll get_order for completion.",
+      "method": "POST",
+      "path": "/orders",
+      "header_params": {
+        "correlation_id": "Correlation-Id",
+        "idempotency_key": "Idempotency-Key"
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "products",
+          "purchase_location",
+          "subscription_id"
+        ],
+        "constants": {
+          "type": "topup_subscription"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "correlation_id": { "type": "string", "description": "An unique identifier provided by the client that allows the request to be traced through the system." },
+          "idempotency_key": {
+            "description": "An unique identifier provided by the client that uniquely identifies a request allowing the application of idempotence rules.",
+            "type": "string"
+          },
+          "subscription_id": {
+            "type": "string",
+            "description": "The Subscription Id",
+            "maxLength": 100
+          },
+          "purchase_location": {
+            "type": "string",
+            "description": "The supported country codes according to [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)",
+            "enum": ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "XK", "YE", "YT", "ZA", "ZM", "ZW", "CI"]
+          },
+          "products": {
+            "type": "object",
+            "description": "The products to buy with this order.",
+            "properties": {
+              "plan": {
+                "type": "object",
+                "description": "The plan to buy with this order. Note that a plan activation mode is always immediate",
+                "properties": {
+                  "product_offering_id": {
+                    "type": "string",
+                    "description": "The Product Offering Id",
+                    "maxLength": 100
+                  },
+                  "phone_number": {
+                    "type": "object",
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reservation_id": {
+                            "description": "The Phone Number Reservation Id",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reservation_id"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "phone_number_id": {
+                            "type": "string",
+                            "description": "A string that uniquely identifies a Phone Number",
+                            "maxLength": 100
+                          }
+                        },
+                        "required": [
+                          "phone_number_id"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "product_offering_id"
+                ]
+              },
+              "addons": {
+                "type": "array",
+                "maxItems": 15,
+                "description": "The add-ons to buy with this order. Up to 15 data add-ons, and up to 1 voice add-on of each type.",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "anyOf": [
+                        {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "activation_mode": {
+                                  "type": "string",
+                                  "enum": ["first_usage"]
+                                }
+                              },
+                              "required": [
+                                "activation_mode"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_offering_id": {
+                                  "type": "string",
+                                  "description": "The Product Offering Id",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "product_offering_id"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "activation_mode": {
+                                  "type": "string",
+                                  "enum": ["immediate"]
+                                }
+                              },
+                              "required": [
+                                "activation_mode"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_offering_id": {
+                                  "type": "string",
+                                  "description": "The Product Offering Id",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "product_offering_id"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "activation_mode": {
+                                  "type": "string",
+                                  "enum": ["scheduled"]
+                                }
+                              },
+                              "required": [
+                                "activation_mode"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_offering_id": {
+                                  "type": "string",
+                                  "description": "The Product Offering Id",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "product_offering_id"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "start_at": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "description": "When the Product should start. Formated as [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601)"
+                                }
+                              },
+                              "required": [
+                                "start_at"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "product_offering_id": {
+                          "type": "string",
+                          "description": "The Product Offering Id",
+                          "maxLength": 100
+                        },
+                        "phone_number": {
+                          "type": "object",
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reservation_id": {
+                                  "description": "The Phone Number Reservation Id",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "reservation_id"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "phone_number_id": {
+                                  "type": "string",
+                                  "description": "A string that uniquely identifies a Phone Number",
+                                  "maxLength": 100
+                                }
+                              },
+                              "required": [
+                                "phone_number_id"
+                              ]
+                            }
+                          ]
+                        },
+                        "renewal_group_id": {
+                          "type": "string",
+                          "description": "Bundle with the existing Renewal Group Id",
+                          "maxLength": 100
+                        }
+                      },
+                      "required": [
+                        "product_offering_id"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "subscription_id",
+          "purchase_location",
+          "products",
+          "idempotency_key"
+        ]
+      }
+    }
+  ]
+}

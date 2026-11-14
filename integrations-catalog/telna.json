@@ -1,0 +1,262 @@
+{
+  "slug": "telna",
+  "name": "Telna",
+  "description": "Telna Connect Flex product ordering, eSIM profiles, usage diagnostics, and SMS delivery to Telna SIMs. SMS requires an additional Telna permission.",
+  "logo": "https://www.google.com/s2/favicons?domain=telna.com&sz=128",
+  "categories": [
+    "telephony",
+    "esim",
+    "connectivity"
+  ],
+  "base_url": "https://ppo-api.telna.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Connect Flex Key ID",
+        "description": "Key ID supplied by Telna support during Connect Flex API onboarding. Enter the key without the Bearer prefix.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_products",
+    "input": {
+      "count": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_products",
+      "description": "List Telna Connect Flex products available to the API key.",
+      "method": "GET",
+      "path": "/ordering/products",
+      "query_params": [
+        "count",
+        "offset",
+        "account"
+      ],
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." },
+          "count": { "type": "integer", "description": "To specify the number of items you want to retrieve in a single API call." },
+          "offset": { "type": "integer", "description": " The parameter is used in pagination to specify the starting point in the data set from where the 'count' number of items will be returned. For example, if the offset is set to 10 and the count is set to 5, the API will skip the first 10 items and then return the next 5 items in the data set." },
+          "account": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Read a Telna Connect Flex product and its package allowances.",
+      "method": "GET",
+      "path": "/ordering/products/{product_id}",
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          },
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "create_work_order",
+      "description": "Order a billed Telna product on a new SIM or apply it to an existing ICCID. Track the returned work order ID.",
+      "method": "POST",
+      "path": "/ordering/work-orders",
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." },
+          "account": { "type": "string", "description": "unique identifier to which account this order will belong to." },
+          "customer_ref": { "type": "string", "description": "unique customer ref" },
+          "product": {
+            "type": "string"
+          },
+          "iccid": { "type": "string", "description": "if ICCID is provided, the product will be applied to the specified ICCID instead of a new iccid" }
+        },
+        "required": [
+          "customer_ref",
+          "product"
+        ]
+      }
+    },
+    {
+      "name": "get_work_order",
+      "description": "Read the status and provisioned SIM details of a Telna work order.",
+      "method": "GET",
+      "path": "/ordering/work-orders/{work_order_id}",
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "work_order_id": {
+            "type": "string"
+          },
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." }
+        },
+        "required": [
+          "work_order_id"
+        ]
+      }
+    },
+    {
+      "name": "update_work_order",
+      "description": "Update the customer reference attached to a Telna work order.",
+      "method": "PUT",
+      "path": "/ordering/work-orders/{work_order_id}",
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "work_order_id": {
+            "type": "string"
+          },
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." },
+          "customer_ref": { "type": "string", "description": "the new customer_ref to be updated" }
+        },
+        "required": [
+          "work_order_id",
+          "customer_ref"
+        ]
+      }
+    },
+    {
+      "name": "get_esim_profile",
+      "description": "Read eUICC profile information for a Telna ICCID.",
+      "method": "GET",
+      "path": "/diagnostic/euicc-profiles/{iccid}",
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iccid": {
+            "type": "string"
+          },
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." }
+        },
+        "required": [
+          "iccid"
+        ]
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Read usage reports. Provide either a work order ID or an ICCID.",
+      "method": "GET",
+      "path": "/diagnostic/usages",
+      "query_params": [
+        "order",
+        "iccid"
+      ],
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." },
+          "order": { "type": "string", "description": "either provide order or iccid" },
+          "iccid": { "type": "string", "description": "either provide order or iccid" }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "order"
+            ]
+          },
+          {
+            "required": [
+              "iccid"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "get_open_data_sessions",
+      "description": "Read active data sessions for a Telna ICCID.",
+      "method": "GET",
+      "path": "/diagnostic/open-data-sessions",
+      "query_params": [
+        "iccid"
+      ],
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." },
+          "iccid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iccid"
+        ]
+      }
+    },
+    {
+      "name": "send_sms",
+      "description": "Send an SMS to a Telna SIM identified by ICCID. Requires Telna A2P SMS permission, enabled separately for the account.",
+      "method": "POST",
+      "path": "/a2p-sms/sms-requests",
+      "header_params": {
+        "request_id": "Request-ID"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request_id": { "type": "string", "description": "The 'Request-ID' is returned in the response header. It functions as a reference ID to assist client-side developers, particularly when working with asynchronous systems. This unique identifier helps in tracking individual requests, aiding in troubleshooting and system monitoring." },
+          "sim": { "type": "string", "description": "the iccid of the receiving subscriber." },
+          "from": { "type": "string", "description": "the short code or the MSISDN displayed for the SMS" },
+          "message": { "type": "string", "description": "The body message of the SMS" },
+          "validity_period": {
+            "type": "integer",
+            "description": "the validity period of the SMS. The unit is in minute. The value should be between 1 and 10080 (7 days) inclusively",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 10080
+          }
+        },
+        "required": [
+          "sim",
+          "from",
+          "message",
+          "validity_period"
+        ]
+      }
+    }
+  ]
+}
