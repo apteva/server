@@ -104,7 +104,7 @@ func (s *Server) resolveEnvironmentAppSource(projectID, name, constraint string)
 				 COALESCE(i.local_bin_path,''), COALESCE(NULLIF(i.manifest_json,''),a.manifest_json)
 			 FROM app_installs i JOIN apps a ON a.id=i.app_id
 			 WHERE a.name=? AND i.status='running' AND (i.project_id=? OR i.project_id='')
-			 ORDER BY CASE WHEN i.project_id=? THEN 0 ELSE 1 END, i.id DESC`
+			 ORDER BY CASE WHEN i.project_id=? THEN 0 ELSE 1 END, i.is_default DESC, i.id DESC`
 		rows, err := s.store.db.Query(query, name, projectID, projectID)
 		if err == nil {
 			for rows.Next() {
@@ -204,6 +204,8 @@ func (s *Server) resolveEnvironmentCachedSource(name, constraint string) environ
 		patterns := []string{
 			filepath.Join(base, "src", "apteva.yaml"),
 			filepath.Join(base, "src", "mcp", name, "apteva.yaml"),
+			filepath.Join(base, "packages", "*", "src", "apteva.yaml"),
+			filepath.Join(base, "packages", "*", "src", "mcp", name, "apteva.yaml"),
 			filepath.Join(base, "artifacts", "*", "src", "apteva.yaml"),
 			filepath.Join(base, "artifacts", "*", "src", "mcp", name, "apteva.yaml"),
 		}
@@ -233,6 +235,8 @@ func (s *Server) resolveEnvironmentCachedSource(name, constraint string) environ
 			roots := []string{filepath.Join(base, "src")}
 			artifactRoots, _ := filepath.Glob(filepath.Join(base, "artifacts", "*", "src"))
 			roots = append(roots, artifactRoots...)
+			packageRoots, _ := filepath.Glob(filepath.Join(base, "packages", "*", "src"))
+			roots = append(roots, packageRoots...)
 			for _, sourceRoot := range roots {
 				_ = filepath.WalkDir(sourceRoot, func(path string, entry os.DirEntry, walkErr error) error {
 					if walkErr != nil {

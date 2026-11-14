@@ -68,7 +68,7 @@ func (s *Server) appCallbackClient() *http.Client {
 // authorizeAppCallback performs the expensive, shared portion of a sibling
 // app call. Batch requests call this once and reuse the resulting target for
 // every child operation.
-func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, targetAppName, requestedProjectID string) (*appCallTarget, bool) {
+func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, targetAppName, requestedProjectID string, selected ...int64) (*appCallTarget, bool) {
 	caller, err := s.appMetadata(installID)
 	if err != nil || !caller.permissions[sdk.PermAppsCall] {
 		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
@@ -79,7 +79,28 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 		return nil, false
 	}
 	targetInstallID := int64(0)
-	if strings.HasPrefix(targetAppName, "component:") {
+	if len(selected) > 0 {
+		if selected[0] < 0 {
+			http.Error(w, "invalid target installation ID", 400)
+			return nil, false
+		}
+		targetInstallID = selected[0]
+	}
+	if targetInstallID > 0 {
+		targetMetadata, e := s.appMetadata(targetInstallID)
+		if e != nil || targetMetadata.name != targetAppName {
+			http.Error(w, "target installation does not match app", 403)
+			return nil, false
+		}
+		if !appBindingAllowsInstallation(caller, targetAppName, targetInstallID) && !(caller.manifest.Requires.DynamicAppCalls && isOfficialCaller(&caller.manifest)) {
+			http.Error(w, "target installation is not bound", 403)
+			return nil, false
+		}
+		if targetMetadata.status != "running" {
+			http.Error(w, "target installation unavailable", 503)
+			return nil, false
+		}
+	} else if strings.HasPrefix(targetAppName, "component:") {
 		var componentErr error
 		targetInstallID, componentErr = s.resolveComponentCall(installID, strings.TrimPrefix(targetAppName, "component:"))
 		if componentErr != nil {
@@ -88,7 +109,7 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 		}
 	} else {
 		var bindingErr error
-		targetInstallID, bindingErr = s.installBoundAppMetadataForProject(caller, targetAppName, effectiveProjectID)
+		targetInstallID, bindingErr = s.installBoundAppMetadataForProject(caller, targetAppName, effectiveProjectID, true)
 		if bindingErr != nil {
 			http.Error(w, bindingErr.Error(), http.StatusForbidden)
 			return nil, false
@@ -101,6 +122,11 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 			return nil, false
 		}
 		targetInstallID = id
+	}
+	metadata, metadataErr := s.appMetadata(targetInstallID)
+	if metadataErr != nil || metadata.status != "running" {
+		http.Error(w, "target installation unavailable", http.StatusServiceUnavailable)
+		return nil, false
 	}
 	owner, _, err := s.componentOwner(targetInstallID)
 	if err != nil {
@@ -576,7 +602,7 @@ func (s *Server) handleCallbackAppBatch(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	target, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID)
+	target, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID, body.TargetInstallID)
 	if !ok {
 		return
 	}

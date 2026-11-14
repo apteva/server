@@ -35,6 +35,11 @@ func (s *Server) registerAppSkills(
 	if err != nil {
 		ownerID = 0
 	}
+	installation, err := s.appInstallation(installID)
+	if err != nil {
+		return err
+	}
+	namespace := installationMCPName(appName, installation.Key, installID)
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
@@ -61,7 +66,16 @@ func (s *Server) registerAppSkills(
 		}
 		// Slug = "<app>:<name>" so user-authored skills never collide
 		// with app-shipped ones (those use "user:<name>").
-		slug := appName + ":" + resolved.Name
+		slug := namespace + ":" + resolved.Name
+		if namespace != appName {
+			if resolved.Command != "" {
+				resolved.Command = fmt.Sprintf("/i%d-%s", installID, strings.TrimPrefix(resolved.Command, "/"))
+				if len(resolved.Command) > 65 {
+					return fmt.Errorf("installation skill command is too long")
+				}
+			}
+			resolved.Body = fmt.Sprintf("Use the %s MCP server for this installation of %s. Its tool names use the %s_ prefix.\n\n", namespace, appName, namespace) + resolved.Body
+		}
 		metaJSON, _ := json.Marshal(coalesceMetadata(resolved.Metadata))
 		res, err := tx.Exec(`
 			INSERT INTO skills (slug, name, description, body, source, install_id, project_id, command, metadata_json)

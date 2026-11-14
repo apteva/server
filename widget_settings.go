@@ -60,18 +60,13 @@ func (s *Server) validateChangedWidgetSettings(userID int64, projectID, surface 
 		definitions[d.Component] = d.SettingsSchema
 	}
 	if s.installedApps != nil {
-		visible := map[string]*InstalledApp{}
-		for _, app := range s.installedApps.ListForProject(projectID) {
+		visible := s.visibleWidgetInstallations(projectID)
+		for _, app := range visible {
 			if global && app.ProjectID != "" {
 				continue
 			}
-			if old := visible[app.AppName]; old == nil || (old.ProjectID == "" && app.ProjectID == projectID) {
-				visible[app.AppName] = app
-			}
-		}
-		for _, app := range visible {
 			for _, component := range app.Manifest.Provides.UIComponents {
-				definitions[app.AppName+":"+component.Name] = component.SettingsSchema
+				definitions[widgetAppNamespace(app)+":"+component.Name] = component.SettingsSchema
 			}
 		}
 	}

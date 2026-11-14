@@ -92,9 +92,6 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	}
 	port, err = sup.startBuiltSource(installID, m, binPath, env, progress)
 	if err != nil {
-		if _, prebuilt := m.Runtime.Artifacts[localPlatform()]; !prebuilt {
-			cleanupFailedSourceVersionDir(filepath.Dir(binPath), binPath)
-		}
 		return 0, "", err
 	}
 	return port, binPath, nil
@@ -123,12 +120,17 @@ func (sup *LocalSupervisor) BuildFromSourceBinary(m *sdk.Manifest, progress func
 		entry = "."
 	}
 
-	dir := filepath.Join(sup.cacheDir, m.Name, m.Version)
-	srcDir := filepath.Join(dir, "src")
-	binPath = filepath.Join(dir, "bin")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	versionRoot := filepath.Join(sup.cacheDir, m.Name, m.Version)
+	if err := os.MkdirAll(versionRoot, 0755); err != nil {
 		return "", err
 	}
+	stage, err := os.MkdirTemp(versionRoot, ".build-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(stage)
+	srcDir := filepath.Join(stage, "src")
+
 	// Share GOCACHE + GOMODCACHE across every app build instead of
 	// giving each (app × version) its own ~900 MB private cache. The
 	// shared dir lives under a hidden .gobuild/ sibling so it can't
@@ -140,17 +142,38 @@ func (sup *LocalSupervisor) BuildFromSourceBinary(m *sdk.Manifest, progress func
 
 	progress(fmt.Sprintf("Cloning %s@%s…", src.Repo, ref))
 	if err := cloneOrUpdate(srcDir, src.Repo, ref, entry); err != nil {
-		cleanupFailedSourceVersionDir(dir, binPath)
 		return "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
+	if err := stripGitMetadata(srcDir); err != nil {
+		return "", err
+	}
+	contentDigest, err := runtimeDirectoryDigest(srcDir)
+	if err != nil {
+		return "", fmt.Errorf("hash source package: %w", err)
+	}
+	sourceJSON, err := json.Marshal(m.Runtime)
+	if err != nil {
+		return "", err
+	}
+	packageDigest := runtimeHash(append(sourceJSON, []byte(contentDigest)...))
+	dir := filepath.Join(versionRoot, "packages", packageDigest)
+	binPath = filepath.Join(dir, "bin")
+	if info, err := os.Stat(binPath); err == nil && info.Mode().IsRegular() {
+		return binPath, nil
+	}
 	progress("Compiling…")
-	if err := goBuild(srcDir, entry, binPath, gobuildDir, nil, progress); err != nil {
-		cleanupFailedSourceVersionDir(dir, binPath)
+	if err := goBuild(srcDir, entry, filepath.Join(stage, "bin"), gobuildDir, nil, progress); err != nil {
 		return "", fmt.Errorf("go build: %w", err)
 	}
-	if err := stripGitMetadata(srcDir); err != nil {
-		log.Printf("[APPS-SOURCE] strip git metadata %s: %v", srcDir, err)
+	if err := os.MkdirAll(filepath.Dir(dir), 0755); err != nil {
+		return "", err
 	}
+	if err := os.Rename(stage, dir); err != nil {
+		if info, existsErr := os.Stat(binPath); existsErr != nil || !info.Mode().IsRegular() {
+			return "", err
+		}
+	}
+
 	return binPath, nil
 }
 
@@ -255,7 +278,7 @@ func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifes
 	// lives), so entry is always "." — unlike a git source whose entry is
 	// relative to the repo root (e.g. "mcp/social").
 	entry := "."
-	dir := filepath.Join(sup.cacheDir, "_local", m.Name)
+	dir := filepath.Join(sup.cacheDir, "_local", m.Name, strconv.FormatInt(installID, 10))
 	binPath = filepath.Join(dir, "bin")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return 0, "", err
@@ -945,7 +968,7 @@ func (s *Server) pruneUnreferencedAppVersions(appName, currentVersion string) []
 	rows, err := s.store.db.Query(
 		`SELECT i.version
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE a.name = ? AND i.status IN ('running', 'pending') AND i.version != ''`,
+		 WHERE a.name = ? AND i.version != ''`,
 		appName,
 	)
 	if err != nil {

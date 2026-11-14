@@ -16,6 +16,23 @@ import (
 	"time"
 )
 
+type toolParam struct {
+	Type        string     `json:"type"`
+	Description string     `json:"description,omitempty"`
+	Items       *toolParam `json:"items,omitempty"`
+}
+type toolSchema struct {
+	Type       string               `json:"type"`
+	Properties map[string]toolParam `json:"properties,omitempty"`
+	Required   []string             `json:"required,omitempty"`
+}
+type toolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema toolSchema     `json:"inputSchema"`
+	Annotations map[string]any `json:"annotations,omitempty"`
+}
+
 // runMCPGateway runs the server as a stdio MCP server exposing management tools.
 func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 	store, err := NewStore(dbPath)
@@ -46,23 +63,6 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 	selfPath, _ := os.Executable()
 	_ = selfPath // used for stdio MCP servers
 
-	// Tool definitions
-	type toolParam struct {
-		Type        string     `json:"type"`
-		Description string     `json:"description,omitempty"`
-		Items       *toolParam `json:"items,omitempty"`
-	}
-	type toolSchema struct {
-		Type       string               `json:"type"`
-		Properties map[string]toolParam `json:"properties,omitempty"`
-		Required   []string             `json:"required,omitempty"`
-	}
-	type toolDef struct {
-		Name        string         `json:"name"`
-		Description string         `json:"description"`
-		InputSchema toolSchema     `json:"inputSchema"`
-		Annotations map[string]any `json:"annotations,omitempty"`
-	}
 	readOnly := map[string]any{"readOnlyHint": true}
 	monitorParams := func(extra map[string]toolParam) map[string]toolParam {
 		params := map[string]toolParam{
@@ -159,8 +159,13 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "delete_group_credential", Description: "Remove a suite's account credential and every child connection fanned out from it. Use with care — equivalent to the dashboard's 'Disconnect all'.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}}, Required: []string{"group_id"}}},
 	}
 
+	tools = append(tools, workspacePageToolDefinitions()...)
+
 	// Handler dispatch
 	handle := func(name string, args map[string]any) (any, error) {
+		if workspacePageToolNames[name] {
+			return handleGatewayPageTool(name, args, projectID, serverAPI)
+		}
 		if gatewayMonitoringTools[name] {
 			return handleGatewayMonitoringTool(name, args, projectID, serverAPI, store)
 		}

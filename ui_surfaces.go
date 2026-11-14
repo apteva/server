@@ -123,19 +123,7 @@ func (s *Server) installedWidgetDefinitionsForSlot(projectID, slot string, nativ
 	if s.installedApps == nil {
 		return nil
 	}
-	// A project-local install shadows a global install with the same name.
-	visible := map[string]*InstalledApp{}
-	for _, app := range s.installedApps.ListForProject(projectID) {
-		current := visible[app.AppName]
-		if current == nil || (current.ProjectID == "" && app.ProjectID == projectID) {
-			visible[app.AppName] = app
-		}
-	}
-	apps := make([]*InstalledApp, 0, len(visible))
-	for _, app := range visible {
-		apps = append(apps, app)
-	}
-	sort.Slice(apps, func(i, j int) bool { return apps[i].AppName < apps[j].AppName })
+	apps := s.visibleWidgetInstallations(projectID)
 
 	definitions := make([]dashboardWidgetDefinition, 0)
 	for _, app := range apps {
@@ -150,7 +138,7 @@ func (s *Server) installedWidgetDefinitionsForSlot(projectID, slot string, nativ
 			}
 			definition := dashboardWidgetDefinition{
 				HostUI:    component.HostUI,
-				Component: app.AppName + ":" + component.Name,
+				Component: widgetAppNamespace(app) + ":" + component.Name,
 				Kind:      "app", App: app.AppName, InstallID: app.InstallID,
 				Label: label, Description: component.Description,
 				Icon:           resolveInstalledAppIcon(app.AppName, app.Manifest.Icon, app.Manifest.Version, app.InstallID, projectID),
@@ -298,4 +286,73 @@ func migrateStarterWidgets(widgets []dashboardWidgetInstance) []dashboardWidgetI
 
 func retiredDashboardHomeWidget(component string) bool {
 	return component == "native:inbox"
+}
+
+// The permanent installation namespace keeps candidate widget schemas and UI
+// modules separate. Legacy project installs still shadow globals by app name.
+func widgetAppNamespace(app *InstalledApp) string {
+	if app.MCPName != "" {
+		return app.MCPName
+	}
+	return app.AppName
+}
+
+func (s *Server) visibleWidgetInstallations(projectID string) []*InstalledApp {
+	if s.installedApps == nil {
+		return nil
+	}
+	visible := map[string]*InstalledApp{}
+	for _, app := range s.installedApps.ListForProject(projectID) {
+		key := widgetAppNamespace(app)
+		old := visible[key]
+		if old == nil || (old.ProjectID == "" && app.ProjectID == projectID) {
+			visible[key] = app
+		}
+	}
+	apps := make([]*InstalledApp, 0, len(visible))
+	for _, app := range visible {
+		apps = append(apps, app)
+	}
+	sort.Slice(apps, func(i, j int) bool { return widgetAppNamespace(apps[i]) < widgetAppNamespace(apps[j]) })
+	return apps
+}
+
+func (s *Server) pageWidgetDefinitions(projectID, surface string, global bool) []dashboardWidgetDefinition {
+	definitions := append([]dashboardWidgetDefinition{}, dashboardHomeBuiltins...)
+	for _, app := range s.visibleWidgetInstallations(projectID) {
+		metadata, err := s.appMetadata(app.InstallID)
+		if err != nil || metadata.status != "running" || metadata.project != app.ProjectID || metadata.name != app.AppName {
+			continue
+		}
+
+		if global && app.ProjectID != "" {
+			continue
+		}
+		for _, component := range app.Manifest.Provides.UIComponents {
+			embeddable := containsString(component.Slots, surface)
+			if strings.HasPrefix(surface, "page.") {
+				embeddable = embeddable || containsString(component.Slots, "dashboard.home") || containsString(component.Slots, "project.page")
+			}
+			if !embeddable || component.Entry == "" || component.Name == "" {
+				continue
+			}
+			if global && !containsString(component.DashboardScopes, "global") {
+				continue
+			}
+			if !global && len(component.DashboardScopes) > 0 && !containsString(component.DashboardScopes, "project") {
+				continue
+			}
+			sizes := normalizedDashboardWidgetSizes(component)
+			label := component.Label
+			if label == "" {
+				label = component.Name
+			}
+			definitions = append(definitions, dashboardWidgetDefinition{
+				Component: widgetAppNamespace(app) + ":" + component.Name, Kind: "app", App: app.AppName, InstallID: app.InstallID,
+				Label: label, Description: component.Description, SupportedSizes: sizes, DefaultSize: normalizedDashboardWidgetDefaultSize(component, sizes),
+				DefaultSettings: dashboardWidgetDefaultSettings(component.SettingsSchema), SettingsSchema: component.SettingsSchema, Suggested: component.Suggested,
+			})
+		}
+	}
+	return definitions
 }
