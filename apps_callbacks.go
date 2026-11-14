@@ -2431,7 +2431,8 @@ func (s *Server) installBoundAppMetadata(metadata *appInstallMetadata, appName s
 // same dependency. Select only an already-bound instance in the authorized
 // project. Scalar bindings and calls without a project retain their existing
 // behavior; this never discovers or grants access to an unbound installation.
-func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata, appName, projectID string) (int64, error) {
+func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata, appName, projectID string, includeUnavailable ...bool) (int64, error) {
+	keepUnavailable := len(includeUnavailable) > 0 && includeUnavailable[0]
 	if metadata.manifestErr != nil {
 		return 0, nil
 	}
@@ -2451,7 +2452,7 @@ func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata,
 			matched := int64(0)
 			for _, id := range ids {
 				bound, err := s.appMetadata(id)
-				if err != nil || bound.name != appName || bound.status != "running" || bound.project != projectID {
+				if err != nil || bound.name != appName || (!keepUnavailable && bound.status != "running") || bound.project != projectID {
 					continue
 				}
 				if matched != 0 {
@@ -2467,7 +2468,10 @@ func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata,
 			return 0, nil
 		}
 		bound, err := s.appMetadata(boundInstallID)
-		if err != nil || bound.name != appName || bound.status != "running" {
+		if err != nil && keepUnavailable && key == appName {
+			return boundInstallID, nil
+		}
+		if err != nil || bound.name != appName || (!keepUnavailable && bound.status != "running") {
 			return 0, nil
 		}
 		return boundInstallID, nil

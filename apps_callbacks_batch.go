@@ -109,7 +109,7 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 		}
 	} else {
 		var bindingErr error
-		targetInstallID, bindingErr = s.installBoundAppMetadataForProject(caller, targetAppName, effectiveProjectID)
+		targetInstallID, bindingErr = s.installBoundAppMetadataForProject(caller, targetAppName, effectiveProjectID, true)
 		if bindingErr != nil {
 			http.Error(w, bindingErr.Error(), http.StatusForbidden)
 			return nil, false
@@ -122,6 +122,11 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 			return nil, false
 		}
 		targetInstallID = id
+	}
+	metadata, metadataErr := s.appMetadata(targetInstallID)
+	if metadataErr != nil || metadata.status != "running" {
+		http.Error(w, "target installation unavailable", http.StatusServiceUnavailable)
+		return nil, false
 	}
 	owner, _, err := s.componentOwner(targetInstallID)
 	if err != nil {

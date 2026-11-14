@@ -183,6 +183,15 @@ func TestNamedInstallationsRoutingPromotionAndAgentAttachments(t *testing.T) {
 	if _, ok := s.findInstalledApp("named-database", "proj-1"); ok {
 		t.Fatal("dependency fallback escaped selected default")
 	}
+	// Bound app calls must fail on the selected unavailable version, even
+	// while another version of the same app remains reachable.
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings=? WHERE id=?`, fmt.Sprintf(`{"named-database":%d}`, candidate), caller); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	if _, ok := s.authorizeAppCallback(response, caller, "named-database", "proj-1"); ok || response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unavailable binding fell back: %d %s", response.Code, response.Body.String())
+	}
 	if w := promote(candidate); w.Code != 409 {
 		t.Fatalf("unready promotion accepted: %d", w.Code)
 	}
