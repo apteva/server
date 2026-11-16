@@ -346,7 +346,7 @@ func TestPackagedSourceRestartServesUIAndMigrations(t *testing.T) {
 						"APTEVA_MIGRATIONS_DIR": filepath.Join(sup.cacheDir, m.Name, m.Version, "src", "mcp", "todo", "migrations"),
 					}
 				} else {
-					t.Setenv("TEST_SIDECAR_STATE", "1")
+					inheritSidecarState(t)
 				}
 				if err := sup.Restart(52808, m, port, bin, env); err != nil {
 					t.Fatal(err)
@@ -642,7 +642,7 @@ func TestBootResumeKillsOnlyItsOwnOrphan(t *testing.T) {
 	// A sidecar a previous server left running still holds the port and is replaced.
 	previous := NewLocalSupervisor(s.localApps.cacheDir)
 	t.Cleanup(func() { previous.StopAll(time.Second) })
-	t.Setenv("TEST_SIDECAR_STATE", "1")
+	inheritSidecarState(t)
 	if err := previous.Restart(id, m, port, bin, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -652,4 +652,14 @@ func TestBootResumeKillsOnlyItsOwnOrphan(t *testing.T) {
 		t.Fatalf("orphan pid %d survived resume (new pid %d)", orphan, got)
 	}
 	assertPackagedWidget(t, port, packageA, "orphan replaced")
+}
+
+// inheritSidecarState turns on the fixture's state endpoint through the
+// server's own environment, which is how a nil restart env reaches a sidecar.
+// Servers that start sidecars from an environment allowlist only forward it
+// when the operator lists it in APTEVA_CHILD_ENV_ALLOW.
+func inheritSidecarState(t *testing.T) {
+	t.Helper()
+	t.Setenv("TEST_SIDECAR_STATE", "1")
+	t.Setenv("APTEVA_CHILD_ENV_ALLOW", "TEST_SIDECAR_STATE")
 }
