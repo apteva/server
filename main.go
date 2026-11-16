@@ -90,7 +90,9 @@ type Server struct {
 	grantToolHints       sync.Map // app install id -> grantToolHint
 	automatic            automaticRuntime
 	store                *Store
-	dbPath               string // path to apteva-server.db on disk (needed for staged restore)
+	securityAudit        *securityAuditLog  // separate append-only security trail (security_audit.go)
+	hostIngest           hostSecurityIngest // host SSH evidence copy state (security_host.go)
+	dbPath               string             // path to apteva-server.db on disk (needed for staged restore)
 	agents               *AgentManager
 	ready                atomic.Bool
 	mcpManager           *MCPManager
@@ -126,6 +128,7 @@ type Server struct {
 	// otherwise race and create parallel supersede chains for the same skill.
 	agentSkillLocks         sync.Map // agent id -> *sync.Mutex
 	port                    string   // server port for telemetry callback
+	managementListenAddr    string   // address the management listener actually bound (set before serving)
 	dataDir                 string   // data directory for downloads, etc.
 	appsDir                 string   // path to integration app definitions
 	integrationsUIDir       string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
@@ -640,6 +643,20 @@ func main() {
 		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 		geoCountry:     newManagedGeoCountryLookup(dataDir),
 	}
+	if os.Getenv("APTEVA_CLONE_QUARANTINE") != "1" {
+		if audit, err := openSecurityAuditLog(filepath.Join(dataDir, "security"), securityAuditOptionsFromEnv()); err != nil {
+			// Never fail closed on boot for this, but make the gap loud: the
+			// Security page reports the log as unavailable.
+			fmt.Fprintf(os.Stderr, "SECURITY: audit log unavailable: %v\n", err)
+		} else {
+			s.securityAudit = audit
+			defer audit.Close()
+			s.startSecurityAlerting()
+			s.startHostSecurityIngest(context.Background())
+			audit.Record(SecurityEvent{Category: "system", Action: "server.started", PrincipalType: "system",
+				Details: map[string]any{"version": Version, "pid": os.Getpid()}})
+		}
+	}
 	s.agents.internalMCPSecret = s.instanceSecret
 	s.agents.LoadProcessResources = s.store.agentResourcePolicy
 	s.agents.AuthorizeMCPConfig = s.authorizeAgentMCPConfig
@@ -748,6 +765,7 @@ func main() {
 	apiMux.HandleFunc("/auth/mfa/recovery-codes", s.authMiddleware(s.handleMFARecoveryCodes))
 	apiMux.HandleFunc("/auth/preferences", s.authMiddleware(s.handleAuthPreferences))
 	apiMux.HandleFunc("/auth/delegated-users", s.authMiddleware(s.handleCreateDelegatedUser))
+	s.registerSecurityRoutes(apiMux)
 	apiMux.HandleFunc("/ui-layout/tools", s.authMiddleware(s.handleWorkspacePageTool))
 	apiMux.HandleFunc("/ui-layout/pages", s.authMiddleware(s.handleUIPages))
 	apiMux.HandleFunc("/ui-layout/projects/", s.authMiddleware(s.handleUILayoutSurface))
@@ -1506,7 +1524,7 @@ func main() {
 	corsCfg := newCORSConfig(os.Getenv("CORS_ORIGIN"))
 	s.corsConfig = corsCfg
 	crossOriginCookies = corsCfg.needsCrossOriginCookies()
-	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middlewareWithDynamicPolicy(apiMux, s.dynamicAppCORSPolicy)))))
+	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middlewareWithDynamicPolicy(s.securityAuditMiddleware(apiMux), s.dynamicAppCORSPolicy)))))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found.
@@ -1632,6 +1650,21 @@ func main() {
 	if abs, err := filepath.Abs(cacheBase); err == nil {
 		cacheBase = abs
 	}
+	switch appIsolationMode() {
+	case "uid":
+		// App users can traverse into the apps tree, so nothing the server
+		// writes from here on may be readable by them.
+		syscall.Umask(0o077)
+		changed, err := tightenServerDataPermissions(dataDir, cacheBase)
+		if err != nil {
+			log.Printf("[SECURITY] app isolation: could not restrict %s: %v", dataDir, err)
+		} else if len(changed) > 0 {
+			log.Printf("[SECURITY] app isolation: removed group/other access from %s", strings.Join(changed, ", "))
+		}
+		log.Printf("[SECURITY] app isolation on: each app install runs as its own user (exempt: %v)", appIsolationExempt())
+	case "unavailable":
+		log.Printf("[SECURITY] APTEVA_APP_ISOLATION=uid is set but needs Linux and a root server; non-exempt apps will refuse to start")
+	}
 	s.localApps = NewLocalSupervisor(cacheBase)
 	s.localApps.beforeExclusiveStop = s.markExclusiveActivationUnavailable
 	s.localApps.afterExclusiveSpawn = s.recordExclusiveActivationPID
@@ -1703,6 +1736,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "listen %s: %v\n", listenAddr, err)
 		os.Exit(1)
 	}
+	s.managementListenAddr = listener.Addr().String()
 	fmt.Fprintf(os.Stderr, "apteva-server listening on %s\n", listenAddr)
 	drain := newRequestDrain(hostRouter)
 	httpServer := &http.Server{

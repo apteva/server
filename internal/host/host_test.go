@@ -55,6 +55,7 @@ func TestHostProcess(t *testing.T) {
 	if err != nil {
 		os.Exit(3)
 	}
+	_ = os.WriteFile(binary+".control-token", []byte(os.Getenv(ControlTokenEnv)), 0600)
 	activate := make(chan struct{})
 	var once sync.Once
 	mux := http.NewServeMux()
@@ -177,7 +178,7 @@ func fixtureWithStopped(t *testing.T, beforeStart ...func(*Host)) (*Host, *http.
 	reserve, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := reserve.Addr().String()
 	reserve.Close()
-	h, err := New(Config{Home: home, DBPath: db, ListenAddr: addr, ServerBinary: binaries["1.0.0"], StartupTimeout: 3 * time.Second, DrainTimeout: time.Second})
+	h, err := New(Config{Home: home, DBPath: db, ListenAddr: addr, ServerBinary: binaries["1.0.0"], StartupTimeout: 3 * time.Second, DrainTimeout: time.Second, Security: testSecurityConfig(home)})
 	if err != nil {
 		t.Fatal(err)
 	}

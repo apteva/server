@@ -4,9 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,7 +24,54 @@ type ProcessRequest struct {
 	Env       []string `json:"env"`
 	Directory string   `json:"directory"`
 	LogPath   string   `json:"log_path"`
+	// UID/GID optionally run the process as a dedicated unprivileged account.
+	// Both must be >= APTEVA_APP_UID_BASE (default 200000) and the host must
+	// run as root on Linux. GID defaults to UID. Unset keeps the host's user.
+	UID *uint32 `json:"uid,omitempty"`
+	GID *uint32 `json:"gid,omitempty"`
 }
+
+// DefaultAppUIDBase is the lowest UID/GID a hosted app process may run as.
+const DefaultAppUIDBase = 200000
+
+// AppUIDBase returns APTEVA_APP_UID_BASE, falling back to the default for
+// unset, malformed or system-account (< 1000) values.
+func AppUIDBase() uint32 {
+	if v := os.Getenv("APTEVA_APP_UID_BASE"); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 32); err == nil && n >= 1000 {
+			return uint32(n)
+		}
+	}
+	return DefaultAppUIDBase
+}
+
+// processCredential validates an optional per-app identity.
+func processCredential(uid, gid *uint32) (*syscall.Credential, error) {
+	if uid == nil && gid == nil {
+		return nil, nil
+	}
+	if uid == nil {
+		return nil, errors.New("gid requires uid")
+	}
+	g := *uid
+	if gid != nil {
+		g = *gid
+	}
+	base := AppUIDBase()
+	if *uid == 0 || g == 0 {
+		return nil, errors.New("hosted processes must not run as uid or gid 0")
+	}
+	// MaxUint32 is the "unchanged" (-1) sentinel of setresuid/setresgid.
+	if *uid < base || g < base || *uid == math.MaxUint32 || g == math.MaxUint32 {
+		return nil, fmt.Errorf("uid and gid must be >= APTEVA_APP_UID_BASE (%d)", base)
+	}
+	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
+		return nil, errors.New("per-app uid requires apteva-host running as root on Linux")
+	}
+	// Empty Groups clears supplementary groups inherited from the host.
+	return &syscall.Credential{Uid: *uid, Gid: g, Groups: []uint32{}}, nil
+}
+
 type ProcessStatus struct {
 	PID     int  `json:"pid"`
 	Running bool `json:"running"`
@@ -39,9 +91,14 @@ func (h *Host) startProcess(request ProcessRequest) (ProcessStatus, error) {
 		return ProcessStatus{}, errors.New("invalid hosted process identity or paths")
 	}
 	for _, item := range request.Env {
-		if strings.HasPrefix(item, "APTEVA_HOST_") {
-			return ProcessStatus{}, errors.New("host credentials must not be passed to app processes")
+		key, _, _ := strings.Cut(item, "=")
+		if strings.HasPrefix(key, "APTEVA_HOST_") || key == "SERVER_SECRET" {
+			return ProcessStatus{}, errors.New("host and server credentials must not be passed to app processes")
 		}
+	}
+	credential, err := processCredential(request.UID, request.GID)
+	if err != nil {
+		return ProcessStatus{}, err
 	}
 	b, _ := json.Marshal(request)
 	fingerprint := sha256.Sum256(b)
@@ -68,7 +125,7 @@ func (h *Host) startProcess(request ProcessRequest) (ProcessStatus, error) {
 	cmd.Env = request.Env
 	cmd.Stdout = pipe.writer
 	cmd.Stderr = pipe.writer
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Credential: credential}
 	if err = cmd.Start(); err != nil {
 		pipe.writer.Close()
 		return ProcessStatus{}, err

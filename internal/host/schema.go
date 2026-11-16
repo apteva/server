@@ -17,7 +17,7 @@ type DatabaseIdentity struct {
 func (h *Host) diskIdentity(ctx context.Context, c Candidate) (DatabaseIdentity, error) {
 	var identity DatabaseIdentity
 	cmd := exec.CommandContext(ctx, c.Binary, "--host-check-schema")
-	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "APTEVA_HOST_SLOT_SOCKET": "", "APTEVA_HOST_SOCKET": ""})
+	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "APTEVA_HOST_SLOT_SOCKET": "", "APTEVA_HOST_SOCKET": "", ControlTokenEnv: ""})
 	output, err := cmd.Output()
 	if err != nil {
 		return identity, fmt.Errorf("cannot validate the current database and key: %w", err)

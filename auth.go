@@ -199,6 +199,8 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Try session cookie when no key was supplied
 		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" && token == "" {
 			if userID, err := s.store.GetSession(cookie.Value); err == nil {
+				noteAuditPrincipal(r, "user", itoa(userID), credentialRef("session", cookie.Value), 0)
+				s.store.TouchSession(cookie.Value, clientIP(r))
 				if !s.allowSessionMutation(w, r) {
 					return
 				}
@@ -207,6 +209,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				next(w, r)
 				return
 			}
+			noteAuditPresentedCredential(r, "session")
 		}
 
 		// Internal gateway auth. The per-agent apteva-server MCP runs
@@ -222,6 +225,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 			if got == s.instanceSecret {
 				if uid, err := strconv.ParseInt(r.Header.Get("X-Apteva-MCP-User-ID"), 10, 64); err == nil && uid > 0 {
+					noteAuditPrincipal(r, "platform_gateway", itoa(uid), "instance_secret", 0)
 					r.Header.Set("X-User-ID", itoa(uid))
 					next(w, r)
 					return
@@ -245,6 +249,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			// is enforced again by handleRuntimeToken's user-scoped lookup.
 			if strings.HasPrefix(token, "core_") && coreRuntimeTokenRequestAllowed(r) {
 				if userID, err := s.store.GetRunningAgentUserByCoreAPIKey(token); err == nil {
+					noteAuditPrincipal(r, "core", itoa(userID), credentialRef("core", token), 0)
 					r.Header.Set("X-User-ID", itoa(userID))
 					next(w, r)
 					return
@@ -280,6 +285,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 							return
 						}
 					}
+					noteAuditPrincipal(r, "delegated_key", itoa(key.UserID), "api_key:"+strconv.FormatInt(key.ID, 10), key.IssuerInstallID)
 					setDelegatedUserPrincipalHeaders(r, key)
 					r.Header.Set("X-User-ID", itoa(key.UserID))
 					s.store.MarkAPIKeyUsed(key.ID, requestClientIP(r))
@@ -287,8 +293,11 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					return
 				}
 			}
-			user, access, err := s.store.getPrivateAPIKeyPrincipal(keyHash)
+			user, access, keyID, err := s.store.getPrivateAPIKeyPrincipalWithID(keyHash)
 			if err == nil {
+				// Private keys previously recorded no source address at all.
+				s.store.MarkAPIKeyUsed(keyID, requestClientIP(r))
+				noteAuditPrincipal(r, "user", itoa(user.ID), "api_key:"+strconv.FormatInt(keyID, 10), 0)
 				if access != APIKeyReadWrite {
 					if access != APIKeyReadOnly || !readOnlyAPIRequestAllowed(r) {
 						http.Error(w, "read-only API key cannot access this operation", http.StatusForbidden)
@@ -347,6 +356,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 						principal.userID = userID
 						principal.userSession = true
 					}
+					noteAuditPrincipal(r, "app", itoa(installedBy), "app_install:"+itoa(id), id)
 					r = r.WithContext(context.WithValue(r.Context(), appCallbackPrincipalKey{}, principal))
 					r.Header.Del("X-Apteva-User-Session")
 					r.Header.Set("X-User-ID", itoa(installedBy))
@@ -365,6 +375,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		noteAuditPresentedCredential(r, token)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
 }
@@ -651,8 +662,21 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	user, project, err := s.store.CreateProvisionedUser(body.Email, string(hash), policy)
 	if err != nil {
+		ev := s.securityEventFromRequest(r, "auth", "auth.register", securityResultFailure)
+		ev.TargetType, ev.TargetID = "account", strings.ToLower(strings.TrimSpace(body.Email))
+		ev.Details = map[string]any{"reason": "conflict", "mode": registrationMode}
+		s.recordSecurity(r, ev)
 		http.Error(w, "username already taken", http.StatusConflict)
 		return
+	}
+	{
+		ev := s.securityEventFromRequest(r, "auth", "auth.register", securityResultSuccess)
+		ev.TargetType, ev.TargetID = "account", user.Email
+		ev.Details = map[string]any{"user_id": user.ID, "mode": registrationMode, "first_user": registrationMode == "setup" || user.ID == 1}
+		if registrationMode == "setup" || user.ID == 1 {
+			ev.Severity = securitySeverityWarning
+		}
+		s.recordSecurity(r, ev)
 	}
 
 	// First registered user becomes platform admin. Subsequent users
@@ -697,6 +721,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Rate limit: 5 login attempts per IP per minute
 	if !loginLimiter.allow(clientIP(r), 5, time.Minute) {
+		ev := s.securityEventFromRequest(r, "auth", "auth.login", securityResultDenied)
+		ev.Details = map[string]any{"reason": "rate_limited"}
+		s.recordSecurity(r, ev)
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
@@ -723,22 +750,47 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	loginFailure := func(reason string, userID int64) {
+		ev := s.securityEventFromRequest(r, "auth", "auth.login", securityResultFailure)
+		ev.TargetType, ev.TargetID = "account", strings.ToLower(strings.TrimSpace(body.Email))
+		if userID > 0 {
+			ev.PrincipalType, ev.PrincipalID = "user", itoa(userID)
+		}
+		ev.Details = map[string]any{"reason": reason}
+		s.recordSecurity(r, ev)
+	}
 	if err != nil {
+		loginFailure("unknown_account", 0)
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
+		loginFailure("bad_password", user.ID)
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	if s.store.UserDisabled(user.ID) {
+		loginFailure("account_disabled", user.ID)
+		http.Error(w, "account disabled", http.StatusForbidden)
 		return
 	}
 
 	token := generateToken(32)
+	loginEvent := func(result, step string) {
+		ev := s.securityEventFromRequest(r, "auth", "auth.login", result)
+		ev.PrincipalType, ev.PrincipalID = "user", itoa(user.ID)
+		ev.CredentialID = credentialRef("session", token)
+		ev.TargetType, ev.TargetID = "account", user.Email
+		ev.Details = map[string]any{"step": step}
+		s.recordSecurity(r, ev)
+	}
 	if userMFAEnabled(user) {
 		if err := s.store.CreatePendingMFASession(token, user.ID, time.Now().Add(mfaPendingDuration)); err != nil {
 			http.Error(w, "failed to create MFA challenge", http.StatusInternalServerError)
 			return
 		}
+		loginEvent(securityResultSuccess, "password_ok_mfa_pending")
 		setSessionCookieForDuration(w, r, token, mfaPendingDuration)
 		writeJSON(w, map[string]any{
 			"mfa_required": true,
@@ -746,10 +798,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := s.store.CreateSession(token, user.ID, time.Now().Add(sessionDuration)); err != nil {
+	if err := s.store.CreateSessionWithContext(token, user.ID, time.Now().Add(sessionDuration), clientIP(r), r.UserAgent()); err != nil {
 		http.Error(w, "failed to create session: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	loginEvent(securityResultSuccess, "session_issued")
 
 	setSessionCookie(w, r, token)
 	writeJSON(w, map[string]any{
@@ -766,7 +819,14 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
+		uid, _ := s.store.GetSession(cookie.Value)
 		_ = s.store.DeleteSession(cookie.Value)
+		ev := s.securityEventFromRequest(r, "auth", "auth.logout", securityResultSuccess)
+		if uid > 0 {
+			ev.PrincipalType, ev.PrincipalID = "user", itoa(uid)
+		}
+		ev.CredentialID = credentialRef("session", cookie.Value)
+		s.recordSecurity(r, ev)
 	}
 	clearSessionCookie(w, r)
 	writeJSON(w, map[string]string{"status": "ok"})
@@ -1016,6 +1076,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(body.CurrentPassword)); err != nil {
+		s.recordSecurity(r, s.securityEventFromRequest(r, "credential", "auth.password_change", securityResultFailure))
 		http.Error(w, "current password is incorrect", http.StatusUnauthorized)
 		return
 	}
@@ -1038,7 +1099,17 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[AUTH] password changed user=%d but session sweep failed: %v", userID, err)
 	}
 
-	log.Printf("[AUTH] password changed user=%d remote=%s", userID, r.RemoteAddr)
+	if currentToken != "" {
+		_ = s.store.MarkSessionReauthenticated(currentToken, time.Now())
+	}
+	{
+		ev := s.securityEventFromRequest(r, "credential", "auth.password_change", securityResultSuccess)
+		ev.TargetType, ev.TargetID = "user", itoa(userID)
+		ev.Severity = securitySeverityNotice
+		ev.Details = map[string]any{"other_sessions_revoked": true}
+		s.recordSecurity(r, ev)
+	}
+	log.Printf("[AUTH] password changed user=%d remote=%s", userID, clientIP(r))
 	writeJSON(w, map[string]any{"status": "ok"})
 }
 
@@ -1097,6 +1168,19 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		scopesJSON = string(body.Scopes)
+		// A privileged key scope (e.g. security.containment) stands in for
+		// step-up on that action, so granting it requires the same proof:
+		// a recently reauthenticated session, a key that already carries
+		// the scope (its own successor), or the operator's opt-in flag.
+		for _, scope := range privilegedKeyScopesIn(body.Scopes) {
+			if kind != "private" {
+				http.Error(w, "privileged scopes are only supported on private keys", http.StatusBadRequest)
+				return
+			}
+			if !s.requirePrivilegedAuthWithScope(w, r, "credential.scope_grant", scope) {
+				return
+			}
+		}
 	}
 	originsJSON := "[]"
 	if len(body.AllowedOrigins) > 0 {
@@ -1149,6 +1233,14 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create key", http.StatusInternalServerError)
 		return
 	}
+	_, _ = s.store.db.Exec(`UPDATE api_keys SET created_ip = ? WHERE id = ?`, truncateAuditString(clientIP(r), 64), key.ID)
+	{
+		ev := s.securityEventFromRequest(r, "credential", "api_key.create", securityResultSuccess)
+		ev.TargetType, ev.TargetID = "api_key", strconv.FormatInt(key.ID, 10)
+		ev.Severity = securitySeverityNotice
+		ev.Details = map[string]any{"key_prefix": keyPrefix, "kind": key.Kind, "access": key.Access, "project_id": projectID, "name": key.Name}
+		s.recordSecurity(r, ev)
+	}
 
 	// Return the full key ONCE — it can't be retrieved later
 	writeJSON(w, map[string]any{
@@ -1192,7 +1284,15 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid key ID", http.StatusBadRequest)
 		return
 	}
-	s.store.DeleteAPIKey(userID, keyID)
+	err = s.store.DeleteAPIKey(userID, keyID)
+	ev := s.securityEventFromRequest(r, "credential", "api_key.revoke", securityResultSuccess)
+	ev.TargetType, ev.TargetID = "api_key", strconv.FormatInt(keyID, 10)
+	ev.Severity = securitySeverityNotice
+	if err != nil {
+		ev.Result = securityResultFailure
+		ev.Details = map[string]any{"reason": "not_found_or_already_revoked"}
+	}
+	s.recordSecurity(r, ev)
 	writeJSON(w, map[string]string{"status": "deleted"})
 }
 

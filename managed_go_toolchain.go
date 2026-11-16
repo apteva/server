@@ -101,7 +101,7 @@ func goBinaryVersion(binary string) (goToolVersion, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "version")
-	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	cmd.Env = append(childBaseEnv(os.Environ(), childEnvBuild, ""), "GOTOOLCHAIN=local")
 	out, err := cmd.Output()
 	if err != nil {
 		return goToolVersion{}, false

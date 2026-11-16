@@ -552,6 +552,7 @@ func (s *Server) handleCallbackConnectionCredentials(w http.ResponseWriter, r *h
 
 	debugLogf("[CRED-READ] install=%d conn=%d slug=%s role=%s fields=%d",
 		installID, connID, conn.AppSlug, role, len(fields))
+	s.recordCredentialUse(r, installID, connID, conn.AppSlug, role, len(fields))
 
 	writeJSON(w, sdk.ConnectionCredentials{
 		ConnectionID: conn.ID,

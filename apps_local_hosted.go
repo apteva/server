@@ -12,13 +12,19 @@ import (
 
 // The stable host owns new sidecar processes and their rotating log streams.
 // A management-slot exit therefore cannot close a sidecar's stdout pipe.
-func (sup *LocalSupervisor) spawnHosted(spec activationSpec, cmd *exec.Cmd, logPath string) error {
+func (sup *LocalSupervisor) spawnHosted(spec activationSpec, cmd *exec.Cmd, logPath string, iso appIsolation) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	client := host.UnixClient(os.Getenv("APTEVA_HOST_SOCKET"))
 	defer client.CloseIdleConnections()
 	var status host.ProcessStatus
 	request := host.ProcessRequest{ID: generateToken(16), Args: cmd.Args, Env: cmd.Env, Directory: cmd.Dir, LogPath: logPath}
+	if iso.Enabled {
+		// apteva-host performs the setuid; it refuses uid 0, ids below
+		// APTEVA_APP_UID_BASE and non-root/non-Linux hosts.
+		uid, gid := iso.UID, iso.GID
+		request.UID, request.GID = &uid, &gid
+	}
 	var startErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		startErr = host.Call(ctx, client, "POST", "/process/start", request, &status)

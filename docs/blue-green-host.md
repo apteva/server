@@ -16,8 +16,15 @@ high-availability infrastructure.
 The host and both server versions use the same explicit `APTEVA_HOME`, `DB_PATH`,
 `DATA_DIR`, and public port. Neither version gets a second writable copy of the
 installation database. An OS file lock fences controller ownership. Host control
-uses a private mode-0600 Unix socket; backend loopback requests require a private
-per-slot token. Client address, scheme and Host routing survive the proxy.
+uses a private mode-0600 Unix socket; every control request must come from the
+host's own uid (or root), verified with kernel peer credentials, and carry the
+per-host token from `$APTEVA_HOME/host/control.token` (mode 0600) in
+`X-Apteva-Host-Token`. Server slots receive it as `APTEVA_HOST_CONTROL_TOKEN`;
+a clean stop removes it and the next start mints a new one. Backend loopback
+requests require a private per-slot token. Client address, scheme and Host
+routing survive the proxy. The management listener binds `127.0.0.1` unless
+`APTEVA_BIND` names another address. SSH access monitoring is described in
+[security-collector.md](security-collector.md).
 
 Candidates first advertise protocol support using disposable paths. Preflight
 makes a consistent SQLite backup, applies the candidate migrations to a disposable

@@ -3409,6 +3409,11 @@ func (s *Server) handleGetConnectionCredentials(w http.ResponseWriter, r *http.R
 	if denyNonExportableConnection(w, conn) {
 		return
 	}
+	// Revealing a stored secret is an export, distinct from apps using the
+	// connection through brokered calls: it needs a fresh confirmation.
+	if !s.requirePrivilegedAuth(w, r, "credential.export") {
+		return
+	}
 	creds := map[string]string{}
 	if encCreds != "" {
 		plain, derr := Decrypt(s.secret, encCreds)
@@ -3423,6 +3428,14 @@ func (s *Server) handleGetConnectionCredentials(w http.ResponseWriter, r *http.R
 	}
 	log.Printf("[CONNECTIONS] credentials revealed: user=%d conn=%d app=%s name=%q",
 		userID, connID, conn.AppSlug, conn.Name)
+	{
+		ev := s.securityEventFromRequest(r, "credential", "credential.export", securityResultSuccess)
+		ev.TargetType, ev.TargetID = "connection", fmt.Sprintf("%d (%s)", connID, conn.AppSlug)
+		ev.ProjectID = conn.ProjectID
+		ev.Severity = securitySeverityWarning
+		ev.Details = map[string]any{"connection_name": conn.Name, "fields": len(creds)}
+		s.recordSecurity(r, ev)
+	}
 	writeJSON(w, map[string]any{"credentials": creds})
 }
 

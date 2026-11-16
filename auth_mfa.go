@@ -314,9 +314,17 @@ func (s *Server) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid authentication code", http.StatusUnauthorized)
 		return
 	}
+	mfaEvent := func(result string, details map[string]any) {
+		ev := s.securityEventFromRequest(r, "auth", "auth.mfa_verify", result)
+		ev.PrincipalType, ev.PrincipalID = "user", itoa(user.ID)
+		ev.CredentialID = credentialRef("session", token)
+		ev.Details = details
+		s.recordSecurity(r, ev)
+	}
 	usedRecovery, remaining, err := s.verifyUserMFACode(user, body.Code)
 	if err != nil {
 		_ = s.store.RecordPendingMFAFailure(token, mfaMaxAttempts)
+		mfaEvent(securityResultFailure, map[string]any{"attempts": attempts + 1})
 		http.Error(w, "invalid authentication code", http.StatusUnauthorized)
 		return
 	}
@@ -324,6 +332,10 @@ func (s *Server) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "MFA challenge expired", http.StatusUnauthorized)
 		return
 	}
+	_, _ = s.store.db.Exec(`UPDATE sessions SET created_ip = ?, created_user_agent = ? WHERE token = ?`,
+		truncateAuditString(clientIP(r), 64), truncateAuditString(r.UserAgent(), 256), sessionKey(token))
+	_ = s.store.MarkSessionReauthenticated(token, time.Now())
+	mfaEvent(securityResultSuccess, map[string]any{"used_recovery_code": usedRecovery, "recovery_codes_remaining": remaining})
 	setSessionCookie(w, r, token)
 	writeJSON(w, map[string]any{
 		"user_id":                  user.ID,

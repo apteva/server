@@ -32,6 +32,9 @@ type User struct {
 	MFARecoveryHashes  string     `json:"-"`
 	MFALastCounter     int64      `json:"-"`
 	MFAEnabledAt       *time.Time `json:"mfa_enabled_at,omitempty"`
+	// DisabledAt is set when an administrator disabled the account; every
+	// credential of a disabled account is rejected (store_credential_security.go).
+	DisabledAt string `json:"disabled_at,omitempty"`
 }
 
 type APIKey struct {
@@ -957,6 +960,9 @@ func (s *Store) migrate() error {
 	}
 	if !columnExists(s.db, "sessions", "mfa_attempts") {
 		s.db.Exec("ALTER TABLE sessions ADD COLUMN mfa_attempts INTEGER NOT NULL DEFAULT 0")
+	}
+	if err := s.migrateCredentialSecurity(); err != nil {
+		return fmt.Errorf("credential security migration: %w", err)
 	}
 
 	// Migrations for existing DBs — silently ignored if columns already exist
@@ -2428,7 +2434,7 @@ func recoveryHashCount(raw string) int {
 // ListUsers returns every user row, ordered by id so user_id=1 (the
 // admin) always comes first. Used by the /users endpoint.
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, email, COALESCE(role,'user'), created_at FROM users ORDER BY id")
+	rows, err := s.db.Query("SELECT id, email, COALESCE(role,'user'), created_at, COALESCE(disabled_at,'') FROM users ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -2437,7 +2443,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var createdAt string
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &createdAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &createdAt, &u.DisabledAt); err != nil {
 			return nil, err
 		}
 		u.CreatedAt, _ = parseTime(createdAt)
@@ -2647,7 +2653,7 @@ func (s *Store) DeleteUser(userID int64) error {
 // else's password and we want every one of that user's active sessions
 // to stop working immediately.
 func (s *Store) DeleteSessionsForUser(userID int64) error {
-	_, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
+	_, err := s.RevokeUserSessions(userID, "", 0, "sessions reset")
 	return err
 }
 
@@ -2656,10 +2662,7 @@ func (s *Store) DeleteSessionsForUser(userID int64) error {
 // session the password change was made from). Prevents a leaked
 // cookie from surviving a password rotation.
 func (s *Store) DeleteSessionsForUserExcept(userID int64, keepToken string) error {
-	_, err := s.db.Exec(
-		"DELETE FROM sessions WHERE user_id = ? AND token != ?",
-		userID, keepToken,
-	)
+	_, err := s.RevokeUserSessions(userID, keepToken, userID, "credential change")
 	return err
 }
 
@@ -2754,6 +2757,13 @@ func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
 }
 
 func (s *Store) getPrivateAPIKeyPrincipal(keyHash string) (*User, string, error) {
+	u, access, _, err := s.getPrivateAPIKeyPrincipalWithID(keyHash)
+	return u, access, err
+}
+
+// getPrivateAPIKeyPrincipalWithID also returns the key row id so callers can
+// attribute the request and record its source address.
+func (s *Store) getPrivateAPIKeyPrincipalWithID(keyHash string) (*User, string, int64, error) {
 	var keyID int64
 	var access string
 	var u User
@@ -2763,14 +2773,15 @@ func (s *Store) getPrivateAPIKeyPrincipal(keyHash string) (*User, string, error)
 		WHERE k.key_hash = ?
 		  AND COALESCE(k.kind, 'private') = 'private'
 		  AND k.revoked_at IS NULL
+		  AND u.disabled_at IS NULL
 		  AND (k.expires_at IS NULL OR datetime(k.expires_at) > CURRENT_TIMESTAMP)
 	`, keyHash).Scan(&keyID, &u.ID, &u.Email, &u.PasswordHash, &u.Role, &access)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	// Usage metadata is best effort; credential validation stays synchronous.
 	s.apiKeyUsage.record(keyID, "", false)
-	return &u, access, nil
+	return &u, access, keyID, nil
 }
 
 func (s *Store) GetPublicClientAPIKey(keyHash string) (*APIKey, error) {
@@ -2812,6 +2823,7 @@ func (s *Store) GetDelegatedUserAPIKey(keyHash string) (*APIKey, error) {
 		 WHERE key_hash = ?
 		   AND kind = 'delegated_user'
 		   AND revoked_at IS NULL
+		   AND user_id NOT IN (SELECT id FROM users WHERE disabled_at IS NOT NULL)
 		   AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
 	`, keyHash).Scan(
 		&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.KeyHash, &k.Kind, &k.ProjectID,
@@ -2866,8 +2878,14 @@ func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 	return keys, nil
 }
 
+// DeleteAPIKey revokes rather than deletes: the record (prefix, creation and
+// last-use source) is kept as evidence. Returns sql.ErrNoRows when the key
+// does not exist or is already revoked.
 func (s *Store) DeleteAPIKey(userID, keyID int64) error {
-	_, err := s.db.Exec("DELETE FROM api_keys WHERE id = ? AND user_id = ?", keyID, userID)
+	ok, err := s.RevokeAPIKey(userID, keyID, userID, "revoked by owner")
+	if err == nil && !ok {
+		return sql.ErrNoRows
+	}
 	return err
 }
 
@@ -3693,43 +3711,45 @@ func (s *Store) GetFirstUserID() (int64, error) {
 }
 
 func (s *Store) CreateSession(token string, userID int64, expiresAt time.Time) error {
-	_, err := s.db.Exec(
-		"INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-		token, userID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
-	)
-	return err
+	return s.CreateSessionWithContext(token, userID, expiresAt, "", "")
 }
 
 func (s *Store) CreatePendingMFASession(token string, userID int64, expiresAt time.Time) error {
 	_, err := s.db.Exec(
 		`INSERT INTO sessions (token, user_id, expires_at, auth_state, mfa_attempts)
 		 VALUES (?, ?, ?, 'pending_mfa', 0)`,
-		token, userID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
+		sessionKey(token), userID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
 	)
 	return err
 }
 
 func (s *Store) DeleteSession(token string) error {
-	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
-	return err
+	return s.RevokeSession(token, 0, "logout")
 }
 
 func (s *Store) GetSession(token string) (int64, error) {
 	var userID int64
 	var expiresAt string
 	var authState string
+	var revoked, disabled sql.NullString
 	err := s.db.QueryRow(
-		"SELECT user_id, expires_at, COALESCE(auth_state,'active') FROM sessions WHERE token = ?", token,
-	).Scan(&userID, &expiresAt, &authState)
+		`SELECT s.user_id, s.expires_at, COALESCE(s.auth_state,'active'), s.revoked_at, u.disabled_at
+		   FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`, sessionKey(token),
+	).Scan(&userID, &expiresAt, &authState, &revoked, &disabled)
 	if err != nil {
 		return 0, err
+	}
+	if revoked.Valid {
+		return 0, fmt.Errorf("session revoked")
+	}
+	if disabled.Valid {
+		return 0, errUserDisabled
 	}
 	exp, err := parseTime(expiresAt)
 	if err != nil {
 		return 0, fmt.Errorf("bad expires_at %q: %w", expiresAt, err)
 	}
 	if time.Now().UTC().After(exp) {
-		s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
 		return 0, fmt.Errorf("session expired")
 	}
 	if authState != "active" {
@@ -3740,16 +3760,21 @@ func (s *Store) GetSession(token string) (int64, error) {
 
 func (s *Store) GetPendingMFASession(token string) (userID int64, attempts int, err error) {
 	var expiresAt, authState string
+	var revoked, disabled sql.NullString
 	err = s.db.QueryRow(
-		"SELECT user_id, expires_at, COALESCE(auth_state,'active'), COALESCE(mfa_attempts,0) FROM sessions WHERE token = ?",
-		token,
-	).Scan(&userID, &expiresAt, &authState, &attempts)
+		`SELECT s.user_id, s.expires_at, COALESCE(s.auth_state,'active'), COALESCE(s.mfa_attempts,0), s.revoked_at, u.disabled_at
+		   FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`,
+		sessionKey(token),
+	).Scan(&userID, &expiresAt, &authState, &attempts, &revoked, &disabled)
 	if err != nil {
 		return 0, 0, err
 	}
+	if revoked.Valid || disabled.Valid {
+		return 0, 0, fmt.Errorf("MFA challenge not found")
+	}
 	exp, err := parseTime(expiresAt)
 	if err != nil || time.Now().UTC().After(exp) {
-		_, _ = s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+		_ = s.RevokeSession(token, 0, "mfa challenge expired")
 		return 0, 0, fmt.Errorf("MFA challenge expired")
 	}
 	if authState != "pending_mfa" {
@@ -3761,7 +3786,7 @@ func (s *Store) GetPendingMFASession(token string) (userID int64, attempts int, 
 func (s *Store) RecordPendingMFAFailure(token string, maxAttempts int) error {
 	res, err := s.db.Exec(
 		`UPDATE sessions SET mfa_attempts=mfa_attempts+1
-		 WHERE token=? AND auth_state='pending_mfa'`, token,
+		 WHERE token=? AND auth_state='pending_mfa' AND revoked_at IS NULL`, sessionKey(token),
 	)
 	if err != nil {
 		return err
@@ -3770,11 +3795,11 @@ func (s *Store) RecordPendingMFAFailure(token string, maxAttempts int) error {
 		return fmt.Errorf("MFA challenge not found")
 	}
 	var attempts int
-	if err := s.db.QueryRow("SELECT mfa_attempts FROM sessions WHERE token=?", token).Scan(&attempts); err != nil {
+	if err := s.db.QueryRow("SELECT mfa_attempts FROM sessions WHERE token=?", sessionKey(token)).Scan(&attempts); err != nil {
 		return err
 	}
 	if attempts >= maxAttempts {
-		_, _ = s.db.Exec("DELETE FROM sessions WHERE token=?", token)
+		_ = s.RevokeSession(token, 0, "too many MFA attempts")
 	}
 	return nil
 }
@@ -3783,8 +3808,8 @@ func (s *Store) ActivateMFASession(token string, expiresAt time.Time) error {
 	res, err := s.db.Exec(
 		`UPDATE sessions
 		    SET auth_state='active', mfa_attempts=0, expires_at=?
-		  WHERE token=? AND auth_state='pending_mfa'`,
-		expiresAt.UTC().Format("2006-01-02 15:04:05"), token,
+		  WHERE token=? AND auth_state='pending_mfa' AND revoked_at IS NULL`,
+		expiresAt.UTC().Format("2006-01-02 15:04:05"), sessionKey(token),
 	)
 	if err != nil {
 		return err
@@ -3814,8 +3839,11 @@ func parseTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("cannot parse %q", s)
 }
 
+// DeleteExpiredSessions purges session records only after they have been
+// unusable for sessionRecordRetention; until then they remain evidence.
 func (s *Store) DeleteExpiredSessions() {
-	s.db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now().UTC().Format("2006-01-02 15:04:05"))
+	cutoff := time.Now().UTC().Add(-sessionRecordRetention).Format("2006-01-02 15:04:05")
+	s.db.Exec("DELETE FROM sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)", cutoff, cutoff)
 }
 
 // columnExists checks whether `col` is present on `table`. Used by

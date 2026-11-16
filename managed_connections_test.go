@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -183,6 +184,13 @@ func TestManagedConnectionsRequirePermissionAndPreserveLegacyDefaults(t *testing
 	}
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/connections/%d/credentials", legacy.ID), nil)
 	req.Header.Set("X-User-ID", "1")
+	// Revealing secrets needs a dashboard session confirmed within the
+	// step-up window; a fresh login counts.
+	sessionToken := generateToken(32)
+	if err := s.store.CreateSessionWithContext(sessionToken, 1, time.Now().Add(time.Hour), "127.0.0.1", "test"); err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: sessionToken})
 	dashboardRec := httptest.NewRecorder()
 	s.handleGetConnectionCredentials(dashboardRec, req)
 	if dashboardRec.Code != http.StatusOK || !strings.Contains(dashboardRec.Body.String(), "legacy-secret") {
