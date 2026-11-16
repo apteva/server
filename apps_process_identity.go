@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -44,10 +45,34 @@ func runtimeProcessMatches(pid int, bin string) bool {
 	return err == nil && identity.matchesBinary(bin)
 }
 
+// runsFrom reports whether the process executes a regular file inside dir.
+func (i runtimeProcessIdentity) runsFrom(dir string) bool {
+	if i.pid <= 0 || i.birth == "" || !filepath.IsAbs(dir) {
+		return false
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	observed, err := filepath.EvalSymlinks(i.executable)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, observed)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	info, err := os.Stat(observed)
+	return err == nil && info.Mode().IsRegular() && (i.image == nil || os.SameFile(i.image, info))
+}
+
 // localOrphanMatches reports whether a live pid recorded for an install is
-// still that install's sidecar, running one of bins. Platforms without kernel
-// process identity keep treating any live recorded pid as the orphan.
-func localOrphanMatches(pid int, bins ...string) bool {
+// still one of that app's sidecars: running one of bins, or any executable in
+// the app's own cache directory. The directory covers an interrupted exclusive
+// upgrade, which records the candidate's pid while the committed binary is
+// still the previous version's. Platforms without kernel process identity keep
+// treating any live recorded pid as the orphan.
+func localOrphanMatches(pid int, appCacheDir string, bins ...string) bool {
 	identity, err := readRuntimeProcessIdentity(pid)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return true
@@ -60,7 +85,16 @@ func localOrphanMatches(pid int, bins ...string) bool {
 			return true
 		}
 	}
-	return false
+	return appCacheDir != "" && identity.runsFrom(appCacheDir)
+}
+
+// localAppCacheDir is the directory holding every cached version of appName,
+// or "" when the name could escape the cache.
+func localAppCacheDir(cacheDir, appName string) string {
+	if cacheDir == "" || appName == "" || appName == "." || appName == ".." || filepath.Base(appName) != appName {
+		return ""
+	}
+	return filepath.Join(cacheDir, appName)
 }
 
 // Native waiters subscribe to a particular process lifetime. They never reap a

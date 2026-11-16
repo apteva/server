@@ -1465,8 +1465,9 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 		log.Printf("[APPS-LOCAL] rebased install=%d path %s -> %s", id, binPath, resolvedPath)
 		binPath = resolvedPath
 	}
-	// If the recorded pid is still this install's executable, it's an
-	// orphan from a previous apteva-server. The orphan still holds its
+	// If the recorded pid still runs this install's executable, or another
+	// executable from this app's cache (an interrupted upgrade's candidate),
+	// it's an orphan from a previous apteva-server. The orphan still holds its
 	// port + log file and would race with our respawn for the cached
 	// `bin`, so kill it cleanly before proceeding. SIGTERM first,
 	// SIGKILL after a short grace.
@@ -1481,7 +1482,7 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 		}
 		return
 	}
-	if pid > 0 && processAlive(int(pid)) && !localOrphanMatches(int(pid), recordedBin, binPath) {
+	if pid > 0 && processAlive(int(pid)) && !localOrphanMatches(int(pid), localAppCacheDir(s.localApps.cacheDir, appName), recordedBin, binPath) {
 		log.Printf("[APPS-LOCAL] recorded pid=%d for install=%d now belongs to another process — leaving it running", pid, id)
 	} else if pid > 0 && processAlive(int(pid)) {
 		log.Printf("[APPS-LOCAL] orphan install=%d pid=%d from previous server — killing before respawn", id, pid)

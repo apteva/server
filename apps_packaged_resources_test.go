@@ -652,6 +652,22 @@ func TestBootResumeKillsOnlyItsOwnOrphan(t *testing.T) {
 		t.Fatalf("orphan pid %d survived resume (new pid %d)", orphan, got)
 	}
 	assertPackagedWidget(t, port, packageA, "orphan replaced")
+	if err := s.localApps.Stop(id); err != nil {
+		t.Fatal(err)
+	}
+
+	// An interrupted upgrade records its candidate's pid while the committed
+	// binary is still the previous package; that candidate is also replaced.
+	candidateBin := writeSourcePackage(t, s.localApps.cacheDir, m, packageB, fixture, "001_init.sql")
+	if err := previous.Restart(id, m, port, candidateBin, nil); err != nil {
+		t.Fatal(err)
+	}
+	candidate := previous.PID(id)
+	resume(candidate)
+	if got := s.localApps.PID(id); got == candidate || processAlive(candidate) {
+		t.Fatalf("interrupted candidate pid %d survived resume (new pid %d)", candidate, got)
+	}
+	assertPackagedWidget(t, port, packageA, "candidate replaced")
 }
 
 // inheritSidecarState turns on the fixture's state endpoint through the
