@@ -44,6 +44,25 @@ func runtimeProcessMatches(pid int, bin string) bool {
 	return err == nil && identity.matchesBinary(bin)
 }
 
+// localOrphanMatches reports whether a live pid recorded for an install is
+// still that install's sidecar, running one of bins. Platforms without kernel
+// process identity keep treating any live recorded pid as the orphan.
+func localOrphanMatches(pid int, bins ...string) bool {
+	identity, err := readRuntimeProcessIdentity(pid)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	for _, bin := range bins {
+		if bin != "" && identity.matchesBinary(bin) {
+			return true
+		}
+	}
+	return false
+}
+
 // Native waiters subscribe to a particular process lifetime. They never reap a
 // hosted process: cmd.Wait remains exclusively owned by the stable host.
 type runtimeProcessExitWatch struct {
