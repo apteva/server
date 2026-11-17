@@ -85,6 +85,9 @@ type Server struct {
 	handoffMu            sync.Mutex
 	handoffFrozen        bool
 	handoffWork          int
+	deviceLinks          sync.Map // device ID -> *deviceConnection
+	deviceRateMu         sync.Mutex
+	deviceRates          map[string][]time.Time
 	liveBindingLocks     sync.Map
 	liveBindingWorkers   sync.Map
 	grantToolHints       sync.Map // app install id -> grantToolHint
@@ -668,6 +671,9 @@ func main() {
 	quarantined := cloneQuarantineEnabled()
 	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
 	s.installCapabilityMemoryHooks()
+	if err := s.reconcileDeviceMCPs(); err != nil {
+		log.Fatalf("device MCP registry: %v", err)
+	}
 	s.instanceHTTPS = newInstanceHTTPSManager(s)
 	s.ingressCerts = NewIngressCertManager(s)
 	hosted.Attach(s)
@@ -730,6 +736,7 @@ func main() {
 	// Agent-facing bridge for custom subprocess MCP servers. Loopback-only;
 	// unlike the dashboard API it intentionally has no browser auth because
 	// apteva-core is the caller.
+	mux.HandleFunc("/mcp/devices/", s.handleDeviceMCP)
 	mux.HandleFunc("/mcp/custom/", s.handleCustomMCPBridge)
 	mux.HandleFunc("/mcp/runtime/", s.handleRuntimeManagedMCPBridge)
 	// Also expose health/version under /api for uniformity from the dashboard.
@@ -789,6 +796,7 @@ func main() {
 	apiMux.HandleFunc("/auth/onboarding/status", s.authMiddleware(s.handleOnboardingStatus))
 	apiMux.HandleFunc("/notifications", s.authMiddleware(s.handleUserNotifications))
 	apiMux.HandleFunc("/notifications/", s.authMiddleware(s.handleUserNotifications))
+	s.registerDeviceRoutes(apiMux)
 	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
 	apiMux.HandleFunc("/mobile/push/subscriptions", s.authMiddleware(s.handleMobilePushSubscriptions))
 	apiMux.HandleFunc("/mobile/push/subscriptions/", s.authMiddleware(s.handleMobilePushSubscription))
@@ -1853,6 +1861,13 @@ func main() {
 			s.runAgentBehaviorReconciler(runtimeCtx)
 		}
 	}()
+	deviceEventsDone := make(chan struct{})
+	go func() {
+		defer close(deviceEventsDone)
+		if !quarantined {
+			s.runDeviceEvents(runtimeCtx)
+		}
+	}()
 	runtimeDone := make(chan struct{})
 	go func() { defer close(runtimeDone); s.RunRuntimeMonitor(runtimeCtx) }()
 	s.ready.Store(true)
@@ -1873,6 +1888,7 @@ func main() {
 		drain.begin()
 		drain.wait(5 * time.Second)
 		<-runtimeDone
+		<-deviceEventsDone
 		<-behaviorDone
 		if s.pollingDispatcher != nil {
 			s.pollingDispatcher.Stop()

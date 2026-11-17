@@ -1959,7 +1959,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// attachments are part of the creation contract: fail and remove the
 	// not-yet-started agent instead of silently creating it without a default.
 	if len(selectedAppInstallIDs) > 0 {
-		tx, err := s.store.db.Begin()
+		tx, err := s.store.dbBeginTx(r.Context(), nil)
 		if err != nil {
 			_ = s.store.DeleteAgent(userID, inst.ID)
 			http.Error(w, "begin app attachment", http.StatusInternalServerError)
@@ -2228,7 +2228,7 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 			builtinPools[key] = pool
 		}
 		summaryAgent := instances[i]
-		if full, err := s.store.GetAgentByID(instances[i].ID); err == nil {
+		if full, err := s.store.GetAgentByIDContext(r.Context(), instances[i].ID); err == nil {
 			summaryAgent.Config = full.Config
 		}
 		populateAgentBuiltinSummary(&summaryAgent, pool)
@@ -2259,7 +2259,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	// access agents created by other users in a project they're in.
 	// Authz comes from the agent's project membership, not the row's
 	// user_id.
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2405,7 +2405,7 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2616,7 +2616,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2662,7 +2662,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 			// Auto-resume or another start request may have won between the
 			// IsRunning check and AgentManager.Start. Treat that race exactly
 			// like the fast path above instead of leaking a spurious 500.
-			if current, getErr := s.store.GetAgentByID(inst.ID); getErr == nil {
+			if current, getErr := s.store.GetAgentByIDContext(r.Context(), inst.ID); getErr == nil {
 				inst = current
 			}
 			writeJSON(w, inst)
@@ -2693,7 +2693,7 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.GetAgentByID(instanceID); err != nil {
+	if _, err := s.store.GetAgentByIDContext(r.Context(), instanceID); err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
 	}
@@ -2715,7 +2715,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2767,7 +2767,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// simultaneous attachment changes cannot silently disconnect tools.
 	unlockConfig := s.lockAgentConfig(instanceID)
 	defer unlockConfig()
-	inst, err = s.store.GetAgentByID(instanceID)
+	inst, err = s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2798,6 +2798,17 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON object", http.StatusBadRequest)
 		return
 	}
+	if inst.Kind == "platform_helper" {
+		if _, ok := rawBody["mcp_servers"]; ok || rawBody["_mcp_action"] != nil {
+			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
+			return
+		}
+		if body.Config != "" {
+			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
+			return
+		}
+	}
+
 	if err := validateAgentAttachmentSettings(body.Config); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -2831,16 +2842,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if _, ok := rawBody["computer"]; ok {
 		http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
 		return
-	}
-	if inst.Kind == "platform_helper" {
-		if _, ok := rawBody["mcp_servers"]; ok || rawBody["_mcp_action"] != nil {
-			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
-			return
-		}
-		if body.Config != "" {
-			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
-			return
-		}
 	}
 
 	// Advanced config updates are patches. Replacing the saved object here
@@ -2916,7 +2917,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		selected, err := s.resolveAgentMCPConfigs(getUserID(r), inst, serverIDs)
+		selected, err := s.resolveAgentMCPConfigs(getUserID(r), inst, serverIDs, action == "remove")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -3289,7 +3290,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if behaviorChanged {
-		if _, err := s.store.db.Exec(`UPDATE agent_behavior_state SET revision=revision+1,version=? WHERE agent_id=? AND version<>?`, behaviorVersion, inst.ID, behaviorVersion); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET revision=revision+1,version=? WHERE agent_id=? AND version<>?`, behaviorVersion, inst.ID, behaviorVersion); err != nil {
 			http.Error(w, "persist behavior revision", 500)
 			return
 		}
@@ -3307,22 +3308,22 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		defer resp.Body.Close()
 		if behaviorChanged && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
-			_, _ = s.store.db.Exec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, fmt.Sprintf("main behavior pending: core HTTP %d", resp.StatusCode), inst.ID)
+			_, _ = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, fmt.Sprintf("main behavior pending: core HTTP %d", resp.StatusCode), inst.ID)
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			if behaviorChanged {
 				state, stateErr := s.store.agentBehaviorState(inst.ID)
 				if stateErr == nil {
-					_, stateErr = s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
+					_, stateErr = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
 				}
 				if stateErr == nil {
 					stateErr = s.applyBehaviorToLiveWorkers(r.Context(), inst)
 				}
 				if stateErr == nil {
-					_, stateErr = s.store.db.Exec(`UPDATE agent_behavior_state SET applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
+					_, stateErr = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
 				}
 				if stateErr != nil {
-					_, _ = s.store.db.Exec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, stateErr.Error(), inst.ID)
+					_, _ = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, stateErr.Error(), inst.ID)
 					resp.StatusCode = http.StatusAccepted
 				}
 			}
@@ -3380,7 +3381,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if behaviorChanged {
-		if _, err := s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=revision,applied_revision=revision,last_error='' WHERE agent_id=?`, inst.ID); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET main_revision=revision,applied_revision=revision,last_error='' WHERE agent_id=?`, inst.ID); err != nil {
 			http.Error(w, "config saved but behavior synchronization metadata failed", 500)
 			return
 		}
@@ -3495,7 +3496,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -3513,7 +3514,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete) && strings.HasPrefix(corePath, "/threads/") {
 		unlock := s.lockAgentConfig(inst.ID)
 		defer unlock()
-		if latest, err := s.store.GetAgentByID(inst.ID); err == nil {
+		if latest, err := s.store.GetAgentByIDContext(r.Context(), inst.ID); err == nil {
 			inst = latest
 		}
 		if r.Method != http.MethodDelete && !strings.Contains(strings.TrimPrefix(corePath, "/threads/"), "/") {
@@ -4011,7 +4012,7 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	parts := strings.SplitN(path, "/", 2)
 	instanceID, _ := atoi64(parts[0])
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -4092,7 +4093,7 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -4168,7 +4169,7 @@ func (s *Server) handleBackgroundMemory(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return

@@ -140,7 +140,7 @@ func mcpMapsAsAny(list []map[string]any) []any {
 	return out
 }
 
-func (s *Server) resolveAgentMCPConfigs(userID int64, inst *Agent, ids []int64) ([]map[string]any, error) {
+func (s *Server) resolveAgentMCPConfigs(userID int64, inst *Agent, ids []int64, removing ...bool) ([]map[string]any, error) {
 	port := s.port
 	if port == "" {
 		port = localServerPort()
@@ -160,10 +160,18 @@ func (s *Server) resolveAgentMCPConfigs(userID int64, inst *Agent, ids []int64) 
 			// App rows can be platform-owned and managed rows can be shared
 			// within their project. Do not expose another user's arbitrary
 			// global custom/remote server merely because its id was guessed.
-			if record.Source != "app" && record.Source != managedMCPSource &&
+			if record.Source != "app" && record.Source != deviceMCPSource && record.Source != managedMCPSource &&
 				(record.ProjectID == "" || record.ProjectID != inst.ProjectID) {
 				return nil, fmt.Errorf("mcp server %d not found", id)
 			}
+		}
+		if record.Source == deviceMCPSource {
+			cfg, err := s.deviceMCPSelection(userID, inst, record, len(removing) > 0 && removing[0])
+			if err != nil {
+				return nil, err
+			}
+			selected = append(selected, cfg)
+			continue
 		}
 		if record.ProjectID != "" && record.ProjectID != inst.ProjectID {
 			return nil, fmt.Errorf("mcp server %d belongs to project %q, agent belongs to project %q",
@@ -216,7 +224,7 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 	for _, entry := range current {
 		if serverID, ok := localMCPServerIDFromConfig(entry); ok {
 			var count int
-			if err := s.store.db.QueryRow(`
+			if err := s.store.dbQueryRow(`
 				SELECT COUNT(*) FROM mcp_servers
 				WHERE id=? AND (COALESCE(project_id,'')='' OR project_id=?)`,
 				serverID, inst.ProjectID,
@@ -234,7 +242,7 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 			continue
 		}
 		var serverID int64
-		err := s.store.db.QueryRow(
+		err := s.store.dbQueryRow(
 			`SELECT id FROM mcp_servers
 			 WHERE source='app' AND upstream_id=?
 			   AND (COALESCE(project_id,'')='' OR project_id=?)`,
@@ -321,7 +329,7 @@ func (s *Server) reconcileRunningAgentAppMCP(ctx context.Context, agentID, insta
 	}
 
 	var serverID int64
-	bridgeErr := s.store.db.QueryRow(`
+	bridgeErr := s.store.dbQueryRow(`
 		SELECT id FROM mcp_servers
 		WHERE source='app' AND upstream_id=?
 		  AND (COALESCE(project_id,'')='' OR project_id=?)`,
@@ -440,7 +448,7 @@ func (s *Server) syncAppBindingsFromMCPServers(agentID int64, projectID string, 
 			continue
 		}
 		var count int
-		if err := s.store.db.QueryRow(`
+		if err := s.store.dbQueryRow(`
 			SELECT COUNT(*) FROM mcp_servers
 			WHERE source='app' AND upstream_id=? AND (COALESCE(project_id,'')='' OR project_id=?)`,
 			appMCPUpstreamID(installID), projectID).Scan(&count); err == nil && count > 0 {
@@ -448,7 +456,7 @@ func (s *Server) syncAppBindingsFromMCPServers(agentID int64, projectID string, 
 		}
 	}
 
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -490,7 +498,7 @@ func (s *Server) syncAppBindingsFromMCPServers(agentID int64, projectID string, 
 // before live cores are reattached. A missing/malformed config is skipped
 // rather than interpreted as an empty set.
 func (s *Server) reconcileAllAgentAppBindings() {
-	rows, err := s.store.db.Query(`SELECT id FROM agents ORDER BY id`)
+	rows, err := s.store.dbQuery(`SELECT id FROM agents ORDER BY id`)
 	if err != nil {
 		log.Printf("[MCP-BIND] list agents for startup reconciliation: %v", err)
 		return
@@ -548,7 +556,7 @@ func (s *Server) appMCPConfigsForInstallIDs(userID int64, inst *Agent, installID
 		var installProject string
 		var serverID int64
 		var skillCount int
-		err := s.store.db.QueryRow(`
+		err := s.store.dbQueryRow(`
 			SELECT COALESCE(i.project_id,''), COALESCE(m.id,0),
 			       (SELECT COUNT(*) FROM skills sk WHERE sk.install_id=i.id AND sk.enabled=1)
 			FROM app_installs i

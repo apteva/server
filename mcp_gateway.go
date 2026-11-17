@@ -2203,6 +2203,8 @@ func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, i
 			"transport": "http",
 			"url":       u,
 		}, nil
+	case record.Source == deviceMCPSource && record.UpstreamID != "":
+		return map[string]any{"name": record.Name, "transport": "http", "url": fmt.Sprintf("http://127.0.0.1:%s/mcp/devices/%s", serverPort, record.UpstreamID)}, nil
 	case record.Source == "remote" && record.URL != "":
 		return map[string]any{
 			"name":      record.Name,

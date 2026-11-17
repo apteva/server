@@ -203,6 +203,7 @@ func (c *proxyTelemetryCollector) encode(record proxyTelemetryRecord) []Telemetr
 }
 func (s *Server) shutdownWebsocketProxies() {
 	s.proxyTelemetry().shutdownOnce.Do(func() { close(s.proxyTelemetry().shutdown) })
+	s.closeUserDeviceLinks(0, "server shutting down")
 }
 func (s *Server) stopProxyTelemetry(ctx context.Context) {
 	c := s.proxyTelemetry()

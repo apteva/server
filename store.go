@@ -266,6 +266,10 @@ func openStore(path string, migrate bool) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+		if err := s.migrateAccountDevices(); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	if s.apiKeyUsage, err = newAPIKeyUsageTracker(db); err != nil {
 		db.Close()
@@ -2658,8 +2662,7 @@ func (s *Store) DeleteUser(userID int64) error {
 // else's password and we want every one of that user's active sessions
 // to stop working immediately.
 func (s *Store) DeleteSessionsForUser(userID int64) error {
-	_, err := s.RevokeUserSessions(userID, "", 0, "sessions reset")
-	return err
+	return s.revokeSessionsAndDevices(userID, "", 0, "sessions reset")
 }
 
 // DeleteSessionsForUserExcept nukes every session row for the user
@@ -2667,8 +2670,7 @@ func (s *Store) DeleteSessionsForUser(userID int64) error {
 // session the password change was made from). Prevents a leaked
 // cookie from surviving a password rotation.
 func (s *Store) DeleteSessionsForUserExcept(userID int64, keepToken string) error {
-	_, err := s.RevokeUserSessions(userID, keepToken, userID, "credential change")
-	return err
+	return s.revokeSessionsAndDevices(userID, keepToken, userID, "credential change")
 }
 
 // --- API Keys ---

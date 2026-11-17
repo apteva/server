@@ -133,7 +133,7 @@ func (s *Store) CreateMCPServerExt(in MCPServerInput) (*MCPServerRecord, error) 
 		b, _ := json.Marshal(in.AllowedTools)
 		allowedJSON = string(b)
 	}
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		`INSERT INTO mcp_servers (user_id, name, command, args, encrypted_env, description, project_id, source, transport, url, provider_id, connection_id, allowed_tools, upstream_id, tool_count)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.UserID, in.Name, in.Command, in.Args, in.EncryptedEnv, in.Description, in.ProjectID,
@@ -160,9 +160,9 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 	var rows *sql.Rows
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
+		rows, err = s.dbQuery(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
 	} else {
-		rows, err = s.db.Query(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ?`, userID)
+		rows, err = s.dbQuery(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ?`, userID)
 	}
 	if err != nil {
 		return nil, err
@@ -206,7 +206,7 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 func (s *Store) GetMCPServer(userID, serverID int64) (*MCPServerRecord, string, error) {
 	var r MCPServerRecord
 	var encryptedEnv, createdAt, allowedJSON string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, name, command, args, encrypted_env, description, status, tool_count, pid,
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
 			COALESCE(connection_id,0), COALESCE(project_id,''),
@@ -237,7 +237,7 @@ func (s *Store) GetMCPServer(userID, serverID int64) (*MCPServerRecord, string, 
 func (s *Store) GetMCPServerByIDUnscoped(serverID int64) (*MCPServerRecord, error) {
 	var r MCPServerRecord
 	var encryptedEnv, createdAt, allowedJSON string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, user_id, name, COALESCE(command,''), COALESCE(args,'[]'), COALESCE(encrypted_env,''),
 			COALESCE(description,''), COALESCE(status,'stopped'), COALESCE(tool_count,0), COALESCE(pid,0),
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
@@ -281,7 +281,7 @@ func (s *Store) UpdateMCPServerAllowedTools(userID, serverID int64, allowed []st
 		b, _ := json.Marshal(allowed)
 		allowedJSON = string(b)
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		"UPDATE mcp_servers SET allowed_tools = ? WHERE id = ? AND user_id = ?",
 		allowedJSON, serverID, userID,
 	)
@@ -298,7 +298,7 @@ func (s *Store) UpdateMCPServerAllowedTools(userID, serverID int64, allowed []st
 // UpdateMCPServerUpstreamID sets the external identifier for a remote server.
 // Used when an upstream registration rotates its id.
 func (s *Store) UpdateMCPServerUpstreamID(serverID int64, upstreamID string) error {
-	_, err := s.db.Exec("UPDATE mcp_servers SET upstream_id = ? WHERE id = ?", upstreamID, serverID)
+	_, err := s.dbExec("UPDATE mcp_servers SET upstream_id = ? WHERE id = ?", upstreamID, serverID)
 	return err
 }
 
@@ -315,7 +315,7 @@ func (s *Store) findMCPServerByConnection(connectionID int64, order string) (*MC
 	}
 	var r MCPServerRecord
 	var createdAt, allowedJSON string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, user_id, name, COALESCE(command,''), COALESCE(args,'[]'), COALESCE(description,''),
 			COALESCE(status,'stopped'), COALESCE(tool_count,0), COALESCE(pid,0),
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
@@ -345,7 +345,7 @@ func (s *Store) findMCPServerByConnection(connectionID int64, order string) (*MC
 func (s *Store) FindMCPServerByProviderProject(userID, providerID int64, projectID string) (*MCPServerRecord, error) {
 	var r MCPServerRecord
 	var createdAt, allowedJSON string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, name, command, args, description, status, tool_count, pid,
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
 			COALESCE(connection_id,0), COALESCE(project_id,''),
@@ -370,19 +370,19 @@ func (s *Store) FindMCPServerByProviderProject(userID, providerID int64, project
 
 // UpdateMCPServerURL replaces the remote URL on an existing mcp_servers row.
 func (s *Store) UpdateMCPServerURL(serverID int64, url string) error {
-	_, err := s.db.Exec("UPDATE mcp_servers SET url = ? WHERE id = ?", url, serverID)
+	_, err := s.dbExec("UPDATE mcp_servers SET url = ? WHERE id = ?", url, serverID)
 	return err
 }
 
 func (s *Store) UpdateMCPServerStatus(serverID int64, status string, toolCount, pid int) {
-	s.db.Exec("UPDATE mcp_servers SET status=?, tool_count=?, pid=? WHERE id=?", status, toolCount, pid, serverID)
+	s.dbExec("UPDATE mcp_servers SET status=?, tool_count=?, pid=? WHERE id=?", status, toolCount, pid, serverID)
 }
 
 func (s *Store) DeleteMCPServer(userID, serverID int64) error {
 	if row, _, err := s.GetMCPServer(userID, serverID); err == nil && row.Source == platformMCPSource {
 		return fmt.Errorf("built-in capabilities cannot be deleted")
 	}
-	_, err := s.db.Exec("DELETE FROM mcp_servers WHERE id = ? AND user_id = ?", serverID, userID)
+	_, err := s.dbExec("DELETE FROM mcp_servers WHERE id = ? AND user_id = ?", serverID, userID)
 	return err
 }
 
@@ -885,6 +885,16 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	for i := range servers {
 		if servers[i].Source == platformMCPSource {
 			servers[i].Status = "running"
+		} else if servers[i].Source == deviceMCPSource {
+			d, err := s.store.accountDevice(servers[i].UpstreamID, servers[i].UserID)
+			servers[i].Status = "offline"
+			if err == nil {
+				if d.RevokedAt != 0 {
+					servers[i].Status = "revoked"
+				} else if _, ok := s.deviceLinks.Load(d.ID); ok {
+					servers[i].Status = "running"
+				}
+			}
 		} else if servers[i].Source == "local" {
 			// Local integration servers are always "running" — no subprocess needed
 			servers[i].Status = "running"
@@ -1100,6 +1110,21 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := record.UserID
 	var tools []mcpToolDef
+	if record.Source == deviceMCPSource {
+		d, err := s.store.accountDevice(record.UpstreamID, record.UserID)
+		if err != nil {
+			http.Error(w, "device unavailable", 404)
+			return
+		}
+		var tools []deviceTool
+		_ = json.Unmarshal(d.Tools, &tools)
+		defs := []map[string]any{}
+		for _, tool := range tools {
+			defs = append(defs, map[string]any{"name": tool.Name, "description": tool.Description, "inputSchema": tool.InputSchema})
+		}
+		writeJSON(w, map[string]any{"tools": defs, "allowed_tools": []string{}, "read_only": true})
+		return
+	}
 	if record.Source == platformMCPSource {
 		projectID := r.URL.Query().Get("project_id")
 		if projectID != "" {
@@ -1525,7 +1550,7 @@ func (s *Server) handleRenameMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, record)
 		return
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		"UPDATE mcp_servers SET description = ? WHERE id = ? AND user_id = ?",
 		desc, serverID, record.UserID,
 	); err != nil {
