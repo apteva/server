@@ -688,6 +688,9 @@ func (sup *LocalSupervisor) waitHealthy(installID int64, port int, healthPath st
 			_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&progress)
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusServiceUnavailable && progress.Status == "failed" {
+				if progress.Phase != "" {
+					return fmt.Errorf("app initialization failed before readiness (phase %q)", progress.Phase)
+				}
 				return fmt.Errorf("app initialization failed before readiness")
 			}
 			if resp.StatusCode == http.StatusServiceUnavailable && progress.Status == "initializing" {

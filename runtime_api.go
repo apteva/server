@@ -266,6 +266,11 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 				return
 			}
 		}
+		appGrants, err := validateRuntimeAppGrants(req.AppGrants)
+		if err != nil {
+			http.Error(w, "runtime app grants: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		networkMode := EdgeMode(req.NetworkMode)
 		if networkMode == "" {
 			networkMode = EdgeBlock
@@ -286,6 +291,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			IntegrationFixtures:   fixtures,
 			Clock:                 req.Clock,
 			Subscriptions:         subscriptions,
+			AppGrants:             appGrants,
 		}
 		var runtime *Environment
 		if req.SnapshotID != "" {
@@ -944,15 +950,16 @@ func (s *Server) handleRuntimeSnapshots(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 	for _, name := range runtime.InstallNames() {
-		if app, ok := runtime.Install(name); ok && app.DataDir != "" {
-			appDirs[name] = app.DataDir
-		}
 		if installID := runtime.SourceInstallID(name); installID > 0 {
 			sourceInstallIDs[name] = installID
 		}
 	}
 	clockState := runtime.clock.State()
-	man, err := s.environments.Snapshots().Capture(CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs(), Clock: &clockState, HTTPMocks: runtime.httpMocks, IntegrationFixtures: runtime.integrationFixtures})
+	man, err := s.captureEnvironmentSnapshot(runtime, CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs(), Clock: &clockState, HTTPMocks: runtime.httpMocks, IntegrationFixtures: runtime.integrationFixtures})
+	if err != nil && man != nil {
+		http.Error(w, "snapshot runtime: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if err != nil {
 		http.Error(w, "snapshot runtime: "+err.Error(), http.StatusBadRequest)
 		return

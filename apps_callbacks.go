@@ -1251,6 +1251,9 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if s.serveRuntimePassthrough(w, r, installID, targetAppName, body.Tool, body.TargetInstallID, body.Input) {
+		return
+	}
 	authorized, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID, body.TargetInstallID)
 	if !ok {
 		return
@@ -1452,6 +1455,9 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 	}
 	if targetInstallID == 0 {
 		http.Error(w, "target app is not bound: "+targetAppName, http.StatusForbidden)
+		return
+	}
+	if !s.runtimeCallBoundary(w, callerInstallID, targetAppName, targetInstallID) {
 		return
 	}
 	target := s.installedApps.Get(targetInstallID)
