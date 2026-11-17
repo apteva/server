@@ -221,6 +221,10 @@ func openStore(path string, migrate bool) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+		if err := s.migrateToolCatalogs(); err != nil {
+			db.Close()
+			return nil, err
+		}
 		if err := s.migrateTelemetryMetrics(); err != nil {
 			db.Close()
 			return nil, err
