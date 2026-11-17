@@ -853,7 +853,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
 	}
 	progress := func(msg string) {
-		s.store.db.Exec(
+		s.store.dbExec(
 			`UPDATE app_installs SET status_message=? WHERE id=?`,
 			msg, installID)
 	}
@@ -874,7 +874,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		if s.localApps.previousVersionStillReady(installID, err) {
 			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
-			s.store.db.Exec(
+			s.store.dbExec(
 				`UPDATE app_installs SET status='error', status_message='', error_message=?, pending_manifest_json='' WHERE id=?`,
 				err.Error(), installID)
 		}
@@ -892,11 +892,11 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	if err := s.syncAgentPluginSkillsForInstall(installID, m, projectID, pluginRoot); err != nil {
 		log.Printf("[AGENT-PLUGIN] app=%s install=%d compatibility sync failed: %v", m.Name, installID, err)
 	}
-	pid := s.localApps.PID(installID)
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	manifestJSON, _ := json.Marshal(m)
-	if _, err := s.store.db.Exec(
-		`UPDATE app_installs SET
+	if err := s.localApps.persistReadyProcess(installID, port, func(pid int) error {
+		_, err := s.store.dbExec(
+			`UPDATE app_installs SET
 			status='running',
 			mcp_activation_revision=mcp_activation_revision+1,
 			version=?,
@@ -909,7 +909,9 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		m.Version, string(manifestJSON), pid, binPath, port, url, installID); err != nil {
+			m.Version, string(manifestJSON), pid, binPath, port, url, installID)
+		return err
+	}); err != nil {
 		return fmt.Errorf("persist source app activation: %w", err)
 	}
 	s.LoadInstalledApps()
@@ -965,7 +967,7 @@ func (s *Server) pruneUnreferencedAppVersions(appName, currentVersion string) []
 	if currentVersion != "" {
 		keep[currentVersion] = true
 	}
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.version
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE a.name = ? AND i.version != ''`,
@@ -1073,7 +1075,7 @@ func (s *Server) PruneInstalledAppVersions() {
 	if s.localApps == nil {
 		return
 	}
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT a.name, i.version
 		   FROM app_installs i JOIN apps a ON a.id = i.app_id
 		  WHERE i.status IN ('running', 'pending') AND i.version != ''`)

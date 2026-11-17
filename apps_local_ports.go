@@ -421,7 +421,7 @@ func (sup *LocalSupervisor) activate(next activationSpec, deadline time.Duration
 		readyErr = sup.afterExclusiveSpawn(next.installID, sup.PID(next.installID))
 	}
 	if readyErr == nil {
-		readyErr = sup.waitReady(next, deadline)
+		readyErr = sup.waitReadyToPublish(next, deadline)
 	}
 	if err := readyErr; err != nil {
 		if stopErr := sup.Stop(next.installID); stopErr != nil {
@@ -461,7 +461,7 @@ func (sup *LocalSupervisor) rollbackExclusiveActivation(old *localProc, lease *f
 		readyErr = sup.afterExclusiveSpawn(oldSpec.installID, sup.PID(oldSpec.installID))
 	}
 	if readyErr == nil {
-		readyErr = sup.waitReady(oldSpec, deadline)
+		readyErr = sup.waitReadyToPublish(oldSpec, deadline)
 	}
 	if err := readyErr; err != nil {
 		if stopErr := sup.Stop(oldSpec.installID); stopErr != nil {
@@ -481,6 +481,23 @@ func (sup *LocalSupervisor) currentProc(installID int64) *localProc {
 func (sup *LocalSupervisor) verifyCurrentProc(installID int64, deadline time.Duration) bool {
 	p := sup.currentProc(installID)
 	return p != nil && sup.waitReady(p.spec, deadline) == nil
+}
+
+func (sup *LocalSupervisor) waitReadyToPublish(spec activationSpec, deadline time.Duration) error {
+	proc := sup.currentProc(spec.installID)
+	if proc == nil || proc.port != spec.httpPort {
+		return errors.New("local sidecar exited before readiness")
+	}
+	if err := sup.waitReady(spec, deadline); err != nil {
+		return err
+	}
+	sup.mu.Lock()
+	defer sup.mu.Unlock()
+	if sup.procs[spec.installID] != proc {
+		return errors.New("local sidecar changed during readiness")
+	}
+	proc.ready = true
+	return nil
 }
 
 func (sup *LocalSupervisor) waitReady(spec activationSpec, deadline time.Duration) error {

@@ -17,6 +17,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -42,6 +44,22 @@ type InstalledAppsRegistry struct {
 	mu       sync.RWMutex
 	entries  map[int64]*InstalledApp // keyed by install id
 	byName   map[string]*InstalledApp
+
+	// Serialize loading DB snapshots with local exit handling. If SQLite
+	// cannot record an exit, keep that exact process out of later reloads.
+	loadMu      sync.Mutex
+	failedExits map[localAppRoute]localExitRecord
+}
+
+type localAppRoute struct {
+	installID int64
+	pid       int
+	url       string
+}
+
+type localExitRecord struct {
+	port    int
+	message string
 }
 
 type InstalledApp struct {
@@ -58,6 +76,7 @@ type InstalledApp struct {
 	Config          map[string]string // decrypted config_json — used for branding / kiosk-key injection
 	Permissions     []sdk.Permission
 	Token           string // platform-issued APTEVA_APP_TOKEN for callbacks
+	localPID        int    // owner of the published route for an unmanaged local sidecar
 }
 
 func NewInstalledAppsRegistry() *InstalledAppsRegistry {
@@ -184,6 +203,21 @@ func (r *InstalledAppsRegistry) Add(e *InstalledApp) {
 func (r *InstalledAppsRegistry) Remove(installID int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.removeLocked(installID)
+}
+
+func (r *InstalledAppsRegistry) removeLocalRoute(route localAppRoute, committedOwner bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Resume can commit a new PID on the same port before reloading the
+	// registry. A matching DB owner also invalidates that cached address.
+	if app := r.entries[route.installID]; app != nil && app.localPID > 0 && app.SidecarURL == route.url &&
+		(app.localPID == route.pid || committedOwner) {
+		r.removeLocked(route.installID)
+	}
+}
+
+func (r *InstalledAppsRegistry) removeLocked(installID int64) {
 	if e, ok := r.entries[installID]; ok {
 		delete(r.byName, e.AppName)
 		delete(r.entries, installID)
@@ -204,38 +238,60 @@ func (r *InstalledAppsRegistry) Remove(installID int64) {
 // LoadInstalledApps reads every running app_install from the DB and
 // populates the in-memory registry. Called at server boot. Failures
 // for one install are logged and skipped — they don't block boot.
-func (s *Server) LoadInstalledApps() {
+func (s *Server) LoadInstalledApps() { s.LoadInstalledAppsContext(nil) }
+func (s *Server) LoadInstalledAppsContext(parent context.Context) {
+	ctx, cancel := s.store.databaseContext(parent)
+	defer cancel()
+	registry := s.installedApps
+	if registry == nil {
+		return
+	}
+	for !registry.loadMu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Millisecond):
+		}
+	}
+	defer registry.loadMu.Unlock()
+	for route, exit := range registry.failedExits {
+		if committedOwner, err := s.recordLocalProcessExit(route, exit.port, exit.message); err == nil {
+			registry.removeLocalRoute(route, committedOwner)
+			delete(registry.failedExits, route)
+		}
+	}
+
 	defaults, err := s.loadInstallationDefaults()
 	if err != nil {
 		log.Printf("[APPS] load installation defaults: %v", err)
 		return
 	}
-	s.installedApps.mu.Lock()
-	s.installedApps.defaults = defaults
-	s.installedApps.mu.Unlock()
-	rows, err := s.store.db.Query(
-		`SELECT i.id, i.app_id, COALESCE(i.project_id, ''), i.service_name,
-			COALESCE(i.sidecar_url_override, ''),
-			COALESCE(i.config_encrypted, ''),
-			i.permissions_json, i.version, a.name,
-			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),i.installation_key
-		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE i.status = 'running'`)
+	registry.mu.Lock()
+	registry.defaults = defaults
+	registry.mu.Unlock()
+
+	records, err := s.readRunningInstalls(ctx)
 	if err != nil {
-		log.Printf("[APPS] load installs: %v", err)
+		log.Printf("[APPS] read installs: %v", err)
 		return
 	}
-	defer rows.Close()
 	count := 0
-	for rows.Next() {
-		var (
-			id, appID                                                              int64
-			projectID, serviceName, sidecarOverride, configEnc, permsJSON, version string
-			appName, manifestJSON, installationKey                                 string
-		)
-		if err := rows.Scan(&id, &appID, &projectID, &serviceName, &sidecarOverride,
-			&configEnc, &permsJSON, &version, &appName, &manifestJSON, &installationKey); err != nil {
-			log.Printf("[APPS] scan: %v", err)
+	for _, record := range records {
+		if ctx.Err() != nil {
+			return
+		}
+		id := record.id
+		projectID := record.projectID
+		serviceName := record.serviceName
+		sidecarOverride := record.sidecarOverride
+		configEnc := record.configEnc
+		permsJSON := record.permsJSON
+		appName := record.appName
+		manifestJSON := record.manifestJSON
+		installationKey := record.installationKey
+		localPID := record.localPID
+
+		if _, exited := registry.failedExits[localAppRoute{id, localPID, sidecarOverride}]; exited {
 			continue
 		}
 		var manifest sdk.Manifest
@@ -268,7 +324,7 @@ func (s *Server) LoadInstalledApps() {
 		// Without this, handleAppProxy sends no
 		// Authorization header to the sidecar and every dashboard
 		// iframe request comes back 401 from withTokenAuth.
-		token, tokenErr := s.appInstallToken(id)
+		token, tokenErr := s.appInstallTokenContext(ctx, id)
 		if tokenErr != nil {
 			log.Printf("[APPS] install=%d credential unavailable: %v", id, tokenErr)
 			continue
@@ -282,6 +338,7 @@ func (s *Server) LoadInstalledApps() {
 			Config:      cfg,
 			Permissions: perms,
 			Token:       token,
+			localPID:    localPID,
 		}
 		if strings.HasPrefix(sidecarOverride, "static://") {
 			entry.StaticDir = strings.TrimPrefix(sidecarOverride, "static://")
@@ -302,7 +359,7 @@ func (s *Server) LoadInstalledApps() {
 		// the orchestrator at all.
 		sidecarURL := sidecarOverride
 		if sidecarURL == "" {
-			sidecarURL = s.resolveSidecarURL(serviceName, manifest.Runtime.Port)
+			sidecarURL = s.resolveSidecarURLContext(ctx, serviceName, manifest.Runtime.Port)
 		}
 		entry.SidecarURL = sidecarURL
 		s.loadRuntimeEndpoints(entry)
@@ -318,10 +375,19 @@ func (s *Server) LoadInstalledApps() {
 // running and returns http://<ip>:<host_port>. Empty string if the
 // orchestrator can't tell us — callers fall back gracefully.
 func (s *Server) resolveSidecarURL(serviceName string, primaryPort int) string {
+	return s.resolveSidecarURLContext(nil, serviceName, primaryPort)
+}
+func (s *Server) resolveSidecarURLContext(parent context.Context, serviceName string, primaryPort int) string {
+	ctx, cancel := s.store.databaseContext(parent)
+	defer cancel()
 	if serviceName == "" || s.orchestratorURL == "" {
 		return ""
 	}
-	resp, err := http.Get(s.orchestratorURL + "/api/v1/services/" + url.PathEscape(serviceName))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.orchestratorURL+"/api/v1/services/"+url.PathEscape(serviceName), nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("[APPS] orchestrator unreachable for %s: %v", serviceName, err)
 		return ""
