@@ -99,7 +99,7 @@ func TestCallback_ProjectScopedMultiBindingPreservesOtherProjects(t *testing.T) 
 	if _, err := s.store.db.Exec(`UPDATE app_installs SET status='stopped' WHERE id=?`, contentID); err != nil {
 		t.Fatal(err)
 	}
-	check(content, 0, http.StatusForbidden)
+	check(content, 0, http.StatusServiceUnavailable)
 	check(apteva, defaultID, http.StatusOK)
 	if _, err := s.store.db.Exec(`UPDATE app_installs SET status='running' WHERE id=?`, contentID); err != nil {
 		t.Fatal(err)

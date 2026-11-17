@@ -1,0 +1,654 @@
+{
+  "slug": "telgea",
+  "name": "Telgea",
+  "description": "Manage Telgea Enterprise user plans and Partner lines, provision eSIMs, suspend or restore service, and read usage and rates. Operations require the corresponding Enterprise or Partner permissions.",
+  "logo": "https://www.google.com/s2/favicons?domain=telgea.com&sz=128",
+  "categories": [
+    "telephony",
+    "esim",
+    "connectivity"
+  ],
+  "base_url": "https://api.telgea.com/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-api-key": "{{api_key}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Telgea API key from your organization Portal under Integrations > API keys. Permissions determine Enterprise and Partner API access.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_users",
+    "input": {
+      "pageSize": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_users",
+      "description": "List Telgea users with pagination and optional exact email or employee ID filters.",
+      "method": "GET",
+      "path": "/users",
+      "query_params": [
+        "page",
+        "pageSize",
+        "email",
+        "employeeId"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page to return, starting at 1.",
+            "exclusiveMinimum": 0
+          },
+          "pageSize": {
+            "type": "integer",
+            "maximum": 50,
+            "default": 10,
+            "description": "Items per page, at most 50. Defaults to 10.",
+            "exclusiveMinimum": 0
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Filter by exact email address"
+          },
+          "employeeId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Filter by exact employee ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_user",
+      "description": "Create a Telgea end user. Reuse idempotency_key when retrying the same request.",
+      "method": "POST",
+      "path": "/users",
+      "header_params": {
+        "idempotency_key": "idempotency-key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[!-~]{1,255}$",
+            "description": "A value unique to this request, of 1 to 255 printable ASCII characters — a UUID is the usual choice. Retry with the same key within 24 hours and you get the original response back, even if it was a failure, and nothing is done twice. Send a new key whenever you change the request. Keys are private to your API key and organisation."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email address of the new user. Unique within your organization."
+          },
+          "firstName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "First name"
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Last name"
+          },
+          "teamId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Team to assign the user to. Omitted, the user joins the default team, Unassigned."
+          },
+          "costCode": { "type": "string", "description": "Cost center code for billing purposes" },
+          "employeeId": { "type": "string", "description": "External employee identifier" }
+        },
+        "required": [
+          "email",
+          "firstName",
+          "lastName"
+        ]
+      }
+    },
+    {
+      "name": "list_user_plans",
+      "description": "List user plans through the Telgea Enterprise API.",
+      "method": "GET",
+      "path": "/user-plans",
+      "query_params": [
+        "page",
+        "pageSize",
+        "orderBy",
+        "orderDirection"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page to return, starting at 1.",
+            "exclusiveMinimum": 0
+          },
+          "pageSize": {
+            "type": "integer",
+            "maximum": 100,
+            "default": 50,
+            "description": "Items per page, at most 100. Defaults to 50.",
+            "exclusiveMinimum": 0
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": [
+              "firstName",
+              "localPhoneNumber",
+              "status",
+              "teamName"
+            ],
+            "description": "Field to sort by. Defaults to the order the plans were created in."
+          },
+          "orderDirection": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction. Only meaningful together with orderBy."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_user_plan",
+      "description": "Provision a billed plan and eSIM for a user through the Enterprise API. Poll get_user_plan for readiness.",
+      "method": "POST",
+      "path": "/user-plans",
+      "header_params": {
+        "idempotency_key": "idempotency-key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[!-~]{1,255}$",
+            "description": "A value unique to this request, of 1 to 255 printable ASCII characters — a UUID is the usual choice. Retry with the same key within 24 hours and you get the original response back, even if it was a failure, and nothing is done twice. Send a new key whenever you change the request. Keys are private to your API key and organisation."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of an existing user to provision a plan for"
+          },
+          "countryCode": { "type": "string", "description": "Two-character ISO country code for the user plan. Must be a valid ISO 3166-1 alpha-2 code (e.g., \"DK\", \"US\", \"GB\") and available in your organization's list of supported markets. Case-insensitive. Invalid codes are rejected immediately. Contact support to enable additional countries." },
+          "additionalNumber": { "type": "boolean", "description": "Set to `true` to give a user who already holds a number another one, billed at its own local rate. Without it, a user who holds a number gets a `409` and nothing is bought, so repeating a request cannot buy a second number. Your organization must have several numbers per person enabled. Send an `Idempotency-Key` with it, so a retry does not add a further number." }
+        },
+        "required": [
+          "userId",
+          "countryCode"
+        ]
+      }
+    },
+    {
+      "name": "get_user_plan",
+      "description": "Read an Enterprise user plan, including eSIM activation details when ready.",
+      "method": "GET",
+      "path": "/user-plans/{userId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the user whose plan this is."
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "list_numbers",
+      "description": "List lines through the Telgea Partner API, filtered by number, ICCID, user, or state.",
+      "method": "GET",
+      "path": "/numbers",
+      "query_params": [
+        "page",
+        "pageSize",
+        "orderBy",
+        "orderDirection",
+        "msisdn",
+        "iccid",
+        "userId",
+        "type",
+        "state"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page to return, starting at 1.",
+            "exclusiveMinimum": 0
+          },
+          "pageSize": {
+            "type": "integer",
+            "maximum": 100,
+            "default": 50,
+            "description": "Items per page, at most 100. Defaults to 50.",
+            "exclusiveMinimum": 0
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": [
+              "createdAt",
+              "phoneNumber",
+              "type"
+            ],
+            "description": "Field to sort by. Defaults to the order the lines were created in. `state` is not sortable: it is derived per line, so sorting by it would resolve the state of every line in your organization before a page could be picked. Narrow by it instead."
+          },
+          "orderDirection": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction. Only meaningful together with orderBy."
+          },
+          "msisdn": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Only the line on this number, in E.164 format. Matched exactly."
+          },
+          "iccid": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Only the line whose eSIM has this ICCID. Matched exactly; a line with no SIM never matches."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Only the lines this user holds."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "local",
+              "travel"
+            ],
+            "description": "Only lines of this kind."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "PORTING",
+              "PORTING_FAILED",
+              "PROVISIONING",
+              "READY",
+              "REPLACING",
+              "CHANGING",
+              "SUSPENDING",
+              "SUSPENDED",
+              "RESTORING",
+              "RECONFIGURING",
+              "DEACTIVATING",
+              "DEACTIVATED",
+              "PORTING_DISCARDED",
+              "PORTING_OUT",
+              "PORTED_OUT"
+            ],
+            "description": "Only lines in this state. Costs more than the other filters, since the state of each of your lines is resolved to answer it."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_number",
+      "description": "Provision a billed line and eSIM for a user through the Partner API. Poll get_number for readiness. Use the same idempotency_key for retries.",
+      "method": "POST",
+      "path": "/numbers",
+      "header_params": {
+        "idempotency_key": "idempotency-key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[!-~]{1,255}$",
+            "description": "A value unique to this request, of 1 to 255 printable ASCII characters — a UUID is the usual choice. Retry with the same key within 24 hours and you get the original response back, even if it was a failure, and nothing is done twice. Send a new key whenever you change the request. Keys are private to your API key and organisation."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of an existing user to obtain the line for"
+          },
+          "countryCode": { "type": "string", "description": "Two-character ISO country code of the market the line belongs to. Must be a valid ISO 3166-1 alpha-2 code (e.g., \"DK\", \"US\", \"GB\") and available in your organization's list of supported markets. Case-insensitive. Invalid codes are rejected immediately. Contact support to enable additional countries." },
+          "additionalNumber": { "type": "boolean", "description": "Set to `true` to give a user who already holds a number another one, billed at its own local rate. Without it, a user who holds a number gets a `409` and nothing is bought, so repeating a request cannot buy a second number. Your organization must have several numbers per person enabled. Send an `Idempotency-Key` with it, so a retry does not add a further number." }
+        },
+        "required": [
+          "userId",
+          "countryCode"
+        ]
+      }
+    },
+    {
+      "name": "get_number",
+      "description": "Read a Partner line, its state, and eSIM activation code when ready.",
+      "method": "GET",
+      "path": "/numbers/{numberId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "numberId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the line."
+          }
+        },
+        "required": [
+          "numberId"
+        ]
+      }
+    },
+    {
+      "name": "get_number_connection",
+      "description": "Read network connection status for a Telgea Partner line.",
+      "method": "GET",
+      "path": "/numbers/{numberId}/connection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "numberId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the line."
+          }
+        },
+        "required": [
+          "numberId"
+        ]
+      }
+    },
+    {
+      "name": "suspend_number",
+      "description": "Suspend all traffic on a Partner line. Availability depends on the market.",
+      "method": "POST",
+      "path": "/numbers/{numberId}/suspension",
+      "header_params": {
+        "idempotency_key": "idempotency-key"
+      },
+      "body_none": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "numberId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the line."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[!-~]{1,255}$",
+            "description": "A value unique to this request, of 1 to 255 printable ASCII characters — a UUID is the usual choice. Retry with the same key within 24 hours and you get the original response back, even if it was a failure, and nothing is done twice. Send a new key whenever you change the request. Keys are private to your API key and organisation."
+          }
+        },
+        "required": [
+          "numberId"
+        ]
+      }
+    },
+    {
+      "name": "resume_number",
+      "description": "Restore traffic on a suspended Partner line.",
+      "method": "DELETE",
+      "path": "/numbers/{numberId}/suspension",
+      "header_params": {
+        "idempotency_key": "idempotency-key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "numberId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the line."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[!-~]{1,255}$",
+            "description": "A value unique to this request, of 1 to 255 printable ASCII characters — a UUID is the usual choice. Retry with the same key within 24 hours and you get the original response back, even if it was a failure, and nothing is done twice. Send a new key whenever you change the request. Keys are private to your API key and organisation."
+          }
+        },
+        "required": [
+          "numberId"
+        ]
+      }
+    },
+    {
+      "name": "restrict_number_data",
+      "description": "Stop mobile data on a Partner line while keeping other line services available.",
+      "method": "POST",
+      "path": "/numbers/{numberId}/data-restriction",
+      "header_params": {
+        "idempotency_key": "idempotency-key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "numberId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the line."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[!-~]{1,255}$",
+            "description": "A value unique to this request, of 1 to 255 printable ASCII characters — a UUID is the usual choice. Retry with the same key within 24 hours and you get the original response back, even if it was a failure, and nothing is done twice. Send a new key whenever you change the request. Keys are private to your API key and organisation."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Free text kept with the change and shown to our support staff."
+          }
+        },
+        "required": [
+          "numberId"
+        ]
+      }
+    },
+    {
+      "name": "restore_number_data",
+      "description": "Restore mobile data on a Partner line.",
+      "method": "DELETE",
+      "path": "/numbers/{numberId}/data-restriction",
+      "query_params": [
+        "reason"
+      ],
+      "header_params": {
+        "idempotency_key": "idempotency-key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "numberId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the line."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Free text kept with the change."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[!-~]{1,255}$",
+            "description": "A value unique to this request, of 1 to 255 printable ASCII characters — a UUID is the usual choice. Retry with the same key within 24 hours and you get the original response back, even if it was a failure, and nothing is done twice. Send a new key whenever you change the request. Keys are private to your API key and organisation."
+          }
+        },
+        "required": [
+          "numberId"
+        ]
+      }
+    },
+    {
+      "name": "list_usage",
+      "description": "Read voice, SMS, and data usage records. The inclusive UTC date window may span at most 31 days.",
+      "method": "GET",
+      "path": "/usage",
+      "query_params": [
+        "startDate",
+        "endDate",
+        "pageSize",
+        "cursor",
+        "userId"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive start of the usage window (YYYY-MM-DD, UTC)."
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive end of the usage window (YYYY-MM-DD, UTC). The window may span at most 31 days."
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50,
+            "description": "Records per page (max 100)"
+          },
+          "cursor": { "type": "string", "description": "Opaque cursor from a previous response's nextCursor. Omit for the first page." },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Restrict to one end-user your organization owns. Omit for every user."
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      }
+    },
+    {
+      "name": "list_data_pools",
+      "description": "List shared Telgea data pools and remaining allowances.",
+      "method": "GET",
+      "path": "/data-pools",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_data_pool_members",
+      "description": "List lines drawing from a shared Telgea data pool.",
+      "method": "GET",
+      "path": "/data-pools/{poolId}/members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "poolId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the data pool"
+          }
+        },
+        "required": [
+          "poolId"
+        ]
+      }
+    },
+    {
+      "name": "list_rates",
+      "description": "Read pay-as-you-go retail rates for a market and usage type.",
+      "method": "GET",
+      "path": "/rates",
+      "query_params": [
+        "page",
+        "pageSize",
+        "market",
+        "type",
+        "servingCountry",
+        "direction",
+        "asOfDate",
+        "currency"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page to return, starting at 1.",
+            "exclusiveMinimum": 0
+          },
+          "pageSize": {
+            "type": "integer",
+            "maximum": 250,
+            "default": 50,
+            "description": "Items per page, at most 250. Defaults to 50.",
+            "exclusiveMinimum": 0
+          },
+          "market": { "type": "string", "description": "The home-plan market to price, as an ISO 3166-1 alpha-2 country code. The provider is resolved internally." },
+          "type": {
+            "type": "string",
+            "enum": [
+              "INTL_VOICE",
+              "INTL_SMS",
+              "INTL_MMS",
+              "ROAMING_DATA"
+            ],
+            "description": "The rate type to price: INTL_VOICE (per minute), INTL_SMS / INTL_MMS (per message), or ROAMING_DATA (per MB)"
+          },
+          "servingCountry": { "type": "string", "description": "The country the subscriber is calling from, when it differs from the market (roaming). Defaults to the market, which prices calls placed at home. Ignored for ROAMING_DATA, which prices every visited country in one list." },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outbound",
+              "inbound"
+            ],
+            "description": "Which leg of a call or message to price: outbound — the subscriber calls or texts the destination — or inbound — someone in that country reaches the subscriber, which is chargeable while roaming. Defaults to outbound. Ignored for ROAMING_DATA."
+          },
+          "asOfDate": {
+            "type": "string",
+            "format": "date",
+            "description": "The day to price (YYYY-MM-DD): the rates in effect then. Defaults to today, so a price scheduled to take effect later is never quoted early. The provider is the one serving the market today."
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "EUR",
+              "USD",
+              "GBP"
+            ],
+            "description": "The currency to show prices in: EUR, USD or GBP. Defaults to the currency your organization is billed in."
+          }
+        },
+        "required": [
+          "market",
+          "type"
+        ]
+      }
+    }
+  ]
+}

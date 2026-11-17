@@ -99,6 +99,13 @@ func (s *Server) installDepsRecursive(
 			visited[key] = true
 			continue
 		}
+		var occupied int
+		if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND (COALESCE(i.project_id,'')=? OR COALESCE(i.project_id,'')='')`, dep.Name, projectID).Scan(&occupied); err != nil {
+			return err
+		}
+		if occupied > 0 {
+			return fmt.Errorf("dependency %q has installations but no ready default; select an explicit installation or start its default", dep.Name)
+		}
 		if info, ok := deprecatedApp(dep.Name); ok {
 			return fmt.Errorf("dependency %q is deprecated and can no longer be installed: %s", dep.Name, info.Message)
 		}
@@ -225,22 +232,24 @@ func (s *Server) findInstalledApp(name, projectID string) (int64, bool) {
 		return 0, false
 	}
 
-	// Same-project match preferred; global match accepted. A global parent may
-	// use any running scope, retaining the existing first-install behavior.
-	query := `SELECT id FROM app_installs
-			  WHERE app_id=? AND status='running' AND (project_id='' OR project_id=?)
-			  ORDER BY project_id DESC, id ASC LIMIT 1`
-	args := []any{appID, projectID}
-	if projectID == "" {
-		query = `SELECT id FROM app_installs
-				 WHERE app_id=? AND status='running'
-				 ORDER BY id ASC LIMIT 1`
-		args = []any{appID}
-	}
+	// Select the scope before checking readiness. An unavailable default
+	// cannot silently redirect dependency calls to a candidate or global app.
 	var installID int64
-	if err := s.store.db.QueryRow(query, args...).Scan(&installID); err != nil {
+	var status string
+	query := `SELECT id,status FROM app_installs WHERE app_id=? AND (project_id=? OR project_id='') ORDER BY (project_id=?) DESC,is_default DESC,id LIMIT 1`
+	if projectID == "" {
+		err = s.store.db.QueryRow(`SELECT id,status FROM app_installs WHERE app_id=? AND is_default=1 ORDER BY (project_id='') DESC,id LIMIT 1`, appID).Scan(&installID, &status)
+	} else {
+		err = s.store.db.QueryRow(query, appID, projectID, projectID).Scan(&installID, &status)
+	}
+	if err != nil {
 		return 0, false
 	}
+	var selected bool
+	if s.store.db.QueryRow(`SELECT is_default FROM app_installs WHERE id=?`, installID).Scan(&selected) != nil || !selected || status != "running" {
+		return 0, false
+	}
+
 	return installID, true
 }
 

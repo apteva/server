@@ -1069,17 +1069,6 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	if ctx.MasterConnID != 0 {
 		persistTargetID = ctx.MasterConnID
 	}
-	persist := func(updated map[string]string) error {
-		blob, err := json.Marshal(updated)
-		if err != nil {
-			return err
-		}
-		enc, err := Encrypt(s.secret, string(blob))
-		if err != nil {
-			return err
-		}
-		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
-	}
 	environmentID := r.Header.Get("X-Apteva-Environment-Id")
 	if environmentID == "" {
 		environmentID = r.Header.Get("X-Apteva-Environment-Id")
@@ -1098,7 +1087,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	var result *ExecuteResult
 	if err == nil {
-		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+		result, err = s.executeConnectionToolWithRefreshContext(r.Context(), persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID)
 	}
 	if err == nil && result != nil && result.Success && fileCallerContext.agentID != 0 {
 		result.Data, err = s.storeToolBlobValue(r.Context(), result.Data, fileCallerContext)
@@ -1236,8 +1225,9 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		return
 	}
 	var body struct {
-		Tool  string         `json:"tool"`
-		Input map[string]any `json:"input"`
+		TargetInstallID int64          `json:"target_install_id,omitempty"`
+		Tool            string         `json:"tool"`
+		Input           map[string]any `json:"input"`
 	}
 	// 50 MiB is generous enough for typical file-bearing tool calls
 	// (storage.files_upload with a base64 PDF, media uploads, etc.).
@@ -1261,7 +1251,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	authorized, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID)
+	authorized, ok := s.authorizeAppCallback(w, installID, targetAppName, requestedProjectID, body.TargetInstallID)
 	if !ok {
 		return
 	}
@@ -1572,6 +1562,16 @@ func bindingsForInstall(s *Server, installID int64) map[string]any {
 //
 // Authorization: install must declare platform.oauth.start.
 func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if r.Method == http.MethodPost && len(parts) >= 1 && parts[0] == "reconnect" {
+		switch {
+		case len(parts) == 1:
+			s.handleAppOAuthReconnect(w, r, false)
+			return
+		case len(parts) == 2 && parts[1] == "status":
+			s.handleAppOAuthReconnect(w, r, true)
+			return
+		}
+	}
 	if len(parts) != 1 || parts[0] != "start" || r.Method != http.MethodPost {
 		http.Error(w, "POST /oauth/start only", http.StatusMethodNotAllowed)
 		return
@@ -2431,7 +2431,8 @@ func (s *Server) installBoundAppMetadata(metadata *appInstallMetadata, appName s
 // same dependency. Select only an already-bound instance in the authorized
 // project. Scalar bindings and calls without a project retain their existing
 // behavior; this never discovers or grants access to an unbound installation.
-func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata, appName, projectID string) (int64, error) {
+func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata, appName, projectID string, includeUnavailable ...bool) (int64, error) {
+	keepUnavailable := len(includeUnavailable) > 0 && includeUnavailable[0]
 	if metadata.manifestErr != nil {
 		return 0, nil
 	}
@@ -2451,7 +2452,7 @@ func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata,
 			matched := int64(0)
 			for _, id := range ids {
 				bound, err := s.appMetadata(id)
-				if err != nil || bound.name != appName || bound.status != "running" || bound.project != projectID {
+				if err != nil || bound.name != appName || (!keepUnavailable && bound.status != "running") || bound.project != projectID {
 					continue
 				}
 				if matched != 0 {
@@ -2467,7 +2468,10 @@ func (s *Server) installBoundAppMetadataForProject(metadata *appInstallMetadata,
 			return 0, nil
 		}
 		bound, err := s.appMetadata(boundInstallID)
-		if err != nil || bound.name != appName || bound.status != "running" {
+		if err != nil && keepUnavailable && key == appName {
+			return boundInstallID, nil
+		}
+		if err != nil || bound.name != appName || (!keepUnavailable && bound.status != "running") {
 			return 0, nil
 		}
 		return boundInstallID, nil

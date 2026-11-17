@@ -103,13 +103,16 @@ func (s *Server) handleUIPages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"page": page, "ui_layout": layout, "revision": revision})
 }
 
-func (s *Store) mutateUIPage(userID int64, projectID string, page workspacePage, method string) (json.RawMessage, int64, error) {
+func (s *Store) mutateUIPage(userID int64, projectID string, page workspacePage, method string, expected ...*int64) (json.RawMessage, int64, error) {
 	if _, err := s.db.Exec(`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
  VALUES (?, '{}', 0, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO NOTHING`, userID); err != nil {
 		return nil, 0, err
 	}
 	for attempt := 0; attempt < 8; attempt++ {
 		current, revision := s.GetUserUILayoutWithRevision(userID)
+		if len(expected) > 0 && expected[0] != nil && *expected[0] != revision {
+			return current, revision, errUILayoutConflict
+		}
 		var document map[string]any
 		if json.Unmarshal(current, &document) != nil || document == nil {
 			document = map[string]any{}
@@ -185,6 +188,10 @@ func (s *Store) mutateUIPage(userID int64, projectID string, page workspacePage,
 		changed, _ := result.RowsAffected()
 		if changed == 1 {
 			return json.RawMessage(next), revision + 1, nil
+		}
+		if len(expected) > 0 && expected[0] != nil {
+			current, revision = s.GetUserUILayoutWithRevision(userID)
+			return current, revision, errUILayoutConflict
 		}
 	}
 	return nil, 0, errUILayoutConflict

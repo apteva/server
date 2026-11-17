@@ -23,6 +23,7 @@ import (
 type platformGatewayExecuteFunc func(context.Context, int64, string, []byte) ([]byte, error)
 
 var projectConversationGatewayTools = map[string]bool{
+	"pages_list": true, "page_get": true, "widgets_list": true, "widget_add": true, "widget_configure": true, "widget_move": true, "widget_remove": true, "page_create": true, "page_update": true,
 	"setup_presets_list": true, "setup_preview": true, "setup_apply": true,
 	"agents_list": true, "agents_get": true, "agents_create": true,
 	"agents_update": true, "agents_start": true, "agents_stop": true,
@@ -196,6 +197,13 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 	if args == nil {
 		args = map[string]any{}
 		params["arguments"] = args
+	}
+	if workspacePageToolNames[name] {
+		if scope, exists := args["scope"]; exists && scope != "project" {
+			return body, fmt.Errorf("project conversations can only access project pages")
+		}
+		args["scope"] = "project"
+		delete(args, "_project_id")
 	}
 	// The server-owned thread binding always wins over model arguments.
 	args["project_id"] = projectID

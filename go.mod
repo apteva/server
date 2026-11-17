@@ -1,6 +1,6 @@
 module github.com/apteva/server
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/Masterminds/semver/v3 v3.2.1
@@ -26,7 +26,7 @@ require (
 )
 
 require (
-	github.com/apteva/app-sdk v0.115.0
+	github.com/apteva/app-sdk v0.115.2
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3

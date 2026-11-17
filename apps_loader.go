@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,13 +35,17 @@ import (
 // InstalledAppsRegistry is the in-memory index built at boot from app_installs +
 // orchestrator service URLs. Read by every place that needs to know
 // "is app X mounted?" or "what's its sidecar URL?".
+type appInstallScope struct{ name, project string }
+
 type InstalledAppsRegistry struct {
-	mu      sync.RWMutex
-	entries map[int64]*InstalledApp // keyed by install id
-	byName  map[string]*InstalledApp
+	defaults map[appInstallScope]int64
+	mu       sync.RWMutex
+	entries  map[int64]*InstalledApp // keyed by install id
+	byName   map[string]*InstalledApp
 }
 
 type InstalledApp struct {
+	MCPName         string
 	RuntimeReplicas []runtimeReplicaEndpoint
 	RuntimeRouting  string
 	InstallID       int64
@@ -65,8 +70,8 @@ func (r *InstalledAppsRegistry) Get(installID int64) *InstalledApp {
 	return r.entries[installID]
 }
 
-// GetByName returns *some* install with the given app name. Returns
-// the LAST-registered one when multiple exist (one per project).
+// GetByName returns the global default, or the oldest project default.
+// The legacy last-registered index is used only before defaults are loaded.
 //
 // IMPORTANT: for apps that can be installed in more than one project
 // (storage, media, anything declaring scopes:[project,global] in its
@@ -78,6 +83,18 @@ func (r *InstalledAppsRegistry) Get(installID int64) *InstalledApp {
 func (r *InstalledAppsRegistry) GetByName(name string) *InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if r.defaults != nil {
+		if id, exists := r.defaults[appInstallScope{name, ""}]; exists {
+			return r.entries[id]
+		}
+		var chosen int64
+		for scope, id := range r.defaults {
+			if scope.name == name && id > 0 && (chosen == 0 || id < chosen) {
+				chosen = id
+			}
+		}
+		return r.entries[chosen]
+	}
 	return r.byName[name]
 }
 
@@ -89,8 +106,8 @@ func (r *InstalledAppsRegistry) GetByName(name string) *InstalledApp {
 //  3. nil.
 //
 // When projectID is "" only the global install is considered. This
-// matches the schema's UNIQUE(app_id, project_id) — exactly one
-// install per (app, project) combination, plus optionally one global.
+// resolves the designated default for each scope. A scope with an unavailable
+// default blocks fallback, even when another installation is running.
 //
 // Used by handleAppProxy to dispatch /api/apps/<name>/...?project_id=...
 // requests to the correct install, instead of last-wins which leaks
@@ -98,6 +115,12 @@ func (r *InstalledAppsRegistry) GetByName(name string) *InstalledApp {
 func (r *InstalledAppsRegistry) GetByNameAndProject(name, projectID string) *InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if id, exists := r.defaults[appInstallScope{name, projectID}]; exists {
+		return r.entries[id]
+	}
+	if r.defaults != nil {
+		return r.entries[r.defaults[appInstallScope{name, ""}]]
+	}
 	var globalMatch *InstalledApp
 	for _, e := range r.entries {
 		if e.AppName != name {
@@ -116,6 +139,9 @@ func (r *InstalledAppsRegistry) GetByNameAndProject(name, projectID string) *Ins
 func (r *InstalledAppsRegistry) GetByNameAndProjectExact(name, projectID string) *InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if id, exists := r.defaults[appInstallScope{name, projectID}]; exists {
+		return r.entries[id]
+	}
 	for _, e := range r.entries {
 		if e.AppName == name && e.ProjectID == projectID {
 			return e
@@ -179,12 +205,20 @@ func (r *InstalledAppsRegistry) Remove(installID int64) {
 // populates the in-memory registry. Called at server boot. Failures
 // for one install are logged and skipped — they don't block boot.
 func (s *Server) LoadInstalledApps() {
+	defaults, err := s.loadInstallationDefaults()
+	if err != nil {
+		log.Printf("[APPS] load installation defaults: %v", err)
+		return
+	}
+	s.installedApps.mu.Lock()
+	s.installedApps.defaults = defaults
+	s.installedApps.mu.Unlock()
 	rows, err := s.store.db.Query(
 		`SELECT i.id, i.app_id, COALESCE(i.project_id, ''), i.service_name,
 			COALESCE(i.sidecar_url_override, ''),
 			COALESCE(i.config_encrypted, ''),
 			i.permissions_json, i.version, a.name,
-			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),i.installation_key
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status = 'running'`)
 	if err != nil {
@@ -197,10 +231,10 @@ func (s *Server) LoadInstalledApps() {
 		var (
 			id, appID                                                              int64
 			projectID, serviceName, sidecarOverride, configEnc, permsJSON, version string
-			appName, manifestJSON                                                  string
+			appName, manifestJSON, installationKey                                 string
 		)
 		if err := rows.Scan(&id, &appID, &projectID, &serviceName, &sidecarOverride,
-			&configEnc, &permsJSON, &version, &appName, &manifestJSON); err != nil {
+			&configEnc, &permsJSON, &version, &appName, &manifestJSON, &installationKey); err != nil {
 			log.Printf("[APPS] scan: %v", err)
 			continue
 		}
@@ -240,6 +274,7 @@ func (s *Server) LoadInstalledApps() {
 			continue
 		}
 		entry := &InstalledApp{
+			MCPName:     installationMCPName(appName, installationKey, id),
 			InstallID:   id,
 			AppName:     appName,
 			ProjectID:   projectID,
@@ -251,6 +286,9 @@ func (s *Server) LoadInstalledApps() {
 		if strings.HasPrefix(sidecarOverride, "static://") {
 			entry.StaticDir = strings.TrimPrefix(sidecarOverride, "static://")
 			entry.MountPath = resolveMountPath(&manifest, cfg)
+			if defaults[appInstallScope{appName, projectID}] != id {
+				entry.MountPath = strings.TrimRight(entry.MountPath, "/") + "/_install/" + strconv.FormatInt(id, 10)
+			}
 			s.installedApps.Add(entry)
 			count++
 			log.Printf("[APPS] mounted %s (install=%d project=%q static_dir=%s mount=%s)",
@@ -571,6 +609,18 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		if !s.requireScopedProjectAccess(w, r, effectiveProjectID, need) {
 			return
 		}
+	}
+	if entry.StaticDir != "" {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "GET or HEAD only", 405)
+			return
+		}
+		request := r.Clone(r.Context())
+		request.URL.Path = path.Clean("/" + strings.TrimPrefix(tail, "/"))
+		selected := *entry
+		selected.MountPath = fmt.Sprintf("/api/apps/%s/_install/%d", appName, entry.InstallID)
+		newStaticAppFileHandler(s, &selected).ServeHTTP(w, request)
+		return
 	}
 	if entry.SidecarURL == "" {
 		http.Error(w, "app sidecar not reachable: "+appName, http.StatusServiceUnavailable)

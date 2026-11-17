@@ -192,14 +192,33 @@ func (s *Server) proxyEnvironmentInstall(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "app credential unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	var entry *InstalledApp
+	if s.installedApps != nil {
+		entry = s.installedApps.Get(inst.InstallID)
+	}
+	public := appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r))
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = tail
 		req.URL.RawPath = ""
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Del("X-Apteva-App-Token")
+		if public {
+			// The app authenticates its own public caller. Keep its bearer
+			// independent of the internal proxy credential.
+			req.Header.Set("X-Apteva-App-Token", token)
+		} else {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 		req.Header.Del("X-Apteva-Operator-ID")
+	}
+	proxy.ModifyResponse = func(response *http.Response) error {
+		response.Header.Del("X-Apteva-Runtime-Public-Auth")
+		if public {
+			response.Header.Set("X-Apteva-Runtime-Public-Auth", "preserved")
+		}
+		return nil
 	}
 	configureAppClientIP(proxy, r, token)
 	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "environment_app", App: inst.AppName, InstallID: inst.InstallID})

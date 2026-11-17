@@ -1,9 +1,9 @@
 {
   "slug": "telnyx",
   "name": "Telnyx",
-  "description": "Telnyx Programmable Voice, Conferences, Recordings, Call Control Applications, Queues, and Phone Numbers API. Use it to search and order EU numbers, build IVRs, control live calls, stream media to AI agents, record calls, and add supervisors for monitor/whisper/barge workflows.",
+  "description": "Telnyx SMS/MMS messaging, messaging profiles, Programmable Voice, Conferences, Recordings, Call Control Applications, Queues, and Phone Numbers API. Use it to search and order EU numbers, build IVRs, control live calls, stream media to AI agents, record calls, and add supervisors for monitor/whisper/barge workflows.",
   "logo": "https://www.google.com/s2/favicons?domain=telnyx.com&sz=128",
-  "categories": ["voice", "calls", "telephony", "phone", "communications", "numbers", "ai"],
+  "categories": ["voice", "calls", "telephony", "phone", "communications", "numbers", "sms", "messaging", "ai"],
   "base_url": "https://api.telnyx.com/v2",
   "auth": {
     "types": ["bearer"],
@@ -13,7 +13,7 @@
       "Accept": "application/json"
     },
     "credential_fields": [
-      { "name": "token", "label": "API Key", "description": "Telnyx API key with Voice API and Numbers permissions.", "type": "password", "required": true },
+      { "name": "token", "label": "API Key", "description": "Telnyx API key with the Messaging, Voice and Numbers permissions required by the tools you use.", "type": "password", "required": true },
       { "name": "connection_id", "label": "Default Call Control Application ID", "description": "Optional default Telnyx Call Control Application / connection ID to copy into call tools.", "required": false },
       { "name": "public_key", "label": "Webhook Public Key", "description": "Optional Telnyx Ed25519 public key from Mission Control Portal > Keys & Credentials > Public Key. Add it only when receiving webhooks so Apteva can verify their signatures; REST API access requires only the API key.", "required": false },
       { "name": "phone_number", "label": "Default From Number", "description": "Optional default Telnyx phone number to call from, in E.164 format.", "required": false }
@@ -26,6 +26,10 @@
   "webhooks": {
     "signature_header": "telnyx-signature-ed25519",
     "events": [
+      {"name": "message.received", "description": "An inbound SMS or MMS arrived."},
+      {"name": "message.sent", "description": "An outbound SMS or MMS was sent."},
+      {"name": "message.finalized", "description": "An outbound SMS or MMS reached a final delivery state."},
+
       { "name": "call.initiated", "description": "A call leg was created." },
       { "name": "call.answered", "description": "A call leg was answered." },
       { "name": "call.hangup", "description": "A call leg ended." },
@@ -45,6 +49,14 @@
     ]
   },
   "tools": [
+    {"name": "send_sms", "description": "Send SMS or MMS from a Telnyx-owned number through its messaging profile. Text is a string, preserving verification-code leading zeros. Set type=MMS for media_urls. Use webhook_url for delivery updates or use_profile_webhooks to use profile callbacks.", "method": "POST", "path": "/messages", "input_schema": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "text": {"type": "string"}, "type": {"type": "string", "enum": ["SMS", "MMS"]}, "messaging_profile_id": {"type": "string"}, "media_urls": {"type": "array", "items": {"type": "string"}}, "webhook_url": {"type": "string"}, "webhook_failover_url": {"type": "string"}, "use_profile_webhooks": {"type": "boolean"}}, "required": ["from", "to"]}},
+    {"name": "get_message", "description": "Retrieve a Telnyx SMS/MMS message and delivery status.", "method": "GET", "path": "/messages/{id}", "path_params": ["id"], "input_schema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
+    {"name": "list_messaging_profiles", "description": "List messaging profiles owned by this Telnyx account.", "method": "GET", "path": "/messaging_profiles", "query_params": ["page[number]", "page[size]", "filter[name]"], "input_schema": {"type": "object", "properties": {"page[number]": {"type": "integer"}, "page[size]": {"type": "integer"}, "filter[name]": {"type": "string"}}}},
+    {"name": "get_messaging_profile", "description": "Retrieve the webhook and messaging settings of a profile owned by this Telnyx account.", "method": "GET", "path": "/messaging_profiles/{id}", "path_params": ["id"], "input_schema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
+    {"name": "create_messaging_profile", "description": "Create a messaging profile. Supply explicit permitted destination countries and webhook configuration. Does not modify voice routing.", "method": "POST", "path": "/messaging_profiles", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "enabled": {"type": "boolean"}, "webhook_url": {"type": "string"}, "webhook_failover_url": {"type": "string"}, "whitelisted_destinations": {"type": "array", "items": {"type": "string"}}, "number_pool_settings": {"type": "object"}, "webhook_api_version": {"type": "string", "enum": ["2"], "description": "Use V2 signed messaging webhooks."}}, "required": ["name", "whitelisted_destinations"]}},
+    {"name": "update_messaging_profile", "description": "Patch only specified messaging-profile fields. The webhook change affects all numbers sharing the profile; inspect profile membership first. Does not change voice settings.", "method": "PATCH", "path": "/messaging_profiles/{id}", "path_params": ["id"], "input_schema": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "enabled": {"type": "boolean"}, "webhook_url": {"type": "string"}, "webhook_failover_url": {"type": "string"}, "whitelisted_destinations": {"type": "array", "items": {"type": "string"}}, "number_pool_settings": {"type": "object"}, "webhook_api_version": {"type": "string", "enum": ["2"], "description": "Use V2 signed messaging webhooks."}}, "required": ["id"]}},
+    {"name": "list_messaging_profile_phone_numbers", "description": "List all phone numbers sharing a messaging profile before changing its webhook. Paginate through every result.", "method": "GET", "path": "/messaging_profiles/{id}/phone_numbers", "path_params": ["id"], "query_params": ["page[number]", "page[size]"], "input_schema": {"type": "object", "properties": {"id": {"type": "string"}, "page[number]": {"type": "integer"}, "page[size]": {"type": "integer"}}, "required": ["id"]}},
+
     {
       "name": "search_available_phone_numbers",
       "description": "Search Telnyx inventory for numbers that can be ordered. Use filter[country_code]=FR or ES and filter[phone_number_type]=local/national/mobile/toll_free where available.",

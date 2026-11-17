@@ -124,14 +124,12 @@ func (b *localRuntimeBackend) Start(req runtimeBackendRequest) (runtimeExecution
 	if runtimeNeedsAdmission(d) {
 		env["APTEVA_RUNTIME_MODE"] = "standby"
 	}
-	if req.Manifest.Runtime.Source != nil {
-		root := filepath.Join(sup.cacheDir, req.Manifest.Name, req.Manifest.Version, "src", req.Manifest.Runtime.Source.Entry)
-		env["APTEVA_UI_DIR"] = filepath.Join(root, "ui")
-		if req.Manifest.DB != nil {
-			env["APTEVA_MIGRATIONS_DIR"] = filepath.Join(root, req.Manifest.DB.Migrations)
-		}
+	// The persisted environment may carry resource paths an older server
+	// derived from <app>/<version>/src. Recompute them from the exact
+	// prepared binary every start.
+	if err = sup.installResourceEnv(d.InstallID, &req.Manifest, d.LocalBin, req.Manifest.Version, env); err != nil {
+		return runtimeExecution{}, err
 	}
-	applyArtifactResourceEnv(&req.Manifest, d.LocalBin, env)
 	spec, err := newActivationSpec(d.InstallID, &req.Manifest, d.LocalBin, d.LocalPort, env)
 	if err != nil {
 		return runtimeExecution{}, err

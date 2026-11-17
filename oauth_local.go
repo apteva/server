@@ -882,6 +882,10 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 		http.Error(w, "unknown or expired state", http.StatusBadRequest)
 		return
 	}
+	if row.Purpose == oauthStatePurposeAppReconnect {
+		s.finishAppOAuthReconnect(w, r, row, state, code, errParam)
+		return
+	}
 	// App return URLs can contain one-time callback credentials. Keep them out
 	// of logs while retaining enough context to diagnose the OAuth flow.
 	log.Printf("[OAUTH-CB] state→connection row: conn=%d user=%d slug=%s purpose=%s app_install=%d has_return_url=%t has_pkce=%t expired=%t",

@@ -188,6 +188,8 @@ func openStore(path string, migrate bool) (*Store, error) {
 	// SQLite writer contention, while this cap prevents an unbounded
 	// pile-up of pooled connections under dashboard reload bursts.
 	db.SetMaxOpenConns(sqliteMaxOpenConns)
+	// Retain connections opened during bursts to avoid reloading the SQLite schema.
+	db.SetMaxIdleConns(sqliteMaxOpenConns)
 
 	// Belt-and-suspenders: also fire the pragmas via Exec so the
 	// initial connection has them even if the DSN parsing changes
@@ -205,6 +207,10 @@ func openStore(path string, migrate bool) (*Store, error) {
 	if migrate {
 		if err := s.migrate(); err != nil {
 			_ = db.Close()
+			return nil, err
+		}
+		if err := s.migrateAppInstallations(); err != nil {
+			db.Close()
 			return nil, err
 		}
 		if err := s.migrateAgentResources(); err != nil {
@@ -1050,6 +1056,19 @@ func (s *Store) migrate() error {
 	// upstream_id stores a durable identifier supplied by a remote MCP or app.
 	// The local mcp_servers.id remains stable when an upstream identity changes.
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN upstream_id TEXT NOT NULL DEFAULT ''")
+
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS app_oauth_reconnects (
+		id TEXT PRIMARY KEY,
+		oauth_state TEXT NOT NULL UNIQUE,
+		connection_id INTEGER NOT NULL,
+		install_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		project_id TEXT NOT NULL,
+		expected_identities TEXT NOT NULL,
+		credential_digest TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		expires_at INTEGER NOT NULL
+	)`)
 
 	// Pending-OAuth state table for local catalog OAuth2 flows.
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS oauth_states (

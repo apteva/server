@@ -318,19 +318,24 @@ func (sup *LocalSupervisor) Restart(installID int64, m *sdk.Manifest, port int, 
 		if selected, ok := m.Runtime.Artifacts[localPlatform()]; !ok || !strings.EqualFold(selected.SHA256, digest) {
 			return errors.New("cached artifact does not match installed manifest")
 		}
-		if env == nil {
-			env = map[string]string{}
-		}
 		if err := verifyAppArtifact(filepath.Dir(binPath), digest, m); err != nil {
 			return err
 		}
-		applyArtifactResourceEnv(m, binPath, env)
 	}
 	if binPath == "" || port == 0 {
 		return fmt.Errorf("no cached bin/port — re-install needed")
 	}
 	if _, err := os.Stat(binPath); err != nil {
 		return fmt.Errorf("cached binary missing at %s: %w", binPath, err)
+	}
+	// Callers may pass a persisted environment carrying resource paths from
+	// an older server. The exact executable decides where its UI and
+	// migrations are, for source packages and artifacts alike.
+	if env == nil {
+		env = map[string]string{}
+	}
+	if err := applyPackagedResourceEnv(installID, m, binPath, env); err != nil {
+		return err
 	}
 	spec, err := newActivationSpec(installID, m, binPath, port, env)
 	if err != nil {
@@ -1446,6 +1451,7 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 		s.store.db.Exec(`UPDATE app_installs SET status='error',error_message=? WHERE id=?`, err.Error(), id)
 		return
 	}
+	recordedBin := binPath
 	resolvedPath, found := portableLocalBinPath(binPath, s.localApps.cacheDir, appName, installedVersion)
 	if !found {
 		s.queueExactRuntimeReconstruction(id, appName, projectID, cfgEnc, installedVersion, manifestJSON)
@@ -1459,19 +1465,26 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 		log.Printf("[APPS-LOCAL] rebased install=%d path %s -> %s", id, binPath, resolvedPath)
 		binPath = resolvedPath
 	}
-	// If the recorded pid is still alive, it's an orphan from a
-	// previous apteva-server (we just started — nothing we spawned
-	// has had time to exist yet). The orphan still holds its port
-	// + log file and would race with our respawn for the cached
+	// If the recorded pid still runs this install's executable, or another
+	// executable from this app's cache (an interrupted upgrade's candidate),
+	// it's an orphan from a previous apteva-server. The orphan still holds its
+	// port + log file and would race with our respawn for the cached
 	// `bin`, so kill it cleanly before proceeding. SIGTERM first,
 	// SIGKILL after a short grace.
+	//
+	// A live pid alone proves nothing: a restarted container starts a
+	// fresh PID namespace and installs resume concurrently, so the
+	// recorded pid can already belong to a sibling app this server just
+	// spawned.
 	if pid > 0 && processAlive(int(pid)) && os.Getenv("APTEVA_HOST_SOCKET") != "" {
 		if err := s.localApps.Adopt(id, int(pid), int(port), binPath, &m); err != nil {
 			log.Printf("[APPS-LOCAL] refusing to replace live hosted process install=%d: %v", id, err)
 		}
 		return
 	}
-	if pid > 0 && processAlive(int(pid)) {
+	if pid > 0 && processAlive(int(pid)) && !localOrphanMatches(int(pid), localAppCacheDir(s.localApps.cacheDir, appName), recordedBin, binPath) {
+		log.Printf("[APPS-LOCAL] recorded pid=%d for install=%d now belongs to another process — leaving it running", pid, id)
+	} else if pid > 0 && processAlive(int(pid)) {
 		log.Printf("[APPS-LOCAL] orphan install=%d pid=%d from previous server — killing before respawn", id, pid)
 		if err := killOrphan(int(pid)); err != nil {
 			s.store.db.Exec(`UPDATE app_installs SET status='error',error_message=? WHERE id=?`, err.Error(), id)
@@ -1498,37 +1511,16 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
 	}
-	// Re-derive APTEVA_UI_DIR + APTEVA_MIGRATIONS_DIR from the
-	// cached clone so the resumed sidecar can serve /ui/*Panel.mjs
-	// and re-run any pending migrations. Without these, dashboard
-	// requests for /api/apps/<name>/ui/<Panel>.mjs come back 404
-	// after every server restart and the operator has to fully
-	// reinstall — see installFromSource for the install-time
-	// counterpart that sets the same env.
-	//
-	// Use the installed version as the cache key. New rows carry a
-	// matching per-install manifest, while the fallback still protects
-	// legacy or partially migrated rows whose manifest version differs.
-	cacheVersion := installedVersion
-	if cacheVersion == "" {
-		cacheVersion = m.Version
+	// Re-derive APTEVA_UI_DIR + APTEVA_MIGRATIONS_DIR so the resumed
+	// sidecar can serve /ui/*Panel.mjs and re-run pending migrations.
+	// Packaged installs resolve them beside the exact cached binary;
+	// legacy flat caches use the INSTALLED version's src directory (the
+	// manifest version can run ahead of what is cached).
+	if err := s.localApps.installResourceEnv(id, &m, binPath, installedVersion, env); err != nil {
+		log.Printf("[APPS-LOCAL] resume failed install=%d: %v", id, err)
+		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
+		return
 	}
-	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
-		srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
-		entryDir := srcDir
-		if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
-			entryDir = filepath.Join(srcDir, e)
-		}
-		env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
-		if m.DB != nil && m.DB.Migrations != "" {
-			migrations := m.DB.Migrations
-			if !filepath.IsAbs(migrations) {
-				migrations = filepath.Join(entryDir, migrations)
-			}
-			env["APTEVA_MIGRATIONS_DIR"] = migrations
-		}
-	}
-	applyArtifactResourceEnv(&m, binPath, env)
 	log.Printf("[APPS-LOCAL] resuming install=%d (pid=%d was dead) ui=%s",
 		id, pid, env["APTEVA_UI_DIR"])
 	if err := s.localApps.Restart(id, &m, int(port), binPath, env); err != nil {
@@ -1551,8 +1543,10 @@ func portableLocalBinPath(recorded, cacheDir, appName, version string) (string, 
 	if appName == "" || version == "" || filepath.Base(appName) != appName || filepath.Base(version) != version {
 		return "", false
 	}
-	if digest := filepath.Base(filepath.Dir(recorded)); validArtifactDigest(digest) && filepath.Base(filepath.Dir(filepath.Dir(recorded))) == "artifacts" {
-		suffix := filepath.Join(appName, version, "artifacts", digest, "bin")
+	// A relocated cache root keeps the recorded package: the same layout and
+	// digest under the same app version, never a different package.
+	if pkg, ok := packagedBinaryPath(recorded); ok {
+		suffix := filepath.Join(appName, version, pkg.Layout, pkg.Digest, "bin")
 		if !strings.HasSuffix(filepath.Clean(recorded), string(filepath.Separator)+suffix) {
 			return "", false
 		}
@@ -1676,6 +1670,12 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 	if err := validateAppRuntimeCompatibility(&m, Version); err != nil {
 		return err
 	}
+	// Resolve resources before stopping anything: an incomplete package is
+	// reported while the current process keeps serving.
+	resources := map[string]string{}
+	if err := s.localApps.installResourceEnv(installID, &m, binPath, installedVersion, resources); err != nil {
+		return err
+	}
 
 	// Stop the currently-tracked process. Stop is a no-op when the
 	// supervisor doesn't have a tracked pid, so we also kill the DB-
@@ -1710,27 +1710,9 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
 	}
-	cacheVersion := installedVersion
-	if cacheVersion == "" {
-		cacheVersion = m.Version
+	for k, v := range resources {
+		env[k] = v
 	}
-	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
-		srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
-		entryDir := srcDir
-		if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
-			entryDir = filepath.Join(srcDir, e)
-		}
-		env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
-		if m.DB != nil && m.DB.Migrations != "" {
-			migrations := m.DB.Migrations
-			if !filepath.IsAbs(migrations) {
-				migrations = filepath.Join(entryDir, migrations)
-			}
-			env["APTEVA_MIGRATIONS_DIR"] = migrations
-		}
-	}
-
-	applyArtifactResourceEnv(&m, binPath, env)
 	log.Printf("[APPS-LOCAL] respawning install=%d after bindings/config change", installID)
 	if err := s.localApps.Restart(installID, &m, int(port), binPath, env); err != nil {
 		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)

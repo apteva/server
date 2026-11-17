@@ -1,0 +1,236 @@
+{
+  "slug": "clawmail",
+  "name": "ClawMail",
+  "description": "Create ClawMail inboxes and send, read, and reply to email.",
+  "logo": "https://www.google.com/s2/favicons?domain=clawmail.me&sz=128",
+  "categories": [
+    "email",
+    "communication"
+  ],
+  "base_url": "https://api.clawmail.me/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "ClawMail API key returned by registration at https://api.clawmail.me/v1/register. See https://clawmail.me/SKILL.md."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_inboxes"
+  },
+  "tools": [
+    {
+      "name": "list_inboxes",
+      "description": "List ClawMail inboxes available to this API key.",
+      "method": "GET",
+      "path": "/inboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_inbox",
+      "description": "Create another inbox under an existing ClawMail account.",
+      "method": "POST",
+      "path": "/inboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Name for the new inbox." }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "get_inbox",
+      "description": "Get a ClawMail inbox by ID.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List messages in a ClawMail inbox, newest first.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of results to return."
+          },
+          "cursor": { "type": "string", "description": "Next cursor from the previous response." },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Return messages received after this timestamp."
+          }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Read a ClawMail message and its safety scan results by ID.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages/{message_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "message_id": { "type": "string", "description": "Message ID returned by the provider." }
+        },
+        "required": ["inbox_id", "message_id"]
+      }
+    },
+    {
+      "name": "send_email",
+      "description": "Queue an email from a ClawMail inbox to recipients specified by the user.",
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "Recipient email address or list of addresses."
+          },
+          "subject": { "type": "string", "description": "Email subject." },
+          "text": { "type": "string", "description": "Plain text email body." },
+          "html": { "type": "string", "description": "HTML email body." },
+          "cc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "CC address or list of addresses."
+          },
+          "bcc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "BCC address or list of addresses."
+          },
+          "in_reply_to": { "type": "string", "description": "Parent message ID from this inbox for threading." }
+        },
+        "required": ["inbox_id", "to", "subject", "text"]
+      }
+    },
+    {
+      "name": "reply_to_message",
+      "description": "Reply to the original sender of a ClawMail message.",
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages/{message_id}/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "message_id": { "type": "string", "description": "Message ID returned by the provider." },
+          "text": { "type": "string", "description": "Plain text email body." },
+          "html": { "type": "string", "description": "HTML email body." },
+          "cc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "CC address or list of addresses."
+          },
+          "bcc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "BCC address or list of addresses."
+          }
+        },
+        "required": ["inbox_id", "message_id", "text"]
+      }
+    },
+    {
+      "name": "get_thread",
+      "description": "List messages in a ClawMail thread, oldest first.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/threads/{thread_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "thread_id": { "type": "string", "description": "Thread ID returned by the provider." },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of results to return."
+          },
+          "cursor": { "type": "string", "description": "Next cursor from the previous response." }
+        },
+        "required": ["inbox_id", "thread_id"]
+      }
+    }
+  ]
+}

@@ -109,6 +109,10 @@ func (s *Store) PatchUserUILayoutGlobalSurface(userID int64, surface string, val
 		if changed == 1 {
 			return json.RawMessage(next), revision + 1, nil
 		}
+		if expectedRevision != nil {
+			current, revision = s.GetUserUILayoutWithRevision(userID)
+			return current, revision, errUILayoutConflict
+		}
 	}
 	current, revision := s.GetUserUILayoutWithRevision(userID)
 	return current, revision, errUILayoutConflict

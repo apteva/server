@@ -19,6 +19,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -271,17 +272,24 @@ func callAppMCPToolAsAgent(mcpURL, token, agentID, tool string, input map[string
 }
 
 func callAppMCPToolWithIdentity(mcpURL, token, agentID string, boundInstallID int64, boundApp, tool string, input map[string]any) (json.RawMessage, error) {
+	return callAppMCPToolScoped(context.Background(), mcpURL, token, "", agentID, boundInstallID, boundApp, tool, input)
+}
+
+func callAppMCPToolScoped(ctx context.Context, mcpURL, token, projectID, agentID string, boundInstallID int64, boundApp, tool string, input map[string]any) (json.RawMessage, error) {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": input},
 	})
-	req, err := http.NewRequest("POST", mcpURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mcpURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if projectID != "" {
+		req.Header.Set("X-Apteva-Project-ID", projectID)
 	}
 	if strings.TrimSpace(agentID) != "" {
 		req.Header.Set("X-Apteva-Caller-Agent", strings.TrimSpace(agentID))

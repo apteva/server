@@ -231,3 +231,44 @@ func TestEnvironmentAppGateway_AgentSegmentAttributesCaller(t *testing.T) {
 		t.Fatalf("malformed agent segment status %d, want 400", code)
 	}
 }
+
+func TestEnvironmentPublicGatewayPreservesCallerAuthorization(t *testing.T) {
+	s := newRuntimeAPITestServer(t)
+	installID := seedRuntimeAPIInstall(t, s, "api")
+	token, err := s.appInstallToken(installID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	received := make(chan http.Header, 3)
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer sidecar.Close()
+	var manifest sdk.Manifest
+	if err := json.Unmarshal([]byte(`{"name":"api","provides":{"http_routes":[{"prefix":"/gw/","no_auth":true}]}}`), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	s.installedApps.Add(&InstalledApp{InstallID: installID, AppName: "api", Manifest: manifest})
+	for _, tc := range []struct{ path, caller, auth, broker string }{
+		{"/gw/items", "Bearer caller", "Bearer caller", token},
+		{"/gw/items", "", "", token},
+		{"/private", "Bearer caller", "Bearer " + token, ""},
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/"+tc.path[1:], nil)
+		request.Header.Set("Authorization", tc.caller)
+		request.Header.Set("X-Apteva-App-Token", "spoofed")
+		response := httptest.NewRecorder()
+		s.proxyEnvironmentInstall(response, request, &localInstall{InstallID: installID, AppName: "api", SidecarURL: sidecar.URL}, tc.path)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("proxy status %d", response.Code)
+		}
+		if got := response.Header().Get("X-Apteva-Runtime-Public-Auth"); (got == "preserved") != strings.HasPrefix(tc.path, "/gw/") {
+			t.Fatalf("unexpected public authorization marker %q for %s", got, tc.path)
+		}
+		headers := <-received
+		if headers.Get("Authorization") != tc.auth || headers.Get("X-Apteva-App-Token") != tc.broker {
+			t.Fatalf("unexpected authorization headers for %s", tc.path)
+		}
+	}
+}

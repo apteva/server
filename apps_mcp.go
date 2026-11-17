@@ -157,6 +157,11 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 		ownerID = 1
 	}
 
+	installation, err := s.appInstallation(installID)
+	if err != nil {
+		return err
+	}
+	mcpName := installationMCPName(appName, installation.Key, installID)
 	upstream := appMCPUpstreamID(installID)
 	// Use DisplayName (short, e.g. "Storage") over Description (long
 	// prose, multiple sentences). The dashboard's MCP list renders
@@ -165,6 +170,10 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 	desc := strings.TrimSpace(manifest.DisplayName)
 	if desc == "" {
 		desc = appName
+	}
+
+	if installation.Key != "default" {
+		desc += " · " + installation.Name + " · " + manifest.Version
 	}
 
 	// Existing row? Update in place. Otherwise insert. We don't use
@@ -186,7 +195,7 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 				project_id = ?,
 				user_id = ?
 			 WHERE id = ?`,
-			appName, desc, mcpURL, string(allowedJSON), len(toolNames),
+			mcpName, desc, mcpURL, string(allowedJSON), len(toolNames),
 			projectID, ownerID, existingID,
 		)
 		if err != nil {
@@ -200,7 +209,7 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 				(user_id, name, description, status, tool_count,
 				 source, transport, url, project_id, allowed_tools, upstream_id)
 			 VALUES (?, ?, ?, 'running', ?, 'app', 'http', ?, ?, ?, ?)`,
-			ownerID, appName, desc, len(toolNames),
+			ownerID, mcpName, desc, len(toolNames),
 			mcpURL, projectID, string(allowedJSON), upstream,
 		)
 		if err != nil {

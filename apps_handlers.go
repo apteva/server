@@ -27,6 +27,8 @@ import (
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
 type AppRow struct {
+	MCPName string `json:"mcp_name,omitempty"`
+	appInstallation
 	Components          []appComponentSummary     `json:"components,omitempty"`
 	AgentSetup          *sdk.AgentSetup           `json:"agent_setup,omitempty"`
 	Deployment          *runtimeDeploymentSummary `json:"deployment,omitempty"`
@@ -720,6 +722,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
 			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0),
 			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != '',
+            i.installation_key,i.installation_name,i.is_default,
 			(EXISTS(SELECT 1 FROM app_component_declarations c WHERE c.install_id=i.id AND c.parent_version=i.version) OR EXISTS(SELECT 1 FROM app_installs c WHERE c.owner_install_id=i.id))
 		FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.owner_install_id=0`
 	if scope != "" && scope != "global" {
@@ -789,11 +792,12 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			upgradePolicy, version, permsJSON                               string
 			name, source, manifestJSON, availableManifestJSON, bindingsJSON string
 			hasPendingOptions, defaultForNewAgents                          int
+			installation                                                    appInstallation
 			upgrading, hasComponents                                        bool
 		)
 		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
 			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON, &availableManifestJSON,
-			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents, &upgrading, &hasComponents); err != nil {
+			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents, &upgrading, &installation.Key, &installation.Name, &installation.Default, &hasComponents); err != nil {
 			continue
 		}
 		var manifest sdk.Manifest
@@ -831,8 +835,10 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			componentRows, _ = s.componentSummaries(installID)
 		}
 		out = append(out, AppRow{
-			Components: componentRows,
-			InstallID:  installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
+			appInstallation: installation,
+			MCPName:         installationMCPName(name, installation.Key, installID),
+			Components:      componentRows,
+			InstallID:       installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
 			AgentSetup:        manifest.AgentSetup,
 			Bindings:          bindings,
 			HasPendingOptions: hasPendingOptions != 0,
@@ -1108,14 +1114,16 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := getUserID(r)
 	var body struct {
-		Placement     *runtimePlacement `json:"placement,omitempty"`
-		ManifestURL   string            `json:"manifest_url"`
-		ManifestYAML  string            `json:"manifest_yaml"`
-		Repo          string            `json:"repo"`
-		Ref           string            `json:"ref"`
-		ProjectID     string            `json:"project_id"`
-		Config        map[string]string `json:"config"`
-		UpgradePolicy string            `json:"upgrade_policy"`
+		InstallationKey  string            `json:"installation_key"`
+		InstallationName string            `json:"installation_name"`
+		Placement        *runtimePlacement `json:"placement,omitempty"`
+		ManifestURL      string            `json:"manifest_url"`
+		ManifestYAML     string            `json:"manifest_yaml"`
+		Repo             string            `json:"repo"`
+		Ref              string            `json:"ref"`
+		ProjectID        string            `json:"project_id"`
+		Config           map[string]string `json:"config"`
+		UpgradePolicy    string            `json:"upgrade_policy"`
 		// Bindings: role → connection_id (kind=integration) or
 		// install_id (kind=app) | null. Sent by the dashboard's
 		// install modal after the operator picks targets for each
@@ -1126,6 +1134,22 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	body.InstallationKey = strings.TrimSpace(body.InstallationKey)
+	if body.InstallationKey == "" {
+		body.InstallationKey = "default"
+	}
+	if !installationKeyPattern.MatchString(body.InstallationKey) {
+		http.Error(w, "installation key must start with a letter and contain up to 40 lowercase letters, digits or hyphens", 400)
+		return
+	}
+	body.InstallationName = strings.TrimSpace(body.InstallationName)
+	if body.InstallationName == "" {
+		body.InstallationName = body.InstallationKey
+	}
+	if len(body.InstallationName) > 100 || strings.ContainsAny(body.InstallationName, "\r\n\x00") {
+		http.Error(w, "invalid installation name", 400)
 		return
 	}
 	installRequestKey, installFingerprint := "", ""
@@ -1184,6 +1208,17 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if !manifestAllowsScope(manifest, scope) {
 		http.Error(w, fmt.Sprintf("app does not support scope %q", scope), http.StatusBadRequest)
+		return
+	}
+
+	var existingInstall int64
+	err = s.store.db.QueryRow(`SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND COALESCE(i.project_id,'')=? AND i.installation_key=?`, manifest.Name, body.ProjectID, body.InstallationKey).Scan(&existingInstall)
+	if err == nil {
+		http.Error(w, "an installation with this key already exists in this scope", http.StatusConflict)
+		return
+	}
+	if err != sql.ErrNoRows {
+		http.Error(w, "check installation identity", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1304,11 +1339,15 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.insertManifestInstall(userID, installRequestKey, installFingerprint, manifest.Version, components,
 		`INSERT INTO app_installs
-		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
-		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings,installation_key,installation_name)
+		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)`,
 		appID, body.ProjectID, configEncrypted, upgradePolicy, manifest.Version, string(manifestJSON), source, body.Repo, body.Ref,
-		string(permsJSON), userID, string(bindingsJSON))
+		string(permsJSON), userID, string(bindingsJSON), body.InstallationKey, body.InstallationName)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			http.Error(w, "an installation with this key already exists in this scope", http.StatusConflict)
+			return
+		}
 		http.Error(w, "create install: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2083,7 +2122,7 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			row.CanCreateNew = false
 			rs, err := s.store.db.Query(
 				`SELECT i.id, a.name,
-				        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name), COALESCE(i.project_id,'')
+				        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name) || ' · ' || i.installation_name || ' · v' || i.version, COALESCE(i.project_id,'')
 				 FROM app_installs i JOIN apps a ON a.id=i.app_id
 				 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 				projectID,
@@ -2117,7 +2156,7 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 		}
 		rs, err := s.store.db.Query(
 			`SELECT i.id, a.name,
-			        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name), COALESCE(i.project_id,'')
+			        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name) || ' · ' || i.installation_name || ' · v' || i.version, COALESCE(i.project_id,'')
 			 FROM app_installs i JOIN apps a ON a.id=i.app_id
 			 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 			projectID,
