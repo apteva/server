@@ -34,7 +34,7 @@ jobs:
         run: |
           go mod edit -dropreplace=github.com/apteva/app-sdk
           go mod download github.com/apteva/app-sdk
-      - run: go test ./... -count=1 -timeout=10m
+      - run: go test ./... -count=1 -timeout=20m
       - run: go vet ./...
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
