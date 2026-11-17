@@ -30,7 +30,7 @@ func (s *Server) handleTelemetryTopology(w http.ResponseWriter, r *http.Request,
 	}
 	a := scope[id]
 	out := sdk.AgentTopology{ServerID: s.telemetryServerID(), AgentID: id, RuntimeID: a.runtime, Threads: []sdk.ObservedThread{}, Attachments: []sdk.ObservedAttachment{}}
-	agent, e := s.store.GetAgentByID(id)
+	agent, e := s.store.GetAgentByIDContext(r.Context(), id)
 	var port int
 	var key string
 	if a.runtimeAgent != nil {

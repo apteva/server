@@ -39,7 +39,7 @@ func uniqueSidebarNames(names []string) []string {
 // PatchUserUILayoutSidebarApp changes one favorite against the latest saved
 // layout. Other favorites, projects, and widget slots remain untouched.
 func (s *Store) PatchUserUILayoutSidebarApp(userID int64, projectID, appName string, pinned bool, defaults []string) (json.RawMessage, int64, []string, error) {
-	if _, err := s.db.Exec(`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
+	if _, err := s.dbExec(`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
 		VALUES (?, '{}', 0, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO NOTHING`, userID); err != nil {
 		return nil, 0, nil, err
 	}
@@ -91,7 +91,7 @@ func (s *Store) PatchUserUILayoutSidebarApp(userID int64, projectID, appName str
 		if len(next) > 128<<10 {
 			return nil, revision, nil, errors.New("ui_layout must be no larger than 128 KiB")
 		}
-		result, err := s.db.Exec(`UPDATE user_preferences SET ui_layout=?, ui_layout_revision=ui_layout_revision+1,
+		result, err := s.dbExec(`UPDATE user_preferences SET ui_layout=?, ui_layout_revision=ui_layout_revision+1,
 			updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND ui_layout_revision=?`, string(next), userID, revision)
 		if err != nil {
 			return nil, revision, nil, err

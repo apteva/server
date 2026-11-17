@@ -83,8 +83,8 @@ func (d *AppEventDispatcher) Start() {
 	if d.stopOutbox == nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		d.stopOutbox = cancel
-		d.server.store.db.Exec("UPDATE app_event_target_outbox SET status='pending' WHERE status='sending'")
-		d.server.store.db.Exec("UPDATE app_subscription_outbox SET status='pending' WHERE status='sending'")
+		d.server.store.dbExec("UPDATE app_event_target_outbox SET status='pending' WHERE status='sending'")
+		d.server.store.dbExec("UPDATE app_subscription_outbox SET status='pending' WHERE status='sending'")
 		d.wg.Add(1)
 		go func() { defer d.wg.Done(); d.runOutbox(ctx) }()
 	}
@@ -294,7 +294,7 @@ func (d *AppEventDispatcher) markDelivered(sub *Subscription, seq uint64) {
 		sub.LastSeqDelivered = seq
 	}
 	d.mu.Unlock()
-	if _, err := d.server.store.db.Exec(
+	if _, err := d.server.store.dbExec(
 		`UPDATE subscriptions SET last_seq_delivered = ? WHERE id = ? AND last_seq_delivered < ?`,
 		seq, sub.ID, seq,
 	); err != nil {

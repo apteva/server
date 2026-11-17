@@ -25,14 +25,14 @@ type runtimeScalingPolicy struct {
 
 func (m *appRuntimeManager) resolvePool(id int64, p *runtimePlacement) error {
 	var raw, project string
-	if err := m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_pools WHERE id=?`, p.PoolID).Scan(&raw); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT record_json FROM app_runtime_pools WHERE id=?`, p.PoolID).Scan(&raw); err != nil {
 		return fmt.Errorf("execution pool not found")
 	}
 	var pool runtimePool
 	if err := json.Unmarshal([]byte(raw), &pool); err != nil {
 		return err
 	}
-	m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project)
+	m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project)
 	if pool.ProjectID != project || pool.Backend != p.Backend || len(pool.Targets) == 0 {
 		return fmt.Errorf("pool is incompatible with this installation")
 	}
@@ -40,7 +40,7 @@ func (m *appRuntimeManager) resolvePool(id int64, p *runtimePlacement) error {
 	best := int64(1 << 62)
 	for _, target := range pool.Targets {
 		var count int64
-		m.s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_deployments WHERE status IN ('preparing','prepared','starting','ready','active') AND json_extract(record_json,'$.placement.target.app_install_id')=? AND json_extract(record_json,'$.placement.target.resource_type')=? AND json_extract(record_json,'$.placement.target.resource_id')=?`, target.InstallID, target.Type, target.ID).Scan(&count)
+		m.s.store.dbQueryRowContext(m.ctx, `SELECT COUNT(*) FROM app_runtime_deployments WHERE status IN ('preparing','prepared','starting','ready','active') AND json_extract(record_json,'$.placement.target.app_install_id')=? AND json_extract(record_json,'$.placement.target.resource_type')=? AND json_extract(record_json,'$.placement.target.resource_id')=?`, target.InstallID, target.Type, target.ID).Scan(&count)
 		if count < best {
 			best = count
 			p.Target = target
@@ -86,7 +86,7 @@ func (m *appRuntimeManager) scale(id int64, want int) error {
 }
 func (m *appRuntimeManager) scaleOperation(op *runtimeOperation) error {
 	var want int
-	if err := m.s.store.db.QueryRow(`SELECT desired_replicas FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&want); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT desired_replicas FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&want); err != nil {
 		return err
 	}
 	if want < 1 || want > 32 {
@@ -120,7 +120,7 @@ func (m *appRuntimeManager) scaleOperation(op *runtimeOperation) error {
 		if err = m.stopDeployment(&d, *op); err != nil {
 			return err
 		}
-		m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID)
+		m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID)
 		live = live[:len(live)-1]
 	}
 	for len(live) < want {
@@ -216,7 +216,7 @@ func (m *appRuntimeManager) scaleOperation(op *runtimeOperation) error {
 	return nil
 }
 func (m *appRuntimeManager) autoscale() {
-	rows, err := m.s.store.db.Query(`SELECT record_json FROM app_runtime_scaling`)
+	rows, err := m.s.store.dbQueryContext(m.ctx, `SELECT record_json FROM app_runtime_scaling`)
 	if err != nil {
 		return
 	}
@@ -273,7 +273,7 @@ func (m *appRuntimeManager) autoscale() {
 		}
 		if err = m.scale(p.InstallID, wanted); err == nil {
 			p.LastScaled = time.Now().Unix()
-			m.s.store.db.Exec(`UPDATE app_runtime_scaling SET record_json=? WHERE install_id=?`, runtimeJSON(p), p.InstallID)
+			m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_scaling SET record_json=? WHERE install_id=?`, runtimeJSON(p), p.InstallID)
 		}
 	}
 }

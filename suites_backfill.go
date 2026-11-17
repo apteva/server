@@ -29,7 +29,7 @@ func (s *Server) BackfillMissingMCPServers() {
 }
 
 func (s *Server) backfillMissingMCPRows() {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT c.id, c.user_id, c.app_slug, c.app_name, c.name, c.auth_type,
 		       COALESCE(c.source,'local'), c.status, COALESCE(c.project_id,''), c.encrypted_credentials
 		FROM connections c
@@ -44,14 +44,28 @@ func (s *Server) backfillMissingMCPRows() {
 	defer rows.Close()
 
 	count := 0
-	for rows.Next() {
-		var conn Connection
-		var source, projectID, encCreds string
-		if err := rows.Scan(&conn.ID, &conn.UserID, &conn.AppSlug, &conn.AppName, &conn.Name,
-			&conn.AuthType, &source, &conn.Status, &projectID, &encCreds); err != nil {
-			log.Printf("[BACKFILL-MCP] scan failed: %v", err)
-			continue
+	type databaseRecord struct {
+		conn      Connection
+		source    string
+		projectID string
+		encCreds  string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.conn.ID, &record.conn.UserID, &record.conn.AppSlug, &record.conn.AppName, &record.conn.Name, &record.conn.AuthType, &record.source, &record.conn.Status, &record.projectID, &record.encCreds); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		conn := record.conn
+		source := record.source
+		projectID := record.projectID
+		encCreds := record.encCreds
+
 		conn.Source = source
 		conn.ProjectID = projectID
 		toolCount := 0
@@ -77,6 +91,7 @@ func (s *Server) backfillMissingMCPRows() {
 			count++
 		}
 	}
+
 	if count > 0 {
 		log.Printf("[BACKFILL-MCP] healed %d orphaned connections", count)
 	}
@@ -88,7 +103,7 @@ func (s *Server) backfillMissingMCPRows() {
 // connection is a suite child AND whose current MCP name doesn't
 // already contain the app slug — so repeated runs are idempotent.
 func (s *Server) backfillSuiteChildMCPSlugs() {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT c.id, c.user_id, c.app_slug, c.name, c.encrypted_credentials,
 		       m.id, m.name, COALESCE(c.project_id,'')
 		FROM connections c
@@ -101,12 +116,36 @@ func (s *Server) backfillSuiteChildMCPSlugs() {
 	defer rows.Close()
 
 	renamed := 0
-	for rows.Next() {
-		var connID, userID, mcpID int64
-		var appSlug, connName, encCreds, mcpName, projectID string
-		if err := rows.Scan(&connID, &userID, &appSlug, &connName, &encCreds, &mcpID, &mcpName, &projectID); err != nil {
-			continue
+	type databaseRecord struct {
+		connID    int64
+		userID    int64
+		mcpID     int64
+		appSlug   string
+		connName  string
+		encCreds  string
+		mcpName   string
+		projectID string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.connID, &record.userID, &record.appSlug, &record.connName, &record.encCreds, &record.mcpID, &record.mcpName, &record.projectID); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		connID := record.connID
+		userID := record.userID
+		mcpID := record.mcpID
+		appSlug := record.appSlug
+		connName := record.connName
+		encCreds := record.encCreds
+		mcpName := record.mcpName
+		projectID := record.projectID
+
 		plain, err := Decrypt(s.secret, encCreds)
 		if err != nil {
 			continue
@@ -126,11 +165,12 @@ func (s *Server) backfillSuiteChildMCPSlugs() {
 		if desired == mcpName {
 			continue
 		}
-		if _, err := s.store.db.Exec("UPDATE mcp_servers SET name = ? WHERE id = ?", desired, mcpID); err == nil {
+		if _, err := s.store.dbExec("UPDATE mcp_servers SET name = ? WHERE id = ?", desired, mcpID); err == nil {
 			log.Printf("[BACKFILL-MCP] renamed mcp=%d %q → %q", mcpID, mcpName, desired)
 			renamed++
 		}
 	}
+
 	if renamed > 0 {
 		log.Printf("[BACKFILL-MCP] renamed %d suite-child MCP slugs", renamed)
 	}

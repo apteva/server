@@ -15,7 +15,7 @@ import (
 )
 
 func (s *Store) migrateAppSetup() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS app_setup_choices (
+	_, err := s.dbExec(`CREATE TABLE IF NOT EXISTS app_setup_choices (
  install_id INTEGER PRIMARY KEY REFERENCES app_installs(id) ON DELETE CASCADE,
  features_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`)
 	return err
@@ -57,7 +57,7 @@ func setupFeatures(m *sdk.Manifest) []sdk.SetupFeature {
 }
 func (s *Server) setupChoices(id int64, m *sdk.Manifest) []string {
 	var raw string
-	if err := s.store.db.QueryRow(`SELECT features_json FROM app_setup_choices WHERE install_id=?`, id).Scan(&raw); err == nil {
+	if err := s.store.dbQueryRow(`SELECT features_json FROM app_setup_choices WHERE install_id=?`, id).Scan(&raw); err == nil {
 		var values []string
 		if json.Unmarshal([]byte(raw), &values) == nil {
 			valid := []string{}
@@ -139,7 +139,7 @@ func (s *Server) handleAppSetup(w http.ResponseWriter, r *http.Request) {
 			seen[id] = true
 		}
 		raw, _ := json.Marshal(body.Features)
-		_, err = s.store.db.Exec(`INSERT INTO app_setup_choices(install_id,features_json) VALUES(?,?) ON CONFLICT(install_id) DO UPDATE SET features_json=excluded.features_json,updated_at=CURRENT_TIMESTAMP`, id, string(raw))
+		_, err = s.store.dbExecContext(r.Context(), `INSERT INTO app_setup_choices(install_id,features_json) VALUES(?,?) ON CONFLICT(install_id) DO UPDATE SET features_json=excluded.features_json,updated_at=CURRENT_TIMESTAMP`, id, string(raw))
 		if err != nil {
 			http.Error(w, "could not save setup choices", 500)
 			return
@@ -182,7 +182,7 @@ func (s *Server) handleAppSetup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var project, status string
-	_ = s.store.db.QueryRow(`SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, id).Scan(&project, &status)
+	_ = s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, id).Scan(&project, &status)
 	writeJSON(w, map[string]any{"features": setupFeatures(m), "selected_features": s.setupChoices(id, m), "required_feature": required, "nodes": nodes, "project_id": project, "install_status": status, "shared": project == ""})
 }
 
@@ -196,7 +196,7 @@ type setupWalk struct {
 func (v *setupWalk) feature(id int64, feature, parentProject string, path map[string]bool) appSetupNode {
 	n := appSetupNode{InstallID: id, FeatureID: feature, Label: feature, Status: "needs_setup"}
 	var project, status string
-	if v.s.store.db.QueryRow(`SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, id).Scan(&project, &status) != nil || (!v.s.setupAccess(v.r, project) && !(project == "" && parentProject != "" && v.s.setupAccess(v.r, parentProject))) || (parentProject != "" && project != "" && project != parentProject) {
+	if v.s.store.dbQueryRow(`SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, id).Scan(&project, &status) != nil || (!v.s.setupAccess(v.r, project) && !(project == "" && parentProject != "" && v.s.setupAccess(v.r, parentProject))) || (parentProject != "" && project != "" && project != parentProject) {
 		n.Message = "Dependency is unavailable or outside your access."
 		return n
 	}

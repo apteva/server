@@ -70,7 +70,7 @@ func (s *Server) registerAppDeploymentRoutes(mux *http.ServeMux) {
 				http.Error(w, "backend discovery unavailable", 503)
 				return
 			}
-			rows, err := s.store.db.Query(`SELECT record_json FROM app_runtime_backends ORDER BY install_id,backend_id`)
+			rows, err := s.store.dbQuery(`SELECT record_json FROM app_runtime_backends ORDER BY install_id,backend_id`)
 			if err != nil {
 				http.Error(w, "backend catalog unavailable", 503)
 				return
@@ -95,7 +95,7 @@ func (s *Server) registerAppDeploymentRoutes(mux *http.ServeMux) {
 				http.Error(w, "backend owns deployment resources", 409)
 				return
 			}
-			s.store.db.Exec(`DELETE FROM app_runtime_backends WHERE install_id=? AND backend_id=?`, id, r.URL.Query().Get("backend_id"))
+			s.store.dbExec(`DELETE FROM app_runtime_backends WHERE install_id=? AND backend_id=?`, id, r.URL.Query().Get("backend_id"))
 			writeJSON(w, map[string]bool{"deleted": true})
 		default:
 			http.Error(w, "method not allowed", 405)
@@ -118,13 +118,13 @@ func (s *Server) registerAppDeploymentRoutes(mux *http.ServeMux) {
 			}
 			for _, target := range p.Targets {
 				var project string
-				err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, target.InstallID).Scan(&project)
+				err := s.store.dbQueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, target.InstallID).Scan(&project)
 				if err != nil || project != "" && project != p.ProjectID || target.Type == "" || target.ID == "" {
 					http.Error(w, "invalid pool target owner", 400)
 					return
 				}
 			}
-			_, err := s.store.db.Exec(`INSERT INTO app_runtime_pools(id,record_json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json`, p.ID, runtimeJSON(p))
+			_, err := s.store.dbExec(`INSERT INTO app_runtime_pools(id,record_json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json`, p.ID, runtimeJSON(p))
 			if err != nil {
 				http.Error(w, "pool persistence failed", 500)
 				return
@@ -136,7 +136,7 @@ func (s *Server) registerAppDeploymentRoutes(mux *http.ServeMux) {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		rows, err := s.store.db.Query(`SELECT record_json FROM app_runtime_pools`)
+		rows, err := s.store.dbQuery(`SELECT record_json FROM app_runtime_pools`)
 		if err != nil {
 			http.Error(w, "pool catalog unavailable", 503)
 			return
@@ -245,7 +245,7 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 			active, _ := m.active(id)
 			if path == "deployment/endpoints" {
 				var status string
-				s.store.db.QueryRow(`SELECT status FROM app_installs WHERE id=?`, id).Scan(&status)
+				s.store.dbQueryRowContext(r.Context(), `SELECT status FROM app_installs WHERE id=?`, id).Scan(&status)
 				if active.ID == "" || active.Status != "active" || status != "running" {
 					http.Error(w, "no active endpoint", 503)
 					return
@@ -254,7 +254,7 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 				return
 			}
 			var pending, raw string
-			s.store.db.QueryRow(`SELECT runtime_pending_deployment,runtime_placement_json FROM app_installs WHERE id=?`, id).Scan(&pending, &raw)
+			s.store.dbQueryRowContext(r.Context(), `SELECT runtime_pending_deployment,runtime_placement_json FROM app_installs WHERE id=?`, id).Scan(&pending, &raw)
 			var p runtimePlacement
 			json.Unmarshal([]byte(raw), &p)
 			writeJSON(w, map[string]any{"placement": p, "active_deployment_id": active.ID, "pending_deployment_id": pending, "deployments": ds, "summary": m.deploymentSummary(id), "operations": m.consoleOperations(id), "can_scale": active.ID != "" && m.replicaEligible(active) == nil})
@@ -298,7 +298,7 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 		}
 		p.InstallID = id
 		p.LastScaled = 0
-		_, err = s.store.db.Exec(`INSERT INTO app_runtime_scaling(install_id,record_json) VALUES(?,?) ON CONFLICT(install_id) DO UPDATE SET record_json=excluded.record_json`, id, runtimeJSON(p))
+		_, err = s.store.dbExecContext(r.Context(), `INSERT INTO app_runtime_scaling(install_id,record_json) VALUES(?,?) ON CONFLICT(install_id) DO UPDATE SET record_json=excluded.record_json`, id, runtimeJSON(p))
 		if err != nil {
 			http.Error(w, "scaling policy persistence failed", 500)
 			return
@@ -326,7 +326,7 @@ func (s *Server) handleAppDeployment(w http.ResponseWriter, r *http.Request, id 
 				body.Placement = current.Placement
 			} else {
 				var raw string
-				if err = m.s.store.db.QueryRow(`SELECT runtime_placement_json FROM app_installs WHERE id=?`, id).Scan(&raw); err != nil || raw == "" || json.Unmarshal([]byte(raw), &body.Placement) != nil {
+				if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT runtime_placement_json FROM app_installs WHERE id=?`, id).Scan(&raw); err != nil || raw == "" || json.Unmarshal([]byte(raw), &body.Placement) != nil {
 					http.Error(w, "installation has no persisted execution placement", 409)
 					return
 				}

@@ -19,7 +19,7 @@ func (s *Server) updateAppCatalogMetadata(appID int64, manifest *sdk.Manifest, s
 	appCatalogMetadataMu.Lock()
 	defer appCatalogMetadataMu.Unlock()
 	var currentJSON string
-	if err := s.store.db.QueryRow(`SELECT manifest_json FROM apps WHERE id = ?`, appID).Scan(&currentJSON); err != nil {
+	if err := s.store.dbQueryRow(`SELECT manifest_json FROM apps WHERE id = ?`, appID).Scan(&currentJSON); err != nil {
 		return
 	}
 	var current sdk.Manifest
@@ -31,7 +31,7 @@ func (s *Server) updateAppCatalogMetadata(appID int64, manifest *sdk.Manifest, s
 	if err != nil {
 		return
 	}
-	_, _ = s.store.db.Exec(
+	_, _ = s.store.dbExec(
 		`UPDATE apps
 		 SET manifest_json = ?,
 		     source = COALESCE(NULLIF(?, ''), source),
@@ -47,7 +47,7 @@ func (s *Server) updateAppCatalogMetadataByName(appName string, manifest *sdk.Ma
 		return
 	}
 	var appID int64
-	if err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name = ?`, appName).Scan(&appID); err != nil {
+	if err := s.store.dbQueryRow(`SELECT id FROM apps WHERE name = ?`, appName).Scan(&appID); err != nil {
 		return
 	}
 	s.updateAppCatalogMetadata(appID, manifest, "", "", "")

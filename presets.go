@@ -72,7 +72,7 @@ func scanStoredPreset(scanner interface{ Scan(...any) error }) (storedPreset, er
 
 func (s *Store) listPresets(userID int64, kind string, admin ...bool) ([]storedPreset, error) {
 	isAdmin := len(admin) > 0 && admin[0]
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
 		FROM presets
 		WHERE kind=? AND (?=1 OR scope='shared' OR (scope='personal' AND user_id=?) OR (scope='project' AND EXISTS(
@@ -94,7 +94,7 @@ func (s *Store) listPresets(userID int64, kind string, admin ...bool) ([]storedP
 }
 
 func (s *Store) listProjectTemplates(projectID, kind string) ([]storedPreset, error) {
-	rows, err := s.db.Query(`SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
+	rows, err := s.dbQuery(`SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
 		FROM presets WHERE kind=? AND scope='project' AND project_id=? ORDER BY name COLLATE NOCASE,id`, kind, projectID)
 	if err != nil {
 		return nil, err
@@ -112,13 +112,13 @@ func (s *Store) listProjectTemplates(projectID, kind string) ([]storedPreset, er
 }
 
 func (s *Store) getPreset(_ int64, id string) (storedPreset, error) {
-	return scanStoredPreset(s.db.QueryRow(`
+	return scanStoredPreset(s.dbQueryRow(`
 		SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
 		FROM presets WHERE id=?`, id))
 }
 
 func (s *Store) insertPreset(row storedPreset) (storedPreset, error) {
-	_, err := s.db.Exec(`
+	_, err := s.dbExec(`
 		INSERT INTO presets(id,user_id,project_id,kind,scope,schema_version,revision,name,description,definition_json)
 		VALUES(?,?,?,?,?,?,?,?,?,?)`, row.ID, row.UserID, nullablePresetProjectID(row.ProjectID), row.Kind, row.Scope, row.SchemaVersion, 1,
 		row.Name, row.Description, string(row.Definition))
@@ -136,7 +136,7 @@ func nullablePresetProjectID(value string) any {
 }
 
 func (s *Store) updatePreset(userID int64, row storedPreset) (storedPreset, error) {
-	result, err := s.db.Exec(`
+	result, err := s.dbExec(`
 		UPDATE presets SET project_id=?,scope=?,schema_version=?,revision=revision+1,name=?,description=?,definition_json=?,updated_at=CURRENT_TIMESTAMP
 		WHERE id=?`, nullablePresetProjectID(row.ProjectID), row.Scope, row.SchemaVersion, row.Name, row.Description,
 		string(row.Definition), row.ID)
@@ -150,7 +150,7 @@ func (s *Store) updatePreset(userID int64, row storedPreset) (storedPreset, erro
 }
 
 func (s *Store) deletePreset(_ int64, id string) error {
-	result, err := s.db.Exec(`DELETE FROM presets WHERE id=?`, id)
+	result, err := s.dbExec(`DELETE FROM presets WHERE id=?`, id)
 	if err != nil {
 		return err
 	}
@@ -270,7 +270,7 @@ func (s *Store) availablePresetID(userID int64, scope, projectID, name string) s
 			candidate += "-" + i64s(suffix)
 		}
 		var exists int
-		if s.db.QueryRow(`SELECT 1 FROM presets WHERE id=?`, candidate).Scan(&exists) == sql.ErrNoRows {
+		if s.dbQueryRow(`SELECT 1 FROM presets WHERE id=?`, candidate).Scan(&exists) == sql.ErrNoRows {
 			return candidate
 		}
 	}
@@ -701,7 +701,7 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 	if scope == "" {
 		scope = "personal"
 	}
-	rows, err := s.store.db.Query(`SELECT id,name,directive,COALESCE(mode,'autonomous'),COALESCE(config,'{}')
+	rows, err := s.store.dbQuery(`SELECT id,name,directive,COALESCE(mode,'autonomous'),COALESCE(config,'{}')
 		FROM agents WHERE project_id=? AND COALESCE(kind,'user')='user' ORDER BY id`, body.ProjectID)
 	if err != nil {
 		return Preset{}, err
@@ -710,13 +710,26 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 	var agents []ProjectPresetAgent
 	agentKeys := map[int64]string{}
 	keys := map[string]int{}
-	for rows.Next() {
-		var id int64
-		var agent ProjectPresetAgent
-		var configRaw string
-		if err := rows.Scan(&id, &agent.Name, &agent.Directive, &agent.Mode, &configRaw); err != nil {
-			return Preset{}, err
+	type databaseRecord struct {
+		id        int64
+		agent     ProjectPresetAgent
+		configRaw string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.agent.Name, &record.agent.Directive, &record.agent.Mode, &record.configRaw); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return Preset{}, err
+	}
+	for _, record := range readRecords {
+		id := record.id
+		agent := record.agent
+		configRaw := record.configRaw
+
 		base := presetSlug(agent.Name)
 		keys[base]++
 		agent.Key = base
@@ -724,7 +737,7 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 			agent.Key += "-" + i64s(int64(keys[base]))
 		}
 		agentKeys[id] = agent.Key
-		_ = s.store.db.QueryRow("SELECT icon FROM agent_appearances WHERE agent_id=?", id).Scan(&agent.Icon)
+		_ = s.store.dbQueryRow("SELECT icon FROM agent_appearances WHERE agent_id=?", id).Scan(&agent.Icon)
 		var config map[string]any
 		if json.Unmarshal([]byte(configRaw), &config) == nil {
 			agent.Unconscious, _ = config["unconscious"].(bool)
@@ -738,21 +751,31 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 				agent.Capabilities = []AgentCapability{{Name: platformMCPName, AllowedTools: tools}}
 			}
 		}
-		appRows, err := s.store.db.Query(`SELECT a.name FROM app_agent_bindings b
+		appRows, err := s.store.dbQuery(`SELECT a.name FROM app_agent_bindings b
 			JOIN app_installs i ON i.id=b.install_id JOIN apps a ON a.id=i.app_id
 			WHERE b.agent_id=? AND b.enabled=1 ORDER BY a.name`, id)
 		if err != nil {
 			return Preset{}, err
 		}
-		for appRows.Next() {
-			var app string
-			if appRows.Scan(&app) == nil {
-				agent.Apps = append(agent.Apps, app)
+		type databaseRecord struct{ app string }
+		readRecords, err := collectSQLRows(appRows, func(scanner rowScanner) (databaseRecord, error) {
+			var record databaseRecord
+			if err := scanner.Scan(&record.app); err != nil {
+				return record, err
 			}
+			return record, nil
+		})
+		if err != nil {
+			return Preset{}, err
 		}
+		for _, record := range readRecords {
+			agent.Apps = append(agent.Apps, record.app)
+		}
+
 		appRows.Close()
 		agents = append(agents, agent)
 	}
+
 	if err := rows.Err(); err != nil {
 		return Preset{}, err
 	}

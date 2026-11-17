@@ -28,7 +28,7 @@ func validAgentAppearance(icon, color string) bool {
 }
 
 func (s *Store) updateAgentIdentity(id int64, name, icon, color *string) error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (s *Store) populateAgentAppearances(agents []Agent) error {
 			args[i-start] = agents[i].ID
 		}
 		query := "SELECT agent_id, icon, icon_color FROM agent_appearances WHERE agent_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(args)), ",") + ")"
-		rows, err := s.db.Query(query, args...)
+		rows, err := s.dbQuery(query, args...)
 		if err != nil {
 			return err
 		}

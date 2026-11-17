@@ -102,7 +102,7 @@ func (s *Server) handleSetInstallConfig(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "encrypt: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		`UPDATE app_installs SET config_encrypted = ? WHERE id = ?`,
 		enc, installID,
 	); err != nil {
@@ -151,7 +151,7 @@ func parseInstallIDFromConfigPath(urlPath string) (int64, error) {
 // can always range over the result without nil-checks.
 func decryptInstallConfig(s *Server, installID int64) (map[string]any, error) {
 	var enc string
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT COALESCE(config_encrypted, '') FROM app_installs WHERE id = ?`,
 		installID,
 	).Scan(&enc); err != nil {

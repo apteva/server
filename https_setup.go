@@ -462,7 +462,7 @@ func (s *Server) handleInstanceHTTPS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var routeCount int
-		if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM ingress_routes WHERE hostname=? AND status='active'`, cfg.Hostname).Scan(&routeCount); err != nil || routeCount > 0 {
+		if err := s.store.dbQueryRowContext(r.Context(), `SELECT COUNT(*) FROM ingress_routes WHERE hostname=? AND status='active'`, cfg.Hostname).Scan(&routeCount); err != nil || routeCount > 0 {
 			n.operation.Unlock()
 			http.Error(w, "this hostname is already assigned to an app ingress route; use another hostname", 409)
 			return
@@ -761,7 +761,7 @@ func (n *instanceHTTPSManager) run(c instanceHTTPSConfig, checkOnly bool) {
 	n.state.Message = "HTTPS verified from this server; public address is active"
 	n.state.UpdatedAt = time.Now().UTC()
 	raw, _ := json.Marshal(n.state)
-	tx, err := n.server.store.db.Begin()
+	tx, err := n.server.store.dbBegin()
 	if err == nil {
 		_, err = tx.Exec(`INSERT INTO server_settings(key,value) VALUES('instance_https',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(raw))
 		if err == nil {

@@ -59,7 +59,7 @@ func (s *Server) migrateProvidersToConnections() providerMigrationResult {
 		return result
 	}
 
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT id, user_id, type, name, COALESCE(project_id,''), encrypted_data FROM providers ORDER BY id`)
 	if err != nil {
 		log.Printf("[PROVIDER-MIGRATION] cannot read providers: %v", err)
@@ -307,7 +307,7 @@ func templateFieldForNamespace(tmpl, namespace string) (string, bool) {
 // migrated from this provider row, or 0.
 func (s *Store) connectionForLegacyProvider(userID, providerID int64) (int64, error) {
 	var id int64
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id FROM connections WHERE user_id = ? AND legacy_provider_id = ? LIMIT 1`,
 		userID, providerID,
 	).Scan(&id)
@@ -323,7 +323,7 @@ func (s *Store) connectionForLegacyProvider(userID, providerID int64) (int64, er
 func (s *Store) matchingConnection(
 	secret []byte, userID int64, appSlug, projectID string, incoming map[string]string,
 ) (identicalID, conflictID int64, err error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, COALESCE(legacy_provider_id,0), encrypted_credentials FROM connections
 		 WHERE user_id = ? AND app_slug = ? AND COALESCE(project_id,'') = ?`,
 		userID, appSlug, projectID)
@@ -397,7 +397,7 @@ func (s *Server) createMigratedConnection(
 	if err != nil {
 		return err
 	}
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -430,7 +430,7 @@ func (s *Server) createMigratedConnection(
 // Provider runtime settings win because that row was the active runtime before
 // migration; unrelated existing config keys are retained.
 func (s *Store) adoptMigratedConnection(userID, providerID, connID int64, incoming map[string]any) error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}

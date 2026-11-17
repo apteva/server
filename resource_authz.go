@@ -19,7 +19,7 @@ func (s *Server) requireScopedProjectAccess(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) requireAppInstallAccess(w http.ResponseWriter, r *http.Request, installID int64, need ProjectRole) (string, bool) {
 	var projectID string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&projectID); err != nil {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&projectID); err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "install not found", http.StatusNotFound)
 		} else {
@@ -32,7 +32,7 @@ func (s *Server) requireAppInstallAccess(w http.ResponseWriter, r *http.Request,
 
 func (s *Server) requireSkillAccess(w http.ResponseWriter, r *http.Request, skillID int64, need ProjectRole) (string, bool) {
 	var projectID string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM skills WHERE id=?`, skillID).Scan(&projectID); err != nil {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM skills WHERE id=?`, skillID).Scan(&projectID); err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "skill not found", http.StatusNotFound)
 		} else {
@@ -44,7 +44,7 @@ func (s *Server) requireSkillAccess(w http.ResponseWriter, r *http.Request, skil
 }
 
 func (s *Server) requireAgentAccess(w http.ResponseWriter, r *http.Request, agentID int64, need ProjectRole) (*Agent, bool) {
-	agent, err := s.store.GetAgentByID(agentID)
+	agent, err := s.store.GetAgentByIDContext(r.Context(), agentID)
 	if err != nil {
 		http.Error(w, "agent not found", http.StatusNotFound)
 		return nil, false

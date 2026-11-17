@@ -181,7 +181,7 @@ func (s *Server) hydratePolicyModels(conn runtimeConnection, app *AppTemplate, s
 	unlock := s.lockRuntimeModelConfig(conn.ID)
 	defer unlock()
 	var saved string
-	if err := s.store.db.QueryRow("SELECT COALESCE(runtime_config,'{}') FROM connections WHERE id = ?", conn.ID).Scan(&saved); err == nil {
+	if err := s.store.dbQueryRow("SELECT COALESCE(runtime_config,'{}') FROM connections WHERE id = ?", conn.ID).Scan(&saved); err == nil {
 		var latest map[string]any
 		if json.Unmarshal([]byte(saved), &latest) == nil && latest != nil {
 			clear(state)

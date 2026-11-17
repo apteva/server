@@ -5,6 +5,7 @@ package main
 // schema (users.role, project_members, project_invites).
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -86,17 +87,21 @@ var (
 // return PlatformUser as a safe default (callers should already have
 // validated the user_id before reaching the authz layer).
 func (s *Store) GetPlatformRole(userID int64) PlatformRole {
+	role, _ := s.GetPlatformRoleContext(context.Background(), userID)
+	return role
+}
+func (s *Store) GetPlatformRoleContext(ctx context.Context, userID int64) (PlatformRole, error) {
 	var role string
-	err := s.db.QueryRow(
+	err := s.dbQueryRowContext(ctx,
 		"SELECT COALESCE(role,'user') FROM users WHERE id = ?", userID,
 	).Scan(&role)
 	if err != nil {
-		return PlatformUser
+		return PlatformUser, err
 	}
 	if role == string(PlatformAdmin) {
-		return PlatformAdmin
+		return PlatformAdmin, nil
 	}
-	return PlatformUser
+	return PlatformUser, nil
 }
 
 // SetPlatformRole updates a user's platform role with the "at least one
@@ -108,7 +113,7 @@ func (s *Store) SetPlatformRole(userID int64, role PlatformRole) error {
 		return fmt.Errorf("invalid platform role: %s", role)
 	}
 	// Wrap in a transaction so the count-and-update is atomic.
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -139,8 +144,11 @@ func (s *Store) SetPlatformRole(userID int64, role PlatformRole) error {
 // (sql.ErrNoRows, "") if they aren't a member. The authz helper
 // checks admin status FIRST so this only matters for non-admin users.
 func (s *Store) GetProjectRole(projectID string, userID int64) (ProjectRole, error) {
+	return s.GetProjectRoleContext(context.Background(), projectID, userID)
+}
+func (s *Store) GetProjectRoleContext(ctx context.Context, projectID string, userID int64) (ProjectRole, error) {
 	var role string
-	err := s.db.QueryRow(
+	err := s.dbQueryRowContext(ctx,
 		`SELECT role FROM project_members WHERE project_id = ? AND user_id = ?`,
 		projectID, userID,
 	).Scan(&role)
@@ -154,7 +162,7 @@ func (s *Store) GetProjectRole(projectID string, userID int64) (ProjectRole, err
 // email joined in for direct rendering. Owners first, then editors,
 // then viewers; within a tier ordered by added_at.
 func (s *Store) ListProjectMembers(projectID string) ([]ProjectMember, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT m.project_id, m.user_id, u.email, m.role,
 		       COALESCE(m.added_by, 0), m.added_at
 		  FROM project_members m
@@ -188,7 +196,7 @@ func (s *Store) AddProjectMember(projectID string, userID int64, role ProjectRol
 	if !validProjectRole(role) {
 		return fmt.Errorf("invalid project role: %s", role)
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -240,7 +248,7 @@ func (s *Store) UpdateProjectMember(projectID string, userID int64, role Project
 	if !validProjectRole(role) {
 		return fmt.Errorf("invalid project role: %s", role)
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -282,7 +290,7 @@ func (s *Store) UpdateProjectMember(projectID string, userID int64, role Project
 // RemoveProjectMember drops a membership row. Same last-owner guard
 // as UpdateProjectMember.
 func (s *Store) RemoveProjectMember(projectID string, userID int64) error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -320,7 +328,7 @@ func (s *Store) RemoveProjectMember(projectID string, userID int64) error {
 //
 // The single UNION query is cheaper than a per-call admin check in Go.
 func (s *Store) ListProjectsForUser(userID int64) ([]Project, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT p.id, p.user_id, p.name, COALESCE(p.description,''),
 		       COALESCE(p.color,''), p.created_at, p.expires_at,
 		       COALESCE(p.provisioning_preset_id,'')
@@ -374,7 +382,7 @@ func (s *Store) CreateInvite(projectID, email string, role ProjectRole, invitedB
 	}
 	id := "inv_" + hex.EncodeToString(tokBytes)
 	expires := time.Now().Add(ttl).UTC()
-	if _, err := s.db.Exec(`
+	if _, err := s.dbExec(`
 		INSERT INTO project_invites (id, project_id, email, role, invited_by, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		id, projectID, email, string(role), invitedBy, expires,
@@ -395,7 +403,7 @@ func (s *Store) GetInviteByToken(token string) (*ProjectInvite, error) {
 	var expires string
 	var acceptedAt sql.NullString
 	var createdAt string
-	err := s.db.QueryRow(`
+	err := s.dbQueryRow(`
 		SELECT id, project_id, email, role, invited_by, expires_at, accepted_at, created_at
 		  FROM project_invites WHERE id = ?`, token,
 	).Scan(&inv.ID, &inv.ProjectID, &inv.Email, &inv.Role, &inv.InvitedBy,
@@ -422,7 +430,7 @@ func (s *Store) GetInviteByToken(token string) (*ProjectInvite, error) {
 // as a member. Caller has already validated the user's email matches
 // the invite's email (case-insensitive).
 func (s *Store) AcceptInvite(token string, userID int64) (*ProjectInvite, error) {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +477,7 @@ func (s *Store) AcceptInvite(token string, userID int64) (*ProjectInvite, error)
 // ListProjectInvites returns pending (un-accepted, un-expired) invites
 // for a project. Includes invitedBy so the UI can show "invited by X".
 func (s *Store) ListProjectInvites(projectID string) ([]ProjectInvite, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id, project_id, email, role, invited_by, expires_at, accepted_at, created_at
 		  FROM project_invites
 		 WHERE project_id = ? AND accepted_at IS NULL AND expires_at > CURRENT_TIMESTAMP
@@ -498,7 +506,7 @@ func (s *Store) ListProjectInvites(projectID string) ([]ProjectInvite, error) {
 // RevokeInvite deletes a pending invite by id. Idempotent — deleting
 // an already-accepted or already-deleted invite is not an error.
 func (s *Store) RevokeInvite(inviteID string) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`DELETE FROM project_invites WHERE id = ? AND accepted_at IS NULL`,
 		inviteID,
 	)

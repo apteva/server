@@ -202,7 +202,7 @@ func (s *Server) RemoveSkillFromInstance(instanceID int64, skillID int64, reason
 	// back to the deterministic id and rely on the journal having
 	// that id from an earlier push.
 	var slug string
-	row := s.store.db.QueryRow(`SELECT slug FROM skills WHERE id = ?`, skillID)
+	row := s.store.dbQueryRow(`SELECT slug FROM skills WHERE id = ?`, skillID)
 	_ = row.Scan(&slug)
 
 	targetID := skillMemoryID(skillID)

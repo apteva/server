@@ -34,7 +34,7 @@ func (s *Server) handleOnboardingStatus(w http.ResponseWriter, r *http.Request) 
 	// Reuse the starter on retries, including accounts whose one-agent quota
 	// is now full. The regular create endpoint enforces quota before replay.
 	var starterID int64
-	err = s.store.db.QueryRow(`SELECT a.id FROM agent_creation_keys k
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT a.id FROM agent_creation_keys k
 		JOIN agents a ON a.id=k.agent_id
 		WHERE k.project_id=? AND k.scope_user_id=0 AND k.idempotency_key=?
 		AND a.user_id=? AND a.project_id=?`, projectID, fmt.Sprintf("onboarding-starter:%d", userID), userID, projectID).Scan(&starterID)
@@ -54,7 +54,7 @@ func (s *Server) handleOnboardingStatus(w http.ResponseWriter, r *http.Request) 
 // Expose a small product status, not build logs, credentials, or private app data.
 func (s *Server) interfacePreparationStatus() map[string]string {
 	var status, message string
-	err := s.store.db.QueryRow(`SELECT i.status, COALESCE(i.status_message,'') FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND COALESCE(i.project_id,'')='' ORDER BY i.id LIMIT 1`, defaultConversationsApp).Scan(&status, &message)
+	err := s.store.dbQueryRow(`SELECT i.status, COALESCE(i.status_message,'') FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND i.is_default=1 AND COALESCE(i.project_id,'')='' ORDER BY i.id LIMIT 1`, defaultConversationsApp).Scan(&status, &message)
 	if err != nil {
 		return map[string]string{"status": "not_installed", "message": "Conversations is not installed"}
 	}

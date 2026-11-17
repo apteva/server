@@ -66,7 +66,7 @@ func (s *Server) authorizePlatformBackupInstall(installID int64, permission sdk.
 	}
 	var projectID, status string
 	var installedBy int64
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT COALESCE(project_id,''), COALESCE(installed_by,0), status FROM app_installs WHERE id=?`,
 		installID,
 	).Scan(&projectID, &installedBy, &status); err != nil {

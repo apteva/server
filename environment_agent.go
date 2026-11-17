@@ -232,7 +232,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if err != nil {
 		return nil, fmt.Errorf("create environment agent: %w", err)
 	}
-	_, _ = s.store.db.Exec(`UPDATE agents SET kind = 'environment_agent' WHERE id = ?`, row.ID)
+	_, _ = s.store.dbExec(`UPDATE agents SET kind = 'environment_agent' WHERE id = ?`, row.ID)
 	wAgent, err := s.store.GetAgentByID(row.ID)
 	if err != nil {
 		s.store.DeleteAgent(userID, row.ID)

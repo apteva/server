@@ -9,7 +9,7 @@ import (
 // registrations. Only the committed, running generation contributes to the
 // dashboard policy; private control endpoints and pending candidates never do.
 func (s *Server) dashboardRuntimeOrigins() ([]string, error) {
-	rows, err := s.store.db.Query(`SELECT d.record_json FROM app_installs i
+	rows, err := s.store.dbQuery(`SELECT d.record_json FROM app_installs i
  JOIN app_runtime_deployments owner ON owner.id=i.runtime_active_deployment AND owner.install_id=i.id
  JOIN app_runtime_deployments d ON d.install_id=i.id AND d.generation=owner.generation
  WHERE i.runtime_managed=1 AND i.status='running' AND owner.status='active' AND d.status='active'`)

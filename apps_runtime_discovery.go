@@ -13,7 +13,7 @@ func (m *appRuntimeManager) discoverBackends(ctx context.Context) ([]runtimeBack
 	return m.discoverBackendsFor(ctx, 0)
 }
 func (m *appRuntimeManager) discoverBackendsFor(ctx context.Context, installID int64) ([]runtimeBackendRegistration, error) {
-	rows, err := m.s.store.db.Query(`SELECT i.id,COALESCE(NULLIF(i.manifest_json,''),a.manifest_json) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.status='running' AND (?=0 OR i.id=?) ORDER BY i.id`, installID, installID)
+	rows, err := m.s.store.dbQueryContext(m.ctx, `SELECT i.id,COALESCE(NULLIF(i.manifest_json,''),a.manifest_json) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.status='running' AND (?=0 OR i.id=?) ORDER BY i.id`, installID, installID)
 	if err != nil {
 		return nil, err
 	}

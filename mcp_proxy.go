@@ -19,7 +19,7 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 	// Load connection (we use user_id=0 trick — proxy is trusted, launched by server)
 	var appSlug, encCreds string
 	var connName string
-	err = store.db.QueryRow(
+	err = store.dbQueryRow(
 		"SELECT app_slug, name, encrypted_credentials FROM connections WHERE id = ?", connectionID,
 	).Scan(&appSlug, &connName, &encCreds)
 	if err != nil {
@@ -149,7 +149,7 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 					if err != nil {
 						return err
 					}
-					_, err = store.db.Exec(
+					_, err = store.dbExec(
 						"UPDATE connections SET encrypted_credentials = ? WHERE id = ?",
 						enc, persistTargetID,
 					)

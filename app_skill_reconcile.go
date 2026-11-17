@@ -39,7 +39,7 @@ func (s *Server) reconcileAgentAppSkills(inst *Agent) (appSkillReconcileStats, e
 	unlock := s.lockAgentSkills(inst.ID)
 	defer unlock()
 
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT install_id
 		FROM app_agent_bindings
 		WHERE agent_id=? AND enabled=1`, inst.ID)
@@ -145,7 +145,7 @@ func (s *Server) removeSkillMemoryRecord(agentID int64, memoryID, reason string)
 // This is used after app skill registration/upgrades so a newly introduced
 // skill reaches agents that were already attached before that skill existed.
 func (s *Server) reconcileAppSkillsForInstall(installID int64) error {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT a.id
 		FROM agents a
 		JOIN app_agent_bindings b ON b.agent_id=a.id

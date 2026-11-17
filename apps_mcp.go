@@ -100,7 +100,7 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 		installedBy                      int64
 		activationRevision               int64
 	)
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT a.name, COALESCE(i.project_id, ''), i.installed_by,
 		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 		        i.mcp_activation_revision
@@ -180,11 +180,11 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 	// INSERT OR REPLACE because that would re-issue the primary key
 	// and break any existing references (UI selections, etc.).
 	var existingID int64
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRow(
 		`SELECT id FROM mcp_servers WHERE upstream_id = ?`, upstream,
 	).Scan(&existingID)
 	if err == nil {
-		_, err = s.store.db.Exec(
+		_, err = s.store.dbExec(
 			`UPDATE mcp_servers SET
 				name = ?,
 				description = ?,
@@ -204,7 +204,7 @@ func (s *Server) registerAppMCPWithSurface(installID int64, surface appMCPSurfac
 		log.Printf("[APPS-MCP] refreshed %s install=%d server_id=%d tools=%d",
 			appName, installID, existingID, len(toolNames))
 	} else {
-		res, err := s.store.db.Exec(
+		res, err := s.store.dbExec(
 			`INSERT INTO mcp_servers
 				(user_id, name, description, status, tool_count,
 				 source, transport, url, project_id, allowed_tools, upstream_id)
@@ -291,7 +291,7 @@ func (s *Server) snapshotAppMCPSurface(installID int64) appMCPSurfaceSnapshot {
 	// registerAppMCP so the snapshot represents the surface Core can actually
 	// receive, including built-in upgrades where the new binary is already live.
 	var manifestJSON string
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT COALESCE(NULLIF(i.manifest_json,''),a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID,
 	).Scan(&manifestJSON); err != nil {
@@ -346,7 +346,7 @@ func appMCPCapabilityChanged(
 
 func (s *Server) storedAppMCPCapabilityRevision(installID int64) (string, bool) {
 	var rawURL string
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT url FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID),
 	).Scan(&rawURL)
 	if err != nil {
@@ -398,7 +398,7 @@ func (s *Server) reconcileBoundRunningAgentsForAppMCPChange(
 	reconcile func(context.Context, int64) error,
 	restartFallback func(context.Context, int64) error,
 ) error {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1 ORDER BY agent_id`,
 		installID,
 	)
@@ -446,7 +446,7 @@ func (s *Server) reconcileBoundRunningAgentsForAppMCPChange(
 // uninstall + as part of registerAppMCP's no-tools cleanup. Safe to
 // call even when no row exists — the DELETE is a no-op.
 func (s *Server) unregisterAppMCP(installID int64) error {
-	res, err := s.store.db.Exec(
+	res, err := s.store.dbExec(
 		`DELETE FROM mcp_servers WHERE upstream_id = ?`,
 		appMCPUpstreamID(installID),
 	)
@@ -466,7 +466,7 @@ func (s *Server) unregisterAppMCP(installID int64) error {
 //
 // One-shot at boot. Failures for one install don't stop others.
 func (s *Server) backfillAppMCPs() {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id FROM app_installs i WHERE i.status = 'running'`,
 	)
 	if err != nil {
@@ -514,7 +514,7 @@ func appMCPURLMatchesTokenHash(rawURL, tokenHash string) bool {
 // private to that operator. Every project member who can manage an agent must
 // see the same project/global app inventory.
 func (s *Store) ListAppMCPsForProject(projectID string) ([]MCPServerRecord, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id FROM mcp_servers
 		 WHERE source='app' AND (COALESCE(project_id,'')='' OR project_id=?)
 		 ORDER BY id`,
@@ -525,16 +525,26 @@ func (s *Store) ListAppMCPsForProject(projectID string) ([]MCPServerRecord, erro
 	}
 	defer rows.Close()
 	var out []MCPServerRecord
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+	type databaseRecord struct{ id int64 }
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range readRecords {
+		id := record.id
+
 		record, err := s.GetMCPServerByIDUnscoped(id)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, *record)
 	}
+
 	return out, rows.Err()
 }

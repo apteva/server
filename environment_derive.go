@@ -21,7 +21,7 @@ import (
 // AppNamesForAgent returns the manifest names of the apps bound to the agent
 // (enabled bindings only): app_agent_bindings → app_installs → apps.
 func (s *Server) AppNamesForAgent(agentID int64) ([]string, error) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT a.name
 		FROM app_agent_bindings b
 		JOIN app_installs i ON i.id = b.install_id

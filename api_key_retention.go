@@ -17,7 +17,7 @@ const (
 // without bound.
 func (s *Store) CleanInactiveDelegatedAPIKeys(now time.Time, retention time.Duration) (int64, error) {
 	cutoff := now.UTC().Add(-retention).Format("2006-01-02 15:04:05")
-	result, err := s.db.Exec(`
+	result, err := s.dbExec(`
 		DELETE FROM api_keys
 		 WHERE kind='delegated_user'
 		   AND ((revoked_at IS NOT NULL AND datetime(revoked_at) <= datetime(?))

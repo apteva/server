@@ -535,7 +535,7 @@ func parseInstallIDFromArchivePath(p string) (int64, error) {
 // must install the app first, then restore its data).
 func (s *Server) lookupAppNameForInstall(installID int64) (string, error) {
 	var name string
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT a.name FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.id = ?`,
 		installID).Scan(&name)
 	if err == sql.ErrNoRows {

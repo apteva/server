@@ -51,7 +51,7 @@ func (m *appRuntimeManager) request(d runtimeDeployment, op runtimeOperation, ac
 		runtimeIngressEndpoints(&d)
 	}
 	var project string
-	if err := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
 		return runtimeBackendRequest{}, err
 	}
 	options := make(map[string]any, len(d.Placement.Options)+2)
@@ -107,7 +107,7 @@ func (m *appRuntimeManager) makeDeployment(id int64, p runtimePlacement, manifes
 		return runtimeDeployment{}, err
 	}
 	var gen int64
-	if err := m.s.store.db.QueryRow(`SELECT MAX(runtime_generation,COALESCE((SELECT MAX(generation) FROM app_runtime_deployments WHERE install_id=app_installs.id),0))+1 FROM app_installs WHERE id=?`, id).Scan(&gen); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT MAX(runtime_generation,COALESCE((SELECT MAX(generation) FROM app_runtime_deployments WHERE install_id=app_installs.id),0))+1 FROM app_installs WHERE id=?`, id).Scan(&gen); err != nil {
 		return runtimeDeployment{}, err
 	}
 	d := runtimeDeployment{ID: rand.Text(), InstallID: id, Generation: gen, Replica: replica, Placement: p, Manifest: *manifest, Status: "preparing", Unprepared: true, CreatedAt: runtimeTimestamp(), AppCaps: runtimeAppCaps{}}
@@ -177,7 +177,7 @@ func (m *appRuntimeManager) deploymentEnvironment(d runtimeDeployment, token str
 		return nil, err
 	}
 	var project string
-	if err = m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
+	if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
 		return nil, err
 	}
 	gateway := m.s.localGatewayURL()
@@ -210,7 +210,7 @@ func (m *appRuntimeManager) ensureExisting(id int64) error {
 	oldID := ""
 	if source.Exists {
 		d := source.Deployment
-		if err = m.s.store.db.QueryRow(`SELECT id FROM app_runtime_deployments WHERE install_id=? AND generation=? AND replica=0`, id, d.Generation).Scan(&oldID); err != nil && err != sql.ErrNoRows {
+		if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT id FROM app_runtime_deployments WHERE install_id=? AND generation=? AND replica=0`, id, d.Generation).Scan(&oldID); err != nil && err != sql.ErrNoRows {
 			return err
 		}
 		if oldID == "" {
@@ -238,7 +238,7 @@ func (m *appRuntimeManager) ensureExisting(id int64) error {
 			return err
 		}
 	}
-	_, err = m.s.store.db.Exec(`UPDATE app_installs SET runtime_managed=1,runtime_active_deployment=?,runtime_placement_json='{"type":"local"}' WHERE id=? AND runtime_managed=0`, oldID, id)
+	_, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET runtime_managed=1,runtime_active_deployment=?,runtime_placement_json='{"type":"local"}' WHERE id=? AND runtime_managed=0`, oldID, id)
 	return err
 }
 func runtimeFingerprint(v any) string {
@@ -273,7 +273,7 @@ func (m *appRuntimeManager) beginExpected(id int64, kind, key string, p runtimeP
 		Replicas  int
 	}{kind, p, manifest, replicas})
 	var existing, fp string
-	err = m.s.store.db.QueryRow(`SELECT id,fingerprint FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, key).Scan(&existing, &fp)
+	err = m.s.store.dbQueryRowContext(m.ctx, `SELECT id,fingerprint FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, key).Scan(&existing, &fp)
 	if err == nil {
 		if fp != fingerprint {
 			return runtimeOperation{}, fmt.Errorf("idempotency key reused with different request")
@@ -352,14 +352,14 @@ func (m *appRuntimeManager) beginExpected(id int64, kind, key string, p runtimeP
 	}
 	if kind == "activate" || kind == "discard" {
 		var pending string
-		m.s.store.db.QueryRow(`SELECT runtime_pending_deployment FROM app_installs WHERE id=?`, id).Scan(&pending)
+		m.s.store.dbQueryRowContext(m.ctx, `SELECT runtime_pending_deployment FROM app_installs WHERE id=?`, id).Scan(&pending)
 		d, err = m.loadDeployment(pending)
 		if err != nil || (kind == "activate" && d.Status != "prepared") {
 			return runtimeOperation{}, fmt.Errorf("no prepared deployment")
 		}
 	}
 	op := runtimeOperation{Recovery: expected != "", PreviousStopped: old.ID != "" && old.Status == "stopped", ID: rand.Text(), InstallID: id, Kind: kind, Phase: "queued", Status: "queued", PreviousID: old.ID, DeploymentID: d.ID, IdempotencyKey: key, Fingerprint: fingerprint, CreatedAt: runtimeTimestamp(), UpdatedAt: runtimeTimestamp()}
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return op, err
 	}
@@ -408,10 +408,10 @@ func (m *appRuntimeManager) validatePlacementAccess(id int64, p runtimePlacement
 		return fmt.Errorf("a backend cannot manage its own installation")
 	}
 	var project, bproject, status string
-	if err := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project); err != nil {
 		return err
 	}
-	if err := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, p.Backend.InstallID).Scan(&bproject, &status); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, p.Backend.InstallID).Scan(&bproject, &status); err != nil {
 		return err
 	}
 	if status != "running" || (bproject != "" && bproject != project) {
@@ -433,7 +433,7 @@ func (m *appRuntimeManager) validatePlacementAccess(id int64, p runtimePlacement
 		}
 		seen[cursor] = true
 		var raw string
-		if err := m.s.store.db.QueryRow(`SELECT runtime_placement_json FROM app_installs WHERE id=?`, cursor).Scan(&raw); err != nil {
+		if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT runtime_placement_json FROM app_installs WHERE id=?`, cursor).Scan(&raw); err != nil {
 			break
 		}
 		var q runtimePlacement
@@ -445,25 +445,18 @@ func (m *appRuntimeManager) validatePlacementAccess(id int64, p runtimePlacement
 	return nil
 }
 func (m *appRuntimeManager) launch(id string) {
-	finish, err := m.s.beginHostedWork()
-	if err != nil {
-		return
-	}
 	if m.ctx.Err() != nil {
-		finish()
 		return
 	}
 	m.mu.Lock()
 	if m.workers[id] {
 		m.mu.Unlock()
-		finish()
 		return
 	}
 	m.workers[id] = true
 	m.wg.Add(1)
 	m.mu.Unlock()
 	go func() {
-		defer finish()
 		defer m.wg.Done()
 		defer func() { m.mu.Lock(); delete(m.workers, id); m.mu.Unlock() }()
 		m.run(id)
@@ -472,7 +465,7 @@ func (m *appRuntimeManager) launch(id string) {
 func (m *appRuntimeManager) phase(op *runtimeOperation, p string) error {
 	if p != "rolling_back" && p != "retiring_previous" && !runtimeRollingBack(*op) {
 		var cancelled int
-		if err := m.s.store.db.QueryRow(`SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&cancelled); err != nil {
+		if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&cancelled); err != nil {
 			return err
 		}
 		if cancelled != 0 {
@@ -487,7 +480,7 @@ func (m *appRuntimeManager) phase(op *runtimeOperation, p string) error {
 }
 func (m *appRuntimeManager) run(id string) {
 	now := time.Now().Unix()
-	res, err := m.s.store.db.Exec(`UPDATE app_runtime_operations SET owner=?,lease_until=?,status='running' WHERE id=? AND status IN ('queued','running') AND (owner='' OR lease_until<? OR owner=?)`, m.owner, now+45, id, now, m.owner)
+	res, err := m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_operations SET owner=?,lease_until=?,status='running' WHERE id=? AND status IN ('queued','running') AND (owner='' OR lease_until<? OR owner=?)`, m.owner, now+45, id, now, m.owner)
 	if err != nil {
 		return
 	}
@@ -522,7 +515,7 @@ func (m *appRuntimeManager) run(id string) {
 			case <-m.ctx.Done():
 				return
 			case <-t.C:
-				m.s.store.db.Exec(`UPDATE app_runtime_operations SET lease_until=? WHERE id=? AND owner=?`, time.Now().Unix()+45, id, m.owner)
+				m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_operations SET lease_until=? WHERE id=? AND owner=?`, time.Now().Unix()+45, id, m.owner)
 			}
 		}
 	}()
@@ -553,7 +546,7 @@ func (m *appRuntimeManager) run(id string) {
 	}
 	if err != nil && errors.Is(err, context.Canceled) {
 		var cancelled int
-		if e := m.s.store.db.QueryRow(`SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&cancelled); e == nil && cancelled != 0 {
+		if e := m.s.store.dbQueryRowContext(m.ctx, `SELECT cancel_requested FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&cancelled); e == nil && cancelled != 0 {
 			err = fmt.Errorf("%w: %v", errRuntimeCancelled, err)
 		}
 	}
@@ -565,8 +558,8 @@ func (m *appRuntimeManager) run(id string) {
 		op.Error = err.Error()
 		op.LastFailure = op.Error
 		var currentStatus string
-		m.s.store.db.QueryRow(`SELECT status FROM app_installs WHERE id=?`, op.InstallID).Scan(&currentStatus)
-		m.s.store.db.Exec(`UPDATE app_installs SET error_message=?,status_message=? WHERE id=?`, op.Error, "Deployment operation failed; inspect operation", op.InstallID)
+		m.s.store.dbQueryRowContext(m.ctx, `SELECT status FROM app_installs WHERE id=?`, op.InstallID).Scan(&currentStatus)
+		m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET error_message=?,status_message=? WHERE id=?`, op.Error, "Deployment operation failed; inspect operation", op.InstallID)
 	} else {
 		op.Status = "succeeded"
 		op.Phase = "complete"
@@ -615,7 +608,7 @@ func (m *appRuntimeManager) startReconciler() {
 func (m *appRuntimeManager) checkOwner(op runtimeOperation) error {
 	var owner string
 	var lease int64
-	if err := m.s.store.db.QueryRow(`SELECT owner,lease_until FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&owner, &lease); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT owner,lease_until FROM app_runtime_operations WHERE id=?`, op.ID).Scan(&owner, &lease); err != nil {
 		return err
 	}
 	if owner != m.owner || lease < time.Now().Unix() || m.ctx.Err() != nil {

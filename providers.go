@@ -48,7 +48,7 @@ func codexProviderRefreshLock(providerID int64) *sync.Mutex {
 // --- Store methods ---
 
 func (s *Store) ListProviderTypes() ([]ProviderType, error) {
-	rows, err := s.db.Query(`SELECT id, type, name, description, fields, requires_credentials,
+	rows, err := s.dbQuery(`SELECT id, type, name, description, fields, requires_credentials,
 		COALESCE(auth_type, 'api_key'), COALESCE(auth_provider, ''),
 		COALESCE(runtime_status, 'available'), COALESCE(capabilities, '[]'),
 		sort_order FROM provider_types ORDER BY sort_order`)
@@ -86,7 +86,7 @@ func (s *Store) GetProviderType(providerTypeID int64) (*ProviderType, error) {
 	var fieldsJSON string
 	var capabilitiesJSON string
 	var reqCreds int
-	err := s.db.QueryRow(`SELECT id, type, name, description, fields, requires_credentials,
+	err := s.dbQueryRow(`SELECT id, type, name, description, fields, requires_credentials,
 		COALESCE(auth_type, 'api_key'), COALESCE(auth_provider, ''),
 		COALESCE(runtime_status, 'available'), COALESCE(capabilities, '[]'),
 		sort_order FROM provider_types WHERE id = ?`, providerTypeID).
@@ -117,7 +117,7 @@ func (s *Store) CreateProvider(userID, providerTypeID int64, ptype, name, encryp
 	if len(projectID) > 0 {
 		pid = projectID[0]
 	}
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		"INSERT INTO providers (user_id, provider_type_id, type, name, encrypted_data, project_id) VALUES (?, ?, ?, ?, ?, ?)",
 		userID, providerTypeID, ptype, name, encryptedData, pid,
 	)
@@ -137,14 +137,14 @@ func (s *Store) ListProviders(userID int64, projectID ...string) ([]Provider, er
 	var rows *sql.Rows
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT `+cols+` FROM providers
 			 WHERE user_id = ? AND (project_id = ? OR project_id = '')
 			 ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, id ASC`,
 			userID, projectID[0], projectID[0],
 		)
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT `+cols+` FROM providers WHERE user_id = ? ORDER BY id ASC`, userID,
 		)
 	}
@@ -170,7 +170,7 @@ func (s *Store) FindProviderByTypeForProject(userID, providerTypeID int64, proje
 	var p Provider
 	var encData string
 	var createdAt, updatedAt string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, provider_type_id, type, name, COALESCE(status,'active'), COALESCE(project_id,''), encrypted_data, created_at, updated_at
 		 FROM providers
 		 WHERE user_id = ? AND provider_type_id = ? AND COALESCE(project_id,'') = ?
@@ -189,7 +189,7 @@ func (s *Store) FindProviderByTypeForProject(userID, providerTypeID int64, proje
 func (s *Store) GetProvider(userID, providerID int64) (*Provider, string, error) {
 	var p Provider
 	var encryptedData, createdAt, updatedAt string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		"SELECT id, type, name, encrypted_data, created_at, updated_at FROM providers WHERE id = ? AND user_id = ?",
 		providerID, userID,
 	).Scan(&p.ID, &p.Type, &p.Name, &encryptedData, &createdAt, &updatedAt)
@@ -203,7 +203,7 @@ func (s *Store) GetProvider(userID, providerID int64) (*Provider, string, error)
 }
 
 func (s *Store) UpdateProvider(userID, providerID int64, ptype, name, encryptedData string) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		"UPDATE providers SET type=?, name=?, encrypted_data=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?",
 		ptype, name, encryptedData, providerID, userID,
 	)
@@ -211,7 +211,7 @@ func (s *Store) UpdateProvider(userID, providerID int64, ptype, name, encryptedD
 }
 
 func (s *Store) DeleteProvider(userID, providerID int64) error {
-	_, err := s.db.Exec("DELETE FROM providers WHERE id = ? AND user_id = ?", providerID, userID)
+	_, err := s.dbExec("DELETE FROM providers WHERE id = ? AND user_id = ?", providerID, userID)
 	return err
 }
 
@@ -223,14 +223,14 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 	var rows *sql.Rows
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT id, encrypted_data FROM providers
 			 WHERE user_id = ? AND (project_id = ? OR project_id = '')
 			 ORDER BY CASE WHEN project_id = '' THEN 0 ELSE 1 END, id ASC`,
 			userID, projectID[0],
 		)
 	} else {
-		rows, err = s.db.Query("SELECT id, encrypted_data FROM providers WHERE user_id = ? ORDER BY id ASC", userID)
+		rows, err = s.dbQuery("SELECT id, encrypted_data FROM providers WHERE user_id = ? ORDER BY id ASC", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -238,10 +238,23 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 	defer rows.Close()
 
 	envVars := map[string]string{}
-	for rows.Next() {
-		var providerID int64
-		var encData string
-		rows.Scan(&providerID, &encData)
+	type databaseRecord struct {
+		providerID int64
+		encData    string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.providerID, &record.encData); err != nil {
+			return record, err
+		}
+		return record, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range readRecords {
+		providerID := record.providerID
+		encData := record.encData
 
 		plaintext, err := Decrypt(secret, encData)
 		if err != nil {
@@ -275,6 +288,7 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 			}
 		}
 	}
+
 	return envVars, nil
 }
 
@@ -399,9 +413,9 @@ func (s *Store) getProviderEncryptedDataForRefresh(providerID, userID int64) (st
 	var encrypted string
 	var err error
 	if userID > 0 {
-		err = s.db.QueryRow("SELECT encrypted_data FROM providers WHERE id = ? AND user_id = ?", providerID, userID).Scan(&encrypted)
+		err = s.dbQueryRow("SELECT encrypted_data FROM providers WHERE id = ? AND user_id = ?", providerID, userID).Scan(&encrypted)
 	} else {
-		err = s.db.QueryRow("SELECT encrypted_data FROM providers WHERE id = ?", providerID).Scan(&encrypted)
+		err = s.dbQueryRow("SELECT encrypted_data FROM providers WHERE id = ?", providerID).Scan(&encrypted)
 	}
 	return encrypted, err
 }
@@ -410,14 +424,14 @@ func (s *Store) updateProviderEncryptedDataCAS(providerID, userID int64, previou
 	var res sql.Result
 	var err error
 	if userID > 0 {
-		res, err = s.db.Exec(
+		res, err = s.dbExec(
 			`UPDATE providers
 			    SET encrypted_data = ?, updated_at = CURRENT_TIMESTAMP
 			  WHERE id = ? AND user_id = ? AND encrypted_data = ?`,
 			nextEncrypted, providerID, userID, previousEncrypted,
 		)
 	} else {
-		res, err = s.db.Exec(
+		res, err = s.dbExec(
 			`UPDATE providers
 			    SET encrypted_data = ?, updated_at = CURRENT_TIMESTAMP
 			  WHERE id = ? AND encrypted_data = ?`,

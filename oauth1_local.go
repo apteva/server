@@ -16,7 +16,7 @@ type oauth1RequestCredentials struct {
 }
 
 func (s *Store) updateOAuthStateVerifier(state, verifier string) error {
-	result, err := s.db.Exec(`UPDATE oauth_states SET pkce_verifier=? WHERE state=?`, verifier, state)
+	result, err := s.dbExec(`UPDATE oauth_states SET pkce_verifier=? WHERE state=?`, verifier, state)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func (s *Server) startOAuth1Authorization(userID int64, app *AppTemplate, conn *
 	callback += sep + "state=" + url.QueryEscape(state)
 	requestToken, requestSecret, err := requestOAuth1Token(app.Auth.OAuth1.RequestTokenURL, clientID, clientSecret, callback)
 	if err != nil {
-		s.store.db.Exec(`DELETE FROM oauth_states WHERE state=?`, state)
+		s.store.dbExec(`DELETE FROM oauth_states WHERE state=?`, state)
 		if purpose != oauthStatePurposeReauth {
 			_ = s.store.UpdateConnectionStatus(conn.ID, "failed")
 		}

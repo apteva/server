@@ -103,7 +103,7 @@ const agentEventExecutionColumns = `id, agent_id, project_id, source_app, source
 	state, last_sequence`
 
 func (s *Store) prepareAgentEventExecution(agentID int64, projectID, sourceApp string, installID int64, sourceEventID, coreEventID, threadID, payloadHash string) (*agentEventExecution, bool, error) {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, false, err
 	}
@@ -135,7 +135,7 @@ func (s *Store) prepareAgentEventExecution(agentID int64, projectID, sourceApp s
 }
 
 func (s *Store) completeAgentEventExecution(id int64, coreExecutionID string) error {
-	result, err := s.db.Exec(`UPDATE agent_event_executions
+	result, err := s.dbExec(`UPDATE agent_event_executions
 		SET core_execution_id=CASE WHEN core_execution_id='' THEN ? ELSE core_execution_id END,
 		    updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND (core_execution_id='' OR core_execution_id=?)`, coreExecutionID, id, coreExecutionID)
@@ -175,7 +175,7 @@ func (s *Server) sendTrackedAgentEvent(ctx context.Context, agent *Agent, instal
 		return nil, fmt.Errorf("hash event payload: %w", err)
 	}
 	var sourceApp string
-	if err := s.store.db.QueryRow(`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&sourceApp); err != nil {
+	if err := s.store.dbQueryRow(`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&sourceApp); err != nil {
 		return nil, fmt.Errorf("resolve source app installation: %w", err)
 	}
 	coreEventID := agentEventCoreID(installID, sourceEventID)
@@ -287,7 +287,7 @@ func (s *Store) persistAgentLifecycleTransition(agentID int64, transition coreEv
 	if transition.ID == "" || transition.ExecutionID == "" || transition.EventID == "" || !isAgentEventLifecycleType(transition.Type) {
 		return false, fmt.Errorf("invalid lifecycle transition")
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return false, err
 	}
@@ -418,7 +418,7 @@ func (s *Store) pendingAgentEventDeliveries(limit int) ([]pendingAgentEventDeliv
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
-	rows, err := s.db.Query(`SELECT d.transition_id, d.source_install_id, d.payload_json, d.attempts
+	rows, err := s.dbQuery(`SELECT d.transition_id, d.source_install_id, d.payload_json, d.attempts
 		FROM agent_event_deliveries d
 		WHERE d.delivered_at IS NULL AND d.next_attempt_at <= ?
 		  AND NOT EXISTS (
@@ -444,7 +444,7 @@ func (s *Store) pendingAgentEventDeliveries(limit int) ([]pendingAgentEventDeliv
 }
 
 func (s *Store) markAgentEventDeliverySucceeded(transitionID string) error {
-	_, err := s.db.Exec(`UPDATE agent_event_deliveries
+	_, err := s.dbExec(`UPDATE agent_event_deliveries
 		SET delivered_at=CURRENT_TIMESTAMP, last_error='', updated_at=CURRENT_TIMESTAMP
 		WHERE transition_id=?`, transitionID)
 	return err
@@ -454,7 +454,7 @@ func (s *Store) markAgentEventDeliveryFailed(transitionID, lastError string, att
 	if len(lastError) > 1000 {
 		lastError = lastError[:1000]
 	}
-	_, err := s.db.Exec(`UPDATE agent_event_deliveries
+	_, err := s.dbExec(`UPDATE agent_event_deliveries
 		SET attempts=?, next_attempt_at=?, last_error=?, updated_at=CURRENT_TIMESTAMP
 		WHERE transition_id=? AND delivered_at IS NULL`,
 		attempts, nextAttempt.UTC().Format(time.RFC3339Nano), lastError, transitionID)
@@ -466,7 +466,7 @@ func (s *Store) markAgentEventDeliveryFailed(transitionID, lastError string, att
 // so source_event_id retries stay idempotent after delivery history expires.
 func (s *Store) cleanDeliveredAgentEventDeliveries(maxAge time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-maxAge).UTC().Format(time.RFC3339Nano)
-	result, err := s.db.Exec(`DELETE FROM agent_event_deliveries
+	result, err := s.dbExec(`DELETE FROM agent_event_deliveries
 		WHERE delivered_at IS NOT NULL AND datetime(delivered_at) < datetime(?)`, cutoff)
 	if err != nil {
 		return 0, err

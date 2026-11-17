@@ -275,7 +275,7 @@ func (s *Server) environmentInstallInfos(ids []int64) []environmentInstallInfo {
 		}
 		seen[id] = true
 		var name string
-		if err := s.store.db.QueryRow(
+		if err := s.store.dbQueryRow(
 			`SELECT a.name FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.id = ?`,
 			id,
 		).Scan(&name); err == nil {
@@ -290,7 +290,7 @@ func (s *Server) environmentAppBindings(installID int64) map[string]int64 {
 		return nil
 	}
 	var raw string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, installID).Scan(&raw); err != nil {
+	if err := s.store.dbQueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, installID).Scan(&raw); err != nil {
 		return nil
 	}
 	var decoded map[string]any
@@ -331,7 +331,7 @@ func (s *Server) environmentConnectionSummaries(ids []int64) []environmentConnec
 	out := make([]environmentConnectionInfo, 0, len(ids))
 	for _, id := range ids {
 		var c environmentConnectionInfo
-		if err := s.store.db.QueryRow(
+		if err := s.store.dbQueryRow(
 			`SELECT id, app_slug, app_name, name, status, COALESCE(project_id, '')
 			 FROM connections WHERE id = ?`,
 			id,
@@ -362,7 +362,7 @@ func (s *Server) environmentAppSrcDirsForInstalls(projectID string, installIDs [
 		}
 		seen[installID] = true
 		var name, installProject, status, version, binPath, manifestJSON string
-		if err := s.store.db.QueryRow(
+		if err := s.store.dbQueryRow(
 			`SELECT a.name, COALESCE(i.project_id, ''), i.status, COALESCE(i.version,''),
 			        COALESCE(i.local_bin_path, ''), COALESCE(NULLIF(i.manifest_json,''),a.manifest_json)
 			 FROM app_installs i JOIN apps a ON a.id = i.app_id
@@ -582,7 +582,7 @@ func (s *Server) createEnvironmentRuntime(req createEnvironmentRequest, userID i
 	sourceInstallIDs := map[string]int64{}
 	for _, id := range req.AppInstallIDs {
 		var name string
-		if err := s.store.db.QueryRow(`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&name); err != nil {
+		if err := s.store.dbQueryRow(`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&name); err != nil {
 			return nil, err
 		}
 		sourceInstallIDs[name] = id
@@ -1438,7 +1438,7 @@ func (s *Server) handleEnvironmentAgent(w http.ResponseWriter, r *http.Request, 
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		src, err := s.store.GetAgentByID(req.SourceAgentID)
+		src, err := s.store.GetAgentByIDContext(r.Context(), req.SourceAgentID)
 		if err != nil || src == nil || src.UserID != userID {
 			http.Error(w, "source agent not found", http.StatusNotFound)
 			return
@@ -1490,7 +1490,7 @@ func (s *Server) handleEnvironmentAgents(w http.ResponseWriter, r *http.Request,
 				http.Error(w, "invalid JSON", http.StatusBadRequest)
 				return
 			}
-			src, err := s.store.GetAgentByID(req.SourceAgentID)
+			src, err := s.store.GetAgentByIDContext(r.Context(), req.SourceAgentID)
 			if err != nil || src == nil || src.UserID != userID {
 				http.Error(w, "source agent not found", http.StatusNotFound)
 				return

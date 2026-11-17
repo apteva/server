@@ -59,14 +59,14 @@ func (s *Server) resolveAgentAppMCPIDs(inst *Agent, installIDs []int64) ([]int64
 			return nil, fmt.Errorf("bound_app_install_ids must contain positive integers")
 		}
 		var project string
-		if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&project); err != nil {
+		if err := s.store.dbQueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&project); err != nil {
 			return nil, fmt.Errorf("app installation %d not found", installID)
 		}
 		if project != "" && project != inst.ProjectID {
 			return nil, fmt.Errorf("app installation %d is not in the agent's project", installID)
 		}
 		var mcpID int64
-		if err := s.store.db.QueryRow(`SELECT id FROM mcp_servers WHERE source='app' AND upstream_id=? AND COALESCE(project_id,'')=? ORDER BY id LIMIT 1`, appMCPUpstreamID(installID), project).Scan(&mcpID); err != nil {
+		if err := s.store.dbQueryRow(`SELECT id FROM mcp_servers WHERE source='app' AND upstream_id=? AND COALESCE(project_id,'')=? ORDER BY id LIMIT 1`, appMCPUpstreamID(installID), project).Scan(&mcpID); err != nil {
 			return nil, fmt.Errorf("app installation %d has no registered MCP tools to attach", installID)
 		}
 		ids = append(ids, mcpID)
@@ -90,7 +90,7 @@ func gatewayAgentCapabilities(agentID int64, api gatewayAPIClient, store *Store)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := store.db.Query(`SELECT id FROM mcp_servers WHERE (COALESCE(project_id,'')='' OR project_id=?) AND (user_id=? OR source IN ('app', 'builtin') OR (project_id<>'' AND project_id=?)) ORDER BY id`, agent.ProjectID, api.userID, agent.ProjectID)
+	rows, err := store.dbQuery(`SELECT id FROM mcp_servers WHERE (COALESCE(project_id,'')='' OR project_id=?) AND (user_id=? OR source IN ('app', 'builtin') OR (project_id<>'' AND project_id=?)) ORDER BY id`, agent.ProjectID, api.userID, agent.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func gatewayAgentCapabilities(agentID int64, api gatewayAPIClient, store *Store)
 					safe["install_id"] = installID
 					if !appSeen[installID] {
 						var appName, manifest, status string
-						if err := store.db.QueryRow(`SELECT a.name,a.manifest_json,i.status FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&appName, &manifest, &status); err != nil {
+						if err := store.dbQueryRow(`SELECT a.name,a.manifest_json,i.status FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&appName, &manifest, &status); err != nil {
 							return nil, err
 						}
 						var metadata struct {

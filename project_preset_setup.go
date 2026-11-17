@@ -271,7 +271,7 @@ func (s *Server) applyPresetSetup(r *http.Request, projectID string, preset Proj
 		}
 		fingerprint := fmt.Sprintf("%x", sha256.Sum256(raw))
 		var savedHash, status, result, detail string
-		err = s.store.db.QueryRow(`SELECT fingerprint,status,result_json,error FROM preset_setup_steps WHERE project_id=? AND preset_id=? AND step_key=?`, projectID, preset.ID, step.Key).Scan(&savedHash, &status, &result, &detail)
+		err = s.store.dbQueryRowContext(r.Context(), `SELECT fingerprint,status,result_json,error FROM preset_setup_steps WHERE project_id=? AND preset_id=? AND step_key=?`, projectID, preset.ID, step.Key).Scan(&savedHash, &status, &result, &detail)
 		switch {
 		case err == nil:
 			if savedHash != fingerprint {
@@ -292,7 +292,7 @@ func (s *Server) applyPresetSetup(r *http.Request, projectID string, preset Proj
 				}
 				return fail(i, status, errors.New(detail))
 			}
-			res, e := s.store.db.Exec(`UPDATE preset_setup_steps SET status='running',error='',updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND preset_id=? AND step_key=? AND status='uncertain'`, projectID, preset.ID, step.Key)
+			res, e := s.store.dbExecContext(r.Context(), `UPDATE preset_setup_steps SET status='running',error='',updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND preset_id=? AND step_key=? AND status='uncertain'`, projectID, preset.ID, step.Key)
 			if e != nil {
 				return fail(i, "blocked", e)
 			}
@@ -301,7 +301,7 @@ func (s *Server) applyPresetSetup(r *http.Request, projectID string, preset Proj
 				return fail(i, "blocked", errors.New("setup step was claimed by another apply"))
 			}
 		case errors.Is(err, sql.ErrNoRows):
-			_, err = s.store.db.Exec(`INSERT INTO preset_setup_steps(project_id,preset_id,step_key,fingerprint,status) VALUES(?,?,?,?,'running')`, projectID, preset.ID, step.Key, fingerprint)
+			_, err = s.store.dbExecContext(r.Context(), `INSERT INTO preset_setup_steps(project_id,preset_id,step_key,fingerprint,status) VALUES(?,?,?,?,'running')`, projectID, preset.ID, step.Key, fingerprint)
 			if err != nil {
 				return fail(i, "blocked", err)
 			}
@@ -312,7 +312,7 @@ func (s *Server) applyPresetSetup(r *http.Request, projectID string, preset Proj
 		if callErr != nil {
 			// Even a reported tool error can follow a partial write. Never replay it automatically.
 			detail = "Check the app before retrying; this call may have made changes: " + callErr.Error()
-			_, saveErr := s.store.db.Exec(`UPDATE preset_setup_steps SET status='uncertain',error=?,updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND preset_id=? AND step_key=?`, detail, projectID, preset.ID, step.Key)
+			_, saveErr := s.store.dbExecContext(r.Context(), `UPDATE preset_setup_steps SET status='uncertain',error=?,updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND preset_id=? AND step_key=?`, detail, projectID, preset.ID, step.Key)
 			if saveErr != nil {
 				detail += " (could not persist the failure; restart recovery will retain the uncertainty)"
 			}
@@ -322,7 +322,7 @@ func (s *Server) applyPresetSetup(r *http.Request, projectID string, preset Proj
 		if err != nil {
 			return fail(i, "uncertain", errors.New("tool finished but its result could not be encoded"))
 		}
-		_, err = s.store.db.Exec(`UPDATE preset_setup_steps SET status='completed',result_json=?,error='',updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND preset_id=? AND step_key=?`, string(raw), projectID, preset.ID, step.Key)
+		_, err = s.store.dbExecContext(r.Context(), `UPDATE preset_setup_steps SET status='completed',result_json=?,error='',updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND preset_id=? AND step_key=?`, string(raw), projectID, preset.ID, step.Key)
 		if err != nil {
 			return fail(i, "uncertain", errors.New("tool finished but its result could not be saved; check the app before retrying"))
 		}
@@ -473,7 +473,7 @@ func (s *Server) presetSetupProgress(projectID string, preset ProjectPreset) ([]
 	if len(preset.Setup) == 0 {
 		return nil, nil
 	}
-	rows, err := s.store.db.Query(`SELECT step_key,status,error FROM preset_setup_steps WHERE project_id=? AND preset_id=?`, projectID, preset.ID)
+	rows, err := s.store.dbQuery(`SELECT step_key,status,error FROM preset_setup_steps WHERE project_id=? AND preset_id=?`, projectID, preset.ID)
 	if err != nil {
 		return nil, err
 	}

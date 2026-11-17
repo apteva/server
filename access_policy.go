@@ -252,7 +252,7 @@ func (s *Server) saveAccessPolicy(caller int64, policy AccessPolicy) (AccessPoli
 		if app == nil || app.Runtime == nil || !strings.EqualFold(app.Runtime.Role, "llm") {
 			return AccessPolicy{}, errors.New("managed LLM connection must use an LLM integration")
 		}
-		if _, err := s.store.db.Exec(`UPDATE connections
+		if _, err := s.store.dbExec(`UPDATE connections
 			SET credential_management='platform', credential_export_policy='never', auto_mcp=0
 			WHERE id=?`, conn.ID); err != nil {
 			return AccessPolicy{}, fmt.Errorf("protect managed LLM connection: %w", err)
@@ -448,7 +448,7 @@ func (s *Server) validateAllowedAppInstalls(userID int64, installIDs []int64) er
 	}
 	for _, installID := range installIDs {
 		var slug string
-		if err := s.store.db.QueryRow(`SELECT a.name FROM app_installs ai JOIN apps a ON a.id=ai.app_id WHERE ai.id=?`, installID).Scan(&slug); err != nil {
+		if err := s.store.dbQueryRow(`SELECT a.name FROM app_installs ai JOIN apps a ON a.id=ai.app_id WHERE ai.id=?`, installID).Scan(&slug); err != nil {
 			return errors.New("selected app is unavailable")
 		}
 		if !allowed[slug] {
@@ -460,7 +460,7 @@ func (s *Server) validateAllowedAppInstalls(userID int64, installIDs []int64) er
 
 func (s *Store) GetSettingStrict(key string) (string, bool, error) {
 	var value string
-	err := s.db.QueryRow(`SELECT value FROM server_settings WHERE key=?`, key).Scan(&value)
+	err := s.dbQueryRow(`SELECT value FROM server_settings WHERE key=?`, key).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -471,7 +471,7 @@ func (s *Store) GetConnectionAny(connID int64) (*Connection, string, error) {
 	var c Connection
 	var encrypted, createdAt string
 	var autoMCP int
-	err := s.db.QueryRow(`SELECT id,user_id,app_slug,app_name,name,auth_type,encrypted_credentials,status,
+	err := s.dbQueryRow(`SELECT id,user_id,app_slug,app_name,name,auth_type,encrypted_credentials,status,
 		COALESCE(source,'local'),COALESCE(provider_id,0),COALESCE(external_id,''),COALESCE(project_id,''),
 		COALESCE(created_via,'integration'),COALESCE(owner_app_install_id,0),COALESCE(credential_management,'user'),
 		COALESCE(credential_export_policy,'bound_app'),COALESCE(managed_key,''),COALESCE(auto_mcp,1),created_at
@@ -490,7 +490,7 @@ func (s *Store) GetConnectionAny(connID int64) (*Connection, string, error) {
 
 func (s *Store) CountProjectsForUser(userID int64) int {
 	var count int
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM projects WHERE user_id=?`, userID).Scan(&count)
+	_ = s.dbQueryRow(`SELECT COUNT(*) FROM projects WHERE user_id=?`, userID).Scan(&count)
 	return count
 }
 
@@ -500,7 +500,7 @@ func (s *Store) CountProjectAgents(projectID string, runningOnly bool) int {
 		query += ` AND status='running'`
 	}
 	var count int
-	_ = s.db.QueryRow(query, projectID).Scan(&count)
+	_ = s.dbQueryRow(query, projectID).Scan(&count)
 	return count
 }
 
@@ -509,7 +509,7 @@ func (s *Store) CountProjectAgents(projectID string, runningOnly bool) int {
 // happens immediately afterwards and is compensatable; no account is exposed
 // to login until handleRegister has completed both stages.
 func (s *Store) CreateProvisionedUser(email, passwordHash string, policy AccessPolicy) (*User, *Project, error) {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -601,7 +601,7 @@ func managedLLMUsageDate(now time.Time) string { return now.UTC().Format("2006-0
 
 func (s *Store) ManagedLLMUsageForDay(userID int64, projectID string, now time.Time) (ManagedLLMUsage, error) {
 	usage := ManagedLLMUsage{Date: managedLLMUsageDate(now)}
-	err := s.db.QueryRow(`SELECT calls,input_tokens,output_tokens FROM managed_llm_usage
+	err := s.dbQueryRow(`SELECT calls,input_tokens,output_tokens FROM managed_llm_usage
 		WHERE usage_date=? AND user_id=? AND project_id=?`, usage.Date, userID, projectID).
 		Scan(&usage.Calls, &usage.InputTokens, &usage.OutputTokens)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -612,14 +612,14 @@ func (s *Store) ManagedLLMUsageForDay(userID int64, projectID string, now time.T
 
 func (s *Store) ManagedLLMAggregateForDay(now time.Time) (ManagedLLMUsage, error) {
 	usage := ManagedLLMUsage{Date: managedLLMUsageDate(now)}
-	err := s.db.QueryRow(`SELECT COALESCE(SUM(calls),0),COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0)
+	err := s.dbQueryRow(`SELECT COALESCE(SUM(calls),0),COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0)
 		FROM managed_llm_usage WHERE usage_date=?`, usage.Date).
 		Scan(&usage.Calls, &usage.InputTokens, &usage.OutputTokens)
 	return usage, err
 }
 
 func (s *Store) RecordManagedLLMUsage(userID int64, projectID string, calls, inputTokens, outputTokens int64, now time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO managed_llm_usage
+	_, err := s.dbExec(`INSERT INTO managed_llm_usage
 		(usage_date,user_id,project_id,calls,input_tokens,output_tokens,updated_at)
 		VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)
 		ON CONFLICT(usage_date,user_id,project_id) DO UPDATE SET

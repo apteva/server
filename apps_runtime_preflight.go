@@ -134,7 +134,7 @@ func (m *appRuntimeManager) preflight(ctx context.Context, id int64, project str
 			return p, append(checks, runtimeCheck("Backend", "backend_unavailable", fmt.Errorf("execution backend is not registered")))
 		}
 		var owner, status string
-		if err = m.s.store.db.QueryRow(`SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&owner, &status); err != nil || status != "running" || owner != "" && owner != project || p.Target.InstallID != p.Backend.InstallID {
+		if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,''),status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&owner, &status); err != nil || status != "running" || owner != "" && owner != project || p.Target.InstallID != p.Backend.InstallID {
 			return p, append(checks, runtimeCheck("Placement access", "placement_access_denied", fmt.Errorf("backend and target must be available in this project")))
 		}
 	}

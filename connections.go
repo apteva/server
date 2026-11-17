@@ -615,7 +615,7 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	if in.AutoMCP != nil && *in.AutoMCP {
 		autoMCP = 1
 	}
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id, credential_management, credential_export_policy, managed_key, auto_mcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia, in.OwnerAppInstallID, in.CredentialManagement, in.CredentialExportPolicy, in.ManagedKey, autoMCP,
 	)
@@ -632,7 +632,7 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	//
 	// The WHERE guard makes this a no-op once a primary exists, so adding
 	// a second key never steals the operator's choice.
-	s.db.Exec(`UPDATE connections SET is_primary = 1 WHERE id = ? AND NOT EXISTS (
+	s.dbExec(`UPDATE connections SET is_primary = 1 WHERE id = ? AND NOT EXISTS (
 		SELECT 1 FROM connections other
 		WHERE other.user_id = ? AND other.project_id = ? AND other.app_slug = ?
 		  AND other.is_primary = 1 AND other.id != ?
@@ -663,13 +663,13 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 		// set. With the v0.15.0 UI, an operator who promotes a
 		// connection to global gets it appearing in every project's
 		// list, which is the whole point.
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
 			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
 			        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
 			 FROM connections WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
 			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
 			        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
@@ -698,7 +698,7 @@ func (s *Store) GetConnection(userID, connID int64) (*Connection, string, error)
 	var c Connection
 	var encCreds, createdAt string
 	var autoMCP int
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, app_slug, app_name, name, auth_type, encrypted_credentials, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
 		        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
 		        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
@@ -716,14 +716,14 @@ func (s *Store) GetConnection(userID, connID int64) (*Connection, string, error)
 
 // UpdateConnectionStatus flips a connection's status (pending → active → failed).
 func (s *Store) UpdateConnectionStatus(connID int64, status string) error {
-	_, err := s.db.Exec("UPDATE connections SET status = ? WHERE id = ?", status, connID)
+	_, err := s.dbExec("UPDATE connections SET status = ? WHERE id = ?", status, connID)
 	return err
 }
 
 // UpdateConnectionCredentials replaces the encrypted credential blob (used after
 // local OAuth token exchange and on refresh).
 func (s *Store) UpdateConnectionCredentials(connID int64, encryptedCreds string) error {
-	_, err := s.db.Exec("UPDATE connections SET encrypted_credentials = ? WHERE id = ?", encryptedCreds, connID)
+	_, err := s.dbExec("UPDATE connections SET encrypted_credentials = ? WHERE id = ?", encryptedCreds, connID)
 	return err
 }
 
@@ -733,7 +733,7 @@ func (s *Store) UpdateConnectionCredentials(connID int64, encryptedCreds string)
 // tokens automatically. New connections already contain api_key and are left
 // untouched, making this safe to run on every boot.
 func (s *Store) MarkLegacyCJDropshippingConnectionsForReconnect(secret []byte) (int, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id, encrypted_credentials
 		FROM connections
 		WHERE app_slug = 'cjdropshipping' AND status != 'failed'`)
@@ -772,7 +772,7 @@ func (s *Store) MarkLegacyCJDropshippingConnectionsForReconnect(secret []byte) (
 		return 0, err
 	}
 	for _, id := range legacyIDs {
-		if _, err := s.db.Exec("UPDATE connections SET status = 'failed' WHERE id = ?", id); err != nil {
+		if _, err := s.dbExec("UPDATE connections SET status = 'failed' WHERE id = ?", id); err != nil {
 			return 0, err
 		}
 	}
@@ -787,12 +787,12 @@ func (s *Store) MarkLegacyCJDropshippingConnectionsForReconnect(secret []byte) (
 // read at call time. Without this, the row's frozen env would keep
 // failing every call until the user manually disconnect/reconnects.
 func (s *Store) UpdateMCPServerEnv(serverID int64, encryptedEnv string) error {
-	_, err := s.db.Exec("UPDATE mcp_servers SET encrypted_env = ? WHERE id = ?", encryptedEnv, serverID)
+	_, err := s.dbExec("UPDATE mcp_servers SET encrypted_env = ? WHERE id = ?", encryptedEnv, serverID)
 	return err
 }
 
 func (s *Store) DeleteConnection(userID, connID int64) error {
-	_, err := s.db.Exec("DELETE FROM connections WHERE id = ? AND user_id = ?", connID, userID)
+	_, err := s.dbExec("DELETE FROM connections WHERE id = ? AND user_id = ?", connID, userID)
 	return err
 }
 
@@ -861,7 +861,7 @@ func (s *Store) CreateMCPServerFromConnectionWithSlug(userID int64, conn *Connec
 	} else if conn.AppName != "" && !strings.HasPrefix(description, conn.AppName) {
 		description = conn.AppName + " " + description
 	}
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id, project_id, allowed_tools) VALUES (?, ?, ?, 'running', ?, 'local', ?, ?, ?)",
 		userID, mcpName, description, toolCount, conn.ID, conn.ProjectID, allowedJSON,
 	)
@@ -1001,7 +1001,7 @@ func (s *Server) refreshRemoteMcpAuth(serverID int64, connectionID int64, env ma
 	// and the catalog entry (for token_url + auth_header template).
 	var userID int64
 	var appSlug string
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		"SELECT user_id, app_slug FROM connections WHERE id = ?", connectionID,
 	).Scan(&userID, &appSlug); err != nil {
 		return fmt.Errorf("load connection %d: %w", connectionID, err)
@@ -1140,7 +1140,7 @@ func resolveRemoteMcpCredTemplate(template string, creds map[string]string) (str
 func (s *Store) CanonicalMCPNameForConnection(connID int64) string {
 	var name string
 	// Prefer the oldest row (= auto-created default) over scoped copies.
-	s.db.QueryRow(
+	s.dbQueryRow(
 		"SELECT name FROM mcp_servers WHERE connection_id = ? ORDER BY id ASC LIMIT 1",
 		connID,
 	).Scan(&name)
@@ -1149,7 +1149,7 @@ func (s *Store) CanonicalMCPNameForConnection(connID int64) string {
 	}
 	// Fallback: look up the connection's app slug directly.
 	var slug string
-	s.db.QueryRow("SELECT app_slug FROM connections WHERE id = ?", connID).Scan(&slug)
+	s.dbQueryRow("SELECT app_slug FROM connections WHERE id = ?", connID).Scan(&slug)
 	return slug
 }
 
@@ -1198,7 +1198,7 @@ func slugify(s string) string {
 func (s *Store) uniqueMCPName(userID int64, projectID, appSlug string, connID int64) string {
 	nameTaken := func(candidate string) bool {
 		var count int
-		s.db.QueryRow(
+		s.dbQueryRow(
 			"SELECT COUNT(*) FROM mcp_servers WHERE user_id = ? AND project_id = ? AND name = ?",
 			userID, projectID, candidate,
 		).Scan(&count)
@@ -1223,7 +1223,7 @@ func (s *Store) uniqueMCPName(userID int64, projectID, appSlug string, connID in
 }
 
 func (s *Store) DeleteMCPServerByConnection(connID int64) {
-	s.db.Exec("DELETE FROM mcp_servers WHERE connection_id = ?", connID)
+	s.dbExec("DELETE FROM mcp_servers WHERE connection_id = ?", connID)
 }
 
 // --- HTTP Executor ---
@@ -3105,7 +3105,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	// Enforce (user, project, app, name) uniqueness upfront so the user
 	// gets a readable error instead of a raw UNIQUE constraint violation.
 	var existingCount int
-	s.store.db.QueryRow(
+	s.store.dbQueryRowContext(r.Context(),
 		"SELECT COUNT(*) FROM connections WHERE user_id = ? AND project_id = ? AND app_slug = ? AND name = ?",
 		userID, body.ProjectID, body.AppSlug, body.Name,
 	).Scan(&existingCount)
@@ -3347,7 +3347,7 @@ func collectOAuthSupplementalCredentials(app *AppTemplate, credentials map[strin
 // when the column is missing on a freshly-migrated DB.
 func connectionAutoMCPFlag(s *Server, connID int64) bool {
 	var v int
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT COALESCE(auto_mcp, 1) FROM connections WHERE id=?`,
 		connID,
 	).Scan(&v); err != nil {
@@ -3358,7 +3358,7 @@ func connectionAutoMCPFlag(s *Server, connID int64) bool {
 
 func hasMCPServerForConnection(s *Server, connID int64) bool {
 	var count int
-	_ = s.store.db.QueryRow(
+	_ = s.store.dbQueryRow(
 		`SELECT COUNT(*) FROM mcp_servers WHERE connection_id=?`,
 		connID,
 	).Scan(&count)
@@ -3481,7 +3481,7 @@ func (s *Server) handleRenameConnection(w http.ResponseWriter, r *http.Request) 
 	// Uniqueness: (user, project, app, name) must stay unique — match the
 	// guard in handleCreateConnection so rename failures are readable.
 	var existing int
-	s.store.db.QueryRow(
+	s.store.dbQueryRowContext(r.Context(),
 		"SELECT COUNT(*) FROM connections WHERE user_id = ? AND project_id = ? AND app_slug = ? AND name = ? AND id != ?",
 		userID, conn.ProjectID, conn.AppSlug, name, connID,
 	).Scan(&existing)
@@ -3489,7 +3489,7 @@ func (s *Server) handleRenameConnection(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "a connection with that name already exists for this app in this project", http.StatusConflict)
 		return
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		"UPDATE connections SET name = ? WHERE id = ? AND user_id = ?",
 		name, connID, userID,
 	); err != nil {

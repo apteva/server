@@ -16,18 +16,18 @@ func (s *Server) deliverAppNotificationPush(ctx context.Context, device *mobileP
 	if err != nil || !expires.After(time.Now()) {
 		return
 	}
-	pref, err := notificationPreferences(s.store.db, device.UserID)
+	pref, err := notificationPreferences(s.store.boundedDatabase(nil), device.UserID)
 	if err != nil || !pref.Mobile {
 		return
 	}
-	_, err = s.store.db.Exec(`INSERT OR IGNORE INTO user_notification_push(device_id,notification_id)
+	_, err = s.store.dbExec(`INSERT OR IGNORE INTO user_notification_push(device_id,notification_id)
  SELECT ?,n.id FROM user_notifications n WHERE n.user_id=? AND n.is_read=0 AND n.dismissed=0
  AND json_extract(n.channels,'$.mobile')=1 AND datetime(n.created_at)>=datetime(?)
  AND datetime(n.created_at)>datetime('now','-7 days')`, device.ID, device.UserID, device.CreatedAt)
 	if err != nil {
 		return
 	}
-	rows, err := s.store.db.Query(`SELECT notification_id,attempts FROM user_notification_push WHERE device_id=? AND status='pending' AND next_attempt<=? ORDER BY notification_id LIMIT 50`, device.ID, time.Now().Unix())
+	rows, err := s.store.dbQuery(`SELECT notification_id,attempts FROM user_notification_push WHERE device_id=? AND status='pending' AND next_attempt<=? ORDER BY notification_id LIMIT 50`, device.ID, time.Now().Unix())
 	if err != nil {
 		return
 	}
@@ -52,7 +52,7 @@ func (s *Server) deliverAppNotificationPush(ctx context.Context, device *mobileP
 			return
 		}
 		cancel := func() {
-			s.store.db.Exec(`UPDATE user_notification_push SET status='canceled' WHERE device_id=? AND notification_id=?`, device.ID, job.id)
+			s.store.dbExec(`UPDATE user_notification_push SET status='canceled' WHERE device_id=? AND notification_id=?`, device.ID, job.id)
 		}
 		// Current read state, access and global preferences are checked at send time.
 		items, err := s.readUserNotifications(device.UserID, 0, job.id, 1)
@@ -65,7 +65,7 @@ func (s *Server) deliverAppNotificationPush(ctx context.Context, device *mobileP
 		}
 		n := items[0]
 		var dismissed bool
-		if s.store.db.QueryRow(`SELECT dismissed FROM user_notifications WHERE id=?`, n.ID).Scan(&dismissed) != nil {
+		if s.store.dbQueryRow(`SELECT dismissed FROM user_notifications WHERE id=?`, n.ID).Scan(&dismissed) != nil {
 			return
 		}
 		if n.Read || dismissed || !n.Channels.Mobile {
@@ -73,7 +73,7 @@ func (s *Server) deliverAppNotificationPush(ctx context.Context, device *mobileP
 			continue
 		}
 		var badge int
-		if err = s.store.db.QueryRow(`SELECT count(*)`+notificationReadAccess+` AND n.dismissed=0 AND n.is_read=0 AND json_extract(n.channels,'$.mobile')=1`, device.UserID).Scan(&badge); err != nil {
+		if err = s.store.dbQueryRow(`SELECT count(*)`+notificationReadAccess+` AND n.dismissed=0 AND n.is_read=0 AND json_extract(n.channels,'$.mobile')=1`, device.UserID).Scan(&badge); err != nil {
 			return
 		}
 		if badge > 9999 {
@@ -107,11 +107,11 @@ func (s *Server) deliverAppNotificationPush(ctx context.Context, device *mobileP
 			if attempts >= 15 {
 				state = "failed"
 			}
-			s.store.db.Exec(`UPDATE user_notification_push SET status=?,attempts=?,next_attempt=?,last_error=? WHERE device_id=? AND notification_id=?`, state, attempts, time.Now().Add(delay).Unix(), truncateMobilePushError(err.Error()), device.ID, n.ID)
+			s.store.dbExec(`UPDATE user_notification_push SET status=?,attempts=?,next_attempt=?,last_error=? WHERE device_id=? AND notification_id=?`, state, attempts, time.Now().Add(delay).Unix(), truncateMobilePushError(err.Error()), device.ID, n.ID)
 			// A pre-upgrade relay may not support this type yet. Never invalidate a
 			// valid device grant just because the relay needs the additive update.
 			continue
 		}
-		s.store.db.Exec(`UPDATE user_notification_push SET status='sent',last_error='' WHERE device_id=? AND notification_id=?`, device.ID, n.ID)
+		s.store.dbExec(`UPDATE user_notification_push SET status='sent',last_error='' WHERE device_id=? AND notification_id=?`, device.ID, n.ID)
 	}
 }

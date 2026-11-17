@@ -100,7 +100,7 @@ func verifyRuntimePreparedPackage(root string, p runtimePreparedPackage) error {
 func (m *appRuntimeManager) cachedRuntimePackage(buildKey string) (runtimePreparedPackage, error) {
 	var p runtimePreparedPackage
 	var raw string
-	err := m.s.store.db.QueryRow(`SELECT b.record_json FROM app_runtime_package_builds b JOIN app_runtime_packages p ON p.id=b.package_id WHERE b.build_key=?`, buildKey).Scan(&raw)
+	err := m.s.store.dbQueryRowContext(m.ctx, `SELECT b.record_json FROM app_runtime_package_builds b JOIN app_runtime_packages p ON p.id=b.package_id WHERE b.build_key=?`, buildKey).Scan(&raw)
 	if err != nil {
 		return p, err
 	}
@@ -112,7 +112,7 @@ func (m *appRuntimeManager) cachedRuntimePackage(buildKey string) (runtimePrepar
 		err = verifyRuntimePreparedPackage(filepath.Join(root, p.Metadata.ID), p)
 	}
 	if err == nil {
-		_, err = m.s.store.db.Exec(`UPDATE app_runtime_packages SET last_used=? WHERE id=?`, time.Now().UnixNano(), p.Metadata.ID)
+		_, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_packages SET last_used=? WHERE id=?`, time.Now().UnixNano(), p.Metadata.ID)
 	}
 	return p, err
 }
@@ -120,7 +120,7 @@ func (m *appRuntimeManager) cachedRuntimePackage(buildKey string) (runtimePrepar
 // Retained deployments (including stopped rollback candidates) pin their
 // packages. GC removes only unreferenced verified packages under the cache lock.
 func (m *appRuntimeManager) pruneRuntimePackages(root string, incoming, limit int64) error {
-	rows, err := m.s.store.db.Query(`SELECT id,bytes,last_used FROM app_runtime_packages ORDER BY last_used,id`)
+	rows, err := m.s.store.dbQueryContext(m.ctx, `SELECT id,bytes,last_used FROM app_runtime_packages ORDER BY last_used,id`)
 	if err != nil {
 		return err
 	}
@@ -150,11 +150,11 @@ func (m *appRuntimeManager) pruneRuntimePackages(root string, incoming, limit in
 			break
 		}
 		var pinned int
-		if err = m.s.store.db.QueryRow(`SELECT count(*) FROM app_runtime_deployments WHERE status!='deleted' AND json_extract(record_json,'$.package.metadata.id')=?`, e.id).Scan(&pinned); err != nil {
+		if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT count(*) FROM app_runtime_deployments WHERE status!='deleted' AND json_extract(record_json,'$.package.metadata.id')=?`, e.id).Scan(&pinned); err != nil {
 			return err
 		}
 		// A concurrent builder may have prepared but not yet attached its result.
-		if err = m.s.store.db.QueryRow(`SELECT ?+count(*) FROM app_runtime_deployments WHERE status!='deleted' AND json_extract(record_json,'$.package_preparation.build_key') IN (SELECT build_key FROM app_runtime_package_builds WHERE package_id=?)`, pinned, e.id).Scan(&pinned); err != nil {
+		if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT ?+count(*) FROM app_runtime_deployments WHERE status!='deleted' AND json_extract(record_json,'$.package_preparation.build_key') IN (SELECT build_key FROM app_runtime_package_builds WHERE package_id=?)`, pinned, e.id).Scan(&pinned); err != nil {
 			return err
 		}
 		if pinned != 0 {
@@ -166,11 +166,11 @@ func (m *appRuntimeManager) pruneRuntimePackages(root string, incoming, limit in
 		if err = os.RemoveAll(filepath.Join(root, e.id)); err != nil {
 			return err
 		}
-		if _, err = m.s.store.db.Exec(`DELETE FROM app_runtime_packages WHERE id=?`, e.id); err != nil {
+		if _, err = m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_packages WHERE id=?`, e.id); err != nil {
 			return err
 		}
-		_, _ = m.s.store.db.Exec(`DELETE FROM app_runtime_package_deliveries WHERE package_id=?`, e.id)
-		_, _ = m.s.store.db.Exec(`DELETE FROM app_runtime_package_builds WHERE package_id=?`, e.id)
+		_, _ = m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_package_deliveries WHERE package_id=?`, e.id)
+		_, _ = m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_package_builds WHERE package_id=?`, e.id)
 		total -= e.bytes
 	}
 	if total+incoming > limit {
@@ -185,7 +185,7 @@ func (m *appRuntimeManager) publishRuntimePackage(root, stage string, p runtimeP
 	}
 	defer unlock()
 	var existing string
-	err = m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_packages WHERE id=?`, p.Metadata.ID).Scan(&existing)
+	err = m.s.store.dbQueryRowContext(m.ctx, `SELECT record_json FROM app_runtime_packages WHERE id=?`, p.Metadata.ID).Scan(&existing)
 	if err == nil {
 		var prior runtimePreparedPackage
 		if json.Unmarshal([]byte(existing), &prior) != nil || runtimeJSON(prior.Metadata) != runtimeJSON(p.Metadata) {
@@ -194,7 +194,7 @@ func (m *appRuntimeManager) publishRuntimePackage(root, stage string, p runtimeP
 		if err = verifyRuntimePreparedPackage(filepath.Join(root, p.Metadata.ID), prior); err != nil {
 			return err
 		}
-		_, err = m.s.store.db.Exec(`INSERT INTO app_runtime_package_builds(build_key,package_id,record_json) VALUES(?,?,?) ON CONFLICT(build_key) DO NOTHING`, p.BuildKey, p.Metadata.ID, runtimeJSON(p))
+		_, err = m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_package_builds(build_key,package_id,record_json) VALUES(?,?,?) ON CONFLICT(build_key) DO NOTHING`, p.BuildKey, p.Metadata.ID, runtimeJSON(p))
 		return err
 	}
 	if err != sql.ErrNoRows {
@@ -219,7 +219,7 @@ func (m *appRuntimeManager) publishRuntimePackage(root, stage string, p runtimeP
 	} else if err = os.Rename(stage, dest); err != nil {
 		return err
 	}
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}

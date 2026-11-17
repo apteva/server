@@ -144,7 +144,8 @@ type pendingDelivery struct {
 func newStore(db *sql.DB) *store { return &store{db: db} }
 
 func (s *store) withImmediateWrite(fn func(context.Context, *sql.Conn) error) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
@@ -302,19 +303,7 @@ func (s *store) ListChatsForAgent(agentID int64) ([]Chat, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []Chat{}
-	for rows.Next() {
-		c, err := s.scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.loadChatParticipants(c); err != nil {
-			return nil, err
-		}
-		out = append(out, *c)
-	}
-	return out, rows.Err()
+	return s.readChatsWithParticipants(rows)
 }
 
 // ListConversations returns the user-visible project conversation list.
@@ -338,19 +327,7 @@ func (s *store) ListConversations(ownerUserID int64, projectID string, includeAr
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []Chat{}
-	for rows.Next() {
-		c, err := s.scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.loadChatParticipants(c); err != nil {
-			return nil, err
-		}
-		out = append(out, *c)
-	}
-	return out, rows.Err()
+	return s.readChatsWithParticipants(rows)
 }
 
 func (s *store) CreateConversation(ownerUserID int64, projectID, title string, agentIDs []int64, leadAgentID int64, directive ...string) (*Chat, error) {
@@ -472,19 +449,7 @@ func (s *store) ListChatsForAgentSubject(agentID int64, subjectType, subjectID s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []Chat{}
-	for rows.Next() {
-		chat, err := s.scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.loadChatParticipants(chat); err != nil {
-			return nil, err
-		}
-		out = append(out, *chat)
-	}
-	return out, rows.Err()
+	return s.readChatsWithParticipants(rows)
 }
 
 func (s *store) UpdateConversation(id, title string, archived *bool, directive *string) (*Chat, error) {
@@ -599,19 +564,7 @@ func (s *store) UnusedConversationThreads() ([]Chat, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var chats []Chat
-	for rows.Next() {
-		chat, err := s.scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.loadChatParticipants(chat); err != nil {
-			return nil, err
-		}
-		chats = append(chats, *chat)
-	}
-	return chats, rows.Err()
+	return s.readChatsWithParticipants(rows)
 }
 
 func (s *store) ClearUnusedConversationThread(chatID, threadID string) error {
@@ -2144,4 +2097,30 @@ func parseSQLiteTime(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("unrecognized time format: %q", s)
+}
+
+// Cursor ownership ends before participant enrichment borrows a connection.
+func (s *store) readChats(rows *sql.Rows) ([]Chat, error) {
+	defer rows.Close()
+	out := []Chat{}
+	for rows.Next() {
+		chat, err := s.scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *chat)
+	}
+	return out, rows.Err()
+}
+func (s *store) readChatsWithParticipants(rows *sql.Rows) ([]Chat, error) {
+	chats, err := s.readChats(rows)
+	if err != nil {
+		return nil, err
+	}
+	for i := range chats {
+		if err := s.loadChatParticipants(&chats[i]); err != nil {
+			return nil, err
+		}
+	}
+	return chats, nil
 }

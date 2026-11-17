@@ -49,7 +49,7 @@ func (m *appRuntimeManager) existingSource(id int64) (runtimeExistingSource, err
 	var status, raw, endpoint, bin string
 	var port, pid int
 	var generation int64
-	err := m.s.store.db.QueryRow(`SELECT runtime_managed,status,COALESCE(NULLIF(i.manifest_json,''),a.manifest_json),local_bin_path,local_port,local_pid,sidecar_url_override,runtime_generation FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&managed, &status, &raw, &bin, &port, &pid, &endpoint, &generation)
+	err := m.s.store.dbQueryRowContext(m.ctx, `SELECT runtime_managed,status,COALESCE(NULLIF(i.manifest_json,''),a.manifest_json),local_bin_path,local_port,local_pid,sidecar_url_override,runtime_generation FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&managed, &status, &raw, &bin, &port, &pid, &endpoint, &generation)
 	if err != nil {
 		return out, err
 	}

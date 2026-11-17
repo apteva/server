@@ -92,7 +92,7 @@ func legacyCertsFallbackEnabled(s *Server) bool {
 		return false
 	}
 	var count int
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT COUNT(*)
 		   FROM app_installs i
 		   JOIN apps a ON a.id = i.app_id

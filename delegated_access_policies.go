@@ -113,7 +113,7 @@ func validateDelegatedPolicyScopes(raw json.RawMessage) error {
 func (s *Server) delegatedAccessPolicyFor(installID int64, projectID, oauthClientID string) (*delegatedAccessPolicy, error) {
 	var policy delegatedAccessPolicy
 	var scopes string
-	err := s.store.db.QueryRow(`
+	err := s.store.dbQueryRow(`
 		SELECT project_id, oauth_client_id, scopes, token_ttl_seconds, rate_limit_per_minute
 		FROM delegated_access_policies
 		WHERE issuer_install_id = ? AND project_id = ? AND oauth_client_id = ?`,
@@ -146,7 +146,7 @@ func (s *Server) replaceDelegatedAccessPolicies(installID int64, installProjectI
 		clean.IssuerInstallID = installID
 		normalized = append(normalized, clean)
 	}
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func (s *Server) replaceDelegatedAccessPolicies(installID int64, installProjectI
 }
 
 func (s *Server) listDelegatedAccessPolicies(installID int64) ([]delegatedAccessPolicy, error) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT project_id, oauth_client_id, scopes, token_ttl_seconds, rate_limit_per_minute
 		FROM delegated_access_policies WHERE issuer_install_id = ?
 		ORDER BY project_id, oauth_client_id`, installID)
@@ -232,7 +232,7 @@ func (s *Server) handleDelegatedAccessPolicies(w http.ResponseWriter, r *http.Re
 			return
 		}
 		var installProjectID string
-		if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id = ?`, installID).Scan(&installProjectID); err != nil {
+		if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM app_installs WHERE id = ?`, installID).Scan(&installProjectID); err != nil {
 			http.Error(w, "install not found", http.StatusNotFound)
 			return
 		}

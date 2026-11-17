@@ -317,7 +317,7 @@ func (s *Server) delegatedAppCORSOriginAllowed(r *http.Request, origin string) b
 	if !ok {
 		return false
 	}
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQueryContext(r.Context(), `
 		SELECT COALESCE(allowed_origins, '[]'), COALESCE(scopes, '[]')
 		FROM api_keys
 		WHERE kind = 'delegated_user'
@@ -371,7 +371,7 @@ func (s *Server) mintDelegatedUserKeyForInstall(installID int64, body delegatedU
 		projectID   string
 		appName     string
 	)
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT COALESCE(i.installed_by,0), COALESCE(i.project_id,''), a.name
 		   FROM app_installs i JOIN apps a ON a.id = i.app_id
 		  WHERE i.id = ? AND i.status NOT IN ('disabled','error')`,

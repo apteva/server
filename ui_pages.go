@@ -104,7 +104,7 @@ func (s *Server) handleUIPages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Store) mutateUIPage(userID int64, projectID string, page workspacePage, method string, expected ...*int64) (json.RawMessage, int64, error) {
-	if _, err := s.db.Exec(`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
+	if _, err := s.dbExec(`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
  VALUES (?, '{}', 0, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO NOTHING`, userID); err != nil {
 		return nil, 0, err
 	}
@@ -180,7 +180,7 @@ func (s *Store) mutateUIPage(userID int64, projectID string, page workspacePage,
 		if len(next) > 128<<10 {
 			return nil, revision, errors.New("ui_layout must be no larger than 128 KiB")
 		}
-		result, err := s.db.Exec(`UPDATE user_preferences SET ui_layout=?, ui_layout_revision=ui_layout_revision+1,
+		result, err := s.dbExec(`UPDATE user_preferences SET ui_layout=?, ui_layout_revision=ui_layout_revision+1,
    updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND ui_layout_revision=?`, string(next), userID, revision)
 		if err != nil {
 			return nil, revision, err

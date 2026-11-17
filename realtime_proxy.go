@@ -164,7 +164,7 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		http.Error(w, "valid agent_id, thread and token required", http.StatusBadRequest)
 		return
 	}
-	agent, err := s.store.GetAgentByID(agentID)
+	agent, err := s.store.GetAgentByIDContext(r.Context(), agentID)
 	if err == nil && !s.capabilityAllowed(agent.UserID, "realtime_voice") {
 		http.Error(w, "realtime voice is disabled", http.StatusForbidden)
 		return
