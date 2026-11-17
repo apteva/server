@@ -93,6 +93,10 @@ func (s *Server) handleSetInstallConfig(w http.ResponseWriter, r *http.Request) 
 	// json.Marshal sorts map keys, so the before/after strings are
 	// directly comparable to detect whether anything actually changed.
 	beforeRaw, _ := json.Marshal(current)
+	before := map[string]any{}
+	for k, v := range current {
+		before[k] = v
+	}
 	for k, v := range body.Config {
 		current[k] = v
 	}
@@ -121,7 +125,7 @@ func (s *Server) handleSetInstallConfig(w http.ResponseWriter, r *http.Request) 
 	restarted := false
 	if string(beforeRaw) != string(raw) &&
 		(s.runtimeManaged(installID) || (s.localApps != nil && s.localApps.PID(installID) > 0)) {
-		if err := s.RespawnLocalInstall(installID); err != nil {
+		if err := s.RespawnLocalInstall(installID, restartAuditForRequest(r, "configuration_changed", changedInstallSettingNames(before, current))); err != nil {
 			log.Printf("[APPS-CONFIG] install %d: config saved but respawn failed: %v", installID, err)
 		} else {
 			restarted = true
