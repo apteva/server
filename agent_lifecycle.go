@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -336,6 +337,21 @@ func (s *Server) abandonUnsyncedAgentRuntime(inst *Agent) {
 	if err := s.store.SetAgentRuntimeStopped(inst); err != nil {
 		log.Printf("[RUNTIME] clear unsynced agent=%d: %v", inst.ID, err)
 	}
+}
+
+// runningCoreAgent resolves a core_ key to its agent while that agent's core
+// runs. A core started by this server calls back with its key before
+// syncAgentRuntime records it, so live processes are checked first. The
+// stored row covers a core that outlived the previous server and has not been
+// re-attached yet.
+func (s *Server) runningCoreAgent(ctx context.Context, key string) (*Agent, error) {
+	if !strings.HasPrefix(key, "core_") {
+		return nil, sql.ErrNoRows
+	}
+	if id, ok := s.agents.AgentForCoreAPIKey(key); ok {
+		return s.store.GetAgentByIDContext(ctx, id)
+	}
+	return s.store.GetRunningAgentByCoreAPIKeyContext(ctx, key)
 }
 
 // startManagedAgent is the only server-owned path for launching a core. It

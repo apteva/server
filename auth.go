@@ -263,9 +263,9 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			// identity only for the exact loopback runtime-token route; ownership
 			// is enforced again by handleRuntimeToken's user-scoped lookup.
 			if strings.HasPrefix(token, "core_") && coreRuntimeTokenRequestAllowed(r) {
-				if userID, err := s.store.GetRunningAgentUserByCoreAPIKeyContext(r.Context(), token); err == nil {
-					noteAuditPrincipal(r, "core", itoa(userID), credentialRef("core", token), 0)
-					r.Header.Set("X-User-ID", itoa(userID))
+				if agent, err := s.runningCoreAgent(r.Context(), token); err == nil {
+					noteAuditPrincipal(r, "core", itoa(agent.UserID), credentialRef("core", token), 0)
+					r.Header.Set("X-User-ID", itoa(agent.UserID))
 					next(w, r)
 					return
 				} else if databaseHTTPFailure(w, err) {
