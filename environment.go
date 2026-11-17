@@ -89,6 +89,13 @@ type EnvironmentSpec struct {
 	HealthBudget  time.Duration
 	Clock         *sdk.RuntimeClockSpec
 	RestoredClock *sdk.RuntimeClockState
+	// RestoreSource is the snapshot RestoredAppDataDirs came from. When it
+	// records the ids its data was written under, each app rewrites that
+	// data to this environment's ids before it serves.
+	RestoreSource *SnapshotManifest
+	// AppGrants are the calls this environment's apps may make to apps that
+	// are not installed in it (see runtime_passthrough.go).
+	AppGrants []sdk.RuntimeAppGrant
 }
 
 // Environment is a live test environment.
@@ -113,6 +120,10 @@ type Environment struct {
 	mu                sync.Mutex
 	apps              map[string]*SandboxAppInstance
 	installs          map[string]*localInstall    // real installs (AppSrcDirs path), keyed by app name
+	installOrder      []string                    // install names, dependencies first
+	restoreDir        string                      // restore context/result files, removed on Stop
+	appGrants         []sdk.RuntimeAppGrant       // read-only calls allowed to apps outside the environment
+	snapshotMu        sync.Mutex                  // held while installs are paused for a snapshot, and by Stop
 	agents            map[int64]*EnvironmentAgent // running agent cores in this environment, keyed by transient agent id
 	pendingAgents     map[int64]*EnvironmentAgent // server-owned startup reservations; never exposed as running agents
 	stopped           bool
@@ -285,6 +296,20 @@ func (w *Environment) Install(name string) (*localInstall, bool) {
 	defer w.mu.Unlock()
 	in, ok := w.installs[name]
 	return in, ok
+}
+
+// InstallOrder lists install names with dependencies before the apps that
+// require them.
+func (w *Environment) InstallOrder() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]string, 0, len(w.installOrder))
+	for _, name := range w.installOrder {
+		if _, ok := w.installs[name]; ok {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // InstallNames lists the real in-environment installs' app names.
@@ -600,6 +625,10 @@ func (w *Environment) AppDBPath(name string) (string, bool) {
 // environment's project id, so it can NEVER touch a production install/connection.
 // Idempotent.
 func (w *Environment) Stop() {
+	// Wait for a snapshot in progress, which would otherwise restart the
+	// installs this teardown removes.
+	w.snapshotMu.Lock()
+	defer w.snapshotMu.Unlock()
 	w.mu.Lock()
 	w.stopped = true
 	apps := w.apps
@@ -613,6 +642,8 @@ func (w *Environment) Stop() {
 	}
 	w.apps = map[string]*SandboxAppInstance{}
 	w.installs = map[string]*localInstall{}
+	w.installOrder = nil
+	restoreDir := w.restoreDir
 	w.agents = map[int64]*EnvironmentAgent{}
 	w.pendingAgents = map[int64]*EnvironmentAgent{}
 	w.agentAliases = map[string]int64{}
@@ -650,6 +681,9 @@ func (w *Environment) Stop() {
 		if w.server.appEventDispatcher != nil {
 			_ = w.server.appEventDispatcher.Reconcile()
 		}
+	}
+	if restoreDir != "" {
+		_ = os.RemoveAll(restoreDir)
 	}
 	for _, a := range apps {
 		a.Stop()
@@ -828,7 +862,21 @@ func (wm *EnvironmentManager) CreateFromSnapshot(spec EnvironmentSpec, snapshotI
 	}
 	if len(spec.AppSrcDirs) > 0 {
 		spec.RestoredAppDataDirs = appDataDirs
+		spec.RestoreSource = man
 	}
+	// Install-backed apps copy their restored dir into their own data dir;
+	// only legacy sandboxed apps keep running on the temp copy.
+	defer func() {
+		inUse := map[string]bool{}
+		for _, app := range spec.Apps {
+			inUse[app.DataDir] = true
+		}
+		for _, dir := range appDataDirs {
+			if !inUse[dir] {
+				_ = os.RemoveAll(dir)
+			}
+		}
+	}()
 	// Replay against the snapshot's recorded externals unless the caller
 	// already supplied a cassette / chose a mode.
 	if spec.Cassette == nil {
@@ -916,6 +964,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		server:              wm.server,
 		connectionIDs:       append([]int64(nil), spec.ConnectionIDs...),
 		sourceInstallIDs:    cloneInt64Map(spec.SourceInstallIDs),
+		appGrants:           append([]sdk.RuntimeAppGrant(nil), spec.AppGrants...),
 		apps:                map[string]*SandboxAppInstance{},
 		installs:            map[string]*localInstall{},
 		agents:              map[int64]*EnvironmentAgent{},
@@ -983,30 +1032,75 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 	// installed under project_id = the environment id, with its egress routed
 	// through the edge and APTEVA_ENVIRONMENT_ID set so its integration callbacks
 	// route to this environment's interceptor.
+	//
+	// Every install row is reserved before any app starts, dependencies first,
+	// so a snapshot restore can map each old install id to its new one.
+	type reservedApp struct {
+		srcName string
+		pending *reservedLocalInstall
+	}
+	reserved := make([]reservedApp, 0, len(appSources))
 	for _, src := range appSources {
 		if wm.server == nil {
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: AppSrcDirs needs a server-backed EnvironmentManager", spec.ID)
-		}
-		env := map[string]string{
-			"HTTP_PROXY":            edge.ProxyURL(),
-			"HTTPS_PROXY":           edge.ProxyURL(),
-			"NO_PROXY":              "",
-			"APTEVA_ENVIRONMENT_ID": spec.ID,
 		}
 		initialBindings, bindErr := environmentDependencyBindingValues(w, depBindings[src.Name])
 		if bindErr != nil {
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: prepare app %q bindings: %w", spec.ID, src.Name, bindErr)
 		}
+		pending, rerr := wm.server.reserveLocalInstall(src.Dir, spec.ID, spec.CreatorUserID, initialBindings)
+		if rerr != nil {
+			w.Stop()
+			return nil, fmt.Errorf("environment %q: install app %q: %w", spec.ID, src.Name, rerr)
+		}
+		w.mu.Lock()
+		w.installs[pending.install.AppName] = pending.install
+		w.installOrder = append(w.installOrder, pending.install.AppName)
+		w.mu.Unlock()
+		reserved = append(reserved, reservedApp{srcName: src.Name, pending: pending})
+	}
+	var restores map[string]*localRestore
+	if len(reserved) > 0 && spec.RestoreSource != nil {
+		restoreDir := filepath.Join(wm.dataDir, "restores", spec.ID)
+		restoredDirs := map[string]string{}
+		installsByName := map[string]*localInstall{}
+		for _, r := range reserved {
+			name := r.pending.install.AppName
+			installsByName[name] = r.pending.install
+			if dir := spec.RestoredAppDataDirs[r.srcName]; dir != "" {
+				restoredDirs[name] = dir
+			}
+		}
+		restores, err = restorePlan(spec.RestoreSource, spec.ID, wm.server.runtimePlatformURL(spec.ID), restoreDir, restoredDirs, installsByName)
+		if err != nil {
+			w.Stop()
+			return nil, fmt.Errorf("environment %q: %w", spec.ID, err)
+		}
+		if len(restores) > 0 {
+			w.mu.Lock()
+			w.restoreDir = restoreDir
+			w.mu.Unlock()
+		}
+	}
+	for _, r := range reserved {
+		env := map[string]string{
+			"HTTP_PROXY":            edge.ProxyURL(),
+			"HTTPS_PROXY":           edge.ProxyURL(),
+			"NO_PROXY":              "",
+			"APTEVA_ENVIRONMENT_ID": spec.ID,
+			"APTEVA_PUBLIC_URL":     wm.server.runtimePlatformURL(spec.ID),
+		}
 		if clock.State().Mode == "manual" {
 			env["APTEVA_MANUAL_CLOCK"] = "1"
 			env["APTEVA_FAKE_TIME"] = clock.Now().Format(time.RFC3339Nano)
 		}
-		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, spec.CreatorUserID, env, spec.RestoredAppDataDirs[src.Name], initialBindings, nil)
+		name := r.pending.install.AppName
+		inst, ierr := wm.server.startLocalInstall(r.pending, env, spec.RestoredAppDataDirs[r.srcName], restores[name], nil)
 		if ierr != nil {
 			w.Stop()
-			return nil, fmt.Errorf("environment %q: install app %q: %w", spec.ID, src.Name, ierr)
+			return nil, fmt.Errorf("environment %q: install app %q: %w", spec.ID, r.srcName, ierr)
 		}
 		w.mu.Lock()
 		w.installs[inst.AppName] = inst

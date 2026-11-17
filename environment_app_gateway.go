@@ -255,6 +255,11 @@ func (s *Server) runtimeAppEndpoint(runtime *Environment, appName string) (*sdk.
 	}, nil
 }
 
+// runtimePlatformURLForInstall returns the runtime base URL for an install
+// that belongs to an environment, and "" for any other install. Installs of
+// an environment still being created are not in the live list yet, so the
+// install row decides for them: a sidecar asking from OnMount or a restore
+// hook gets the same URL it will see afterwards.
 func (s *Server) runtimePlatformURLForInstall(installID int64) string {
 	if s.environments == nil || installID <= 0 {
 		return ""
@@ -266,5 +271,14 @@ func (s *Server) runtimePlatformURLForInstall(installID int64) string {
 			}
 		}
 	}
-	return ""
+	if s.store == nil {
+		return ""
+	}
+	var projectID string
+	if err := s.store.db.QueryRow(
+		`SELECT project_id FROM app_installs WHERE id = ? AND source = 'environment'`, installID,
+	).Scan(&projectID); err != nil || projectID == "" {
+		return ""
+	}
+	return s.runtimePlatformURL(projectID)
 }

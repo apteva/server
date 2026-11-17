@@ -74,6 +74,13 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
 		return nil, false
 	}
+	selectedInstallID := int64(0)
+	if len(selected) > 0 {
+		selectedInstallID = selected[0]
+	}
+	if !s.runtimeCallBoundary(w, installID, targetAppName, selectedInstallID) {
+		return nil, false
+	}
 	effectiveProjectID, ok := s.appCallProjectMetadata(w, caller, requestedProjectID)
 	if !ok {
 		return nil, false
