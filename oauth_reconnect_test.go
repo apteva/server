@@ -56,7 +56,7 @@ func TestAppOAuthReconnectPreservesConnection130(t *testing.T) {
 			app := reconnectTestTemplate("youtube-api", "get_my_channel", "/channels?mine=true", upstream.URL)
 			s.catalog = NewAppCatalog()
 			s.catalog.apps[app.Slug] = app
-			old, err := Encrypt(s.secret, `{"access_token":"original","refresh_token":"original-refresh","client_id":"test-client","scope":"old-scope","extra_setting":"keep-me"}`)
+			old, err := Encrypt(s.secret, `{"access_token":"original","accessToken":"original","token":"original","refresh_token":"original-refresh","refreshToken":"original-refresh","client_id":"test-client","scope":"old-scope","extra_setting":"keep-me"}`)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,6 +128,7 @@ func TestAppOAuthReconnectPreservesConnection130(t *testing.T) {
 			if tc.want == "authorized" {
 				current, err := s.reconnectCredentials(encrypted)
 				if err != nil || current["refresh_token"] != "new-refresh" || current["access_token"] != "candidate" ||
+					current["refreshToken"] != "new-refresh" || current["token"] != "candidate" || current["accessToken"] != "candidate" ||
 					current["extra_setting"] != "keep-me" || current["scope"] != "" {
 					t.Fatal("verified credentials were not persisted cleanly on the same connection")
 				}
