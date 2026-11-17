@@ -125,7 +125,7 @@ func (s *Server) helperOperatorScope(r *http.Request, agent *Agent, thread, proj
 	}
 	var install int64
 	var app string
-	err := s.store.db.QueryRow(`SELECT i.id,a.name FROM agent_thread_scopes t JOIN app_installs i ON i.id=t.source_install_id JOIN apps a ON a.id=i.app_id WHERE t.agent_id=? AND t.thread_id=? AND t.project_id=? AND i.status='running'`, agent.ID, thread, project).Scan(&install, &app)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT i.id,a.name FROM agent_thread_scopes t JOIN app_installs i ON i.id=t.source_install_id JOIN apps a ON a.id=i.app_id WHERE t.agent_id=? AND t.thread_id=? AND t.project_id=? AND i.status='running'`, agent.ID, thread, project).Scan(&install, &app)
 	if err != nil || app != "conversations" {
 		return fmt.Errorf("trusted Conversations binding required")
 	}
@@ -154,7 +154,7 @@ type helperAppCandidate struct {
 }
 
 func (s *Server) helperAppCandidates(project string) ([]helperAppCandidate, error) {
-	rows, err := s.store.db.Query(`SELECT i.id,a.name,m.allowed_tools FROM app_installs i JOIN apps a ON a.id=i.app_id JOIN mcp_servers m ON m.upstream_id='app:'||i.id AND m.source='app' WHERE i.project_id=? AND i.status='running' AND m.status='running' ORDER BY a.name,i.id`, project)
+	rows, err := s.store.dbQuery(`SELECT i.id,a.name,m.allowed_tools FROM app_installs i JOIN apps a ON a.id=i.app_id JOIN mcp_servers m ON m.upstream_id='app:'||i.id AND m.source='app' WHERE i.project_id=? AND i.status='running' AND m.status='running' ORDER BY a.name,i.id`, project)
 	if err != nil {
 		return nil, err
 	}

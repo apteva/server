@@ -483,7 +483,7 @@ func (m *appRuntimeManager) activate(op *runtimeOperation) error {
 		}
 	}
 	if old.ID == "" || old.Status == "stopped" {
-		if _, err = m.s.store.db.Exec(`UPDATE app_installs SET status='pending' WHERE id=?`, d.InstallID); err != nil {
+		if _, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET status='pending' WHERE id=?`, d.InstallID); err != nil {
 			return err
 		}
 	}
@@ -630,7 +630,7 @@ func (m *appRuntimeManager) commitActive(d runtimeDeployment, op runtimeOperatio
 			return e
 		}
 	}
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -706,7 +706,7 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 		}
 	}
 	if op.PreviousStopped && old.Status == "stopped" {
-		_, err := m.s.store.db.Exec(`UPDATE app_installs SET status='disabled',runtime_active_deployment=?,runtime_pending_deployment='',runtime_placement_json=? WHERE id=?`, old.ID, runtimeJSON(old.Placement), old.InstallID)
+		_, err := m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET status='disabled',runtime_active_deployment=?,runtime_pending_deployment='',runtime_placement_json=? WHERE id=?`, old.ID, runtimeJSON(old.Placement), old.InstallID)
 		if err != nil {
 			return err
 		}
@@ -742,7 +742,7 @@ func (m *appRuntimeManager) rollback(op *runtimeOperation, old, candidate *runti
 	if err := m.commitActive(*old, *op); err != nil {
 		return err
 	}
-	m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, candidate.ID)
+	m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ports WHERE deployment_id=?`, candidate.ID)
 	return fmt.Errorf("%w; previous deployment restored and verified; database changes are not automatically undone", cause)
 }
 func (m *appRuntimeManager) stopOperation(op *runtimeOperation) error {
@@ -750,7 +750,7 @@ func (m *appRuntimeManager) stopOperation(op *runtimeOperation) error {
 	if err != nil {
 		return err
 	}
-	if _, err = m.s.store.db.Exec(`UPDATE app_installs SET status='pending',status_message='Stopping managed executions' WHERE id=?`, op.InstallID); err != nil {
+	if _, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET status='pending',status_message='Stopping managed executions' WHERE id=?`, op.InstallID); err != nil {
 		return err
 	}
 	if m.s.installedApps != nil {
@@ -780,7 +780,7 @@ func (m *appRuntimeManager) stopOperation(op *runtimeOperation) error {
 			return err
 		}
 	}
-	_, err = m.s.store.db.Exec(`UPDATE app_installs SET status='disabled',status_message='Stopped managed deployment' WHERE id=?`, op.InstallID)
+	_, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET status='disabled',status_message='Stopped managed deployment' WHERE id=?`, op.InstallID)
 	return err
 }
 
@@ -821,7 +821,7 @@ func (m *appRuntimeManager) deleteOperation(op *runtimeOperation) error {
 		if err = m.deleteBackendDeployment(d, *op); err != nil {
 			return err
 		}
-		m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID)
+		m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID)
 		d.Status = "deleted"
 		if err = m.saveDeployment(d); err != nil {
 			return err
@@ -835,7 +835,7 @@ func (m *appRuntimeManager) deleteOperation(op *runtimeOperation) error {
 	}
 	// Deleted executions cannot remain the active/pending predecessor of a future
 	// deployment. The placement and backend-owned persistent data are retained.
-	_, err = m.s.store.db.Exec(`UPDATE app_installs SET runtime_active_deployment='',runtime_pending_deployment='',sidecar_url_override='',local_pid=0,local_port=0 WHERE id=?`, op.InstallID)
+	_, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET runtime_active_deployment='',runtime_pending_deployment='',sidecar_url_override='',local_pid=0,local_port=0 WHERE id=?`, op.InstallID)
 	return err
 }
 
@@ -860,7 +860,7 @@ func (m *appRuntimeManager) deleteBackendDeployment(d runtimeDeployment, op runt
 	return b.Delete(req)
 }
 func (m *appRuntimeManager) deployments(id int64) ([]runtimeDeployment, error) {
-	rows, err := m.s.store.db.Query(`SELECT id FROM app_runtime_deployments WHERE install_id=? ORDER BY generation,replica`, id)
+	rows, err := m.s.store.dbQueryContext(m.ctx, `SELECT id FROM app_runtime_deployments WHERE install_id=? ORDER BY generation,replica`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -911,7 +911,7 @@ func (m *appRuntimeManager) retirePrevious(op *runtimeOperation, old runtimeDepl
 				return fmt.Errorf("candidate active; previous stop requires attention")
 			}
 		}
-		m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID)
+		m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID)
 	}
 	return nil
 }

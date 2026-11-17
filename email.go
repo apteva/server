@@ -27,7 +27,7 @@ func getEmailGateway(projectID string) *EmailGateway {
 // initEmail starts email gateways for all projects that have an
 // email_app channel config. Called once on server boot.
 func (s *Server) initEmail() {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		"SELECT id, user_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'email_app' AND status = 'active'",
 	)
 	if err != nil {
@@ -35,10 +35,25 @@ func (s *Server) initEmail() {
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var id, userID int64
-		var projectID, enc string
-		rows.Scan(&id, &userID, &projectID, &enc)
+	type databaseRecord struct {
+		id        int64
+		userID    int64
+		projectID string
+		enc       string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.userID, &record.projectID, &record.enc); err != nil {
+			return record, err
+		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		projectID := record.projectID
+		enc := record.enc
 
 		plain, err := Decrypt(s.secret, enc)
 		if err != nil {
@@ -68,7 +83,7 @@ func (s *Server) initEmail() {
 
 // restoreAllEmailMappings wires up persisted email channel mappings.
 func (s *Server) restoreAllEmailMappings() {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		"SELECT id, user_id, agent_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'email' AND status = 'active' AND agent_id > 0",
 	)
 	if err != nil {
@@ -76,10 +91,27 @@ func (s *Server) restoreAllEmailMappings() {
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var id, userID, instanceID int64
-		var projectID, enc string
-		rows.Scan(&id, &userID, &instanceID, &projectID, &enc)
+	type databaseRecord struct {
+		id         int64
+		userID     int64
+		instanceID int64
+		projectID  string
+		enc        string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.userID, &record.instanceID, &record.projectID, &record.enc); err != nil {
+			return record, err
+		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		instanceID := record.instanceID
+		projectID := record.projectID
+		enc := record.enc
 
 		gw := getEmailGateway(projectID)
 		if gw == nil {
@@ -108,6 +140,7 @@ func (s *Server) restoreAllEmailMappings() {
 		sendEvent := makeSendEvent(port, coreKey)
 		gw.MapInbox(instanceID, cfg["inbox_id"], cfg["email"], ic.registry, sendEvent)
 	}
+
 }
 
 // restoreEmailForInstance re-maps email channels for a single instance.
@@ -284,7 +317,7 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		verified = true
-		result, err := s.store.db.Exec("INSERT OR IGNORE INTO email_webhook_receipts(project_id,message_id,received_at) VALUES(?,?,?)", target.project, r.Header.Get("webhook-id"), time.Now().Unix())
+		result, err := s.store.dbExecContext(r.Context(), "INSERT OR IGNORE INTO email_webhook_receipts(project_id,message_id,received_at) VALUES(?,?,?)", target.project, r.Header.Get("webhook-id"), time.Now().Unix())
 		if err != nil {
 			http.Error(w, "webhook storage unavailable", http.StatusServiceUnavailable)
 			return
@@ -294,7 +327,7 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		target.gateway.HandleInbound(json.RawMessage(body))
-		s.store.db.Exec("DELETE FROM email_webhook_receipts WHERE received_at<?", time.Now().Add(-24*time.Hour).Unix())
+		s.store.dbExecContext(r.Context(), "DELETE FROM email_webhook_receipts WHERE received_at<?", time.Now().Add(-24*time.Hour).Unix())
 	}
 	if !verified {
 		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)

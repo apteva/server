@@ -55,7 +55,10 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "trusted caller agent required", http.StatusUnauthorized)
 		return
 	}
-	agent, err := s.store.GetAgentByID(agentID)
+	agent, err := s.store.GetAgentByIDContext(r.Context(), agentID)
+	if databaseHTTPFailure(w, err) {
+		return
+	}
 	if err != nil || !platformMCPAttached(agent) {
 		http.Error(w, "Apteva Server capability is not attached", http.StatusForbidden)
 		return
@@ -140,9 +143,15 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
+	installWait := s.inspectPlatformInstallWait(agent, threadID, projectID, body)
 	response, err := execute(ctx, agent.UserID, projectID, body)
 	if err != nil {
 		http.Error(w, "platform gateway unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	response, err = s.augmentPlatformInstallWait(installWait, response)
+	if err != nil {
+		http.Error(w, "install notification response unavailable", 503)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -245,7 +254,7 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 			return body, parseErr
 		}
 		var installProject string
-		if scanErr := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); scanErr != nil || (installProject != "" && installProject != projectID) {
+		if scanErr := s.store.dbQueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); scanErr != nil || (installProject != "" && installProject != projectID) {
 			return body, fmt.Errorf("target app installation is not available in the trusted project")
 		}
 	case "apps_upgrade", "apps_uninstall":
@@ -254,7 +263,7 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 			return body, parseErr
 		}
 		var installProject string
-		if scanErr := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); scanErr != nil || installProject != projectID {
+		if scanErr := s.store.dbQueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); scanErr != nil || installProject != projectID {
 			return body, fmt.Errorf("target app installation is not in the trusted project")
 		}
 	}

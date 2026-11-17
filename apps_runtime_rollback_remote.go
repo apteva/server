@@ -21,7 +21,7 @@ func (m *appRuntimeManager) rollbackRemoteDeployment(op *runtimeOperation, old, 
 		if err = m.checkOwner(*op); err != nil {
 			return err
 		}
-		tx, err := m.s.store.db.Begin()
+		tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -137,6 +137,6 @@ func (m *appRuntimeManager) rollbackRemoteDeployment(op *runtimeOperation, old, 
 	if err = m.phase(op, "rolling_back"); err != nil {
 		return err
 	}
-	m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, candidate.ID)
+	m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ports WHERE deployment_id=?`, candidate.ID)
 	return fmt.Errorf("%w; previous deployment restored and verified; database changes are not automatically undone", cause)
 }

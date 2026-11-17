@@ -43,7 +43,7 @@ func validateRuntimeIngressSpec(v *runtimeIngressSpec) error {
 }
 func (m *appRuntimeManager) dnsTool(ctx context.Context, v *runtimeIngressSpec, name string, args map[string]any) (map[string]any, error) {
 	var base string
-	if e := m.s.store.db.QueryRow(`SELECT sidecar_url_override FROM app_installs WHERE id=? AND status='running'`, v.DNSInstallID).Scan(&base); e != nil {
+	if e := m.s.store.dbQueryRowContext(m.ctx, `SELECT sidecar_url_override FROM app_installs WHERE id=? AND status='running'`, v.DNSInstallID).Scan(&base); e != nil {
 		return nil, fmt.Errorf("DNS provider installation unavailable")
 	}
 	if e := runtimeSecureURL(base); e != nil {
@@ -118,20 +118,20 @@ func (m *appRuntimeManager) prepareIngress(d *runtimeDeployment, b runtimeBacken
 	}
 	// The reservation is durable before any provider operation. It survives
 	// restarts and does not allow another installation to claim this hostname.
-	if _, e := m.s.store.db.Exec(`INSERT INTO app_runtime_ingress(install_id,hostname,record_json) VALUES(?,?,?) ON CONFLICT(install_id) DO NOTHING`, d.InstallID, v.Hostname, runtimeJSON(v)); e != nil {
+	if _, e := m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_ingress(install_id,hostname,record_json) VALUES(?,?,?) ON CONFLICT(install_id) DO NOTHING`, d.InstallID, v.Hostname, runtimeJSON(v)); e != nil {
 		return fmt.Errorf("hostname is reserved by another installation")
 	}
 	var saved string
 	var state runtimeIngressState
-	_ = m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_ingress WHERE install_id=?`, d.InstallID).Scan(&saved)
+	_ = m.s.store.dbQueryRowContext(m.ctx, `SELECT record_json FROM app_runtime_ingress WHERE install_id=?`, d.InstallID).Scan(&saved)
 	_ = json.Unmarshal([]byte(saved), &state)
 	state.Spec = v
 	var owned string
-	if e := m.s.store.db.QueryRow(`SELECT hostname FROM app_runtime_ingress WHERE install_id=?`, d.InstallID).Scan(&owned); e != nil || owned != v.Hostname {
+	if e := m.s.store.dbQueryRowContext(m.ctx, `SELECT hostname FROM app_runtime_ingress WHERE install_id=?`, d.InstallID).Scan(&owned); e != nil || owned != v.Hostname {
 		return fmt.Errorf("installation already owns a different hostname")
 	}
 	if v.DNSInstallID == 0 {
-		rows, e := m.s.store.db.Query(`SELECT id,manifest_json FROM app_installs WHERE status='running'`)
+		rows, e := m.s.store.dbQueryContext(m.ctx, `SELECT id,manifest_json FROM app_installs WHERE status='running'`)
 		if e != nil {
 			return e
 		}
@@ -162,7 +162,7 @@ func (m *appRuntimeManager) prepareIngress(d *runtimeDeployment, b runtimeBacken
 		}
 	}
 	if v.DNSProjectID == "" {
-		if e := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&v.DNSProjectID); e != nil {
+		if e := m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&v.DNSProjectID); e != nil {
 			return e
 		}
 	}
@@ -216,7 +216,7 @@ func (m *appRuntimeManager) prepareIngress(d *runtimeDeployment, b runtimeBacken
 	if len(existing) == 0 {
 		// Journal creation intent before the call. Reconciliation lists the same
 		// name and verifies its target, so a lost response cannot create duplicates.
-		if _, e = m.s.store.db.Exec(`UPDATE app_runtime_ingress SET record_json=? WHERE install_id=?`, runtimeJSON(state), d.InstallID); e != nil {
+		if _, e = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_ingress SET record_json=? WHERE install_id=?`, runtimeJSON(state), d.InstallID); e != nil {
 			return e
 		}
 		sub := strings.TrimSuffix(v.Hostname, "."+v.Domain)
@@ -242,7 +242,7 @@ func (m *appRuntimeManager) prepareIngress(d *runtimeDeployment, b runtimeBacken
 		}
 
 	}
-	if _, e = m.s.store.db.Exec(`UPDATE app_runtime_ingress SET record_json=? WHERE install_id=?`, runtimeJSON(state), d.InstallID); e != nil {
+	if _, e = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_ingress SET record_json=? WHERE install_id=?`, runtimeJSON(state), d.InstallID); e != nil {
 		return e
 	}
 	return m.prepareProviderIngress(d, b)
@@ -295,7 +295,7 @@ func (m *appRuntimeManager) cleanupIngress(id int64) error {
 		return e
 	}
 	var raw string
-	if e := m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_ingress WHERE install_id=?`, id).Scan(&raw); e != nil {
+	if e := m.s.store.dbQueryRowContext(m.ctx, `SELECT record_json FROM app_runtime_ingress WHERE install_id=?`, id).Scan(&raw); e != nil {
 		return nil
 	}
 	var state runtimeIngressState
@@ -326,6 +326,6 @@ func (m *appRuntimeManager) cleanupIngress(id int64) error {
 			}
 		}
 	}
-	_, e := m.s.store.db.Exec(`DELETE FROM app_runtime_ingress WHERE install_id=?`, id)
+	_, e := m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ingress WHERE install_id=?`, id)
 	return e
 }

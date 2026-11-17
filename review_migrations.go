@@ -8,7 +8,7 @@ import (
 // New migrations are versioned and fail atomically. Older compatibility
 // migrations remain intact so existing deployments can still upgrade.
 func (s *Store) migrateReviewFixes() error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}

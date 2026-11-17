@@ -192,7 +192,7 @@ func rollbackManagedMCPSource(workspace string) error {
 }
 
 func (s *Store) UpdateManagedMCPServer(userID, serverID int64, description, encryptedConfig, revision string, toolCount int) error {
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		`UPDATE mcp_servers
 		    SET description = ?, encrypted_env = ?, upstream_id = ?, tool_count = ?
 		  WHERE id = ? AND user_id = ? AND source = ?`,
@@ -208,7 +208,7 @@ func (s *Store) UpdateManagedMCPServer(userID, serverID int64, description, encr
 }
 
 func (s *Store) ListManagedMCPsByStatus(status string) ([]int64, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id FROM mcp_servers WHERE source = ? AND status = ? ORDER BY id`,
 		managedMCPSource, status,
 	)
@@ -228,7 +228,7 @@ func (s *Store) ListManagedMCPsByStatus(status string) ([]int64, error) {
 }
 
 func (s *Store) ListManagedMCPsInProject(projectID string) ([]MCPServerRecord, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id FROM mcp_servers WHERE source = ? AND project_id = ? ORDER BY id`,
 		managedMCPSource, projectID,
 	)
@@ -237,17 +237,27 @@ func (s *Store) ListManagedMCPsInProject(projectID string) ([]MCPServerRecord, e
 	}
 	defer rows.Close()
 	var out []MCPServerRecord
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+	type databaseRecord struct{ id int64 }
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range readRecords {
+		id := record.id
+
 		record, err := s.GetMCPServerByIDUnscoped(id)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, *record)
 	}
+
 	return out, rows.Err()
 }
 
@@ -284,6 +294,10 @@ func (s *Server) requireMCPServerAccess(w http.ResponseWriter, r *http.Request, 
 	record, err := s.store.GetMCPServerByIDUnscoped(serverID)
 	if err != nil || record == nil {
 		http.Error(w, "MCP server not found", http.StatusNotFound)
+		return nil, "", false
+	}
+	if record.Source == deviceMCPSource && need.Rank() >= ProjectEditor.Rank() {
+		http.Error(w, "manage Node capabilities in Devices", http.StatusForbidden)
 		return nil, "", false
 	}
 	if record.Source == platformMCPSource && need.Rank() >= ProjectEditor.Rank() {

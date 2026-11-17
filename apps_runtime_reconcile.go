@@ -9,8 +9,9 @@ import (
 )
 
 func (m *appRuntimeManager) reconcile() {
-	m.s.store.db.Exec(`DELETE FROM app_runtime_browser_revocations WHERE expires_at<?`, time.Now().Unix())
-	rows, err := m.s.store.db.Query(`SELECT id FROM app_runtime_operations WHERE status IN ('queued','running') AND (owner='' OR lease_until<?)`, time.Now().Unix())
+	m.resumeMCPInstallIntents()
+	m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_browser_revocations WHERE expires_at<?`, time.Now().Unix())
+	rows, err := m.s.store.dbQueryContext(m.ctx, `SELECT id FROM app_runtime_operations WHERE status IN ('queued','running') AND (owner='' OR lease_until<?)`, time.Now().Unix())
 	if err != nil {
 		return
 	}
@@ -83,10 +84,10 @@ func (m *appRuntimeManager) stopSync(id int64, remove bool) error {
 }
 func (s *Server) runtimeProviderInUse(id int64) bool {
 	var owned int
-	if e := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_ingress_bindings WHERE json_extract(record_json,'$.spec.provider.app_install_id')=? AND json_extract(record_json,'$.phase')!='released'`, id).Scan(&owned); e != nil || owned > 0 {
+	if e := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_runtime_ingress_bindings WHERE json_extract(record_json,'$.spec.provider.app_install_id')=? AND json_extract(record_json,'$.phase')!='released'`, id).Scan(&owned); e != nil || owned > 0 {
 		return true
 	}
-	rows, err := s.store.db.Query(`SELECT record_json FROM app_runtime_deployments WHERE status != 'deleted'`)
+	rows, err := s.store.dbQuery(`SELECT record_json FROM app_runtime_deployments WHERE status != 'deleted'`)
 	if err != nil {
 		return true
 	}
@@ -152,7 +153,7 @@ func (m *appRuntimeManager) retryOperation(id string, installID int64) error {
 		return fmt.Errorf("operation is not retryable")
 	}
 	var pending, active string
-	if err = m.s.store.db.QueryRow(`SELECT runtime_pending_deployment,runtime_active_deployment FROM app_installs WHERE id=?`, installID).Scan(&pending, &active); err != nil {
+	if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT runtime_pending_deployment,runtime_active_deployment FROM app_installs WHERE id=?`, installID).Scan(&pending, &active); err != nil {
 		return err
 	}
 	if op.DeploymentID != "" && op.DeploymentID != pending && op.DeploymentID != active && !runtimeRollingBack(op) && op.Kind != "scale" {
@@ -163,7 +164,7 @@ func (m *appRuntimeManager) retryOperation(id string, installID int64) error {
 	op.LastFailure = op.Error
 	op.Error = ""
 	op.UpdatedAt = runtimeTimestamp()
-	if _, err = m.s.store.db.Exec(`UPDATE app_runtime_operations SET status='queued',owner='',lease_until=0,cancel_requested=0,record_json=? WHERE id=? AND status IN ('failed','cancelled')`, runtimeJSON(runtimeStoredOperation{op, op.SnapshotPath}), id); err != nil {
+	if _, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_operations SET status='queued',owner='',lease_until=0,cancel_requested=0,record_json=? WHERE id=? AND status IN ('failed','cancelled')`, runtimeJSON(runtimeStoredOperation{op, op.SnapshotPath}), id); err != nil {
 		return err
 	}
 	m.launch(id)

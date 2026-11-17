@@ -44,7 +44,7 @@ func (b *remoteRuntimeBackend) packageRequest(ctx context.Context, action string
 	return resp.StatusCode, raw, nil
 }
 func (m *appRuntimeManager) packageDeliveryState(ref runtimeBackendRef, id, state string) error {
-	_, err := m.s.store.db.Exec(`INSERT INTO app_runtime_package_deliveries(backend_install_id,backend_id,package_id,state) VALUES(?,?,?,?) ON CONFLICT(backend_install_id,backend_id,package_id) DO UPDATE SET state=excluded.state`, ref.InstallID, ref.ID, id, state)
+	_, err := m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_package_deliveries(backend_install_id,backend_id,package_id,state) VALUES(?,?,?,?) ON CONFLICT(backend_install_id,backend_id,package_id) DO UPDATE SET state=excluded.state`, ref.InstallID, ref.ID, id, state)
 	return err
 }
 func (m *appRuntimeManager) deliverRuntimePackage(d runtimeDeployment, op *runtimeOperation, b *remoteRuntimeBackend) error {

@@ -49,9 +49,9 @@ func (s *Server) ensureInterfaceConversations(userID int64) error {
 	// promote a private project installation belonging to another user.
 	var installID int64
 	var status string
-	err := s.store.db.QueryRow(`SELECT i.id, i.status
+	err := s.store.dbQueryRow(`SELECT i.id, i.status
 		FROM app_installs i JOIN apps a ON a.id=i.app_id
-		WHERE a.name=? AND COALESCE(i.project_id,'')=''
+		WHERE a.name=? AND i.is_default=1 AND COALESCE(i.project_id,'')=''
 		ORDER BY i.id LIMIT 1`, defaultConversationsApp).Scan(&installID, &status)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -122,7 +122,7 @@ func (s *Server) ensureInterfaceConversations(userID int64) error {
 		}
 	}
 
-	if err := s.store.db.QueryRow(`SELECT status FROM app_installs WHERE id=?`, installID).Scan(&status); err != nil {
+	if err := s.store.dbQueryRow(`SELECT status FROM app_installs WHERE id=?`, installID).Scan(&status); err != nil {
 		return err
 	}
 	if status != "running" {
@@ -131,7 +131,7 @@ func (s *Server) ensureInterfaceConversations(userID int64) error {
 	// Activation normally registers this bridge; repair a missing registration
 	// after an interrupted install before reporting preparation complete.
 	var registered int
-	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID)).Scan(&registered); err != nil {
+	if err := s.store.dbQueryRow(`SELECT COUNT(*) FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID)).Scan(&registered); err != nil {
 		return err
 	}
 	if registered == 0 {

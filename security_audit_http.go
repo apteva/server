@@ -114,6 +114,8 @@ func credentialKind(token string) string {
 		return "delegated_key"
 	case strings.HasPrefix(token, "core_"):
 		return "core_key"
+	case strings.HasPrefix(token, "nd_"):
+		return "device_token"
 	case strings.HasPrefix(token, "dev-"), strings.HasPrefix(token, "apt_"), strings.HasPrefix(token, "app_"):
 		return "app_token"
 	case token == "":

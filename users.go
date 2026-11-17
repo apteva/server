@@ -144,7 +144,7 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		u, err := s.store.GetUserByID(targetID)
+		u, err := s.store.GetUserByIDContext(r.Context(), targetID)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -175,7 +175,7 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 		// Lets the UI show a blast-radius confirmation before the user
 		// clicks through.
 		if r.URL.Query().Get("dry_run") == "1" {
-			u, err := s.store.GetUserByID(targetID)
+			u, err := s.store.GetUserByIDContext(r.Context(), targetID)
 			if err != nil {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
@@ -218,6 +218,7 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "delete failed", http.StatusInternalServerError)
 			return
 		}
+		s.closeUserDeviceLinks(targetID, "account removed")
 		log.Printf("[USERS] admin=%d deleted user=%d", caller, targetID)
 		writeJSON(w, map[string]string{"status": "deleted"})
 
@@ -251,7 +252,7 @@ func (s *Server) handleUserPasswordReset(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
 		return
 	}
-	if _, err := s.store.GetUserByID(targetID); err != nil {
+	if _, err := s.store.GetUserByIDContext(r.Context(), targetID); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -267,6 +268,7 @@ func (s *Server) handleUserPasswordReset(w http.ResponseWriter, r *http.Request,
 	if err := s.store.DeleteSessionsForUser(targetID); err != nil {
 		log.Printf("[USERS] admin=%d reset pw for user=%d but session sweep failed: %v", caller, targetID, err)
 	}
+	s.closeUserDeviceLinks(targetID, "account sessions revoked")
 	log.Printf("[USERS] admin=%d reset password for user=%d", caller, targetID)
 	writeJSON(w, map[string]string{"status": "ok"})
 }

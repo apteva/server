@@ -190,7 +190,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if token == "" && appTokenQueryAllowed(r) {
 			candidate := r.URL.Query().Get("api_key")
 			if candidate != "" {
-				if _, _, _, err := s.runtimeGrantInstall(candidate); err == nil {
+				if _, _, _, err := s.runtimeGrantInstallContext(r.Context(), candidate); err == nil {
 					token = candidate
 				}
 			}
@@ -198,7 +198,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// An explicit API key takes precedence over ambient session cookies.
 		// Try session cookie when no key was supplied
 		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" && token == "" {
-			if userID, err := s.store.GetSession(cookie.Value); err == nil {
+			if userID, err := s.store.GetSessionContext(r.Context(), cookie.Value); err == nil {
 				noteAuditPrincipal(r, "user", itoa(userID), credentialRef("session", cookie.Value), 0)
 				s.store.TouchSession(cookie.Value, clientIP(r))
 				if !s.allowSessionMutation(w, r) {
@@ -207,6 +207,8 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				r.Header.Set("X-User-ID", itoa(userID))
 				r.Header.Set("X-Apteva-Operator-ID", itoa(userID))
 				next(w, r)
+				return
+			} else if databaseHTTPFailure(w, err) {
 				return
 			}
 			noteAuditPresentedCredential(r, "session")
@@ -240,6 +242,19 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		//      (browsers can't set custom headers on EventSource, so
 		//      the key must travel as a query param)
 
+		if strings.HasPrefix(token, "nd_") {
+			authenticated, err := s.authenticateAccountDevice(r, token)
+			if databaseHTTPFailure(w, err) {
+				return
+			}
+			if err != nil {
+				http.Error(w, "invalid device credential", http.StatusUnauthorized)
+				return
+			}
+			next(w, authenticated)
+			return
+		}
+
 		if token != "" {
 			// A core process has its own high-entropy key for its local HTTP API.
 			// It is not a user API key and must never authorize ordinary platform
@@ -248,10 +263,12 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			// identity only for the exact loopback runtime-token route; ownership
 			// is enforced again by handleRuntimeToken's user-scoped lookup.
 			if strings.HasPrefix(token, "core_") && coreRuntimeTokenRequestAllowed(r) {
-				if userID, err := s.store.GetRunningAgentUserByCoreAPIKey(token); err == nil {
+				if userID, err := s.store.GetRunningAgentUserByCoreAPIKeyContext(r.Context(), token); err == nil {
 					noteAuditPrincipal(r, "core", itoa(userID), credentialRef("core", token), 0)
 					r.Header.Set("X-User-ID", itoa(userID))
 					next(w, r)
+					return
+				} else if databaseHTTPFailure(w, err) {
 					return
 				}
 			}
@@ -262,7 +279,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					http.Error(w, "delegated user keys are only valid for app routes", http.StatusUnauthorized)
 					return
 				}
-				key, err := s.store.GetDelegatedUserAPIKey(keyHash)
+				key, err := s.store.GetDelegatedUserAPIKeyContext(r.Context(), keyHash)
+				if databaseHTTPFailure(w, err) {
+					return
+				}
 				if err == nil {
 					if !s.authorizeDelegatedAppRequest(w, r, key, appName) {
 						return
@@ -293,7 +313,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					return
 				}
 			}
-			user, access, keyID, err := s.store.getPrivateAPIKeyPrincipalWithID(keyHash)
+			user, access, keyID, err := s.store.getPrivateAPIKeyPrincipalWithIDContext(r.Context(), keyHash)
+			if databaseHTTPFailure(w, err) {
+				return
+			}
 			if err == nil {
 				// Private keys previously recorded no source address at all.
 				s.store.MarkAPIKeyUsed(keyID, requestClientIP(r))
@@ -321,7 +344,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// install's token before forwarding. Loopback-only dev tokens are
 		// accepted temporarily for sidecars started by an older server build.
 		if token != "" && appTokenRouteAllowed(r.URL.Path) {
-			id, installedBy, status, appErr := s.appInstallForToken(token)
+			id, installedBy, status, appErr := s.appInstallForTokenContext(r.Context(), token)
+			if databaseHTTPFailure(w, appErr) {
+				return
+			}
 			if appErr == nil && !s.runtimeInitRouteAllowed(token, r) {
 				http.Error(w, "deployment is not active", http.StatusForbidden)
 				return
@@ -347,7 +373,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					// the app keeps its permissions, while ownership checks use
 					// the requesting user. Never fall back on a stale session.
 					if session := r.Header.Get("X-Apteva-User-Session"); session != "" && strings.HasPrefix(strings.TrimPrefix(r.URL.Path, "/api"), "/apps/callback/") {
-						userID, err := s.store.GetSession(session)
+						userID, err := s.store.GetSessionContext(r.Context(), session)
+						if databaseHTTPFailure(w, err) {
+							return
+						}
 						if err != nil {
 							http.Error(w, "invalid app user session", http.StatusUnauthorized)
 							return
@@ -828,6 +857,15 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		ev.CredentialID = credentialRef("session", cookie.Value)
 		s.recordSecurity(r, ev)
 	}
+	if token := privateRequestToken(r); strings.HasPrefix(token, "nd_") {
+		if d, err := s.store.accountDeviceForToken(token); err == nil {
+			if err := s.store.revokeAccountDevice(d.ID, d.UserID); err != nil {
+				http.Error(w, "device logout failed", http.StatusInternalServerError)
+				return
+			}
+			s.closeDeviceLink(d.ID, "device signed out")
+		}
+	}
 	clearSessionCookie(w, r)
 	writeJSON(w, map[string]string{"status": "ok"})
 }
@@ -842,10 +880,24 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var userID int64
-	if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
-		if uid, err := s.store.GetSession(cookie.Value); err == nil {
+	if token := privateRequestToken(r); strings.HasPrefix(token, "nd_") {
+		authenticated, err := s.authenticateAccountDevice(r, token)
+		if databaseHTTPFailure(w, err) {
+			return
+		}
+		if err != nil {
+			http.Error(w, "invalid device credential", http.StatusUnauthorized)
+			return
+		}
+		userID = getUserID(authenticated)
+	}
+	if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" && userID == 0 {
+		if uid, err := s.store.GetSessionContext(r.Context(), cookie.Value); err == nil {
 			userID = uid
 		} else {
+			if databaseHTTPFailure(w, err) {
+				return
+			}
 			// Expired or invalid cookie — clear it so the browser stops
 			// sending a bad one on every request.
 			clearSessionCookie(w, r)
@@ -863,9 +915,17 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		if token == "" {
 			token = r.URL.Query().Get("api_key")
 		}
-		if token != "" {
-			if u, access, err := s.store.getPrivateAPIKeyPrincipal(HashAPIKey(token)); err == nil && (access == APIKeyReadOnly || access == APIKeyReadWrite) {
+		if strings.HasPrefix(token, "nd_") {
+			if authenticated, err := s.authenticateAccountDevice(r, token); err == nil {
+				userID = getUserID(authenticated)
+			} else if databaseHTTPFailure(w, err) {
+				return
+			}
+		} else if token != "" {
+			if u, access, err := s.store.getPrivateAPIKeyPrincipalContext(r.Context(), HashAPIKey(token)); err == nil && (access == APIKeyReadOnly || access == APIKeyReadWrite) {
 				userID = u.ID
+			} else if databaseHTTPFailure(w, err) {
+				return
 			}
 		}
 	}
@@ -873,7 +933,10 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	u, err := s.store.GetUserByID(userID)
+	u, err := s.store.GetUserByIDContext(r.Context(), userID)
+	if databaseHTTPFailure(w, err) {
+		return
+	}
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -1020,7 +1083,10 @@ func (s *Server) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid interface level", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByID(userID)
+	user, err := s.store.GetUserByIDContext(r.Context(), userID)
+	if databaseHTTPFailure(w, err) {
+		return
+	}
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -1070,7 +1136,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := s.store.GetUserByID(userID)
+	u, err := s.store.GetUserByIDContext(r.Context(), userID)
+	if databaseHTTPFailure(w, err) {
+		return
+	}
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -1109,6 +1178,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		ev.Details = map[string]any{"other_sessions_revoked": true}
 		s.recordSecurity(r, ev)
 	}
+	s.closeUserDeviceLinks(userID, "account sessions revoked")
 	log.Printf("[AUTH] password changed user=%d remote=%s", userID, clientIP(r))
 	writeJSON(w, map[string]any{"status": "ok"})
 }

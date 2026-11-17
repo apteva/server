@@ -96,24 +96,28 @@ func TestFetchCodexModelCatalogFiltersAndCachesPerAccount(t *testing.T) {
 	}
 }
 
-func TestFetchCodexModelCatalogIncludesGPT6Sol(t *testing.T) {
+func TestFetchCodexModelCatalogIncludesGPT6Models(t *testing.T) {
 	installTestCodexCatalog(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("client_version"); got != "0.200.0" {
-			t.Errorf("client_version = %q, want 0.200.0", got)
+		if got := r.URL.Query().Get("client_version"); got != codexModelCatalogClientVersion {
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{
+				{"slug": "gpt-5.6-terra", "visibility": "list"},
+			}})
+			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{
-			{"slug": "gpt-6-sol", "display_name": "GPT-6 Sol", "visibility": "list", "priority": 2,
-				"default_reasoning_level": "medium", "supported_reasoning_levels": []map[string]string{{"effort": "low"}, {"effort": "medium"}, {"effort": "high"}}},
-			{"slug": "gpt-6-internal", "visibility": "hidden", "priority": 1},
+			{"slug": "gpt-6-sol", "display_name": "GPT-6 Sol", "visibility": "list", "priority": 1},
+			{"slug": "gpt-6-luna", "display_name": "GPT-6 Luna", "visibility": "list", "priority": 2},
+			{"slug": "gpt-5.6-terra", "visibility": "list", "priority": 3},
+			{"slug": "internal-model", "visibility": "hide", "priority": 0},
 		}})
 	}))
 
-	models, err := fetchCodexModelCatalog(context.Background(), "token-a", "account-a", true)
+	models, err := fetchCodexModelCatalog(context.Background(), "token-a", "account-a", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 1 || models[0].ID != "gpt-6-sol" || models[0].Capabilities.DefaultReasoningLevel != "medium" {
-		t.Fatalf("models = %#v", models)
+	if len(models) != 3 || models[0].ID != "gpt-6-sol" || models[1].ID != "gpt-6-luna" || models[2].ID != "gpt-5.6-terra" {
+		t.Fatalf("visible models = %#v", models)
 	}
 }
 

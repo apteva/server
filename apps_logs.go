@@ -20,6 +20,26 @@ type rotatingLogFile struct {
 	closed   bool
 }
 
+// sidecarLogWriter is shared by stdout and stderr, so os/exec drains both
+// through one copy loop. A sink failure must not close the child's pipe.
+type sidecarLogWriter struct {
+	sink   io.Writer
+	report func(error)
+	failed bool
+}
+
+func (w *sidecarLogWriter) Write(p []byte) (int, error) {
+	n, err := w.sink.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil && !w.failed {
+		w.report(err)
+	}
+	w.failed = err != nil
+	return len(p), nil
+}
+
 func newRotatingLogFile(path string, maxBytes int64) (*rotatingLogFile, error) {
 	if maxBytes <= 0 {
 		return nil, fmt.Errorf("log max bytes must be positive")
@@ -53,7 +73,7 @@ func (l *rotatingLogFile) Write(p []byte) (int, error) {
 	if int64(len(p)) > l.maxBytes {
 		p = p[len(p)-int(l.maxBytes):]
 	}
-	if l.size+int64(len(p)) > l.maxBytes {
+	if l.file == nil || l.size+int64(len(p)) > l.maxBytes {
 		if err := l.rotateLocked(); err != nil {
 			return 0, err
 		}
@@ -76,12 +96,19 @@ func (l *rotatingLogFile) Close() error {
 		return nil
 	}
 	l.closed = true
+	if l.file == nil {
+		return nil
+	}
 	return l.file.Close()
 }
 
 func (l *rotatingLogFile) rotateLocked() error {
-	if err := l.file.Close(); err != nil {
-		return err
+	if l.file != nil {
+		err := l.file.Close()
+		l.file = nil
+		if err != nil {
+			return err
+		}
 	}
 	if err := rotateLogPath(l.path); err != nil {
 		return err
@@ -97,8 +124,8 @@ func (l *rotatingLogFile) rotateLocked() error {
 
 func rotateLogPath(path string) error {
 	rotated := path + ".1"
-	_ = os.Remove(rotated)
 	if _, err := os.Stat(path); err == nil {
+		_ = os.Remove(rotated)
 		return os.Rename(path, rotated)
 	} else if !os.IsNotExist(err) {
 		return err

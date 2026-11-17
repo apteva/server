@@ -215,6 +215,8 @@ func generateID() string {
 // --- Store methods ---
 
 func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
+	// Batch ingest and catalog deduplication can outlast the guard's per-call
+	// deadline; a cancelled transaction would drop the whole batch.
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -262,7 +264,7 @@ func (s *Store) DeleteTelemetryAfter(instanceID int64, cutoff time.Time) error {
 	if instanceID == 0 || cutoff.IsZero() {
 		return nil
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		"DELETE FROM telemetry WHERE agent_id=? AND time>?",
 		instanceID, cutoff.UTC().Format(time.RFC3339Nano),
 	)
@@ -294,7 +296,7 @@ func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMess
 	//   tool.call (channels_respond) → agent messages
 	//   tool.call (other, main thread) → tool indicators
 	//   tool.result (other, main thread) → tool completion
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id, thread_id, type, time, data FROM telemetry
 		WHERE agent_id = ?
 		  AND thread_id IN ('main', '')
@@ -440,7 +442,7 @@ func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-maxAge).UTC().Format(time.RFC3339)
 	var total int64
 	for {
-		result, err := s.db.Exec(`DELETE FROM telemetry WHERE id IN (
+		result, err := s.dbExec(`DELETE FROM telemetry WHERE id IN (
  SELECT id FROM telemetry WHERE time < ? AND NOT EXISTS
  (SELECT 1 FROM agent_event_deliveries d WHERE d.telemetry_id=telemetry.id AND delivered_at IS NULL) LIMIT 1000)`, cutoff)
 		if err != nil {
@@ -459,6 +461,7 @@ func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 }
 
 func (s *Store) WipeTelemetry() (int64, error) {
+	// Wiping a large table can outlast the guard's per-call deadline.
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
@@ -544,7 +547,7 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 				New string `json:"new"`
 			}
 			if json.Unmarshal(ev.Data, &data) == nil && data.New != "" {
-				if _, err := s.store.db.Exec("UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID); err == nil {
+				if _, err := s.store.dbExecContext(r.Context(), "UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID); err == nil {
 					// Do not make Core's telemetry ingestion wait on re-entrant
 					// per-thread HTTP updates. Persistence is complete; each thread's
 					// next delivery also performs the same drift check defensively.
@@ -936,7 +939,7 @@ func (s *Server) handleTelemetryProjectTools(w http.ResponseWriter, r *http.Requ
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQueryContext(r.Context(),
 		fmt.Sprintf(
 			"SELECT agent_id, type, data FROM telemetry "+
 				"WHERE agent_id IN (%s) AND time >= ? "+

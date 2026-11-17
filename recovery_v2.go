@@ -181,13 +181,15 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
+	inventory.SetMaxOpenConns(1)
+	inventory.SetMaxIdleConns(1)
 	defer inventory.Close()
 	type sourceRoot struct {
 		recoveryRoot
 		Path string
 	}
 	roots := []sourceRoot{}
-	rows, err := inventory.Query("SELECT i.id,a.name FROM app_installs i JOIN apps a ON a.id=i.app_id ORDER BY i.id")
+	rows, err := inventory.QueryContext(ctx, "SELECT i.id,a.name FROM app_installs i JOIN apps a ON a.id=i.app_id ORDER BY i.id")
 	if err != nil {
 		fail(err)
 		return
@@ -216,7 +218,7 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	rows, err = inventory.Query("SELECT id FROM agents ORDER BY id")
+	rows, err = inventory.QueryContext(ctx, "SELECT id FROM agents ORDER BY id")
 	if err != nil {
 		fail(err)
 		return
@@ -238,7 +240,7 @@ func (s *Server) writePlatformSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	rows, err = inventory.Query("SELECT id FROM mcp_servers WHERE source=? ORDER BY id", managedMCPSource)
+	rows, err = inventory.QueryContext(ctx, "SELECT id FROM mcp_servers WHERE source=? ORDER BY id", managedMCPSource)
 	if err != nil {
 		fail(err)
 		return

@@ -104,7 +104,7 @@ func (m *appRuntimeManager) runtimeTransitionTx(tx *sql.Tx, d runtimeDeployment,
 }
 
 func (m *appRuntimeManager) commitExecutionOwnership(d runtimeDeployment, op runtimeOperation) error {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func (m *appRuntimeManager) requireExecutionOwnershipTx(tx *sql.Tx, d runtimeDep
 	return nil
 }
 func (m *appRuntimeManager) requireExecutionOwnership(d runtimeDeployment, op runtimeOperation) error {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (m *appRuntimeManager) requireExecutionOwnership(d runtimeDeployment, op ru
 }
 
 func (m *appRuntimeManager) revokeExecutionOwnership(d runtimeDeployment, op runtimeOperation) error {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -218,7 +218,7 @@ func (m *appRuntimeManager) revokeExecutionOwnership(d runtimeDeployment, op run
 // Persist admission separately from the execution grant so an interrupted or
 // future controller cannot publish a merely-owned standby execution.
 func (m *appRuntimeManager) confirmExecutionAdmission(d runtimeDeployment, op runtimeOperation) error {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -245,7 +245,7 @@ func (m *appRuntimeManager) requirePublicationTx(tx *sql.Tx, d runtimeDeployment
 	return nil
 }
 func (m *appRuntimeManager) requirePublication(d runtimeDeployment, op runtimeOperation) error {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -262,7 +262,7 @@ func runtimePublishExecutionTx(tx *sql.Tx, d runtimeDeployment) error {
 	return err
 }
 func (m *appRuntimeManager) commitReplica(d runtimeDeployment, op runtimeOperation) error {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}

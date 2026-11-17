@@ -865,7 +865,7 @@ func (s *Server) handleSpawnRuntimeAgent(w http.ResponseWriter, r *http.Request,
 	userID := getUserID(r)
 	var source *Agent
 	if req.SourceAgentID > 0 {
-		got, err := s.store.GetAgentByID(req.SourceAgentID)
+		got, err := s.store.GetAgentByIDContext(r.Context(), req.SourceAgentID)
 		if err != nil || got == nil || got.ProjectID != runtime.ProjectID || (got.Kind != "" && got.Kind != "user") {
 			http.Error(w, "source agent not found", http.StatusNotFound)
 			return
@@ -1150,7 +1150,7 @@ func (s *Server) handleRuntimeCatalog(w http.ResponseWriter, r *http.Request, pa
 		http.Error(w, "invalid agent id", http.StatusBadRequest)
 		return
 	}
-	agent, err := s.store.GetAgentByID(agentID)
+	agent, err := s.store.GetAgentByIDContext(r.Context(), agentID)
 	if err != nil || agent == nil || (agent.Kind != "" && agent.Kind != "user") {
 		http.Error(w, "agent not found", http.StatusNotFound)
 		return
@@ -1384,18 +1384,30 @@ func (s *Server) runtimeAgentCapabilities(agentID int64) ([]sdk.RuntimeAgentCapa
 	if s.installedApps == nil {
 		return []sdk.RuntimeAgentCapability{}, nil
 	}
-	rows, err := s.store.db.Query(`SELECT i.id, a.name FROM app_agent_bindings b JOIN app_installs i ON i.id=b.install_id JOIN apps a ON a.id=i.app_id WHERE b.agent_id=? AND b.enabled=1 ORDER BY a.name`, agentID)
+	rows, err := s.store.dbQuery(`SELECT i.id, a.name FROM app_agent_bindings b JOIN app_installs i ON i.id=b.install_id JOIN apps a ON a.id=i.app_id WHERE b.agent_id=? AND b.enabled=1 ORDER BY a.name`, agentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []sdk.RuntimeAgentCapability{}
-	for rows.Next() {
-		var installID int64
-		var appName string
-		if rows.Scan(&installID, &appName) != nil {
-			continue
+	type databaseRecord struct {
+		installID int64
+		appName   string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.installID, &record.appName); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range readRecords {
+		installID := record.installID
+		appName := record.appName
+
 		entry := s.installedApps.Get(installID)
 		if entry == nil || entry.SidecarURL == "" {
 			continue
@@ -1414,6 +1426,7 @@ func (s *Server) runtimeAgentCapabilities(agentID int64) ([]sdk.RuntimeAgentCapa
 		}
 		out = append(out, sdk.RuntimeAgentCapability{AppName: appName, InstallID: installID, Tools: converted})
 	}
+
 	return out, rows.Err()
 }
 
@@ -1447,7 +1460,7 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 	// directive. reconcileAgentBehavior compiles controls into Core's config.
 	cfg["directive"] = req.Directive
 	configJSON, _ := json.Marshal(cfg)
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return nil, err
 	}
@@ -1483,7 +1496,7 @@ func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, in
 	var userID int64
 	var installProject string
 	var installSource string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(i.installed_by,0), COALESCE(i.project_id,''), COALESCE(NULLIF(i.source,''),a.source)
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(i.installed_by,0), COALESCE(i.project_id,''), COALESCE(NULLIF(i.source,''),a.source)
 		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&userID, &installProject, &installSource); err != nil || userID == 0 {
 		http.Error(w, "install not found", http.StatusUnauthorized)
 		return 0, "", false

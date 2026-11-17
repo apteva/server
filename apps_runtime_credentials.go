@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -29,27 +30,54 @@ type runtimeBrowserClaims struct {
 }
 
 func (s *Server) runtimeGrantInstall(token string) (id, user int64, status string, err error) {
-	err = s.store.db.QueryRow(`SELECT i.id,COALESCE(i.installed_by,0),i.status FROM app_runtime_credentials c JOIN app_runtime_deployments d ON d.id=c.deployment_id JOIN app_installs i ON i.id=d.install_id WHERE c.token_hash=? AND d.status IN ('prepared','starting','ready','active','retiring') AND i.runtime_managed=1`, HashAPIKey(token)).Scan(&id, &user, &status)
+	return s.runtimeGrantInstallContext(nil, token)
+}
+func (s *Server) runtimeGrantInstallContext(ctx context.Context, token string) (id, user int64, status string, err error) {
+	err = s.store.dbQueryRowContext(ctx, `SELECT i.id,COALESCE(i.installed_by,0),i.status FROM app_runtime_credentials c JOIN app_runtime_deployments d ON d.id=c.deployment_id JOIN app_installs i ON i.id=d.install_id WHERE c.token_hash=? AND d.status IN ('prepared','starting','ready','active','retiring') AND i.runtime_managed=1`, HashAPIKey(token)).Scan(&id, &user, &status)
 	return
 }
 func (s *Server) runtimeLegacyTokenAllowed(id int64) bool {
-	if !s.runtimeManaged(id) {
-		return true
+	allowed, _ := s.runtimeLegacyTokenAllowedContext(nil, id)
+	return allowed
+}
+func (s *Server) runtimeLegacyTokenAllowedContext(ctx context.Context, id int64) (bool, error) {
+	// Read the policy and candidate legacy executions together. SQL failures
+	// must propagate to authentication, not become a false credential rejection
+	// (or a false "unmanaged" result that bypasses retirement).
+	rows, err := s.store.dbQueryContext(ctx, `SELECT i.runtime_managed,COALESCE(d.record_json,''),CASE WHEN d.id=i.runtime_active_deployment THEN 1 ELSE 0 END
+ FROM app_installs i LEFT JOIN app_runtime_deployments d ON d.install_id=i.id AND (d.id=i.runtime_active_deployment OR d.status='retiring') WHERE i.id=?`, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: %w", errDatabaseUnavailable, err)
 	}
-	d, err := s.appRuntimeManager().active(id)
-	if err == nil && d.CredentialEncrypted == "" && d.Status == "active" {
-		return true
+	type legacyPolicy struct {
+		managed int
+		raw     string
+		active  bool
 	}
-	ds, e := s.appRuntimeManager().deployments(id)
-	if e != nil {
-		return false
+	policies, err := collectSQLRows(rows, func(row rowScanner) (legacyPolicy, error) {
+		var p legacyPolicy
+		err := row.Scan(&p.managed, &p.raw, &p.active)
+		return p, err
+	})
+	if err != nil {
+		return false, err
 	}
-	for _, old := range ds {
-		if old.CredentialEncrypted == "" && old.Status == "retiring" {
-			return true
+	for _, p := range policies {
+		if p.managed == 0 {
+			return true, nil
+		}
+		if p.raw == "" {
+			continue
+		}
+		var d runtimeStoredDeployment
+		if err := json.Unmarshal([]byte(p.raw), &d); err != nil {
+			return false, err
+		}
+		if d.Credential == "" && (p.active && d.Status == "active" || d.Status == "retiring") {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 func (s *Server) handleRuntimeBrowserCredentials(w http.ResponseWriter, r *http.Request, id int64) {
 	if r.Method != http.MethodPost {
@@ -83,7 +111,7 @@ func (s *Server) handleRuntimeBrowserCredentials(w http.ResponseWriter, r *http.
 		return
 	}
 	var project string
-	s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project)
+	s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project)
 	claims := runtimeBrowserClaims{InstallID: id, ProjectID: project, UserID: getUserID(r), DeploymentID: d.ID, Generation: d.Generation, Operations: body.Operations, Origin: body.Origin, ExpiresAt: time.Now().Unix() + 300, Nonce: generateToken(16), Issuer: s.runtimeIssuer()}
 	claims.Principal = s.trustedAppPrincipal(r, project)
 
@@ -117,7 +145,7 @@ func (s *Server) validateRuntimeBrowser(token string, id int64, origin, operatio
 		return c, fmt.Errorf("browser credential scope mismatch or expiry")
 	}
 	var project string
-	if e = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project); e != nil || project != c.ProjectID {
+	if e = s.store.dbQueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, id).Scan(&project); e != nil || project != c.ProjectID {
 		return c, fmt.Errorf("browser credential project mismatch")
 	}
 	if project == "" && s.store.GetPlatformRole(c.UserID) != PlatformAdmin {
@@ -134,7 +162,7 @@ func (s *Server) validateRuntimeBrowser(token string, id int64, origin, operatio
 		return c, fmt.Errorf("browser origin is no longer approved")
 	}
 	var n int
-	s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_browser_revocations WHERE token_hash=?`, HashAPIKey(token)).Scan(&n)
+	s.store.dbQueryRow(`SELECT COUNT(*) FROM app_runtime_browser_revocations WHERE token_hash=?`, HashAPIKey(token)).Scan(&n)
 	if n != 0 {
 		return c, fmt.Errorf("browser credential revoked")
 	}
@@ -178,7 +206,7 @@ func (s *Server) handleRuntimeOwnership(w http.ResponseWriter, r *http.Request) 
 	var granted int
 	// The authenticated credential identifies the execution. Neither a pending
 	// pointer nor the public routing pointer confers permission to admit work.
-	err = s.store.db.QueryRow(`SELECT d.id,d.generation,COALESCE(o.granted,0)
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT d.id,d.generation,COALESCE(o.granted,0)
 	 FROM app_runtime_credentials c JOIN app_runtime_deployments d ON d.id=c.deployment_id
 	 LEFT JOIN app_runtime_execution_owners o ON o.deployment_id=d.id AND o.install_id=d.install_id AND o.generation=d.generation
 	 WHERE c.token_hash=? AND d.install_id=? AND d.status IN ('ready','active','retiring')`, HashAPIKey(token), id).Scan(&deployment, &generation, &granted)
@@ -234,7 +262,7 @@ func (s *Server) handleRuntimeBrowserRevoke(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "invalid or expired credential", 400)
 		return
 	}
-	_, err := s.store.db.Exec(`INSERT OR IGNORE INTO app_runtime_browser_revocations(token_hash,expires_at) VALUES(?,?)`, HashAPIKey(body.Token), c.ExpiresAt)
+	_, err := s.store.dbExecContext(r.Context(), `INSERT OR IGNORE INTO app_runtime_browser_revocations(token_hash,expires_at) VALUES(?,?)`, HashAPIKey(body.Token), c.ExpiresAt)
 	if err != nil {
 		http.Error(w, "revocation unavailable", 503)
 		return

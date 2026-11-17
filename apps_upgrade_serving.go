@@ -37,7 +37,7 @@ func (s *Server) stageAppUpgrade(id int64, next *sdk.Manifest, declarations ...a
 	if err != nil {
 		return err
 	}
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (s *Server) stageAppUpgrade(id int64, next *sdk.Manifest, declarations ...a
 }
 
 func (s *Server) markExclusiveActivationUnavailable(id int64) error {
-	result, err := s.store.db.Exec(`UPDATE app_installs SET status='pending',status_message='Updating — temporarily unavailable' WHERE id=?`, id)
+	result, err := s.store.dbExec(`UPDATE app_installs SET status='pending',status_message='Updating — temporarily unavailable' WHERE id=?`, id)
 	if err != nil {
 		return fmt.Errorf("record exclusive cutover: %w", err)
 	}
@@ -77,7 +77,7 @@ func (s *Server) recordExclusiveActivationPID(id int64, pid int) error {
 	if pid <= 0 {
 		return fmt.Errorf("exclusive candidate for installation %d has exited", id)
 	}
-	result, err := s.store.db.Exec(`UPDATE app_installs SET local_pid=? WHERE id=?`, pid, id)
+	result, err := s.store.dbExec(`UPDATE app_installs SET local_pid=? WHERE id=?`, pid, id)
 	if err != nil {
 		return fmt.Errorf("record exclusive candidate pid: %w", err)
 	}

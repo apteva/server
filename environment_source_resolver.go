@@ -105,7 +105,7 @@ func (s *Server) resolveEnvironmentAppSource(projectID, name, constraint string)
 			 FROM app_installs i JOIN apps a ON a.id=i.app_id
 			 WHERE a.name=? AND i.status='running' AND (i.project_id=? OR i.project_id='')
 			 ORDER BY CASE WHEN i.project_id=? THEN 0 ELSE 1 END, i.is_default DESC, i.id DESC`
-		rows, err := s.store.db.Query(query, name, projectID, projectID)
+		rows, err := s.store.dbQuery(query, name, projectID, projectID)
 		if err == nil {
 			for rows.Next() {
 				var installID int64

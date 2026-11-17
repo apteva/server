@@ -45,7 +45,7 @@ type runtimeMonitorEntry struct {
 // Only active generations enter this bounded cache. UI reads the corresponding
 // stored health observation; autoscaling reads fresh identity-bound workload from the same collector.
 func (m *appRuntimeManager) queueRuntimeObservations(installID int64, immediate bool) {
-	rows, err := m.s.store.db.Query(`SELECT d.id FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE i.runtime_managed=1 AND d.generation=`+runtimePublishedGeneration+` AND d.status='active' AND i.status='running' AND (?=0 OR i.id=?) AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`, installID, installID)
+	rows, err := m.s.store.dbQueryContext(m.ctx, `SELECT d.id FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE i.runtime_managed=1 AND d.generation=`+runtimePublishedGeneration+` AND d.status='active' AND i.status='running' AND (?=0 OR i.id=?) AND NOT EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=i.id AND o.status IN ('queued','running'))`, installID, installID)
 	if err != nil {
 		return
 	}
@@ -475,11 +475,11 @@ const runtimeMonitorGuard = `d.id=? AND d.generation=? AND d.status='active' AND
 
 func (m *appRuntimeManager) runtimeMonitorCurrent(d runtimeDeployment) bool {
 	var n int
-	err := m.s.store.db.QueryRow(`SELECT count(*) FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE `+runtimeMonitorGuard, d.ID, d.Generation).Scan(&n)
+	err := m.s.store.dbQueryRowContext(m.ctx, `SELECT count(*) FROM app_runtime_deployments d JOIN app_installs i ON i.id=d.install_id WHERE `+runtimeMonitorGuard, d.ID, d.Generation).Scan(&n)
 	return err == nil && n == 1
 }
 func (m *appRuntimeManager) persistRuntimeObservation(d runtimeDeployment, health runtimeHealthObservation, out *runtimeExecution) (bool, error) {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return false, err
 	}

@@ -33,7 +33,7 @@ func (m *appRuntimeManager) normalizePlacement(p *runtimePlacement, readOnly ...
 		var candidates []runtimeBackendRegistration
 		var err error
 		if readonly {
-			rows, e := m.s.store.db.Query(`SELECT record_json FROM app_runtime_backends WHERE (?=0 OR install_id=?)`, p.Backend.InstallID, p.Backend.InstallID)
+			rows, e := m.s.store.dbQueryContext(m.ctx, `SELECT record_json FROM app_runtime_backends WHERE (?=0 OR install_id=?)`, p.Backend.InstallID, p.Backend.InstallID)
 			err = e
 			if e == nil {
 				for rows.Next() {
@@ -96,7 +96,7 @@ func (m *appRuntimeManager) inspectPackageTarget(d *runtimeDeployment, op *runti
 		return runtimeReleaseTargetCompatibility(d.Manifest, d.Placement, b.registration, nil)
 	}
 	var project string
-	if err := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)

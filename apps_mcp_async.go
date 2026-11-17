@@ -15,16 +15,17 @@ import (
 )
 
 type appMCPAsyncRequest struct {
-	ProjectID   string
-	UserID      int64
-	StartedAt   time.Time
-	Cursor      int64
-	ThreadEpoch int64
-	SetupError  error
-	ToolName    string
-	Spec        *sdk.AsyncResultSpec
-	AgentID     int64
-	ThreadID    string
+	ExistingSubscription *Subscription
+	ProjectID            string
+	UserID               int64
+	StartedAt            time.Time
+	Cursor               int64
+	ThreadEpoch          int64
+	SetupError           error
+	ToolName             string
+	Spec                 *sdk.AsyncResultSpec
+	AgentID              int64
+	ThreadID             string
 }
 
 func (s *Server) inspectAppMCPAsyncRequest(entry *InstalledApp, r *http.Request, projectID string) *appMCPAsyncRequest {
@@ -154,7 +155,11 @@ func (s *Server) maybeAugmentAppMCPAsyncResponse(entry *InstalledApp, req *appMC
 		registrationErr = fmt.Errorf("tool response is missing a valid async identifier %q", idField)
 	}
 	if registrationErr == nil {
-		sub, registrationErr = s.createAsyncResultSubscriptions(entry, req, toolResult)
+		if req.ExistingSubscription != nil {
+			sub = req.ExistingSubscription
+		} else {
+			sub, registrationErr = s.createAsyncResultSubscriptions(entry, req, toolResult)
+		}
 	}
 	metadata := map[string]any{"will_notify": false, "id_field": idField, "id": asyncID}
 	if registrationErr != nil {

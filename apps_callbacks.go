@@ -232,7 +232,7 @@ func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, 
 		installProject string
 		userID         int64
 	)
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRowContext(r.Context(),
 		`SELECT COALESCE(project_id,''), COALESCE(installed_by, 0) FROM app_installs WHERE id=?`, installID,
 	).Scan(&installProject, &userID); err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
@@ -241,7 +241,7 @@ func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, 
 	if installProject != "" {
 		// Singleton — same project as the install.
 		var name, description string
-		_ = s.store.db.QueryRow(
+		_ = s.store.dbQueryRowContext(r.Context(),
 			`SELECT COALESCE(name,''), COALESCE(description,'') FROM projects WHERE id=?`, installProject,
 		).Scan(&name, &description)
 		writeJSON(w, []map[string]any{{"id": installProject, "name": name, "description": description}})
@@ -272,7 +272,7 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 	var (
 		appName, projectID, version string
 	)
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRowContext(r.Context(),
 		`SELECT a.name, COALESCE(i.project_id,''), COALESCE(i.version,'')
 		 FROM app_installs i JOIN apps a ON a.id=i.app_id
 		 WHERE i.id=?`, installID,
@@ -287,7 +287,7 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 	// the install.
 	var projectName, projectDescription string
 	if projectID != "" {
-		_ = s.store.db.QueryRow(
+		_ = s.store.dbQueryRowContext(r.Context(),
 			`SELECT COALESCE(name,''), COALESCE(description,'') FROM projects WHERE id=?`, projectID,
 		).Scan(&projectName, &projectDescription)
 	}
@@ -644,7 +644,7 @@ func (s *Server) handleCallbackConnectionPublicConfig(w http.ResponseWriter, r *
 // other for legacy rows. Returns "" on lookup error.
 func connectionCreatedVia(s *Server, connID int64) string {
 	var v string
-	_ = s.store.db.QueryRow(
+	_ = s.store.dbQueryRow(
 		`SELECT COALESCE(created_via,'') FROM connections WHERE id=?`,
 		connID,
 	).Scan(&v)
@@ -655,7 +655,7 @@ func connectionCreatedVia(s *Server, connID int64) string {
 // connections row. Returns 0 for legacy / operator-managed rows.
 func connectionOwnerInstallID(s *Server, connID int64) int64 {
 	var ownerID int64
-	_ = s.store.db.QueryRow(
+	_ = s.store.dbQueryRow(
 		`SELECT COALESCE(owner_app_install_id, 0) FROM connections WHERE id=?`,
 		connID,
 	).Scan(&ownerID)
@@ -1265,7 +1265,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		// Scheduled calls may only enqueue an existing policy. General backup
 		// management and restore require a direct authenticated administrator.
 		var owner int64
-		_ = s.store.db.QueryRow(`SELECT COALESCE(installed_by,0) FROM app_installs WHERE id=?`, installID).Scan(&owner)
+		_ = s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(installed_by,0) FROM app_installs WHERE id=?`, installID).Scan(&owner)
 		async, _ := body.Input["async"].(bool)
 		policyID, _ := body.Input["policy_id"].(float64)
 		if callerAppName != "jobs" || !s.isAdmin(owner) || body.Tool != "backup_now" || !async || policyID <= 0 {
@@ -2154,7 +2154,7 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var installProject string
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRowContext(r.Context(),
 		`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID,
 	).Scan(&installProject); err != nil {
 		http.Error(w, "app installation not found", http.StatusNotFound)
@@ -2206,7 +2206,7 @@ func (s *Server) handleCallbackAgentList(w http.ResponseWriter, r *http.Request)
 	// capability-aware apps like a2a can scope discovery to agents
 	// that actually hold their tools.
 	bound := map[int64]bool{}
-	if rows, err := s.store.db.Query(
+	if rows, err := s.store.dbQueryContext(r.Context(),
 		`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1`, installID,
 	); err == nil {
 		for rows.Next() {
@@ -2250,7 +2250,7 @@ func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int
 		principal, authenticated := r.Context().Value(appCallbackPrincipalKey{}).(appCallbackPrincipal)
 		if authenticated && principal.installID == installID && !principal.userSession {
 			var ownerID int64
-			if lookupErr := s.store.db.QueryRow(`SELECT a.user_id FROM agents a
+			if lookupErr := s.store.dbQueryRowContext(r.Context(), `SELECT a.user_id FROM agents a
 				JOIN app_agent_bindings b ON b.agent_id=a.id
 				WHERE a.id=? AND b.install_id=? AND b.enabled=1`, agentID, installID).Scan(&ownerID); lookupErr == nil {
 				agent, err = s.store.GetAgent(ownerID, agentID)
@@ -2261,7 +2261,7 @@ func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int
 		return nil, errors.New("agent not found or not owned by this user")
 	}
 	var installProject string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); err != nil {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); err != nil {
 		return nil, errors.New("app installation not found")
 	}
 	runtime, runtimeAgent, inRuntime := s.runtimeAgentForInstall(installID, agentID)
@@ -2315,7 +2315,7 @@ func (s *Server) ensureCallbackDeliveryTargetRunning(installID int64, agent *Age
 		return s.startAgentOnDemand(agent)
 	}
 	var enabled int
-	if err := s.store.db.QueryRow(`
+	if err := s.store.dbQueryRow(`
 		SELECT enabled
 		  FROM app_agent_bindings
 		 WHERE install_id=? AND agent_id=?`,
@@ -2362,7 +2362,10 @@ func installHasPermission(s *Server, installID int64, perm sdk.Permission) bool 
 // installManifest returns a shared read-only parsed manifest. Callers must not
 // mutate it; installation updates go through persisted metadata instead.
 func installManifest(s *Server, installID int64) (*sdk.Manifest, error) {
-	metadata, err := s.appMetadata(installID)
+	return installManifestContext(context.Background(), s, installID)
+}
+func installManifestContext(ctx context.Context, s *Server, installID int64) (*sdk.Manifest, error) {
+	metadata, err := s.appMetadataContext(ctx, installID)
 	if err != nil {
 		return nil, err
 	}

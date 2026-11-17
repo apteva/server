@@ -247,7 +247,7 @@ func (s *Server) handleAddGrant(w http.ResponseWriter, r *http.Request, installI
 	if body.Resource == "" {
 		body.Resource = "*"
 	}
-	res, err := s.store.db.Exec(
+	res, err := s.store.dbExecContext(r.Context(),
 		`INSERT OR IGNORE INTO app_grants(install_id, agent_id, effect, permission, resource, created_by)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		installID, body.AgentID, body.Effect, body.Permission, body.Resource, getUserName(r),
@@ -295,7 +295,7 @@ func (s *Server) replaceGrantsForInstance(installID, instanceID int64, defaultEf
 			return nil, err
 		}
 	}
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return nil, fmt.Errorf("tx: %w", err)
 	}
@@ -348,7 +348,7 @@ func (s *Server) handleDeleteGrant(w http.ResponseWriter, r *http.Request, insta
 		http.Error(w, "invalid grant id", http.StatusBadRequest)
 		return
 	}
-	res, err := s.store.db.Exec(`DELETE FROM app_grants WHERE id = ? AND install_id = ?`, id, installID)
+	res, err := s.store.dbExecContext(r.Context(), `DELETE FROM app_grants WHERE id = ? AND install_id = ?`, id, installID)
 	if err != nil {
 		http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -414,7 +414,7 @@ func (s *Server) handleSetDefaultEffect(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "default_effect must be allow|deny", http.StatusBadRequest)
 		return
 	}
-	res, err := s.store.db.Exec(`UPDATE app_installs SET default_effect = ? WHERE id = ?`, body.DefaultEffect, installID)
+	res, err := s.store.dbExecContext(r.Context(), `UPDATE app_installs SET default_effect = ? WHERE id = ?`, body.DefaultEffect, installID)
 	if err != nil {
 		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -457,7 +457,7 @@ func optionalInstanceID(r *http.Request) (int64, error) {
 
 func (s *Server) installDefaultEffect(installID int64) string {
 	var eff string
-	err := s.store.db.QueryRow(`SELECT COALESCE(default_effect,'allow') FROM app_installs WHERE id = ?`, installID).Scan(&eff)
+	err := s.store.dbQueryRow(`SELECT COALESCE(default_effect,'allow') FROM app_installs WHERE id = ?`, installID).Scan(&eff)
 	if err != nil || eff == "" {
 		return "allow"
 	}
@@ -466,7 +466,7 @@ func (s *Server) installDefaultEffect(installID int64) string {
 
 func (s *Server) defaultEffectForAgent(installID, agentID int64) string {
 	var eff string
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT default_effect FROM app_grant_defaults WHERE install_id = ? AND agent_id = ?`,
 		installID, agentID,
 	).Scan(&eff)
@@ -484,7 +484,7 @@ func (s *Server) queryGrants(installID, instanceID int64) ([]grantRow, error) {
 		args = append(args, instanceID)
 	}
 	q += ` ORDER BY id`
-	rows, err := s.store.db.Query(q, args...)
+	rows, err := s.store.dbQuery(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -534,7 +534,7 @@ func (s *Server) fetchGrantsForInstance(installID, instanceID int64) (*grantsRes
 // hasn't shipped a manifest_json yet (legacy rows pre-permissions feature).
 func (s *Server) loadInstallManifest(installID int64) (*sdk.Manifest, error) {
 	var raw string
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.id = ?`,
 		installID,

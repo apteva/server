@@ -96,14 +96,14 @@ func (s *Store) ListRuntimeConnections(userID int64, projectID ...string) ([]run
 		err error
 	)
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT `+cols+` FROM connections
 			 WHERE user_id = ? AND (project_id = ? OR project_id = '') AND COALESCE(status,'active') = 'active'
 			 ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, is_primary DESC, id ASC`,
 			userID, projectID[0], projectID[0],
 		)
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT `+cols+` FROM connections
 			 WHERE user_id = ? AND COALESCE(status,'active') = 'active'
 			 ORDER BY is_primary DESC, id ASC`,
@@ -400,7 +400,7 @@ func (s *Server) providerSuppliedLLMKeys(userID int64, projectID ...string) map[
 // blob. Used when a Codex connection's model catalog is hydrated at boot
 // so the fetch does not repeat on every agent start.
 func (s *Store) UpdateConnectionRuntimeConfig(connID int64, runtimeConfig string) error {
-	_, err := s.db.Exec("UPDATE connections SET runtime_config = ? WHERE id = ?", runtimeConfig, connID)
+	_, err := s.dbExec("UPDATE connections SET runtime_config = ? WHERE id = ?", runtimeConfig, connID)
 	return err
 }
 

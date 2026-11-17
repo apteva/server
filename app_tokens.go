@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (s *Server) appTokenCipherKey() ([]byte, error) {
@@ -31,10 +33,21 @@ func (s *Server) appTokenCipherKey() ([]byte, error) {
 // Older installs are upgraded lazily so a server update does not require a
 // destructive migration or reinstall.
 func (s *Server) appInstallToken(installID int64) (string, error) {
+	return s.appInstallTokenContext(nil, installID)
+}
+func (s *Server) appInstallTokenContext(parent context.Context, installID int64) (string, error) {
+	ctx, cancel := s.store.databaseContext(parent)
+	defer cancel()
 	if s == nil || s.store == nil || installID <= 0 {
 		return "", fmt.Errorf("invalid app install")
 	}
-	s.appTokenMu.Lock()
+	for !s.appTokenMu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
 	defer s.appTokenMu.Unlock()
 	key, err := s.appTokenCipherKey()
 	if err != nil {
@@ -42,7 +55,7 @@ func (s *Server) appInstallToken(installID int64) (string, error) {
 	}
 
 	var encrypted, hash string
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(ctx,
 		`SELECT COALESCE(app_token_encrypted,''), COALESCE(app_token_hash,'') FROM app_installs WHERE id=?`,
 		installID,
 	).Scan(&encrypted, &hash)
@@ -60,7 +73,7 @@ func (s *Server) appInstallToken(installID int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(ctx,
 		`UPDATE app_installs SET app_token_hash=?, app_token_encrypted=? WHERE id=?`,
 		HashAPIKey(token), encrypted, installID,
 	); err != nil {
@@ -70,19 +83,28 @@ func (s *Server) appInstallToken(installID int64) (string, error) {
 }
 
 func (s *Server) appInstallForToken(token string) (installID, installedBy int64, status string, err error) {
+	return s.appInstallForTokenContext(nil, token)
+}
+func (s *Server) appInstallForTokenContext(ctx context.Context, token string) (installID, installedBy int64, status string, err error) {
 	if token == "" {
 		return 0, 0, "", sql.ErrNoRows
 	}
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(ctx,
 		`SELECT id, COALESCE(installed_by,0), status FROM app_installs
 		  WHERE app_token_hash=? AND app_token_hash <> ''`,
 		HashAPIKey(token),
 	).Scan(&installID, &installedBy, &status)
 	if err == sql.ErrNoRows {
-		return s.runtimeGrantInstall(token)
+		return s.runtimeGrantInstallContext(ctx, token)
 	}
-	if err == nil && !s.runtimeLegacyTokenAllowed(installID) {
-		return 0, 0, "", sql.ErrNoRows
+	if err == nil {
+		allowed, policyErr := s.runtimeLegacyTokenAllowedContext(ctx, installID)
+		if policyErr != nil {
+			return 0, 0, "", policyErr
+		}
+		if !allowed {
+			return 0, 0, "", sql.ErrNoRows
+		}
 	}
 	return
 }

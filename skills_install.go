@@ -40,7 +40,7 @@ func (s *Server) registerAppSkills(
 		return err
 	}
 	namespace := installationMCPName(appName, installation.Key, installID)
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
@@ -148,7 +148,7 @@ func appSkillRefsForInstall(q queryer, installID int64) ([]skillRef, error) {
 
 func (s *Server) appSkillOwnerID(installID int64) (int64, error) {
 	var ownerID int64
-	if err := s.store.db.QueryRow(`SELECT COALESCE(installed_by, 0) FROM app_installs WHERE id = ?`, installID).Scan(&ownerID); err != nil {
+	if err := s.store.dbQueryRow(`SELECT COALESCE(installed_by, 0) FROM app_installs WHERE id = ?`, installID).Scan(&ownerID); err != nil {
 		return 0, err
 	}
 	return ownerID, nil
@@ -163,7 +163,7 @@ func (s *Server) deleteAppSkillsForInstall(installID int64, reason string) error
 	for _, ref := range refs {
 		s.sweepSkillFromProject(ownerID, ref.ProjectID, ref.ID, ref.Slug, reason)
 	}
-	_, err = s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID)
+	_, err = s.store.dbExec(`DELETE FROM skills WHERE install_id = ?`, installID)
 	return err
 }
 

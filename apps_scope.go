@@ -96,7 +96,7 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		appName         string
 		installationKey string
 	)
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(r.Context(),
 		`SELECT i.app_id, COALESCE(i.project_id,''),
 		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.name,i.installation_key
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
@@ -153,7 +153,7 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 	// pre-check so the operator gets a real id rather than the raw
 	// SQLite constraint error.
 	var conflictID int64
-	_ = s.store.db.QueryRow(
+	_ = s.store.dbQueryRowContext(r.Context(),
 		`SELECT id FROM app_installs WHERE app_id = ? AND COALESCE(project_id,'') = ? AND installation_key=?`,
 		appID, target, installationKey,
 	).Scan(&conflictID)
@@ -169,7 +169,7 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		if current, e := s.appRuntimeManager().active(installID); e == nil && !current.Placement.local() {
 			for _, owner := range []int64{current.Placement.Backend.InstallID, current.Placement.Target.InstallID} {
 				var ownerProject string
-				if e = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, owner).Scan(&ownerProject); e != nil || (ownerProject != "" && ownerProject != target) {
+				if e = s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, owner).Scan(&ownerProject); e != nil || (ownerProject != "" && ownerProject != target) {
 					http.Error(w, "runtime backend or target is not accessible in the new project", 409)
 					return
 				}
@@ -181,7 +181,7 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 	// AFTER commit — it reads the just-committed row and rewrites
 	// mcp_servers; failure there is non-fatal (the row is rebuilt
 	// on next boot's reconcile) so it stays out of the tx.
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "begin tx: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -315,7 +315,7 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 		installedVersion string
 		manifestJSON     string
 	)
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT COALESCE(i.local_pid,0), COALESCE(i.local_port,0),
 		        COALESCE(i.local_bin_path,''), a.name, COALESCE(i.project_id,''),
 		        COALESCE(i.config_encrypted,''), COALESCE(i.version,''),
@@ -331,6 +331,9 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 		// restart; the eventual build will pick up the new scope.
 		return nil
 	}
-	go s.resumeOneLocalInstall(installID, pid, port, binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON)
+	go func() {
+		s.resumeOneLocalInstall(installID, pid, port, binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON)
+		s.LoadInstalledApps()
+	}()
 	return nil
 }

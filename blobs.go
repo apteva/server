@@ -34,7 +34,7 @@ func (s *Server) blobScope(caller fileCaller) (userID int64, project string, ins
 	}
 	project = agent.ProjectID
 	var scopedProject string
-	err = s.store.db.QueryRow(`SELECT project_id,source_install_id FROM agent_thread_scopes WHERE agent_id=? AND thread_id=?`, caller.agentID, caller.threadID).Scan(&scopedProject, &installID)
+	err = s.store.dbQueryRow(`SELECT project_id,source_install_id FROM agent_thread_scopes WHERE agent_id=? AND thread_id=?`, caller.agentID, caller.threadID).Scan(&scopedProject, &installID)
 	if err == nil {
 		if project != "" && project != scopedProject {
 			return 0, "", 0, fileProblem(403, "file_inaccessible", "thread project differs from agent")
@@ -115,14 +115,14 @@ func (s *Server) authorizeServerBlob(f *storedFileReference, caller fileCaller) 
 		return fileProblem(403, "file_inaccessible", "blob belongs to another owner, installation or project")
 	}
 	var n int
-	if err = s.store.db.QueryRow(`SELECT COUNT(*) FROM server_blob_grants WHERE file_id=? AND agent_id=? AND thread_id=?`, f.id, caller.agentID, caller.threadID).Scan(&n); err != nil {
+	if err = s.store.dbQueryRow(`SELECT COUNT(*) FROM server_blob_grants WHERE file_id=? AND agent_id=? AND thread_id=?`, f.id, caller.agentID, caller.threadID).Scan(&n); err != nil {
 		return err
 	}
 	if n != 1 {
 		return fileProblem(403, "file_inaccessible", "blob is not granted to this thread")
 	}
 	var revoked bool
-	if err = s.store.db.QueryRow(`SELECT revoked FROM server_blobs WHERE id=?`, f.id).Scan(&revoked); err != nil {
+	if err = s.store.dbQueryRow(`SELECT revoked FROM server_blobs WHERE id=?`, f.id).Scan(&revoked); err != nil {
 		return err
 	}
 	if revoked {

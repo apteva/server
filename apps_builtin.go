@@ -77,9 +77,9 @@ func (s *Server) RegisterBuiltinApps() {
 		}
 		manifestJSON, _ := json.Marshal(manifest)
 		var appID int64
-		err = s.store.db.QueryRow(`SELECT id FROM apps WHERE name = ?`, manifest.Name).Scan(&appID)
+		err = s.store.dbQueryRow(`SELECT id FROM apps WHERE name = ?`, manifest.Name).Scan(&appID)
 		if err != nil {
-			_, ierr := s.store.db.Exec(
+			_, ierr := s.store.dbExec(
 				`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'builtin', '', '', ?)`,
 				manifest.Name, string(manifestJSON))
 			if ierr != nil {
@@ -92,7 +92,7 @@ func (s *Server) RegisterBuiltinApps() {
 			// Refresh manifest_json on every boot so updates ship with
 			// the image. Other columns (source, ref) stay frozen at
 			// the original 'builtin' values.
-			s.store.db.Exec(`UPDATE apps SET manifest_json = ? WHERE id = ?`,
+			s.store.dbExec(`UPDATE apps SET manifest_json = ? WHERE id = ?`,
 				string(manifestJSON), appID)
 		}
 		registered++

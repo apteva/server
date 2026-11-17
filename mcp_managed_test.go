@@ -203,28 +203,30 @@ func TestManagedMCPCreateBridgeCallAndInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(inventory) != 2 {
-		t.Fatalf("inventory=%#v", inventory)
+		t.Fatalf("expected built-in and managed MCP, got %#v", inventory)
 	}
-	managedIndex, builtinIndex := -1, -1
+	var managedIndex int = -1
+	var builtin int
 	for i, row := range inventory {
 		if row.ID == created.Server.ID {
 			managedIndex = i
 		}
 		if row.Source == platformMCPSource && row.Name == platformMCPName {
-			builtinIndex = i
+			builtin++
 		}
 	}
-	if managedIndex < 0 || builtinIndex < 0 {
-		t.Fatalf("missing managed or built-in inventory: %#v", inventory)
+	if managedIndex < 0 || builtin != 1 {
+		t.Fatalf("missing or duplicate MCP identity: %#v", inventory)
 	}
-	if inventory[managedIndex].ProxyConfig["transport"] != "http" {
-		t.Fatalf("managed server leaked stdio config: %#v", inventory[managedIndex].ProxyConfig)
+	managedInventory := inventory[managedIndex]
+	if managedInventory.ProxyConfig["transport"] != "http" {
+		t.Fatalf("managed server leaked stdio config: %#v", managedInventory.ProxyConfig)
 	}
-	if got, _ := inventory[managedIndex].ProxyConfig["url"].(string); got != authorizeMCPURL("http://127.0.0.1:"+s.port+"/mcp/custom/"+itoa64(created.Server.ID), s.instanceSecret) {
+	if got, _ := managedInventory.ProxyConfig["url"].(string); got != authorizeMCPURL("http://127.0.0.1:"+s.port+"/mcp/custom/"+itoa64(created.Server.ID), s.instanceSecret) {
 		t.Fatalf("proxy url=%q", got)
 	}
-	if _, leaked := inventory[managedIndex].ProxyConfig["command"]; leaked {
-		t.Fatalf("managed command leaked into agent config: %#v", inventory[managedIndex].ProxyConfig)
+	if _, leaked := managedInventory.ProxyConfig["command"]; leaked {
+		t.Fatalf("managed command leaked into agent config: %#v", managedInventory.ProxyConfig)
 	}
 }
 
@@ -433,16 +435,21 @@ func TestManagedMCPIsSharedWithProjectEditors(t *testing.T) {
 	if err != nil || len(gatewayRows) != 2 {
 		t.Fatalf("gateway project inventory=%#v err=%v", gatewayRows, err)
 	}
-	seenManaged, seenBuiltin := false, false
+	var managed, builtin int
 	for _, row := range gatewayRows {
-		seenManaged = seenManaged || row.ID == record.ID
-		seenBuiltin = seenBuiltin || (row.Source == platformMCPSource && row.Name == platformMCPName)
+		if row.ID == record.ID && row.Source == managedMCPSource {
+			managed++
+		} else if row.Name == platformMCPName && row.Source == platformMCPSource {
+			builtin++
+		} else {
+			t.Fatalf("unexpected inventory identity: %#v", row)
+		}
 		if row.ProxyConfig != nil || row.MCPURL != "" {
-			t.Fatalf("gateway summary leaked runtime capability=%#v", row)
+			t.Fatalf("gateway summary leaked runtime capability: %#v", row)
 		}
 	}
-	if !seenManaged || !seenBuiltin {
-		t.Fatalf("missing shared managed or built-in row: %#v", gatewayRows)
+	if managed != 1 || builtin != 1 {
+		t.Fatal("missing or duplicated MCP in editor inventory")
 	}
 
 	scopeReq := httptest.NewRequest(

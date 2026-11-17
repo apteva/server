@@ -136,7 +136,7 @@ func (s *Server) installEnvironmentSubscription(userID int64, environment *Envir
 	}
 	slug := spec.App + ":" + spec.Topic
 	var existing string
-	_ = s.store.db.QueryRow(
+	_ = s.store.dbQueryRow(
 		`SELECT id FROM subscriptions
 		  WHERE source = 'app_event' AND project_id = ? AND agent_id = ? AND slug = ? AND COALESCE(thread_id, '') = ?
 		  LIMIT 1`,
@@ -153,7 +153,7 @@ func (s *Server) deleteEnvironmentSubscriptionRows(environmentID string) error {
 	if s == nil || s.store == nil || strings.TrimSpace(environmentID) == "" {
 		return nil
 	}
-	_, err := s.store.db.Exec(`DELETE FROM subscriptions WHERE project_id = ? AND source = 'app_event'`, environmentID)
+	_, err := s.store.dbExec(`DELETE FROM subscriptions WHERE project_id = ? AND source = 'app_event'`, environmentID)
 	if err == nil && s.appEventDispatcher != nil {
 		_ = s.appEventDispatcher.Reconcile()
 	}
@@ -164,7 +164,7 @@ func (s *Server) deleteEnvironmentSubscriptionRow(environmentID, subscriptionID 
 	if s == nil || s.store == nil || environmentID == "" || subscriptionID == "" {
 		return nil
 	}
-	_, err := s.store.db.Exec(`DELETE FROM subscriptions WHERE id = ? AND project_id = ? AND source = 'app_event'`, subscriptionID, environmentID)
+	_, err := s.store.dbExec(`DELETE FROM subscriptions WHERE id = ? AND project_id = ? AND source = 'app_event'`, subscriptionID, environmentID)
 	if err == nil && s.appEventDispatcher != nil {
 		_ = s.appEventDispatcher.Reconcile()
 	}
@@ -180,7 +180,7 @@ func (s *Server) deleteEnvironmentSubscriptionRowsForSpec(environmentID string, 
 		return err
 	}
 	slug := spec.App + ":" + spec.Topic
-	_, err = s.store.db.Exec(
+	_, err = s.store.dbExec(
 		`DELETE FROM subscriptions
 		  WHERE project_id = ? AND source = 'app_event' AND slug = ? AND COALESCE(thread_id, '') = ?`,
 		environmentID, slug, spec.ThreadID,
@@ -236,7 +236,7 @@ func (s *Server) environmentSubscriptionRows(environmentID string) []Subscriptio
 	if s == nil || s.store == nil || environmentID == "" {
 		return nil
 	}
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT id, user_id, agent_id, connection_id, name, slug, description, webhook_path,
 		        enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 		        COALESCE(project_id,''), COALESCE(source,'webhook'), COALESCE(last_seq_delivered,0), created_at

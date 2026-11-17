@@ -126,3 +126,56 @@ func TestEnableLocalAppFailureRestoresDisabledAndRejectsCallbacks(t *testing.T) 
 		t.Fatalf("disabled callback status=%d, want 401", response.Code)
 	}
 }
+
+func TestStartingAppTelemetryKeepsAuthenticationPermissionsAndScope(t *testing.T) {
+	for _, tc := range []struct {
+		name, status, permission, project string
+		token                             bool
+		want                              int
+	}{
+		{"authenticated startup", "pending", string(sdk.PermTelemetryRead), "proj-1", true, 200},
+		{"missing permission", "pending", "db.write.app", "proj-1", true, 403},
+		{"cross project", "pending", string(sdk.PermTelemetryRead), "proj-2", true, 403},
+		{"disabled", "disabled", string(sdk.PermTelemetryRead), "proj-1", true, 401},
+		{"failed", "error", string(sdk.PermTelemetryRead), "proj-1", true, 401},
+		{"forged identity", "pending", string(sdk.PermTelemetryRead), "proj-1", false, 401},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, id := telemetryTestServer(t, "proj-1", tc.permission)
+			token, err := s.appInstallToken(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.store.db.Exec(`UPDATE app_installs SET status=? WHERE id=?`, tc.status, id); err != nil {
+				t.Fatal(err)
+			}
+			api := httptest.NewServer(http.StripPrefix("/api", s.authMiddleware(s.handleAppCallback)))
+			defer api.Close()
+			req, err := http.NewRequest(http.MethodGet, api.URL+"/api/apps/callback/telemetry?events=tool.call&project_id="+tc.project, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Network-supplied identity headers cannot create startup authority.
+			req.Header.Set("X-User-ID", "1")
+			req.Header.Set("X-Apteva-App-Install-ID", strconv.FormatInt(id, 10))
+			if tc.token {
+				req.Header.Set("Authorization", "Bearer "+token)
+			}
+			if !tc.token {
+				direct := httptest.NewRecorder()
+				if _, ok := s.telemetryPrincipal(direct, req, id, true); ok || direct.Code != http.StatusUnauthorized {
+					t.Fatal("pending install trusted headers without an authenticated app principal")
+				}
+			}
+			client := &http.Client{Timeout: 2 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("HTTP %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+}

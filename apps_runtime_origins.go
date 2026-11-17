@@ -16,7 +16,7 @@ func (s *Server) runtimeBrowserOriginAllowed(id int64, origin string) bool {
 		return true
 	}
 	var n int
-	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_cors_origins WHERE install_id=? AND registration_key=? AND origin=?`, id, runtimeBrowserOriginsKey, origin).Scan(&n); err != nil {
+	if err := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_cors_origins WHERE install_id=? AND registration_key=? AND origin=?`, id, runtimeBrowserOriginsKey, origin).Scan(&n); err != nil {
 		return false
 	}
 	return n > 0
@@ -97,6 +97,6 @@ func (s *Server) runtimeProviderOriginActive(r *http.Request, id int64) bool {
 	}
 	var ref string
 	token := privateRequestToken(r)
-	e = s.store.db.QueryRow(`SELECT deployment_id FROM app_runtime_credentials WHERE token_hash=?`, HashAPIKey(token)).Scan(&ref)
+	e = s.store.dbQueryRowContext(r.Context(), `SELECT deployment_id FROM app_runtime_credentials WHERE token_hash=?`, HashAPIKey(token)).Scan(&ref)
 	return e == nil && ref == d.ID && d.InstallID == id && d.Status == "active"
 }

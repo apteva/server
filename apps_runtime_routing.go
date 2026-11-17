@@ -68,7 +68,7 @@ func (s *Server) runtimeProxyEntry(entry *InstalledApp, r *http.Request) *Instal
 }
 func (s *Server) runtimeInitRouteAllowed(token string, r *http.Request) bool {
 	var raw string
-	err := s.store.db.QueryRow(`SELECT d.record_json FROM app_runtime_credentials c JOIN app_runtime_deployments d ON d.id=c.deployment_id WHERE c.token_hash=?`, HashAPIKey(token)).Scan(&raw)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT d.record_json FROM app_runtime_credentials c JOIN app_runtime_deployments d ON d.id=c.deployment_id WHERE c.token_hash=?`, HashAPIKey(token)).Scan(&raw)
 	if err != nil {
 		return true
 	}

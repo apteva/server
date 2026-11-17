@@ -11,13 +11,13 @@ import (
 )
 
 func (s *Store) migrateAgentResources() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS agent_resource_policies(agent_id INTEGER PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,revision INTEGER NOT NULL,policy_json TEXT NOT NULL)`)
+	_, err := s.dbExec(`CREATE TABLE IF NOT EXISTS agent_resource_policies(agent_id INTEGER PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,revision INTEGER NOT NULL,policy_json TEXT NOT NULL)`)
 	return err
 }
 func (s *Store) agentResourcePolicy(id int64) (runtimeResourceRecord, error) {
 	var r runtimeResourceRecord
 	var raw string
-	err := s.db.QueryRow(`SELECT revision,policy_json FROM agent_resource_policies WHERE agent_id=?`, id).Scan(&r.Revision, &raw)
+	err := s.dbQueryRow(`SELECT revision,policy_json FROM agent_resource_policies WHERE agent_id=?`, id).Scan(&r.Revision, &raw)
 	if err == sql.ErrNoRows {
 		return r, nil
 	}
@@ -43,7 +43,7 @@ func (s *Store) saveAgentResources(id int64, next runtimeResourceRecord) error {
 	if next.Revision < 0 {
 		return fmt.Errorf("invalid revision")
 	}
-	result, err := s.db.Exec(`INSERT INTO agent_resource_policies(agent_id,revision,policy_json) SELECT ?,1,? WHERE ?=0 OR EXISTS(SELECT 1 FROM agent_resource_policies WHERE agent_id=?) ON CONFLICT(agent_id) DO UPDATE SET revision=revision+1,policy_json=excluded.policy_json WHERE revision=?`, id, runtimeJSON(next.Policy), next.Revision, id, next.Revision)
+	result, err := s.dbExec(`INSERT INTO agent_resource_policies(agent_id,revision,policy_json) SELECT ?,1,? WHERE ?=0 OR EXISTS(SELECT 1 FROM agent_resource_policies WHERE agent_id=?) ON CONFLICT(agent_id) DO UPDATE SET revision=revision+1,policy_json=excluded.policy_json WHERE revision=?`, id, runtimeJSON(next.Policy), next.Revision, id, next.Revision)
 	if err != nil {
 		return err
 	}

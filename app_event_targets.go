@@ -20,7 +20,7 @@ import (
 // App targets share the subscription dispatcher's durable enqueue/retry loop.
 // They have their own table because they are owned by installations, not agents.
 func (s *Store) migrateAppEventTargets() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS app_event_targets (
+	_, err := s.dbExec(`CREATE TABLE IF NOT EXISTS app_event_targets (
  install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
  project_id TEXT NOT NULL, subscription_key TEXT NOT NULL, source_install_id INTEGER NOT NULL,
  topic TEXT NOT NULL, revision INTEGER NOT NULL, enabled INTEGER NOT NULL,
@@ -84,7 +84,7 @@ func (s *Server) handleCallbackEventSubscriptions(w http.ResponseWriter, r *http
 		return
 	}
 	if r.Method == http.MethodDelete && len(parts) == 1 && eventTargetKey.MatchString(parts[0]) {
-		_, err = s.store.db.Exec(`UPDATE app_event_targets SET enabled=0,revision=revision+1 WHERE install_id=? AND project_id=? AND subscription_key=?`, installID, project, parts[0])
+		_, err = s.store.dbExecContext(r.Context(), `UPDATE app_event_targets SET enabled=0,revision=revision+1 WHERE install_id=? AND project_id=? AND subscription_key=?`, installID, project, parts[0])
 		if err != nil {
 			http.Error(w, "subscription storage unavailable", 500)
 			return
@@ -106,7 +106,7 @@ func (s *Server) handleCallbackEventSubscriptions(w http.ResponseWriter, r *http
 		return
 	}
 	// Equal revisions are idempotent only when the complete request is unchanged.
-	result, err := s.store.db.Exec(`INSERT INTO app_event_targets(install_id,project_id,subscription_key,source_install_id,topic,revision,enabled) VALUES(?,?,?,?,?,?,?)
+	result, err := s.store.dbExecContext(r.Context(), `INSERT INTO app_event_targets(install_id,project_id,subscription_key,source_install_id,topic,revision,enabled) VALUES(?,?,?,?,?,?,?)
  ON CONFLICT(install_id,project_id,subscription_key) DO UPDATE SET source_install_id=excluded.source_install_id,topic=excluded.topic,revision=excluded.revision,enabled=excluded.enabled
  WHERE excluded.revision>app_event_targets.revision OR (excluded.revision=app_event_targets.revision AND excluded.source_install_id=app_event_targets.source_install_id AND excluded.topic=app_event_targets.topic AND excluded.enabled=app_event_targets.enabled)`, installID, project, sub.Key, sub.SourceInstallID, sub.Topic, sub.Revision, sub.Enabled)
 	if err != nil {
@@ -122,7 +122,7 @@ func (s *Server) handleCallbackEventSubscriptions(w http.ResponseWriter, r *http
 }
 func (s *Server) eventSourceAllowed(target, source int64, project string) bool {
 	var count int
-	err := s.store.db.QueryRow(`SELECT count(*) FROM app_installs a JOIN app_installs b ON a.installed_by=b.installed_by WHERE a.id=? AND b.id=? AND (COALESCE(b.project_id,'')='' OR b.project_id=?)`, target, source, project).Scan(&count)
+	err := s.store.dbQueryRow(`SELECT count(*) FROM app_installs a JOIN app_installs b ON a.installed_by=b.installed_by WHERE a.id=? AND b.id=? AND (COALESCE(b.project_id,'')='' OR b.project_id=?)`, target, source, project).Scan(&count)
 	return err == nil && count == 1
 }
 

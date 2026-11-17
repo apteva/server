@@ -203,7 +203,7 @@ func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 	for _, t := range builtins {
 		current[t.ID] = true
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id, COALESCE(user_id, 0), source, source_ref, name, icon,
 		       description, highlights, directive, mode, unconscious, recommended_apps,
 		       requirements, sort_order, created_at, updated_at
@@ -220,16 +220,18 @@ func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 	}
 	defer rows.Close()
 	var out []AgentTemplate
-	for rows.Next() {
-		t, err := scanAgentTemplate(rows)
-		if err != nil {
-			return nil, err
-		}
+	records, err := collectSQLRows(rows, scanAgentTemplate)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range records {
 		if t.Source == "builtin" && !current[t.ID] {
 			continue
 		}
+		enrichTemplatePreset(&t)
 		out = append(out, t)
 	}
+
 	return out, rows.Err()
 }
 
@@ -237,7 +239,7 @@ func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 // caller is allowed to see (builtin/app are global, user-owned must
 // match userID).
 func (s *Store) GetAgentTemplate(userID int64, id string) (*AgentTemplate, error) {
-	row := s.db.QueryRow(`
+	row := s.dbQueryRow(`
 		SELECT id, COALESCE(user_id, 0), source, source_ref, name, icon,
 		       description, highlights, directive, mode, unconscious, recommended_apps,
 		       requirements, sort_order, created_at, updated_at
@@ -253,6 +255,7 @@ func (s *Store) GetAgentTemplate(userID int64, id string) (*AgentTemplate, error
 		}
 		return nil, err
 	}
+	enrichTemplatePreset(&t)
 	return &t, nil
 }
 
@@ -269,7 +272,7 @@ func (s *Store) CreateAgentTemplate(userID int64, t AgentTemplate) (*AgentTempla
 	if t.Requirements == nil {
 		reqJSON = []byte("[]")
 	}
-	_, err := s.db.Exec(`
+	_, err := s.dbExec(`
 		INSERT INTO agent_templates
 			(id, user_id, source, source_ref, name, icon, description,
 			 highlights, directive, mode, unconscious, recommended_apps, requirements,
@@ -294,7 +297,7 @@ func (s *Store) UpdateAgentTemplate(userID int64, id string, t AgentTemplate) er
 	if t.Requirements == nil {
 		reqJSON = []byte("[]")
 	}
-	result, err := s.db.Exec(`
+	result, err := s.dbExec(`
 		UPDATE agent_templates
 		   SET name = ?, icon = ?, description = ?, highlights = ?, directive = ?,
 		       mode = ?, unconscious = ?, recommended_apps = ?,
@@ -319,7 +322,7 @@ func (s *Store) UpdateAgentTemplate(userID int64, id string, t AgentTemplate) er
 // the caller should use HideAgentTemplate instead — those rows stay
 // in the table so other users / fresh logins still see them.
 func (s *Store) DeleteAgentTemplate(userID int64, id string) error {
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		`DELETE FROM agent_templates WHERE id = ? AND user_id = ?`,
 		id, userID,
 	)
@@ -335,7 +338,7 @@ func (s *Store) DeleteAgentTemplate(userID int64, id string) error {
 // HideAgentTemplate adds the template to the user's hide list. No-op
 // if it's already there.
 func (s *Store) HideAgentTemplate(userID int64, id string) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT OR IGNORE INTO user_template_hidden (user_id, template_id) VALUES (?, ?)`,
 		userID, id,
 	)
@@ -344,7 +347,7 @@ func (s *Store) HideAgentTemplate(userID int64, id string) error {
 
 // UnhideAgentTemplate removes the template from the user's hide list.
 func (s *Store) UnhideAgentTemplate(userID int64, id string) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`DELETE FROM user_template_hidden WHERE user_id = ? AND template_id = ?`,
 		userID, id,
 	)
@@ -427,6 +430,13 @@ func scanAgentTemplate(r rowScanner) (AgentTemplate, error) {
 	if t.Requirements == nil {
 		t.Requirements = []Requirement{}
 	}
+
+	t.CreatedAt, _ = parseTime(createdAt)
+	t.UpdatedAt, _ = parseTime(updatedAt)
+	return t, nil
+}
+
+func enrichTemplatePreset(t *AgentTemplate) {
 	if t.Source == "builtin" && strings.HasPrefix(t.ID, "preset:") {
 		if catalog, err := loadProjectPresetCatalog(); err == nil {
 			if preset, ok := catalog.ByID[t.SourceRef]; ok {
@@ -435,9 +445,6 @@ func scanAgentTemplate(r rowScanner) (AgentTemplate, error) {
 			}
 		}
 	}
-	t.CreatedAt, _ = parseTime(createdAt)
-	t.UpdatedAt, _ = parseTime(updatedAt)
-	return t, nil
 }
 
 // resolveTemplateLogos walks a template's Requirements and resolves

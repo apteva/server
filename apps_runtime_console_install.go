@@ -22,7 +22,7 @@ func (s *Server) insertRuntimeConsoleInstall(user int64, key, fingerprint, query
 	return s.insertManifestInstall(user, key, fingerprint, "", nil, query, args...)
 }
 func (s *Server) insertManifestInstall(user int64, key, fingerprint, version string, components appComponentDeclarations, query string, args ...any) (sql.Result, error) {
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (s *Server) insertManifestInstall(user int64, key, fingerprint, version str
 func (s *Server) replayRuntimeConsoleInstall(w http.ResponseWriter, r *http.Request, user int64, key, fingerprint string, p runtimePlacement) bool {
 	var previous string
 	var id int64
-	err := s.store.db.QueryRow(`SELECT fingerprint,install_id FROM app_runtime_install_receipts WHERE user_id=? AND request_key=?`, user, key).Scan(&previous, &id)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT fingerprint,install_id FROM app_runtime_install_receipts WHERE user_id=? AND request_key=?`, user, key).Scan(&previous, &id)
 	if err == sql.ErrNoRows {
 		return false
 	}
@@ -64,13 +64,13 @@ func (s *Server) replayRuntimeConsoleInstall(w http.ResponseWriter, r *http.Requ
 		return true
 	}
 	var appID int64
-	if s.store.db.QueryRow(`SELECT app_id FROM app_installs WHERE id=?`, id).Scan(&appID) != nil {
+	if s.store.dbQueryRowContext(r.Context(), `SELECT app_id FROM app_installs WHERE id=?`, id).Scan(&appID) != nil {
 		http.Error(w, "the original installation no longer exists", 409)
 		return true
 	}
 	m := s.appRuntimeManager()
 	var opID string
-	err = s.store.db.QueryRow(`SELECT id FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, runtimeConsoleInstallOperationKey(key)).Scan(&opID)
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT id FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, runtimeConsoleInstallOperationKey(key)).Scan(&opID)
 	var op runtimeOperation
 	if err == nil {
 		op, err = m.operation(opID)
@@ -79,6 +79,10 @@ func (s *Server) replayRuntimeConsoleInstall(w http.ResponseWriter, r *http.Requ
 		if e != nil {
 			err = e
 		} else {
+			if r.Header.Get("X-Apteva-MCP-Install") == "1" && p.local() && !manifestHasLocalDelivery(manifest) {
+				s.writeInstallReadiness(w, id, true)
+				return true
+			}
 			op, err = m.begin(id, "deploy", runtimeConsoleInstallOperationKey(key), p, manifest)
 		}
 	}
@@ -86,6 +90,11 @@ func (s *Server) replayRuntimeConsoleInstall(w http.ResponseWriter, r *http.Requ
 		http.Error(w, fmt.Sprintf("installation %d exists; deployment could not resume", id), 409)
 		return true
 	}
-	writeJSONStatus(w, 202, map[string]any{"install_id": id, "app_id": appID, "operation": op})
+	// MCP callers use the same durable receipt with a compact readiness view.
+	if r.Header.Get("X-Apteva-MCP-Install") == "1" {
+		s.writeInstallReadiness(w, id, true)
+	} else {
+		writeJSONStatus(w, 202, map[string]any{"install_id": id, "app_id": appID, "operation": op})
+	}
 	return true
 }

@@ -86,7 +86,7 @@ func (m *appRuntimeManager) ingressProvider(ref runtimeIngressProviderRef, proje
 	}
 	endpoint := "/_apteva/ingress/providers/" + ref.ID
 	var base, status, owner string
-	if e := m.s.store.db.QueryRow(`SELECT sidecar_url_override,status,COALESCE(project_id,'') FROM app_installs WHERE id=?`, ref.InstallID).Scan(&base, &status, &owner); e != nil || status != "running" || owner != "" && owner != project {
+	if e := m.s.store.dbQueryRowContext(m.ctx, `SELECT sidecar_url_override,status,COALESCE(project_id,'') FROM app_installs WHERE id=?`, ref.InstallID).Scan(&base, &status, &owner); e != nil || status != "running" || owner != "" && owner != project {
 		return nil, fmt.Errorf("ingress provider unavailable or outside installation project")
 	}
 	if e := runtimeSecureURL(base); e != nil {
@@ -130,7 +130,7 @@ func (m *appRuntimeManager) ingressProvider(ref runtimeIngressProviderRef, proje
 }
 func (m *appRuntimeManager) ingressIntent(d runtimeDeployment, ref runtimeIngressProviderRef, host, operation string) (runtimeIngressIntent, error) {
 	var project string
-	if e := m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); e != nil {
+	if e := m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); e != nil {
 		return runtimeIngressIntent{}, e
 	}
 	if e := validateRuntimeIngressSpec(&runtimeIngressSpec{Hostname: host}); e != nil {
@@ -163,10 +163,10 @@ func (m *appRuntimeManager) ingressActive(id int64, expected string, observe boo
 	var pending, status string
 	var generation int64
 	var allowed int
-	if e = m.s.store.db.QueryRow(`SELECT runtime_pending_deployment,status,runtime_generation FROM app_installs WHERE id=? AND runtime_managed=1`, id).Scan(&pending, &status, &generation); e != nil || pending != "" || status != "running" || generation != d.Generation {
+	if e = m.s.store.dbQueryRowContext(m.ctx, `SELECT runtime_pending_deployment,status,runtime_generation FROM app_installs WHERE id=? AND runtime_managed=1`, id).Scan(&pending, &status, &generation); e != nil || pending != "" || status != "running" || generation != d.Generation {
 		return d, fmt.Errorf("installation is changing or not active")
 	}
-	if e = m.s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_execution_owners WHERE deployment_id=? AND install_id=? AND generation=? AND granted=1 AND admission_confirmed=1`, d.ID, id, d.Generation).Scan(&allowed); e != nil || allowed != 1 {
+	if e = m.s.store.dbQueryRowContext(m.ctx, `SELECT COUNT(*) FROM app_runtime_execution_owners WHERE deployment_id=? AND install_id=? AND generation=? AND granted=1 AND admission_confirmed=1`, d.ID, id, d.Generation).Scan(&allowed); e != nil || allowed != 1 {
 		return d, fmt.Errorf("deployment does not own admitted execution")
 	}
 	if observe {
@@ -239,7 +239,7 @@ func (m *appRuntimeManager) inspectIngressAdoption(id int64, r runtimeIngressAdo
 func (m *appRuntimeManager) ingressBinding(id int64) (runtimeIngressBinding, error) {
 	var b runtimeIngressBinding
 	var raw string
-	e := m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_ingress_bindings WHERE install_id=?`, id).Scan(&raw)
+	e := m.s.store.dbQueryRowContext(m.ctx, `SELECT record_json FROM app_runtime_ingress_bindings WHERE install_id=?`, id).Scan(&raw)
 	if e == nil {
 		e = json.Unmarshal([]byte(raw), &b)
 	}
@@ -255,7 +255,7 @@ func (m *appRuntimeManager) beginIngress(id int64, action string, r runtimeIngre
 		Request runtimeIngressAdoptionRequest
 	}{action, r})
 	var previousID, previousHash string
-	e := m.s.store.db.QueryRow(`SELECT id,fingerprint FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, r.IdempotencyKey).Scan(&previousID, &previousHash)
+	e := m.s.store.dbQueryRowContext(m.ctx, `SELECT id,fingerprint FROM app_runtime_operations WHERE install_id=? AND idempotency_key=?`, id, r.IdempotencyKey).Scan(&previousID, &previousHash)
 	if e == nil {
 		if previousHash != fingerprint {
 			return empty, fmt.Errorf("ingress retry conflicts with original request")
@@ -286,7 +286,7 @@ func (m *appRuntimeManager) beginIngress(id int64, action string, r runtimeIngre
 	intent.HostKey = r.HostKey
 	intent.PlanSHA256 = r.ProviderPlanSHA256
 	op.Ingress = &runtimeIngressOperation{Request: r, Intent: intent, MaintenanceUntil: time.Now().Add(time.Minute).Unix()}
-	tx, e := m.s.store.db.Begin()
+	tx, e := m.s.store.dbBeginTx(m.ctx, nil)
 	if e != nil {
 		return empty, e
 	}
@@ -432,7 +432,7 @@ func (m *appRuntimeManager) runIngressOperation(op *runtimeOperation) error {
 		d.Execution.BrowserEndpoint = binding.PreviousBrowserEndpoint
 		d.Execution.Endpoints = binding.PreviousEndpoints
 	}
-	tx, e := m.s.store.db.Begin()
+	tx, e := m.s.store.dbBeginTx(m.ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -570,7 +570,7 @@ func (m *appRuntimeManager) prepareProviderIngress(d *runtimeDeployment, b runti
 		return fmt.Errorf("retained ingress ownership must be reconciled before preparation")
 	}
 	var project string
-	if e = m.s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); e != nil {
+	if e = m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, d.InstallID).Scan(&project); e != nil {
 		return e
 	}
 	provider, e := m.ingressProvider(*ref, project)
@@ -596,7 +596,7 @@ func (m *appRuntimeManager) prepareProviderIngress(d *runtimeDeployment, b runti
 	}
 	ref.Options = resolved
 	binding = runtimeIngressBinding{Spec: *d.Placement.Ingress, HostKey: key, Phase: "prepared", OriginalDeploymentID: d.ID, PreviousPlacement: d.Placement, DeploymentID: d.ID, Generation: d.Generation}
-	if _, e = m.s.store.db.Exec(`INSERT INTO app_runtime_ingress_bindings(install_id,record_json) VALUES(?,?)`, d.InstallID, runtimeJSON(binding)); e != nil {
+	if _, e = m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_ingress_bindings(install_id,record_json) VALUES(?,?)`, d.InstallID, runtimeJSON(binding)); e != nil {
 		return e
 	}
 	runtimeIngressEndpoints(d)
@@ -641,7 +641,7 @@ func (m *appRuntimeManager) publishProviderIngress(d runtimeDeployment, op runti
 			binding.DeploymentID = actualID
 			binding.Generation = int64(gen)
 			binding.Phase = "active"
-			if _, err = m.s.store.db.Exec(`UPDATE app_runtime_ingress_bindings SET record_json=? WHERE install_id=?`, runtimeJSON(binding), d.InstallID); err != nil {
+			if _, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_ingress_bindings SET record_json=? WHERE install_id=?`, runtimeJSON(binding), d.InstallID); err != nil {
 				return err
 			}
 		}
@@ -694,7 +694,7 @@ func (m *appRuntimeManager) publishProviderIngress(d runtimeDeployment, op runti
 	binding.Generation = d.Generation
 	binding.Receipt = receipt
 	binding.Phase = "verifying"
-	if _, e = m.s.store.db.Exec(`UPDATE app_runtime_ingress_bindings SET record_json=? WHERE install_id=?`, runtimeJSON(binding), d.InstallID); e != nil {
+	if _, e = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_ingress_bindings SET record_json=? WHERE install_id=?`, runtimeJSON(binding), d.InstallID); e != nil {
 		return e
 	}
 	if e = m.verifyIngressHTTPS(ctx, binding.Spec.Hostname, d.ID); e != nil {
@@ -707,7 +707,7 @@ func (m *appRuntimeManager) publishProviderIngress(d runtimeDeployment, op runti
 	binding.DeploymentID = d.ID
 	binding.Generation = d.Generation
 	binding.Receipt = receipt
-	_, e = m.s.store.db.Exec(`UPDATE app_runtime_ingress_bindings SET record_json=? WHERE install_id=?`, runtimeJSON(binding), d.InstallID)
+	_, e = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_ingress_bindings SET record_json=? WHERE install_id=?`, runtimeJSON(binding), d.InstallID)
 	return e
 }
 func (m *appRuntimeManager) unpublishProviderIngress(d runtimeDeployment, op runtimeOperation) error {
@@ -747,7 +747,7 @@ func (m *appRuntimeManager) releaseProviderIngress(id int64) error {
 		return e
 	}
 	if binding.Phase == "released" {
-		_, e = m.s.store.db.Exec(`DELETE FROM app_runtime_ingress_bindings WHERE install_id=?`, id)
+		_, e = m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ingress_bindings WHERE install_id=?`, id)
 		return e
 	}
 	d, e := m.loadDeployment(binding.DeploymentID)
@@ -772,7 +772,7 @@ func (m *appRuntimeManager) releaseProviderIngress(id int64) error {
 	if receipt["phase"] != "released" || receipt["unpublished"] != true {
 		return fmt.Errorf("ingress release unconfirmed")
 	}
-	_, e = m.s.store.db.Exec(`DELETE FROM app_runtime_ingress_bindings WHERE install_id=?`, id)
+	_, e = m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ingress_bindings WHERE install_id=?`, id)
 	return e
 }
 

@@ -46,8 +46,21 @@ func TestGenericPresetCRUDAndSystemReadOnly(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Presets) != 21 {
-		t.Fatalf("catalog has %d presets, want 20 system + 1 personal", len(catalog.Presets))
+	bundled, err := loadProjectPresetCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Presets) != len(bundled.Presets)+1 {
+		t.Fatalf("catalog has %d presets, want %d system + 1 personal", len(catalog.Presets), len(bundled.Presets))
+	}
+	var personal int
+	for _, p := range catalog.Presets {
+		if p.ID == created.ID && p.Source == "user" && p.OwnerID == 1 {
+			personal++
+		}
+	}
+	if personal != 1 {
+		t.Fatal("personal preset missing or duplicated in catalog")
 	}
 
 	patch := authedRequest(t, http.MethodPatch, "/presets/"+created.ID, "", map[string]any{"description": ""})

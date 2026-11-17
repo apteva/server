@@ -341,7 +341,7 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 			http.Error(w, "encrypt failed", http.StatusInternalServerError)
 			return
 		}
-		if _, err := s.store.db.Exec(
+		if _, err := s.store.dbExec(
 			"UPDATE connections SET encrypted_credentials = ?, status = 'active' WHERE id = ? AND user_id = ?",
 			enc, conn.ID, p.Op,
 		); err != nil {

@@ -37,7 +37,7 @@ func (s *Server) bindingUpdateLock(id int64) *sync.Mutex {
 	return v.(*sync.Mutex)
 }
 func (s *Server) ensureLiveBindingTable() error {
-	_, err := s.store.db.Exec(`CREATE TABLE IF NOT EXISTS app_runtime_binding_updates (
+	_, err := s.store.dbExec(`CREATE TABLE IF NOT EXISTS app_runtime_binding_updates (
  install_id INTEGER PRIMARY KEY REFERENCES app_installs(id) ON DELETE CASCADE,
  change_id TEXT NOT NULL,
  previous_json TEXT NOT NULL,
@@ -117,14 +117,14 @@ func (s *Server) advanceLiveBindings(change liveBindingChange) (*liveBindingRepl
 			if err != nil {
 				return nil, err
 			}
-			if _, err = s.store.db.Exec(`UPDATE app_installs SET integration_bindings=? WHERE id=? AND COALESCE(integration_bindings,'{}')<>?`, effective, change.ID, effective); err != nil {
+			if _, err = s.store.dbExec(`UPDATE app_installs SET integration_bindings=? WHERE id=? AND COALESCE(integration_bindings,'{}')<>?`, effective, change.ID, effective); err != nil {
 				return nil, err
 			}
 			return result, nil
 		}
 		// Change authorization atomically with the durable commit phase. If the
 		// reply is lost, resume commit rather than preparing against new bindings.
-		tx, err := s.store.db.Begin()
+		tx, err := s.store.dbBegin()
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +147,7 @@ func (s *Server) advanceLiveBindings(change liveBindingChange) (*liveBindingRepl
 		return nil, errors.New("app is not ready to commit")
 	}
 	s.cleanupInactiveIntegrationWebhooks(change.ID, false)
-	_, err = s.store.db.Exec(`DELETE FROM app_runtime_binding_updates WHERE install_id=? AND change_id=?`, change.ID, change.ChangeID)
+	_, err = s.store.dbExec(`DELETE FROM app_runtime_binding_updates WHERE install_id=? AND change_id=?`, change.ID, change.ChangeID)
 	if err == nil {
 		s.recomputePendingOptions()
 	}
@@ -160,7 +160,7 @@ func (s *Server) setLiveBindings(w http.ResponseWriter, id int64, previous, desi
 		return
 	}
 	var existing int
-	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&existing); err != nil {
+	if err := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&existing); err != nil {
 		http.Error(w, "runtime update storage unavailable", 500)
 		return
 	}
@@ -171,7 +171,7 @@ func (s *Server) setLiveBindings(w http.ResponseWriter, id int64, previous, desi
 	before, _ := json.Marshal(previous)
 	after, _ := json.Marshal(desired)
 	change := liveBindingChange{id, generateToken(16), string(before), string(after), "prepare"}
-	_, err := s.store.db.Exec(`INSERT INTO app_runtime_binding_updates(install_id,change_id,previous_json,desired_json) VALUES(?,?,?,?)`, id, change.ChangeID, change.Previous, change.Desired)
+	_, err := s.store.dbExec(`INSERT INTO app_runtime_binding_updates(install_id,change_id,previous_json,desired_json) VALUES(?,?,?,?)`, id, change.ChangeID, change.Previous, change.Desired)
 	if err != nil {
 		http.Error(w, "save runtime change failed", 500)
 		return
@@ -182,15 +182,15 @@ func (s *Server) setLiveBindings(w http.ResponseWriter, id int64, previous, desi
 		// Prepare denials guarantee no admission changes. Never restart as a
 		// fallback. Commit denials keep the durable entry and old drained state.
 		var phase string
-		_ = s.store.db.QueryRow(`SELECT phase FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&phase)
+		_ = s.store.dbQueryRow(`SELECT phase FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&phase)
 		if phase == "prepare" {
-			_, _ = s.store.db.Exec(`DELETE FROM app_runtime_binding_updates WHERE install_id=?`, id)
+			_, _ = s.store.dbExec(`DELETE FROM app_runtime_binding_updates WHERE install_id=?`, id)
 			http.Error(w, err.Error(), 409)
 			return
 		}
 	}
 	var pending int
-	_ = s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&pending)
+	_ = s.store.dbQueryRow(`SELECT COUNT(*) FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&pending)
 	response := map[string]any{"ok": true, "bindings": bindingsForInstall(s, id), "desired_bindings": desired, "change_id": change.ChangeID, "pending": pending > 0, "respawned": false, "respawn_err": ""}
 	if result != nil {
 		response["draining_connections"] = result.Draining
@@ -222,19 +222,19 @@ func (s *Server) startLiveBindingWorker(id int64) {
 			lock := s.bindingUpdateLock(id)
 			lock.Lock()
 			change := liveBindingChange{ID: id}
-			err := s.store.db.QueryRow(`SELECT change_id,previous_json,desired_json,phase FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&change.ChangeID, &change.Previous, &change.Desired, &change.Phase)
+			err := s.store.dbQueryRow(`SELECT change_id,previous_json,desired_json,phase FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&change.ChangeID, &change.Previous, &change.Desired, &change.Phase)
 			if err != nil {
 				lock.Unlock()
 				return
 			}
 			var status string
-			if err = s.store.db.QueryRow(`SELECT status FROM app_installs WHERE id=?`, id).Scan(&status); err != nil || status != "running" {
+			if err = s.store.dbQueryRow(`SELECT status FROM app_installs WHERE id=?`, id).Scan(&status); err != nil || status != "running" {
 				lock.Unlock()
 				return
 			}
 			_, err = s.advanceLiveBindings(change)
 			if err != nil {
-				_, _ = s.store.db.Exec(`UPDATE app_runtime_binding_updates SET last_error=? WHERE install_id=? AND last_error<>?`, err.Error(), id, err.Error())
+				_, _ = s.store.dbExec(`UPDATE app_runtime_binding_updates SET last_error=? WHERE install_id=? AND last_error<>?`, err.Error(), id, err.Error())
 			}
 			lock.Unlock()
 		}
@@ -244,7 +244,7 @@ func (s *Server) resumeLiveBindingUpdates() {
 	if s.ensureLiveBindingTable() != nil {
 		return
 	}
-	rows, err := s.store.db.Query(`SELECT install_id FROM app_runtime_binding_updates`)
+	rows, err := s.store.dbQuery(`SELECT install_id FROM app_runtime_binding_updates`)
 	if err != nil {
 		return
 	}
@@ -307,7 +307,7 @@ func (s *Server) handleGetLiveBindings(w http.ResponseWriter, r *http.Request) {
 	}
 	response := map[string]any{"bindings": bindingsForInstall(s, id), "pending": false}
 	var change, desired, phase, lastError string
-	err = s.store.db.QueryRow(`SELECT change_id,desired_json,phase,last_error FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&change, &desired, &phase, &lastError)
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT change_id,desired_json,phase,last_error FROM app_runtime_binding_updates WHERE install_id=?`, id).Scan(&change, &desired, &phase, &lastError)
 	if err == nil {
 		var bindings map[string]any
 		if json.Unmarshal([]byte(desired), &bindings) != nil {

@@ -345,7 +345,7 @@ func (s *Server) deleteMobilePushSubscription(w http.ResponseWriter, r *http.Req
 		err = s.mobilePushRelayRequest(r.Context(), http.MethodDelete, "/v1/grants/current", grant, nil, nil)
 		remoteRevoked = err == nil
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		`DELETE FROM mobile_push_subscriptions WHERE id = ? AND user_id = ?`,
 		id, getUserID(r),
 	); err != nil {
@@ -483,7 +483,7 @@ func safeMobilePushRelayError(data []byte) string {
 }
 
 func (s *Server) upsertMobilePushSubscription(input *mobilePushSubscription) (*mobilePushSubscription, error) {
-	_, err := s.store.db.Exec(`
+	_, err := s.store.dbExec(`
 		INSERT INTO mobile_push_subscriptions (
 			id, installation_id, user_id, relay_device_id, relay_grant_encrypted,
 			grant_expires_at, platform, bundle_id, environment, app_version, device_name,
@@ -545,7 +545,7 @@ func scanMobilePushSubscription(scanner mobilePushScanner) (*mobilePushSubscript
 }
 
 func (s *Server) mobilePushSubscriptionByInstallation(installationID string) (*mobilePushSubscription, error) {
-	return scanMobilePushSubscription(s.store.db.QueryRow(
+	return scanMobilePushSubscription(s.store.dbQueryRow(
 		`SELECT `+mobilePushSubscriptionColumns+`
 		   FROM mobile_push_subscriptions WHERE installation_id = ?`,
 		installationID,
@@ -553,7 +553,7 @@ func (s *Server) mobilePushSubscriptionByInstallation(installationID string) (*m
 }
 
 func (s *Server) mobilePushSubscriptionForUser(id string, userID int64) (*mobilePushSubscription, error) {
-	return scanMobilePushSubscription(s.store.db.QueryRow(
+	return scanMobilePushSubscription(s.store.dbQueryRow(
 		`SELECT `+mobilePushSubscriptionColumns+`
 		   FROM mobile_push_subscriptions WHERE id = ? AND user_id = ?`,
 		id, userID,
@@ -561,7 +561,7 @@ func (s *Server) mobilePushSubscriptionForUser(id string, userID int64) (*mobile
 }
 
 func (s *Server) mobilePushSubscriptionsForUser(userID int64) ([]mobilePushSubscription, error) {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT `+mobilePushSubscriptionColumns+`
 		   FROM mobile_push_subscriptions
 		  WHERE user_id = ?
@@ -584,7 +584,7 @@ func (s *Server) mobilePushSubscriptionsForUser(userID int64) ([]mobilePushSubsc
 }
 
 func (s *Server) activeMobilePushSubscriptions() ([]mobilePushSubscription, error) {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT ` + mobilePushSubscriptionColumns + `
 		   FROM mobile_push_subscriptions
 		  WHERE status = 'active'
@@ -710,7 +710,7 @@ func (s *Server) deliverMobilePushSubscription(ctx context.Context, subscription
 			return
 		}
 	}
-	_, err = s.store.db.Exec(`
+	_, err = s.store.dbExec(`
 		UPDATE mobile_push_subscriptions
 		   SET last_inbox_message_id = ?,
 		       last_badge = ?,
@@ -746,7 +746,7 @@ func permanentMobilePushError(err error) bool {
 }
 
 func (s *Server) invalidateMobilePushSubscription(id, reason string) {
-	_, err := s.store.db.Exec(`
+	_, err := s.store.dbExec(`
 		UPDATE mobile_push_subscriptions
 		   SET status = 'invalid',
 		       last_error = ?,
@@ -770,7 +770,7 @@ func (s *Server) retryMobilePushSubscription(subscription *mobilePushSubscriptio
 		delay = 30 * time.Minute
 	}
 	next := time.Now().UTC().Add(delay).Format(time.RFC3339Nano)
-	_, err := s.store.db.Exec(`
+	_, err := s.store.dbExec(`
 		UPDATE mobile_push_subscriptions
 		   SET retry_count = ?,
 		       next_retry_at = ?,
@@ -794,7 +794,7 @@ func truncateMobilePushError(value string) string {
 
 func (s *Server) mobilePushUserHighWater(userID int64) (int64, error) {
 	var highWater int64
-	err := s.store.db.QueryRow(`
+	err := s.store.dbQueryRow(`
 		SELECT COALESCE(MAX(m.id), 0)
 		  FROM channel_chat_messages m
 		  JOIN channel_chat_chats c ON c.id = m.chat_id
@@ -810,7 +810,7 @@ func (s *Server) mobilePushUserHighWater(userID int64) (int64, error) {
 }
 
 func (s *Server) mobilePushInboxItems(userID, afterID, throughID int64) ([]mobilePushInboxItem, error) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT m.id, COALESCE(a.project_id, ''), COALESCE(m.components_json, '[]')
 		  FROM channel_chat_messages m
 		  JOIN channel_chat_chats c ON c.id = m.chat_id
@@ -851,7 +851,7 @@ func (s *Server) mobilePushInboxItems(userID, afterID, throughID int64) ([]mobil
 }
 
 func (s *Server) mobilePushInboxBadge(userID int64) (int, error) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT COALESCE(m.components_json, '[]')
 		  FROM channel_chat_messages m
 		  JOIN channel_chat_chats c ON c.id = m.chat_id

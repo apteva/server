@@ -351,7 +351,7 @@ func (s *Server) ensurePlatformHelperRuntimeConfig(helper *Agent) (bool, error) 
 	// installs may still contain its derived binding; remove it before compiling
 	// the Helper's capabilities so it cannot contribute skills or MCP tools.
 	var builderDetached bool
-	if result, err := s.store.db.Exec(`DELETE FROM app_agent_bindings
+	if result, err := s.store.dbExec(`DELETE FROM app_agent_bindings
 		WHERE agent_id=? AND install_id IN (
 			SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=?
 		)`, helper.ID, discontinuedHelperAppName); err != nil {
@@ -844,12 +844,12 @@ func sanitizedPlatformHelper(helper *Agent, running bool) *Agent {
 }
 
 func (s *Server) platformHelperConversationsInstall(userID int64) (installID, mcpServerID int64, ok bool) {
-	err := s.store.db.QueryRow(`
+	err := s.store.dbQueryRow(`
 		SELECT i.id, COALESCE(m.id,0)
 		FROM app_installs i
 		JOIN apps a ON a.id=i.app_id
 		LEFT JOIN mcp_servers m ON m.upstream_id='app:' || i.id AND m.source='app' AND COALESCE(m.project_id,'')='' AND m.status='running'
-		WHERE a.name=? AND i.status='running' AND COALESCE(i.project_id,'')=''
+		WHERE a.name=? AND i.is_default=1 AND i.status='running' AND COALESCE(i.project_id,'')=''
 		ORDER BY CASE WHEN i.installed_by=? THEN 0 ELSE 1 END, i.id
 		LIMIT 1`, defaultConversationsApp, userID).Scan(&installID, &mcpServerID)
 	return installID, mcpServerID, err == nil && installID > 0
@@ -1038,7 +1038,7 @@ func (s *Server) activatePreparedPlatformHelper(userID, installID, conversations
 	if err := s.store.UpdateAgent(helper); err != nil {
 		return fmt.Errorf("persist platform helper: %w", err)
 	}
-	if _, err := s.store.db.Exec(`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES(?,?,1)
+	if _, err := s.store.dbExec(`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES(?,?,1)
 		ON CONFLICT(install_id,agent_id) DO UPDATE SET enabled=1`, installID, helper.ID); err != nil {
 		return fmt.Errorf("attach Conversations to platform helper: %w", err)
 	}

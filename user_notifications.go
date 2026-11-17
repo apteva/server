@@ -61,7 +61,7 @@ type notificationSource struct {
 }
 
 func (s *Store) migrateUserNotifications() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS user_notification_preferences (
+	_, err := s.dbExec(`CREATE TABLE IF NOT EXISTS user_notification_preferences (
  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, channels TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS user_notification_preview_preferences (
  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -362,7 +362,7 @@ func (s *Server) notificationUser(w http.ResponseWriter, r *http.Request) (int64
 	return uid, true
 }
 func (s *Server) notificationSources(uid int64, project string, only int64) ([]notificationSource, error) {
-	rows, err := s.store.db.Query(`SELECT id FROM app_installs WHERE (COALESCE(project_id,'')='' OR project_id=?) AND status='running'`, project)
+	rows, err := s.store.dbQuery(`SELECT id FROM app_installs WHERE (COALESCE(project_id,'')='' OR project_id=?) AND status='running'`, project)
 	if err != nil {
 		return nil, err
 	}
@@ -385,10 +385,10 @@ func (s *Server) notificationSources(uid int64, project string, only int64) ([]n
 		if only > 0 && id != only {
 			continue
 		}
-		if !notificationAccess(s.store.db, uid, id, project) {
+		if !notificationAccess(s.store.boundedDatabase(nil), uid, id, project) {
 			continue
 		}
-		m, _, err := notificationManifest(s.store.db, id)
+		m, _, err := notificationManifest(s.store.boundedDatabase(nil), id)
 		if err != nil {
 			return nil, err
 		}
@@ -400,10 +400,10 @@ func (s *Server) notificationSources(uid int64, project string, only int64) ([]n
 			if n == nil {
 				continue
 			}
-			if err = ensureNotificationDefault(s.store.db, uid, id, project, *n); err != nil {
+			if err = ensureNotificationDefault(s.store.boundedDatabase(nil), uid, id, project, *n); err != nil {
 				return nil, err
 			}
-			subs, err := notificationSubscriptions(s.store.db, uid, id, project, n.ID)
+			subs, err := notificationSubscriptions(s.store.boundedDatabase(nil), uid, id, project, n.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -472,7 +472,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		var pending, failed int
-		err := s.store.db.QueryRow(`SELECT COALESCE(SUM(CASE WHEN p.status='pending' THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN p.status='failed' THEN 1 ELSE 0 END),0) FROM user_notification_push p JOIN mobile_push_subscriptions d ON d.id=p.device_id WHERE d.user_id=?`, uid).Scan(&pending, &failed)
+		err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(SUM(CASE WHEN p.status='pending' THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN p.status='failed' THEN 1 ELSE 0 END),0) FROM user_notification_push p JOIN mobile_push_subscriptions d ON d.id=p.device_id WHERE d.user_id=?`, uid).Scan(&pending, &failed)
 		if err != nil {
 			fail(err)
 			return
@@ -482,7 +482,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 		s.handleNotificationPreviews(w, r, uid)
 	case "/preferences":
 		if r.Method == "GET" {
-			p, err := notificationPreferences(s.store.db, uid)
+			p, err := notificationPreferences(s.store.boundedDatabase(r.Context()), uid)
 			if err != nil {
 				fail(err)
 				return
@@ -499,7 +499,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "invalid preferences", 400)
 			return
 		}
-		if _, err := s.store.db.Exec(`INSERT INTO user_notification_preferences VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET channels=excluded.channels`, uid, notificationJSON(p)); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `INSERT INTO user_notification_preferences VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET channels=excluded.channels`, uid, notificationJSON(p)); err != nil {
 			fail(err)
 			return
 		}
@@ -514,7 +514,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "invalid subscription", 400)
 			return
 		}
-		if !notificationAccess(s.store.db, uid, sub.InstallID, sub.ProjectID) {
+		if !notificationAccess(s.store.boundedDatabase(r.Context()), uid, sub.InstallID, sub.ProjectID) {
 			http.Error(w, "app or project unavailable", 403)
 			return
 		}
@@ -523,14 +523,14 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if r.Method == "DELETE" { // Explicit reset to app defaults; never used for Unfollow.
-			if _, err := s.store.db.Exec(`DELETE FROM user_notification_subscriptions WHERE user_id=? AND install_id=? AND type=? AND project_id=? AND subscription_key=?`, uid, sub.InstallID, sub.Type, sub.ProjectID, sub.Key); err != nil {
+			if _, err := s.store.dbExecContext(r.Context(), `DELETE FROM user_notification_subscriptions WHERE user_id=? AND install_id=? AND type=? AND project_id=? AND subscription_key=?`, uid, sub.InstallID, sub.Type, sub.ProjectID, sub.Key); err != nil {
 				fail(err)
 				return
 			}
 			writeJSON(w, map[string]bool{"ok": true})
 			return
 		}
-		m, _, err := notificationManifest(s.store.db, sub.InstallID)
+		m, _, err := notificationManifest(s.store.boundedDatabase(r.Context()), sub.InstallID)
 		if err != nil {
 			fail(err)
 			return
@@ -548,7 +548,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 		if sub.Filters == nil {
 			sub.Filters = map[string]string{}
 		}
-		_, err = s.store.db.Exec(`INSERT INTO user_notification_subscriptions VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,install_id,type,project_id,subscription_key) DO UPDATE SET filters=excluded.filters,channels=excluded.channels`, uid, sub.InstallID, sub.Type, sub.ProjectID, sub.Key, notificationJSON(sub.Filters), notificationJSON(sub.Channels))
+		_, err = s.store.dbExecContext(r.Context(), `INSERT INTO user_notification_subscriptions VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,install_id,type,project_id,subscription_key) DO UPDATE SET filters=excluded.filters,channels=excluded.channels`, uid, sub.InstallID, sub.Type, sub.ProjectID, sub.Key, notificationJSON(sub.Filters), notificationJSON(sub.Channels))
 		if err != nil {
 			fail(err)
 			return
@@ -580,7 +580,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 		}
 		var install int64
 		var project, group string
-		if s.store.db.QueryRow(`SELECT install_id,project_id,group_key FROM user_notifications WHERE id=? AND user_id=?`, id, uid).Scan(&install, &project, &group) != nil || !notificationAccess(s.store.db, uid, install, project) {
+		if s.store.dbQueryRowContext(r.Context(), `SELECT install_id,project_id,group_key FROM user_notifications WHERE id=? AND user_id=?`, id, uid).Scan(&install, &project, &group) != nil || !notificationAccess(s.store.boundedDatabase(r.Context()), uid, install, project) {
 			http.NotFound(w, r)
 			return
 		}
@@ -614,7 +614,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 			read = *input.Read
 		}
 		// Snapshot-bounded acknowledgement cannot hide a newer arrival in this group.
-		_, err = s.store.db.Exec(`UPDATE user_notifications SET is_read=?,dismissed=CASE WHEN ? THEN 1 ELSE dismissed END WHERE user_id=? AND install_id=? AND project_id=? AND group_key=? AND id<=?`, read, input.Dismiss, uid, install, project, group, id)
+		_, err = s.store.dbExecContext(r.Context(), `UPDATE user_notifications SET is_read=?,dismissed=CASE WHEN ? THEN 1 ELSE dismissed END WHERE user_id=? AND install_id=? AND project_id=? AND group_key=? AND id<=?`, read, input.Dismiss, uid, install, project, group, id)
 		if err != nil {
 			fail(err)
 			return
@@ -642,7 +642,7 @@ func (s *Server) readUserNotifications(uid, before, exact int64, limit int) ([]u
 	}
 	query += " ORDER BY n.id DESC LIMIT ?"
 	args = append(args, limit)
-	rows, err := s.store.db.Query(query, args...)
+	rows, err := s.store.dbQuery(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -665,7 +665,7 @@ func (s *Server) readUserNotifications(uid, before, exact int64, limit int) ([]u
 	if err != nil {
 		return nil, err
 	}
-	pref, err := notificationPreferences(s.store.db, uid)
+	pref, err := notificationPreferences(s.store.boundedDatabase(nil), uid)
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +675,7 @@ func (s *Server) readUserNotifications(uid, before, exact int64, limit int) ([]u
 		n.Channels = intersectNotificationChannels(n.Channels, pref)
 		m, ok := cache[n.InstallID]
 		if !ok {
-			m, _, err = notificationManifest(s.store.db, n.InstallID)
+			m, _, err = notificationManifest(s.store.boundedDatabase(nil), n.InstallID)
 			if err != nil {
 				return nil, err
 			}
@@ -692,12 +692,12 @@ func (s *Server) notificationSnapshot(uid, before int64) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
-	pref, err := notificationPreferences(s.store.db, uid)
+	pref, err := notificationPreferences(s.store.boundedDatabase(nil), uid)
 	if err != nil {
 		return nil, err
 	}
 	var unread, tab int
-	err = s.store.db.QueryRow(`SELECT COALESCE(SUM(CASE WHEN json_extract(n.channels,'$.in_app')=1 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN json_extract(n.channels,'$.tab')=1 THEN 1 ELSE 0 END),0)`+notificationReadAccess+` AND n.dismissed=0 AND n.is_read=0`, uid).Scan(&unread, &tab)
+	err = s.store.dbQueryRow(`SELECT COALESCE(SUM(CASE WHEN json_extract(n.channels,'$.in_app')=1 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN json_extract(n.channels,'$.tab')=1 THEN 1 ELSE 0 END),0)`+notificationReadAccess+` AND n.dismissed=0 AND n.is_read=0`, uid).Scan(&unread, &tab)
 	if err != nil {
 		return nil, err
 	}

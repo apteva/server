@@ -269,7 +269,7 @@ func (s *Server) maybeAutoCreateMCPForConnection(userID int64, conn *Connection,
 		return
 	}
 	var createdVia string
-	_ = s.store.db.QueryRow(`SELECT COALESCE(created_via, 'integration') FROM connections WHERE id=?`, conn.ID).Scan(&createdVia)
+	_ = s.store.dbQueryRow(`SELECT COALESCE(created_via, 'integration') FROM connections WHERE id=?`, conn.ID).Scan(&createdVia)
 	if createdVia == "app_install" || !connectionAutoMCPFlag(s, conn.ID) {
 		return
 	}

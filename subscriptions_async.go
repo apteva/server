@@ -30,7 +30,7 @@ func lockAsyncThreadDelivery(agentID int64, threadID string) func() {
 
 func (s *Store) asyncTargetStillScoped(sub *Subscription) (bool, error) {
 	var count int
-	err := s.db.QueryRow(`SELECT count(*) FROM agents a WHERE a.id=? AND a.user_id=? AND
+	err := s.dbQueryRow(`SELECT count(*) FROM agents a WHERE a.id=? AND a.user_id=? AND
  (COALESCE(a.project_id,'')=? OR EXISTS (SELECT 1 FROM agent_thread_scopes t WHERE t.agent_id=a.id AND t.thread_id=? AND t.project_id=?))`,
 		sub.AgentID, sub.UserID, sub.ProjectID, sub.ThreadID, sub.ProjectID).Scan(&count)
 	return count == 1, err
@@ -69,16 +69,16 @@ func (s *Store) migrateAsyncSubscriptions() error {
 		{"terminal_events", "TEXT NOT NULL DEFAULT '[]'"},
 	} {
 		var count int
-		if err := s.db.QueryRow(`SELECT count(*) FROM pragma_table_info('subscriptions') WHERE name=?`, col.name).Scan(&count); err != nil {
+		if err := s.dbQueryRow(`SELECT count(*) FROM pragma_table_info('subscriptions') WHERE name=?`, col.name).Scan(&count); err != nil {
 			return err
 		}
 		if count == 0 {
-			if _, err := s.db.Exec("ALTER TABLE subscriptions ADD COLUMN " + col.name + " " + col.definition); err != nil {
+			if _, err := s.dbExec("ALTER TABLE subscriptions ADD COLUMN " + col.name + " " + col.definition); err != nil {
 				return err
 			}
 		}
 	}
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS app_async_event_journal (
+	_, err := s.dbExec(`CREATE TABLE IF NOT EXISTS app_async_event_journal (
  id INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT NOT NULL UNIQUE,
  source_install_id INTEGER NOT NULL, project_id TEXT NOT NULL, event_json TEXT NOT NULL, created_at INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS idx_async_journal_source ON app_async_event_journal(source_install_id,project_id,id);
@@ -93,7 +93,7 @@ func (s *Store) migrateAsyncSubscriptions() error {
 // existing app-event stream's bounded replay storage, not a new publication API.
 func (s *Store) asyncSubscriptionCursor(agentID int64, threadID string) (int64, int64, error) {
 	var cursor, epoch int64
-	err := s.db.QueryRow(`SELECT COALESCE((SELECT MAX(id) FROM app_async_event_journal),0),
+	err := s.dbQueryRow(`SELECT COALESCE((SELECT MAX(id) FROM app_async_event_journal),0),
  COALESCE((SELECT epoch FROM async_thread_epochs WHERE agent_id=? AND thread_id=?),0)`, agentID, threadID).Scan(&cursor, &epoch)
 	return cursor, epoch, err
 }
@@ -154,7 +154,7 @@ func (s *Store) createAsyncSubscription(userID, agentID int64, name, slug, descr
 	if err != nil {
 		return nil, err
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, err
 	}

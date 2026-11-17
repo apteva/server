@@ -31,7 +31,7 @@ func notificationPreviewPreference(db notificationDB, uid int64) (notificationPr
 
 func (s *Server) handleNotificationPreviews(w http.ResponseWriter, r *http.Request, uid int64) {
 	if r.Method == http.MethodGet {
-		p, err := notificationPreviewPreference(s.store.db, uid)
+		p, err := notificationPreviewPreference(s.store.boundedDatabase(r.Context()), uid)
 		if err != nil {
 			http.Error(w, "notification settings unavailable", 500)
 			return
@@ -50,7 +50,7 @@ func (s *Server) handleNotificationPreviews(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "mobile_preview must be hidden or content", 400)
 		return
 	}
-	_, err := s.store.db.Exec(`INSERT INTO user_notification_preview_preferences(user_id,mobile_preview) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET mobile_preview=excluded.mobile_preview`, uid, p.MobilePreview)
+	_, err := s.store.dbExecContext(r.Context(), `INSERT INTO user_notification_preview_preferences(user_id,mobile_preview) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET mobile_preview=excluded.mobile_preview`, uid, p.MobilePreview)
 	if err != nil {
 		http.Error(w, "could not save notification settings", 500)
 		return
@@ -78,7 +78,7 @@ func notificationPreviewText(value string, maximum int) string {
 }
 
 func (s *Server) notificationPushPreview(uid int64, n userNotification) *notificationPushPreview {
-	p, err := notificationPreviewPreference(s.store.db, uid)
+	p, err := notificationPreviewPreference(s.store.boundedDatabase(nil), uid)
 	if err != nil || p.MobilePreview != "content" {
 		return nil
 	} // Fail closed.

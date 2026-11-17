@@ -248,7 +248,7 @@ func (s *Server) ensureIntegrationWebhook(r *http.Request, installID int64, req 
 	}
 	old, _ := s.integrationWebhookByInstallRole(installID, req.Role)
 	now := time.Now().UTC()
-	res, err := s.store.db.Exec(`
+	res, err := s.store.dbExecContext(r.Context(), `
 		INSERT INTO app_integration_webhooks
 			(install_id, role, connection_id, provider_slug, callback_path,
 			 callback_url, events_json, external_webhook_id, secret_encrypted,
@@ -343,7 +343,7 @@ func integrationResultStatus(result *ExecuteResult) int {
 
 func (s *Server) integrationWebhookByInstallRole(installID int64, role string) (*appIntegrationWebhookRecord, error) {
 	var record appIntegrationWebhookRecord
-	err := s.store.db.QueryRow(`
+	err := s.store.dbQueryRow(`
 		SELECT id, install_id, role, connection_id, provider_slug, callback_path,
 		       callback_url, events_json, external_webhook_id, secret_encrypted,
 		       status, last_error, registered_at, updated_at
@@ -405,13 +405,13 @@ func (s *Server) deleteOldIntegrationWebhook(userID int64, old *appIntegrationWe
 // then removes the old endpoint, avoiding a delivery gap.
 func (s *Server) cleanupInactiveIntegrationWebhooks(installID int64, deleteAll bool) {
 	var userID int64
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT installed_by FROM app_installs WHERE id=?`, installID,
 	).Scan(&userID); err != nil {
 		return
 	}
 	bindings := bindingsForInstall(s, installID)
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT id, install_id, role, connection_id, provider_slug, callback_path,
 		       callback_url, events_json, external_webhook_id, secret_encrypted,
 		       status, last_error, registered_at, updated_at
@@ -440,7 +440,7 @@ func (s *Server) cleanupInactiveIntegrationWebhooks(installID int64, deleteAll b
 	_ = rows.Close()
 	for _, record := range stale {
 		s.deleteOldIntegrationWebhook(userID, record)
-		if _, err := s.store.db.Exec(`DELETE FROM app_integration_webhooks WHERE id=?`, record.ID); err != nil {
+		if _, err := s.store.dbExec(`DELETE FROM app_integration_webhooks WHERE id=?`, record.ID); err != nil {
 			log.Printf("[APP-WEBHOOK] delete record install=%d role=%s: %v", installID, record.Role, err)
 		}
 	}

@@ -18,7 +18,7 @@ func (m *appRuntimeManager) cancelOperation(id string, installID int64) error {
 	if op.Phase == "committing" || op.Phase == "ownership_committed" || op.Phase == "publishing" || op.Phase == "retiring_previous" || runtimeRollingBack(op) {
 		return fmt.Errorf("cutover already requires completion; cancellation refused")
 	}
-	_, err = m.s.store.db.Exec(`UPDATE app_runtime_operations SET cancel_requested=1 WHERE id=?`, id)
+	_, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_runtime_operations SET cancel_requested=1 WHERE id=?`, id)
 	return err
 }
 func (m *appRuntimeManager) discardOperation(op *runtimeOperation) error {
@@ -41,7 +41,7 @@ func (m *appRuntimeManager) discardOperation(op *runtimeOperation) error {
 	if err = m.saveDeployment(d); err != nil {
 		return err
 	}
-	if _, err = m.s.store.db.Exec(`DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID); err != nil {
+	if _, err = m.s.store.dbExecContext(m.ctx, `DELETE FROM app_runtime_ports WHERE deployment_id=?`, d.ID); err != nil {
 		return err
 	}
 	active, _ := m.active(op.InstallID)
@@ -49,7 +49,7 @@ func (m *appRuntimeManager) discardOperation(op *runtimeOperation) error {
 	// installation to its published generation so ownership checks, readmission
 	// and recovery of the retained execution apply again; new generations are
 	// still allocated above every recorded deployment.
-	_, err = m.s.store.db.Exec(`UPDATE app_installs SET runtime_pending_deployment='',runtime_placement_json=?,pending_manifest_json='',runtime_generation=COALESCE((SELECT generation FROM app_runtime_deployments WHERE id=app_installs.runtime_active_deployment AND install_id=app_installs.id),runtime_generation) WHERE id=? AND runtime_pending_deployment=?`, runtimeJSON(active.Placement), op.InstallID, d.ID)
+	_, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET runtime_pending_deployment='',runtime_placement_json=?,pending_manifest_json='',runtime_generation=COALESCE((SELECT generation FROM app_runtime_deployments WHERE id=app_installs.runtime_active_deployment AND install_id=app_installs.id),runtime_generation) WHERE id=? AND runtime_pending_deployment=?`, runtimeJSON(active.Placement), op.InstallID, d.ID)
 	if d.Placement.local() {
 		m.s.localApps.DiscardPendingFixedPorts(d.InstallID)
 	}

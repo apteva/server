@@ -667,7 +667,7 @@ func (w *Environment) Stop() {
 	// runtime-scoped connection rows first so install teardown cannot be held
 	// back by present or future ownership constraints.
 	if w.server != nil && w.ID != "" {
-		_, _ = w.server.store.db.Exec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
+		_, _ = w.server.store.dbExec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
 	}
 	// Tear down real installs (stop process + delete install/app rows +
 	// remove the throwaway data dir).
@@ -1317,7 +1317,7 @@ func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[s
 		}
 		bindings := map[string]any{}
 		var raw string
-		if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&raw); err == nil {
+		if err := s.store.dbQueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&raw); err == nil {
 			_ = json.Unmarshal([]byte(raw), &bindings)
 		}
 		resolved, err := environmentDependencyBindingValues(w, deps)
@@ -1331,7 +1331,7 @@ func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[s
 			bindings[key] = value
 		}
 		next, _ := json.Marshal(bindings)
-		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
+		if _, err := s.store.dbExec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
 			return err
 		}
 	}
@@ -1455,12 +1455,12 @@ func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, b
 
 		existing := map[string]any{}
 		var existingRaw string
-		if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&existingRaw); err == nil {
+		if err := s.store.dbQueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&existingRaw); err == nil {
 			_ = json.Unmarshal([]byte(existingRaw), &existing)
 		}
 		existing[role] = conn.ID
 		next, _ := json.Marshal(existing)
-		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
+		if _, err := s.store.dbExec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
 			return fmt.Errorf("binding %d: update app binding: %w", i, err)
 		}
 	}
@@ -1566,7 +1566,7 @@ func (s *Server) bindEnvironmentConnections(userID int64, sourceProjectID string
 		if err != nil {
 			return fmt.Errorf("encode bindings for install %d: %w", installID, err)
 		}
-		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), installID); err != nil {
+		if _, err := s.store.dbExec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), installID); err != nil {
 			return fmt.Errorf("update bindings for install %d: %w", installID, err)
 		}
 	}

@@ -47,10 +47,16 @@ func (s *Server) telemetryPrincipal(w http.ResponseWriter, r *http.Request, inst
 	p := telemetryPrincipal{installID: installID, userID: getUserID(r), project: r.URL.Query().Get("project_id"), observer: installID == 0, content: installID == 0, runtimes: installID == 0, agents: installID == 0}
 	p.legacy = len(legacy) > 0 && legacy[0]
 	if installID != 0 {
-		// Apps subscribe during OnMount before readiness promotes pending to running.
-		// Disabled/error installations remain ineligible on initial and periodic checks.
 		var project, status string
-		if s.store.db.QueryRow(`SELECT installed_by,COALESCE(project_id,''),status FROM app_installs WHERE id=?`, installID).Scan(&p.userID, &project, &status) != nil || p.userID == 0 || (status != "running" && status != "pending") {
+		err := s.store.dbQueryRowContext(r.Context(), `SELECT installed_by,COALESCE(project_id,''),status FROM app_installs WHERE id=?`, installID).Scan(&p.userID, &project, &status)
+		if databaseHTTPFailure(w, err) {
+			return p, false
+		}
+		principal, authenticated := r.Context().Value(appCallbackPrincipalKey{}).(appCallbackPrincipal)
+		// OnMount subscribes before readiness can mark a new child running.
+		// Only the app identity authenticated by the server may use that window.
+		starting := status == "pending" && authenticated && principal.installID == installID
+		if err != nil || p.userID == 0 || (status != "running" && !starting) {
 			http.Error(w, "active installation required", 401)
 			return p, false
 		}
@@ -108,7 +114,7 @@ func (s *Server) telemetryAgents(p telemetryPrincipal, q sdk.TelemetryQuery) (ma
 			where = `user_id=? AND COALESCE(kind,'user') IN ('user','platform_helper') AND (?='' OR project_id=? OR kind='platform_helper')`
 		}
 		where += ` AND (COALESCE(project_id,'')='' OR ? OR EXISTS(SELECT 1 FROM project_members WHERE project_members.project_id=agents.project_id AND project_members.user_id=agents.user_id))`
-		rows, err := s.store.db.Query(`SELECT id,user_id,name,COALESCE(project_id,''),status FROM agents WHERE `+where, p.userID, p.project, p.project, s.store.GetPlatformRole(p.userID) == PlatformAdmin)
+		rows, err := s.store.dbQuery(`SELECT id,user_id,name,COALESCE(project_id,''),status FROM agents WHERE `+where, p.userID, p.project, p.project, s.store.GetPlatformRole(p.userID) == PlatformAdmin)
 		if err != nil {
 			return nil, err
 		}

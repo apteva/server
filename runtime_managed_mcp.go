@@ -66,7 +66,7 @@ func (s *Server) selectRuntimeManagedMCPs(userID int64, projectID string, ids []
 				continue
 			}
 			var boundProject string
-			if err := s.store.db.QueryRow(`SELECT COALESCE(project_id, '') FROM app_installs WHERE id = ?`, installID).Scan(&boundProject); err != nil {
+			if err := s.store.dbQueryRow(`SELECT COALESCE(project_id, '') FROM app_installs WHERE id = ?`, installID).Scan(&boundProject); err != nil {
 				return nil, nil, fmt.Errorf("managed MCP %q bound app %d is unavailable", record.Name, installID)
 			}
 			if boundProject != "" && boundProject != projectID {
@@ -409,17 +409,26 @@ func (s *Server) runtimeManagedMCPURL(runtimeID, token string) string {
 }
 
 func (s *Server) runtimeCatalogManagedMCPs(projectID string) ([]sdk.RuntimeCatalogManagedMCPServer, error) {
-	rows, err := s.store.db.Query(`SELECT id FROM mcp_servers WHERE source = ? AND project_id = ? ORDER BY name`, managedMCPSource, projectID)
+	rows, err := s.store.dbQuery(`SELECT id FROM mcp_servers WHERE source = ? AND project_id = ? ORDER BY name`, managedMCPSource, projectID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []sdk.RuntimeCatalogManagedMCPServer{}
-	for rows.Next() {
-		var id int64
-		if rows.Scan(&id) != nil {
-			continue
+	type databaseRecord struct{ id int64 }
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range readRecords {
+		id := record.id
+
 		record, err := s.store.GetMCPServerByIDUnscoped(id)
 		if err != nil || record == nil {
 			continue
@@ -430,5 +439,6 @@ func (s *Server) runtimeCatalogManagedMCPs(projectID string) ([]sdk.RuntimeCatal
 			AllowedTools: append([]string(nil), record.AllowedTools...), Revision: record.UpstreamID,
 		})
 	}
+
 	return out, rows.Err()
 }

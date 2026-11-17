@@ -91,7 +91,7 @@ func (m *appRuntimeManager) inspectTarget(ctx context.Context, p runtimePlacemen
 		return info, fmt.Errorf("backend does not advertise artifact-independent target inspection")
 	}
 	var base, status string
-	if err = m.s.store.db.QueryRow(`SELECT sidecar_url_override,status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&base, &status); err != nil {
+	if err = m.s.store.dbQueryRowContext(m.ctx, `SELECT sidecar_url_override,status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&base, &status); err != nil {
 		return info, err
 	}
 	if status != "running" || runtimeSecureURL(base) != nil {

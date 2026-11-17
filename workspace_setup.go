@@ -54,7 +54,7 @@ func workspaceSetupProposalKey(userID int64, projectID string) string {
 func (s *Server) getWorkspaceSetupProposal(userID int64, projectID string) (workspaceSetupProposal, error) {
 	proposal := workspaceSetupProposal{Status: "empty"}
 	var raw string
-	err := s.store.db.QueryRow("SELECT value FROM server_settings WHERE key=?", workspaceSetupProposalKey(userID, projectID)).Scan(&raw)
+	err := s.store.dbQueryRow("SELECT value FROM server_settings WHERE key=?", workspaceSetupProposalKey(userID, projectID)).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return proposal, nil
 	}
@@ -127,7 +127,7 @@ func (s *Server) handleWorkspaceSetupConfirm(w http.ResponseWriter, r *http.Requ
 	}
 	staged := make([]Agent, 0, len(agents))
 	for _, agent := range agents {
-		full, getErr := s.store.GetAgentByID(agent.ID)
+		full, getErr := s.store.GetAgentByIDContext(r.Context(), agent.ID)
 		if getErr == nil && workspaceSetupStagedAgent(*full) {
 			staged = append(staged, *full)
 		}
@@ -136,7 +136,7 @@ func (s *Server) handleWorkspaceSetupConfirm(w http.ResponseWriter, r *http.Requ
 	confirmed := make([]Agent, 0, len(staged))
 	for _, agent := range staged {
 		if agent.Status == "running" || s.agents.IsRunning(agent.ID) {
-			current, getErr := s.store.GetAgentByID(agent.ID)
+			current, getErr := s.store.GetAgentByIDContext(r.Context(), agent.ID)
 			if getErr == nil {
 				var config map[string]any
 				if json.Unmarshal([]byte(current.Config), &config) != nil || config == nil {
@@ -162,7 +162,7 @@ func (s *Server) handleWorkspaceSetupConfirm(w http.ResponseWriter, r *http.Requ
 			warnings = append(warnings, fmt.Sprintf("%s could not be started: %s", agent.Name, strings.TrimSpace(startResponse.Body.String())))
 			continue
 		}
-		current, getErr := s.store.GetAgentByID(agent.ID)
+		current, getErr := s.store.GetAgentByIDContext(r.Context(), agent.ID)
 		if getErr != nil {
 			warnings = append(warnings, fmt.Sprintf("%s started but its status could not be read", agent.Name))
 			continue
@@ -201,7 +201,7 @@ func (s *Server) handleWorkspaceSetupSession(w http.ResponseWriter, r *http.Requ
 	draft := workspaceSetupDraft{Mode: "choice"}
 	if r.Method == http.MethodGet {
 		var raw string
-		err := s.store.db.QueryRow("SELECT value FROM server_settings WHERE key=?", key).Scan(&raw)
+		err := s.store.dbQueryRowContext(r.Context(), "SELECT value FROM server_settings WHERE key=?", key).Scan(&raw)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Could not load workspace setup", http.StatusInternalServerError)
 			return
@@ -337,7 +337,7 @@ func (s *Server) rememberOnboardingPreset(userID int64, projectID string, previe
 	key := fmt.Sprintf("workspace_setup:%d:%s", userID, projectID)
 	draft := workspaceSetupDraft{Mode: "ai"}
 	var raw string
-	err = s.store.db.QueryRow("SELECT value FROM server_settings WHERE key=?", key).Scan(&raw)
+	err = s.store.dbQueryRow("SELECT value FROM server_settings WHERE key=?", key).Scan(&raw)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}

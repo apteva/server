@@ -113,6 +113,8 @@ func TestWorkspaceSetupConfirmActivatesOnlyStagedAgents(t *testing.T) {
 func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	s := newTestServer(t)
 	seedPresetProject(t, s, "setup-project")
+	sidecar, _ := presetEvalsFixture(t)
+	seedPresetEvalsApp(t, s, "setup-project", sidecar.URL)
 	catalog, _ := s.projectPresetCatalog(1)
 	preset := catalog.ByID["business-lead-generation"]
 	key := preset.Agents[0].Key
@@ -148,18 +150,45 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 		t.Fatalf("applied proposal %d %s", proposalResponse.Code, proposalResponse.Body.String())
 	}
 	agents, _ = s.store.ListAgentsInProject("setup-project")
-	if len(agents) != 3 || agents[0].Name != "My lead assistant" || agents[0].Mode != "cautious" {
-		t.Fatalf("agents %+v", agents)
+	if len(agents) != len(preset.Agents) {
+		t.Fatalf("created %d agents, want %d", len(agents), len(preset.Agents))
 	}
-	s.store.RenameAgent(agents[0].ID, "Renamed later")
+	var overriddenID int64
+	expectedNames := map[int64]string{}
+	for _, agent := range agents {
+		expectedNames[agent.ID] = agent.Name
+		if agent.Name == "My lead assistant" {
+			overriddenID = agent.ID
+			if agent.Mode != "cautious" || agent.Directive != "Research leads. Ask before sending outreach." {
+				t.Fatalf("override lost: %+v", agent)
+			}
+		}
+	}
+	if overriddenID == 0 {
+		t.Fatal("overridden preset role missing")
+	}
+	if err := s.store.RenameAgent(overriddenID, "Renamed later"); err != nil {
+		t.Fatal(err)
+	}
+	expectedNames[overriddenID] = "Renamed later"
 	w = call("apply")
 	var result struct {
 		Created  []Agent `json:"created_agents"`
 		Existing []Agent `json:"existing_agents"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &result)
-	if len(result.Created) != 0 || len(result.Existing) != 3 || result.Existing[0].Name != "Renamed later" {
-		t.Fatalf("retry: %s", w.Body.String())
+	if w.Code != http.StatusOK || len(result.Created) != 0 || len(result.Existing) != len(preset.Agents) {
+		t.Fatalf("retry: %d %s", w.Code, w.Body.String())
+	}
+	for _, agent := range result.Existing {
+		name, ok := expectedNames[agent.ID]
+		if !ok || agent.Name != name {
+			t.Fatalf("retry replaced or renamed an existing role: %+v", agent)
+		}
+		delete(expectedNames, agent.ID)
+	}
+	if len(expectedNames) != 0 {
+		t.Fatal("retry dropped existing preset roles")
 	}
 	body["agent_overrides"] = []ProjectPresetAgentOverride{{Key: "unknown", Name: "Invalid", Directive: "Do work", Mode: "cautious"}}
 	if w := call("apply"); w.Code != 400 {

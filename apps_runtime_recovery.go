@@ -19,7 +19,7 @@ func (m *appRuntimeManager) maybeRecoverRuntime(d runtimeDeployment, health runt
 		return
 	}
 	var next int64
-	err := m.s.store.db.QueryRow(`SELECT next_attempt FROM app_runtime_recovery WHERE install_id=?`, d.InstallID).Scan(&next)
+	err := m.s.store.dbQueryRowContext(m.ctx, `SELECT next_attempt FROM app_runtime_recovery WHERE install_id=?`, d.InstallID).Scan(&next)
 	if err != nil && err != sql.ErrNoRows || time.Now().Unix() < next {
 		return
 	}
@@ -72,7 +72,7 @@ func (m *appRuntimeManager) readmitRuntime(op *runtimeOperation) error {
 			return err
 		}
 		var n int
-		err := m.s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs i WHERE i.id=? AND i.runtime_active_deployment=? AND i.runtime_generation=? AND i.runtime_pending_deployment='' AND i.runtime_managed=1 AND i.status='running' AND EXISTS(SELECT 1 FROM app_runtime_deployments d WHERE d.id=i.runtime_active_deployment AND d.install_id=i.id AND d.generation=i.runtime_generation AND d.status='active') AND (SELECT COUNT(*) FROM app_runtime_deployments WHERE install_id=i.id AND status='active')=1`, d.InstallID, d.ID, d.Generation).Scan(&n)
+		err := m.s.store.dbQueryRowContext(m.ctx, `SELECT COUNT(*) FROM app_installs i WHERE i.id=? AND i.runtime_active_deployment=? AND i.runtime_generation=? AND i.runtime_pending_deployment='' AND i.runtime_managed=1 AND i.status='running' AND EXISTS(SELECT 1 FROM app_runtime_deployments d WHERE d.id=i.runtime_active_deployment AND d.install_id=i.id AND d.generation=i.runtime_generation AND d.status='active') AND (SELECT COUNT(*) FROM app_runtime_deployments WHERE install_id=i.id AND status='active')=1`, d.InstallID, d.ID, d.Generation).Scan(&n)
 		if err != nil || n != 1 {
 			return fmt.Errorf("standby recovery owner or generation changed")
 		}
@@ -146,7 +146,7 @@ func (m *appRuntimeManager) readmitRuntime(op *runtimeOperation) error {
 	if err = m.saveDeployment(d); err != nil {
 		return err
 	}
-	_, err = m.s.store.db.Exec(`UPDATE app_installs SET sidecar_url_override=?,status_message='',error_message='' WHERE id=? AND runtime_active_deployment=? AND runtime_generation=? AND status='running' AND runtime_pending_deployment=''`, out.Endpoint, d.InstallID, d.ID, d.Generation)
+	_, err = m.s.store.dbExecContext(m.ctx, `UPDATE app_installs SET sidecar_url_override=?,status_message='',error_message='' WHERE id=? AND runtime_active_deployment=? AND runtime_generation=? AND status='running' AND runtime_pending_deployment=''`, out.Endpoint, d.InstallID, d.ID, d.Generation)
 	if err == nil && m.s.installedApps != nil {
 		m.s.LoadInstalledApps()
 	}

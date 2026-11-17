@@ -94,8 +94,8 @@ func (s *Server) reserveLocalInstall(srcDir, projectID string, creatorUserID int
 	manifestJSON, _ := json.Marshal(m)
 	var appID int64
 	createdAppRow := false
-	if err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name = ?`, m.Name).Scan(&appID); err != nil {
-		res, e := s.store.db.Exec(
+	if err := s.store.dbQueryRow(`SELECT id FROM apps WHERE name = ?`, m.Name).Scan(&appID); err != nil {
+		res, e := s.store.dbExec(
 			`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'environment', '', '', ?)`,
 			m.Name, string(manifestJSON))
 		if e != nil {
@@ -111,14 +111,14 @@ func (s *Server) reserveLocalInstall(srcDir, projectID string, creatorUserID int
 	if initialBindings == nil {
 		bindingsJSON = []byte("{}")
 	}
-	res, err := s.store.db.Exec(
+	res, err := s.store.dbExec(
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
 		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'environment', '', '', ?, ?, ?)`,
 		appID, projectID, m.Version, string(manifestJSON), string(permsJSON), creatorUserID, string(bindingsJSON))
 	if err != nil {
 		if createdAppRow {
-			_, _ = s.store.db.Exec(`DELETE FROM apps WHERE id=? AND source='environment'`, appID)
+			_, _ = s.store.dbExec(`DELETE FROM apps WHERE id=? AND source='environment'`, appID)
 		}
 		return nil, fmt.Errorf("create install row: %w", err)
 	}
@@ -230,9 +230,12 @@ func (s *Server) startLocalInstall(pending *reservedLocalInstall, env map[string
 	}
 
 	// 7. Persist running state.
-	if _, err := s.store.db.Exec(
-		`UPDATE app_installs SET status='running', local_pid=?, local_bin_path=?, local_port=?, sidecar_url_override=?, status_message='', error_message='' WHERE id=?`,
-		s.localApps.PID(installID), binPath, port, sidecarURL, installID); err != nil {
+	if err := s.localApps.persistReadyProcess(installID, port, func(pid int) error {
+		_, err := s.store.dbExec(
+			`UPDATE app_installs SET status='running', local_pid=?, local_bin_path=?, local_port=?, sidecar_url_override=?, status_message='', error_message='' WHERE id=?`,
+			pid, binPath, port, sidecarURL, installID)
+		return err
+	}); err != nil {
 		return nil, fmt.Errorf("persist running install %s: %w", m.Name, err)
 	}
 
@@ -261,7 +264,7 @@ func localInstallDataDir(supervisor *LocalSupervisor, appName string, installID 
 func (s *Server) deleteEnvironmentInstall(installID int64) {
 	var appID int64
 	var appName, appSource string
-	_ = s.store.db.QueryRow(`SELECT i.app_id, a.name, COALESCE(a.source,'')
+	_ = s.store.dbQueryRow(`SELECT i.app_id, a.name, COALESCE(a.source,'')
 		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&appID, &appName, &appSource)
 	if err := s.localApps.Stop(installID); err != nil {
 		log.Printf("[ENVIRONMENT] stop install=%d before removal: %v", installID, err)
@@ -271,13 +274,13 @@ func (s *Server) deleteEnvironmentInstall(installID int64) {
 	if s.installedApps != nil {
 		s.installedApps.Remove(installID)
 	}
-	_, _ = s.store.db.Exec(`DELETE FROM app_installs WHERE id=?`, installID)
+	_, _ = s.store.dbExec(`DELETE FROM app_installs WHERE id=?`, installID)
 	// Drop the apps row only if no other install references it.
 	if appID != 0 && appSource == "environment" {
 		var n int
-		_ = s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs WHERE app_id=?`, appID).Scan(&n)
+		_ = s.store.dbQueryRow(`SELECT COUNT(*) FROM app_installs WHERE app_id=?`, appID).Scan(&n)
 		if n == 0 {
-			_, _ = s.store.db.Exec(`DELETE FROM apps WHERE id=?`, appID)
+			_, _ = s.store.dbExec(`DELETE FROM apps WHERE id=?`, appID)
 		}
 	}
 	if appName != "" {

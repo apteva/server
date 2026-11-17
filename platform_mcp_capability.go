@@ -24,7 +24,7 @@ var platformMCPIconURL = "data:image/svg+xml;base64," + base64.StdEncoding.Encod
 // A real inventory identity lets built-ins use the same attachment API as
 // apps and integrations. Credentials and URLs are always generated at runtime.
 func (s *Store) ensurePlatformMCPInventory(userID int64) error {
-	_, err := s.db.Exec(`INSERT INTO mcp_servers
+	_, err := s.dbExec(`INSERT INTO mcp_servers
 		(user_id,name,command,args,encrypted_env,description,project_id,source,transport,status)
 		SELECT ?,?,'','[]','','Apteva Server','','builtin','http','running'
 		WHERE NOT EXISTS (SELECT 1 FROM mcp_servers WHERE user_id=? AND source='builtin' AND name=?)`,

@@ -105,7 +105,7 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	var appSlug, encCreds string
 	var connUserID int64
 	var connProjectID string
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(r.Context(),
 		"SELECT app_slug, encrypted_credentials, user_id, COALESCE(project_id, '') FROM connections WHERE id = ?", connectionID,
 	).Scan(&appSlug, &encCreds, &connUserID, &connProjectID)
 	if err != nil {

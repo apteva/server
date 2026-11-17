@@ -254,6 +254,7 @@ func (s *Server) supportsInternalAppBatch(ctx context.Context, target *appCallTa
 	}
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(target.callerInstallID, 10))
 	req.Header.Set(sdk.HeaderBoundCallerAppName, target.callerAppName)
+	setAppCallbackCallerHeaders(req, requestContext, target.effectiveProject)
 	if deadline, ok := requestContext.Deadline(); ok {
 		req.Header.Set(sdk.HeaderAppCallDeadline, strconv.FormatInt(deadline.UnixMilli(), 10))
 	}
@@ -438,6 +439,9 @@ func safeTargetServerTiming(raw string) string {
 // app remains the service principal; a platform session must never be
 // converted into a delegated application-user subject at the target app.
 func setAppCallbackCallerHeaders(req *http.Request, ctx context.Context, projectID string) {
+	// App-call authorization already validated this scope. Clear any inbound
+	// value so an empty validated scope cannot retain an untrusted header.
+	req.Header.Del("X-Apteva-Project-ID")
 	if projectID != "" {
 		req.Header.Set("X-Apteva-Project-ID", projectID)
 	}

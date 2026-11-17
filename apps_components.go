@@ -37,7 +37,7 @@ func (s *Store) migrateAppComponents() error {
 		`ALTER TABLE app_installs ADD COLUMN owner_install_id INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_installs ADD COLUMN component_name TEXT NOT NULL DEFAULT ''`,
 	} {
-		if _, err := s.db.Exec(query); err != nil && !isRuntimeDuplicateColumn(err) {
+		if _, err := s.dbExec(query); err != nil && !isRuntimeDuplicateColumn(err) {
 			return err
 		}
 	}
@@ -48,7 +48,7 @@ func (s *Store) migrateAppComponents() error {
 		`CREATE TRIGGER IF NOT EXISTS app_component_retain_owner BEFORE DELETE ON app_installs WHEN EXISTS(SELECT 1 FROM app_installs c WHERE c.owner_install_id=OLD.id) BEGIN SELECT RAISE(ABORT,'remove owned components before their owner'); END`,
 		`CREATE TRIGGER IF NOT EXISTS app_component_scope_guard BEFORE UPDATE OF project_id,installed_by,owner_install_id,component_name ON app_installs WHEN NEW.project_id!=OLD.project_id OR NEW.installed_by!=OLD.installed_by OR NEW.owner_install_id!=OLD.owner_install_id OR NEW.component_name!=OLD.component_name BEGIN SELECT CASE WHEN NEW.owner_install_id!=OLD.owner_install_id OR NEW.component_name!=OLD.component_name OR OLD.owner_install_id!=0 OR EXISTS(SELECT 1 FROM app_installs c WHERE c.owner_install_id=OLD.id) THEN RAISE(ABORT,'owned component scope and ownership are immutable') END; END`,
 	} {
-		if _, err := s.db.Exec(query); err != nil {
+		if _, err := s.dbExec(query); err != nil {
 			return err
 		}
 	}
@@ -77,7 +77,7 @@ func saveAppComponentDeclarations(tx *sql.Tx, id int64, version string, componen
 }
 
 func (s *Server) persistAppComponentDeclarations(id int64, version string, components appComponentDeclarations) error {
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (s *Server) persistAppComponentDeclarations(id int64, version string, compo
 }
 
 func (s *Server) componentDeclarations(id int64) (appComponentDeclarations, error) {
-	rows, err := s.store.db.Query(`SELECT d.name,d.declaration_json FROM app_component_declarations d JOIN app_installs i ON i.id=d.install_id WHERE d.install_id=? AND d.parent_version=i.version`, id)
+	rows, err := s.store.dbQuery(`SELECT d.name,d.declaration_json FROM app_component_declarations d JOIN app_installs i ON i.id=d.install_id WHERE d.install_id=? AND d.parent_version=i.version`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (s *Server) componentDeclarations(id int64) (appComponentDeclarations, erro
 func (s *Server) componentOwner(id int64) (int64, string, error) {
 	var parent int64
 	var name string
-	err := s.store.db.QueryRow(`SELECT owner_install_id,component_name FROM app_installs WHERE id=?`, id).Scan(&parent, &name)
+	err := s.store.dbQueryRow(`SELECT owner_install_id,component_name FROM app_installs WHERE id=?`, id).Scan(&parent, &name)
 	return parent, name, err
 }
 func (s *Server) isOwnedComponent(id int64) bool {
@@ -120,12 +120,12 @@ func (s *Server) isOwnedComponent(id int64) bool {
 }
 func (s *Server) hasOwnedComponents(id int64) bool {
 	var n int
-	err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs WHERE owner_install_id=?`, id).Scan(&n)
+	err := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_installs WHERE owner_install_id=?`, id).Scan(&n)
 	return err != nil || n != 0
 }
 func (s *Server) ownedComponentsBusy(id int64) bool {
 	var n int
-	err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs c WHERE c.owner_install_id=? AND (c.status!='disabled' OR EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=c.id AND o.status IN ('queued','running')))`, id).Scan(&n)
+	err := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_installs c WHERE c.owner_install_id=? AND (c.status!='disabled' OR EXISTS(SELECT 1 FROM app_runtime_operations o WHERE o.install_id=c.id AND o.status IN ('queued','running')))`, id).Scan(&n)
 	return err != nil || n != 0
 }
 
@@ -171,54 +171,8 @@ type appComponentSummary struct {
 }
 
 func (s *Server) componentSummaries(parent int64) ([]appComponentSummary, error) {
-	defs, err := s.componentDeclarations(parent)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]appComponentSummary, 0, len(defs))
-	// Include removed declarations with retained children so cleanup never vanishes.
-	rows, err := s.store.db.Query(`SELECT component_name,id,status,version FROM app_installs WHERE owner_install_id=?`, parent)
-	if err != nil {
-		return nil, err
-	}
-	children := map[string]appComponentSummary{}
-	for rows.Next() {
-		var c appComponentSummary
-		if err := rows.Scan(&c.Name, &c.InstallID, &c.Status, &c.Version); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		children[c.Name] = c
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	for name, def := range defs {
-		c := children[name]
-		c.Name = name
-		c.Protocol = def.Protocol
-		c.Required = def.Required
-		c.Permissions = def.Manifest.Requires.Permissions
-		if c.InstallID == 0 {
-			c.Status = "not_configured"
-			c.Version = def.Manifest.Version
-		}
-		children[name] = c
-	}
-	for _, c := range children {
-		if _, ok := defs[c.Name]; !ok {
-			c.Status = "declaration_removed"
-		}
-		if c.InstallID != 0 {
-			summary := s.appRuntimeManager().deploymentSummary(c.InstallID)
-			c.Deployment = &summary
-		}
-		out = append(out, c)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, nil
+	values, err := s.componentSummariesBatch(context.Background(), []int64{parent})
+	return values[parent], err
 }
 
 // Same installation identity on retries; the runtime manager supplies durable
@@ -237,7 +191,7 @@ func (s *Server) ensureComponent(parent int64, name string, config map[string]st
 	}
 	var project string
 	var user, owner int64
-	if err := s.store.db.QueryRow(`SELECT project_id,installed_by,owner_install_id FROM app_installs WHERE id=?`, parent).Scan(&project, &user, &owner); err != nil {
+	if err := s.store.dbQueryRow(`SELECT project_id,installed_by,owner_install_id FROM app_installs WHERE id=?`, parent).Scan(&project, &user, &owner); err != nil {
 		return 0, nil, err
 	}
 	if owner != 0 {
@@ -256,7 +210,7 @@ func (s *Server) ensureComponent(parent int64, name string, config map[string]st
 			return 0, nil, err
 		}
 	}
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return 0, nil, err
 	}
@@ -354,7 +308,7 @@ func (s *Server) handleAppComponents(w http.ResponseWriter, r *http.Request, par
 	}
 	if len(parts) > 1 || r.Method == http.MethodDelete {
 		var child int64
-		if s.store.db.QueryRow(`SELECT id FROM app_installs WHERE owner_install_id=? AND component_name=?`, parent, parts[0]).Scan(&child) != nil {
+		if s.store.dbQueryRowContext(r.Context(), `SELECT id FROM app_installs WHERE owner_install_id=? AND component_name=?`, parent, parts[0]).Scan(&child) != nil {
 			http.Error(w, "component is not configured", 404)
 			return
 		}
@@ -433,7 +387,7 @@ func (s *Server) resolveComponentCall(parent int64, name string) (int64, error) 
 	var child int64
 	var status, project, parentProject string
 	var owner, parentOwner int64
-	err = s.store.db.QueryRow(`SELECT c.id,c.status,c.project_id,p.project_id,c.installed_by,p.installed_by FROM app_installs c JOIN app_installs p ON p.id=c.owner_install_id WHERE c.owner_install_id=? AND c.component_name=?`, parent, name).Scan(&child, &status, &project, &parentProject, &owner, &parentOwner)
+	err = s.store.dbQueryRow(`SELECT c.id,c.status,c.project_id,p.project_id,c.installed_by,p.installed_by FROM app_installs c JOIN app_installs p ON p.id=c.owner_install_id WHERE c.owner_install_id=? AND c.component_name=?`, parent, name).Scan(&child, &status, &project, &parentProject, &owner, &parentOwner)
 	if err != nil || status != "running" {
 		return 0, errors.New("component not ready")
 	}

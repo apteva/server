@@ -71,7 +71,7 @@ func (s *Server) authorizeManagedTenantApp(w http.ResponseWriter, r *http.Reques
 	}
 	var userID int64
 	var projectID string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(installed_by,0), COALESCE(project_id,'') FROM app_installs WHERE id=? AND status='running'`, installID).Scan(&userID, &projectID); err != nil || userID <= 0 || projectID != "" {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(installed_by,0), COALESCE(project_id,'') FROM app_installs WHERE id=? AND status='running'`, installID).Scan(&userID, &projectID); err != nil || userID <= 0 || projectID != "" {
 		http.Error(w, "managed tenant control requires a running global app installation", http.StatusForbidden)
 		return 0, 0, false
 	}
@@ -123,7 +123,7 @@ func (s *Server) handleManagedTenantEnsure(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var owner int64
-	err := s.store.db.QueryRow(`SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&owner)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&owner)
 	if err == nil && owner != installID {
 		http.Error(w, "tenant_id is owned by another app installation", http.StatusConflict)
 		return
@@ -132,7 +132,7 @@ func (s *Server) handleManagedTenantEnsure(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "lookup tenant: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	result, err := s.store.db.Exec(`INSERT INTO managed_tenants(tenant_id,account_id,owner_app_install_id,status,updated_at)
+	result, err := s.store.dbExecContext(r.Context(), `INSERT INTO managed_tenants(tenant_id,account_id,owner_app_install_id,status,updated_at)
 		VALUES(?,?,?,'active',CURRENT_TIMESTAMP)
 		ON CONFLICT(tenant_id) DO UPDATE SET account_id=excluded.account_id,status='active',updated_at=CURRENT_TIMESTAMP
 		WHERE managed_tenants.owner_app_install_id=excluded.owner_app_install_id`, body.TenantID, body.AccountID, installID)
@@ -146,7 +146,7 @@ func (s *Server) handleManagedTenantEnsure(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var status, updated string
-	if err := s.store.db.QueryRow(`SELECT status,updated_at FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&status, &updated); err != nil {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT status,updated_at FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&status, &updated); err != nil {
 		http.Error(w, "load tenant: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -161,7 +161,7 @@ func (s *Server) handleManagedBundleGet(w http.ResponseWriter, r *http.Request, 
 	}
 	var owner, revision int64
 	var desired, status, lastError, updated string
-	err := s.store.db.QueryRow(`SELECT t.owner_app_install_id,b.revision,b.desired_json,b.status,b.last_error,b.updated_at FROM managed_tenant_bundles b JOIN managed_tenants t ON t.tenant_id=b.tenant_id WHERE b.tenant_id=? AND b.bundle_id=?`, tenantID, bundleID).Scan(&owner, &revision, &desired, &status, &lastError, &updated)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT t.owner_app_install_id,b.revision,b.desired_json,b.status,b.last_error,b.updated_at FROM managed_tenant_bundles b JOIN managed_tenants t ON t.tenant_id=b.tenant_id WHERE b.tenant_id=? AND b.bundle_id=?`, tenantID, bundleID).Scan(&owner, &revision, &desired, &status, &lastError, &updated)
 	if err != nil || owner != installID {
 		http.Error(w, "bundle not found", http.StatusNotFound)
 		return
@@ -193,7 +193,7 @@ func (s *Server) handleManagedEnrollmentCreate(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var owner int64
-	err := s.store.db.QueryRow(`SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&owner)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&owner)
 	if err == nil && owner != installID {
 		http.Error(w, "tenant_id is owned by another app installation", http.StatusConflict)
 		return
@@ -204,7 +204,7 @@ func (s *Server) handleManagedEnrollmentCreate(w http.ResponseWriter, r *http.Re
 	}
 	ticket := "apte_" + generateToken(32)
 	expires := time.Now().UTC().Add(ttl)
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err == nil {
 		_, err = tx.Exec(`INSERT INTO managed_tenants(tenant_id,account_id,owner_app_install_id,status,updated_at)
 			VALUES(?,?,?,'pending',CURRENT_TIMESTAMP)
@@ -247,7 +247,7 @@ func (s *Server) handleManagedGrantEnsure(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var tenantOwner int64
-	if err := s.store.db.QueryRow(`SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&tenantOwner); err != nil || tenantOwner != installID {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&tenantOwner); err != nil || tenantOwner != installID {
 		http.Error(w, "managed tenant not owned by this app", http.StatusForbidden)
 		return
 	}
@@ -274,12 +274,12 @@ func (s *Server) handleManagedGrantEnsure(w http.ResponseWriter, r *http.Request
 	publicJSON, _ := json.Marshal(body.PublicFields)
 	constraintsJSON, _ := json.Marshal(body.Constraints)
 	var tokenEncrypted, existingStatus string
-	err = s.store.db.QueryRow(`SELECT token_encrypted,status FROM managed_connection_grants WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, body.TenantID, body.GrantID, installID).Scan(&tokenEncrypted, &existingStatus)
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT token_encrypted,status FROM managed_connection_grants WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, body.TenantID, body.GrantID, installID).Scan(&tokenEncrypted, &existingStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		token := "aptg_" + generateToken(32)
 		tokenEncrypted, err = Encrypt(s.secret, token)
 		if err == nil {
-			_, err = s.store.db.Exec(`INSERT INTO managed_connection_grants
+			_, err = s.store.dbExecContext(r.Context(), `INSERT INTO managed_connection_grants
 				(grant_id,tenant_id,owner_app_install_id,connection_id,app_slug,project_id,status,token_hash,token_encrypted,allowed_tools_json,public_fields_json,constraints_json)
 				VALUES(?,?,?,?,?,?,'active',?,?,?,?,?)`, body.GrantID, body.TenantID, installID, body.ConnectionID, body.AppSlug, body.ProjectID, managedTokenHash(token), tokenEncrypted, string(allowedJSON), string(publicJSON), string(constraintsJSON))
 		}
@@ -288,11 +288,11 @@ func (s *Server) handleManagedGrantEnsure(w http.ResponseWriter, r *http.Request
 			token := "aptg_" + generateToken(32)
 			tokenEncrypted, err = Encrypt(s.secret, token)
 			if err == nil {
-				_, err = s.store.db.Exec(`UPDATE managed_connection_grants SET connection_id=?,app_slug=?,project_id=?,status='active',token_hash=?,token_encrypted=?,allowed_tools_json=?,public_fields_json=?,constraints_json=?,updated_at=CURRENT_TIMESTAMP
+				_, err = s.store.dbExecContext(r.Context(), `UPDATE managed_connection_grants SET connection_id=?,app_slug=?,project_id=?,status='active',token_hash=?,token_encrypted=?,allowed_tools_json=?,public_fields_json=?,constraints_json=?,updated_at=CURRENT_TIMESTAMP
 					WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, body.ConnectionID, body.AppSlug, body.ProjectID, managedTokenHash(token), tokenEncrypted, string(allowedJSON), string(publicJSON), string(constraintsJSON), body.TenantID, body.GrantID, installID)
 			}
 		} else {
-			_, err = s.store.db.Exec(`UPDATE managed_connection_grants SET connection_id=?,app_slug=?,project_id=?,status='active',allowed_tools_json=?,public_fields_json=?,constraints_json=?,updated_at=CURRENT_TIMESTAMP
+			_, err = s.store.dbExecContext(r.Context(), `UPDATE managed_connection_grants SET connection_id=?,app_slug=?,project_id=?,status='active',allowed_tools_json=?,public_fields_json=?,constraints_json=?,updated_at=CURRENT_TIMESTAMP
 				WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, body.ConnectionID, body.AppSlug, body.ProjectID, string(allowedJSON), string(publicJSON), string(constraintsJSON), body.TenantID, body.GrantID, installID)
 		}
 	}
@@ -304,7 +304,7 @@ func (s *Server) handleManagedGrantEnsure(w http.ResponseWriter, r *http.Request
 	writeJSON(w, sdk.ManagedConnectionGrant{TenantID: body.TenantID, GrantID: body.GrantID, ConnectionID: body.ConnectionID, AppSlug: body.AppSlug, ProjectID: body.ProjectID, Status: "active", AllowedTools: uniqueNonEmpty(body.AllowedTools), PublicFields: body.PublicFields, Constraints: body.Constraints, UpdatedAt: time.Now().UTC()})
 }
 
-func (s *Server) handleManagedGrantDelivery(w http.ResponseWriter, _ *http.Request, installID int64, tenantID, grantID string) {
+func (s *Server) handleManagedGrantDelivery(w http.ResponseWriter, r *http.Request, installID int64, tenantID, grantID string) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !validManagedID(tenantID) || !validManagedID(grantID) {
 		http.Error(w, "invalid tenant or grant id", http.StatusBadRequest)
@@ -312,7 +312,7 @@ func (s *Server) handleManagedGrantDelivery(w http.ResponseWriter, _ *http.Reque
 	}
 	var out sdk.ManagedConnectionGrantDelivery
 	var status, tokenEncrypted, toolsRaw, publicRaw, constraintsRaw string
-	err := s.store.db.QueryRow(`SELECT connection_id,app_slug,project_id,status,token_encrypted,allowed_tools_json,public_fields_json,constraints_json
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT connection_id,app_slug,project_id,status,token_encrypted,allowed_tools_json,public_fields_json,constraints_json
 		FROM managed_connection_grants WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, tenantID, grantID, installID).
 		Scan(&out.ConnectionID, &out.AppSlug, &out.ProjectID, &status, &tokenEncrypted, &toolsRaw, &publicRaw, &constraintsRaw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -347,7 +347,7 @@ func (s *Server) handleManagedGrantRevoke(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid tenant or grant id", http.StatusBadRequest)
 		return
 	}
-	res, err := s.store.db.Exec(`UPDATE managed_connection_grants SET status='revoked',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, tenantID, grantID, installID)
+	res, err := s.store.dbExecContext(r.Context(), `UPDATE managed_connection_grants SET status='revoked',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND grant_id=? AND owner_app_install_id=?`, tenantID, grantID, installID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -373,7 +373,7 @@ func (s *Server) handleManagedBundleEnsure(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var owner int64
-	if err := s.store.db.QueryRow(`SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&owner); err != nil || owner != installID {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT owner_app_install_id FROM managed_tenants WHERE tenant_id=?`, body.TenantID).Scan(&owner); err != nil || owner != installID {
 		http.Error(w, "managed tenant not owned by this app", http.StatusForbidden)
 		return
 	}
@@ -385,7 +385,7 @@ func (s *Server) handleManagedBundleEnsure(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	desired, _ := json.Marshal(body.Apps)
-	_, err := s.store.db.Exec(`INSERT INTO managed_tenant_bundles(tenant_id,bundle_id,revision,desired_json,status,last_error,created_by_install_id)
+	_, err := s.store.dbExecContext(r.Context(), `INSERT INTO managed_tenant_bundles(tenant_id,bundle_id,revision,desired_json,status,last_error,created_by_install_id)
 		VALUES(?,?,1,?,'pending','',?)
 		ON CONFLICT(tenant_id,bundle_id) DO UPDATE SET revision=managed_tenant_bundles.revision+1,desired_json=excluded.desired_json,status='pending',last_error='',created_by_install_id=excluded.created_by_install_id,updated_at=CURRENT_TIMESTAMP`, body.TenantID, body.BundleID, string(desired), installID)
 	if err != nil {
@@ -394,7 +394,7 @@ func (s *Server) handleManagedBundleEnsure(w http.ResponseWriter, r *http.Reques
 	}
 	var revision int64
 	var updated string
-	_ = s.store.db.QueryRow(`SELECT revision,updated_at FROM managed_tenant_bundles WHERE tenant_id=? AND bundle_id=?`, body.TenantID, body.BundleID).Scan(&revision, &updated)
+	_ = s.store.dbQueryRowContext(r.Context(), `SELECT revision,updated_at FROM managed_tenant_bundles WHERE tenant_id=? AND bundle_id=?`, body.TenantID, body.BundleID).Scan(&revision, &updated)
 	s.auditManagedTenant(body.TenantID, "app:"+strconv.FormatInt(installID, 10), "bundle.ensured", body.BundleID, "success", "")
 	writeJSON(w, sdk.ManagedTenantBundle{TenantID: body.TenantID, BundleID: body.BundleID, Revision: revision, Status: "pending", Apps: body.Apps, UpdatedAt: parseManagedTime(updated)})
 }
@@ -439,13 +439,13 @@ func (s *Server) handleManagedPublicEnroll(w http.ResponseWriter, r *http.Reques
 	var tenantID, expected string
 	var expires time.Time
 	var used sql.NullTime
-	err := s.store.db.QueryRow(`SELECT tenant_id,ticket_hash,expires_at,used_at FROM managed_tenant_enrollments WHERE ticket_hash=?`, hash).Scan(&tenantID, &expected, &expires, &used)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT tenant_id,ticket_hash,expires_at,used_at FROM managed_tenant_enrollments WHERE ticket_hash=?`, hash).Scan(&tenantID, &expected, &expires, &used)
 	if err != nil || subtle.ConstantTimeCompare([]byte(hash), []byte(expected)) != 1 || used.Valid || time.Now().UTC().After(expires) {
 		http.Error(w, "invalid or expired enrollment ticket", http.StatusUnauthorized)
 		return
 	}
 	identity := "apti_" + generateToken(32)
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err == nil {
 		res, xerr := tx.Exec(`UPDATE managed_tenant_enrollments SET used_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP`, tenantID)
 		err = xerr
@@ -480,7 +480,7 @@ func (s *Server) authenticateManagedTenant(r *http.Request) (string, bool) {
 	}
 	hash := managedTokenHash(token)
 	var tenantID, expected string
-	if err := s.store.db.QueryRow(`SELECT tenant_id,identity_token_hash FROM managed_tenants WHERE identity_token_hash=? AND status='active'`, hash).Scan(&tenantID, &expected); err != nil {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT tenant_id,identity_token_hash FROM managed_tenants WHERE identity_token_hash=? AND status='active'`, hash).Scan(&tenantID, &expected); err != nil {
 		return "", false
 	}
 	return tenantID, subtle.ConstantTimeCompare([]byte(hash), []byte(expected)) == 1
@@ -492,9 +492,10 @@ func (s *Server) handleManagedPublicReconcile(w http.ResponseWriter, r *http.Req
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	_, _ = s.store.db.Exec(`UPDATE managed_tenants SET last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=?`, tenantID)
+	_, _ = s.store.dbExecContext(r.Context(), `UPDATE managed_tenants SET last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=?`, tenantID)
 	out := managedReconcileResponse{TenantID: tenantID, Grants: []managedReconcileGrant{}, RevokedGrants: []string{}, Bundles: []sdk.ManagedTenantBundle{}}
-	rows, err := s.store.db.Query(`SELECT grant_id,connection_id,app_slug,project_id,token_encrypted,allowed_tools_json,public_fields_json,constraints_json FROM managed_connection_grants WHERE tenant_id=? AND status='active' ORDER BY grant_id`, tenantID)
+	controllerBaseURL := s.publicBaseURL()
+	rows, err := s.store.dbQueryContext(r.Context(), `SELECT grant_id,connection_id,app_slug,project_id,token_encrypted,allowed_tools_json,public_fields_json,constraints_json FROM managed_connection_grants WHERE tenant_id=? AND status='active' ORDER BY grant_id`, tenantID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -514,14 +515,14 @@ func (s *Server) handleManagedPublicReconcile(w http.ResponseWriter, r *http.Req
 			http.Error(w, "decrypt grant token", http.StatusInternalServerError)
 			return
 		}
-		g.ControllerExecute = s.publicBaseURL() + "/api/managed/grants/" + url.PathEscape(g.GrantID) + "/execute"
+		g.ControllerExecute = controllerBaseURL + "/api/managed/grants/" + url.PathEscape(g.GrantID) + "/execute"
 		_ = json.Unmarshal([]byte(toolsRaw), &g.AllowedTools)
 		_ = json.Unmarshal([]byte(publicRaw), &g.PublicFields)
 		_ = json.Unmarshal([]byte(constraintsRaw), &g.Constraints)
 		out.Grants = append(out.Grants, g)
 	}
 	rows.Close()
-	revokedRows, err := s.store.db.Query(`SELECT grant_id FROM managed_connection_grants WHERE tenant_id=? AND status='revoked' ORDER BY grant_id`, tenantID)
+	revokedRows, err := s.store.dbQueryContext(r.Context(), `SELECT grant_id FROM managed_connection_grants WHERE tenant_id=? AND status='revoked' ORDER BY grant_id`, tenantID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -536,7 +537,7 @@ func (s *Server) handleManagedPublicReconcile(w http.ResponseWriter, r *http.Req
 		out.RevokedGrants = append(out.RevokedGrants, id)
 	}
 	revokedRows.Close()
-	rows, err = s.store.db.Query(`SELECT bundle_id,revision,desired_json,status,last_error,updated_at FROM managed_tenant_bundles WHERE tenant_id=? ORDER BY bundle_id`, tenantID)
+	rows, err = s.store.dbQueryContext(r.Context(), `SELECT bundle_id,revision,desired_json,status,last_error,updated_at FROM managed_tenant_bundles WHERE tenant_id=? ORDER BY bundle_id`, tenantID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -578,7 +579,7 @@ func (s *Server) handleManagedPublicReport(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "status must be applied or error", http.StatusBadRequest)
 		return
 	}
-	res, err := s.store.db.Exec(`UPDATE managed_tenant_bundles SET status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND bundle_id=? AND revision=?`, body.Status, truncate(body.Error, 2000), tenantID, body.BundleID, body.Revision)
+	res, err := s.store.dbExecContext(r.Context(), `UPDATE managed_tenant_bundles SET status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND bundle_id=? AND revision=?`, body.Status, truncate(body.Error, 2000), tenantID, body.BundleID, body.Revision)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -599,7 +600,7 @@ func (s *Server) handleManagedPublicGrantExecute(w http.ResponseWriter, r *http.
 	}
 	var tenantID, expected, status, appSlug, toolsRaw, constraintsRaw string
 	var connID int64
-	err := s.store.db.QueryRow(`SELECT tenant_id,token_hash,status,connection_id,app_slug,allowed_tools_json,constraints_json FROM managed_connection_grants WHERE grant_id=? AND token_hash=?`, grantID, managedTokenHash(token)).Scan(&tenantID, &expected, &status, &connID, &appSlug, &toolsRaw, &constraintsRaw)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT tenant_id,token_hash,status,connection_id,app_slug,allowed_tools_json,constraints_json FROM managed_connection_grants WHERE grant_id=? AND token_hash=?`, grantID, managedTokenHash(token)).Scan(&tenantID, &expected, &status, &connID, &appSlug, &toolsRaw, &constraintsRaw)
 	if err != nil || status != "active" || subtle.ConstantTimeCompare([]byte(expected), []byte(managedTokenHash(token))) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -641,7 +642,7 @@ func (s *Server) handleManagedPublicGrantExecute(w http.ResponseWriter, r *http.
 
 func (s *Server) executeManagedGrantConnection(connID int64, appSlug, toolName string, input map[string]any) (*ExecuteResult, error) {
 	var userID int64
-	if err := s.store.db.QueryRow(`SELECT user_id FROM connections WHERE id=?`, connID).Scan(&userID); err != nil {
+	if err := s.store.dbQueryRow(`SELECT user_id FROM connections WHERE id=?`, connID).Scan(&userID); err != nil {
 		return nil, errors.New("parent connection not found")
 	}
 	conn, encrypted, err := s.store.GetConnection(userID, connID)
@@ -727,7 +728,7 @@ func validateManagedGrantConstraints(c sdk.ManagedGrantConstraints, input map[st
 }
 
 func (s *Server) auditManagedTenant(tenantID, actor, action, resource, status, detail string) {
-	_, _ = s.store.db.Exec(`INSERT INTO managed_tenant_audit(tenant_id,actor,action,resource,status,detail) VALUES(?,?,?,?,?,?)`, tenantID, actor, action, resource, status, detail)
+	_, _ = s.store.dbExec(`INSERT INTO managed_tenant_audit(tenant_id,actor,action,resource,status,detail) VALUES(?,?,?,?,?,?)`, tenantID, actor, action, resource, status, detail)
 }
 
 func uniqueNonEmpty(in []string) []string {
@@ -859,7 +860,7 @@ func (s *Server) reconcileManagedTenant(ctx context.Context, cfg aptevaManagedCo
 		grantIDs[grant.GrantID] = id
 	}
 	for _, grantID := range desired.RevokedGrants {
-		if _, err := s.store.db.Exec(`UPDATE connections SET status='failed' WHERE external_id=? AND credential_management='controller'`, "managed:"+identity.TenantID+":"+grantID); err != nil {
+		if _, err := s.store.dbExec(`UPDATE connections SET status='failed' WHERE external_id=? AND credential_management='controller'`, "managed:"+identity.TenantID+":"+grantID); err != nil {
 			return err
 		}
 	}
@@ -961,7 +962,7 @@ func (s *Server) applyManagedGrant(tenantID string, grant managedReconcileGrant)
 	}
 	externalID := "managed:" + tenantID + ":" + grant.GrantID
 	var id int64
-	err = s.store.db.QueryRow(`SELECT id FROM connections WHERE user_id=? AND external_id=?`, userID, externalID).Scan(&id)
+	err = s.store.dbQueryRow(`SELECT id FROM connections WHERE user_id=? AND external_id=?`, userID, externalID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		appName := grant.AppSlug
 		if s.catalog != nil {
@@ -978,19 +979,19 @@ func (s *Server) applyManagedGrant(tenantID string, grant managedReconcileGrant)
 	if err != nil {
 		return 0, err
 	}
-	_, err = s.store.db.Exec(`UPDATE connections SET encrypted_credentials=?,status='active',project_id=?,credential_management='controller',credential_export_policy='never' WHERE id=? AND user_id=?`, encrypted, grant.ProjectID, id, userID)
+	_, err = s.store.dbExec(`UPDATE connections SET encrypted_credentials=?,status='active',project_id=?,credential_management='controller',credential_export_policy='never' WHERE id=? AND user_id=?`, encrypted, grant.ProjectID, id, userID)
 	return id, err
 }
 
 func (s *Server) firstPlatformAdmin() (int64, error) {
 	var id int64
-	err := s.store.db.QueryRow(`SELECT id FROM users WHERE COALESCE(role,'user')='admin' ORDER BY id LIMIT 1`).Scan(&id)
+	err := s.store.dbQueryRow(`SELECT id FROM users WHERE COALESCE(role,'user')='admin' ORDER BY id LIMIT 1`).Scan(&id)
 	return id, err
 }
 
 func (s *Server) defaultManagedProject(userID int64) string {
 	var id string
-	_ = s.store.db.QueryRow(`SELECT id FROM projects WHERE user_id=? ORDER BY created_at,id LIMIT 1`, userID).Scan(&id)
+	_ = s.store.dbQueryRow(`SELECT id FROM projects WHERE user_id=? ORDER BY created_at,id LIMIT 1`, userID).Scan(&id)
 	return id
 }
 
@@ -1022,7 +1023,7 @@ func (s *Server) applyManagedBundle(bundle sdk.ManagedTenantBundle, grantIDs map
 		}
 		var installID int64
 		var version, currentBindings string
-		err = s.store.db.QueryRow(`SELECT i.id,i.version,COALESCE(i.integration_bindings,'{}') FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND i.project_id=? ORDER BY i.id DESC LIMIT 1`, manifest.Name, projectID).Scan(&installID, &version, &currentBindings)
+		err = s.store.dbQueryRow(`SELECT i.id,i.version,COALESCE(i.integration_bindings,'{}') FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND i.is_default=1 AND i.project_id=? ORDER BY i.id DESC LIMIT 1`, manifest.Name, projectID).Scan(&installID, &version, &currentBindings)
 		if err == nil {
 			if version != manifest.Version {
 				upgradeReq := httptest.NewRequest(http.MethodPost, "/apps/installs/"+strconv.FormatInt(installID, 10)+"/upgrade", strings.NewReader(`{"approve_new_permissions":true}`))
@@ -1049,7 +1050,7 @@ func (s *Server) applyManagedBundle(bundle sdk.ManagedTenantBundle, grantIDs map
 					continue
 				}
 				var externalID string
-				_ = s.store.db.QueryRow(`SELECT COALESCE(external_id,'') FROM connections WHERE id=?`, connID).Scan(&externalID)
+				_ = s.store.dbQueryRow(`SELECT COALESCE(external_id,'') FROM connections WHERE id=?`, connID).Scan(&externalID)
 				if strings.HasPrefix(externalID, "managed:"+bundle.TenantID+":") {
 					delete(mergedBindings, role)
 				}
@@ -1059,7 +1060,7 @@ func (s *Server) applyManagedBundle(bundle sdk.ManagedTenantBundle, grantIDs map
 			}
 			bindingsRaw, _ := json.Marshal(mergedBindings)
 			if string(bindingsRaw) != currentBindings {
-				if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings=? WHERE id=?`, string(bindingsRaw), installID); err != nil {
+				if _, err := s.store.dbExec(`UPDATE app_installs SET integration_bindings=? WHERE id=?`, string(bindingsRaw), installID); err != nil {
 					return err
 				}
 				if s.installedApps != nil {
@@ -1115,7 +1116,7 @@ func (s *Server) applyManagedInstallConfig(installID int64, manifest *sdk.Manife
 	}
 	raw, _ := json.Marshal(desired)
 	var currentEncrypted string
-	_ = s.store.db.QueryRow(`SELECT COALESCE(config_encrypted,'') FROM app_installs WHERE id=?`, installID).Scan(&currentEncrypted)
+	_ = s.store.dbQueryRow(`SELECT COALESCE(config_encrypted,'') FROM app_installs WHERE id=?`, installID).Scan(&currentEncrypted)
 	if currentEncrypted != "" {
 		if current, err := Decrypt(s.secret, currentEncrypted); err == nil && current == string(raw) {
 			return nil
@@ -1125,7 +1126,7 @@ func (s *Server) applyManagedInstallConfig(installID int64, manifest *sdk.Manife
 	if err != nil {
 		return err
 	}
-	if _, err := s.store.db.Exec(`UPDATE app_installs SET config_encrypted=? WHERE id=?`, encrypted, installID); err != nil {
+	if _, err := s.store.dbExec(`UPDATE app_installs SET config_encrypted=? WHERE id=?`, encrypted, installID); err != nil {
 		return err
 	}
 	if s.localApps != nil && s.localApps.PID(installID) > 0 {

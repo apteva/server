@@ -27,7 +27,7 @@ import (
 const maxFileMemoryBytes = 256 << 20
 
 func (s *Store) migrateFileReferences() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS app_file_references (
+	_, err := s.dbExec(`CREATE TABLE IF NOT EXISTS app_file_references (
  id TEXT PRIMARY KEY, install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
  project_id TEXT NOT NULL, attachment_id TEXT NOT NULL, version TEXT NOT NULL,
  filename TEXT NOT NULL, mime_type TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
@@ -103,10 +103,10 @@ func (s *Server) loadFileReference(ref string) (*storedFileReference, error) {
 	}
 	f := &storedFileReference{id: id}
 	var expiry int64
-	err = s.store.db.QueryRow(`SELECT install_id,project_id,attachment_id,version,filename,mime_type,size,sha256,expires_at,revoked FROM app_file_references WHERE id=?`, id).Scan(&f.installID, &f.ProjectID, &f.AttachmentID, &f.Version, &f.Filename, &f.MIMEType, &f.Size, &f.SHA256, &expiry, &f.revoked)
+	err = s.store.dbQueryRow(`SELECT install_id,project_id,attachment_id,version,filename,mime_type,size,sha256,expires_at,revoked FROM app_file_references WHERE id=?`, id).Scan(&f.installID, &f.ProjectID, &f.AttachmentID, &f.Version, &f.Filename, &f.MIMEType, &f.Size, &f.SHA256, &expiry, &f.revoked)
 	if err == sql.ErrNoRows {
 		f.serverBlob = true
-		err = s.store.db.QueryRow(`SELECT source_install_id,owner_user_id,project_id,filename,mime_type,size,sha256,revoked FROM server_blobs WHERE id=?`, id).Scan(&f.installID, &f.ownerUserID, &f.ProjectID, &f.Filename, &f.MIMEType, &f.Size, &f.SHA256, &f.revoked)
+		err = s.store.dbQueryRow(`SELECT source_install_id,owner_user_id,project_id,filename,mime_type,size,sha256,revoked FROM server_blobs WHERE id=?`, id).Scan(&f.installID, &f.ownerUserID, &f.ProjectID, &f.Filename, &f.MIMEType, &f.Size, &f.SHA256, &f.revoked)
 		if err == sql.ErrNoRows {
 			return nil, fileProblem(404, "file_not_found", "file reference not found")
 		}
@@ -185,12 +185,12 @@ func (s *Server) handleCallbackFileReferences(w http.ResponseWriter, r *http.Req
 			return
 		}
 		id := hex.EncodeToString(random[:])
-		_, err = s.store.db.Exec(`INSERT INTO app_file_references(id,install_id,project_id,attachment_id,version,filename,mime_type,size,sha256,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(install_id,project_id,attachment_id,version) DO NOTHING`, id, installID, project, req.AttachmentID, req.Version, req.Filename, req.MIMEType, req.Size, req.SHA256, expiry)
+		_, err = s.store.dbExecContext(r.Context(), `INSERT INTO app_file_references(id,install_id,project_id,attachment_id,version,filename,mime_type,size,sha256,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(install_id,project_id,attachment_id,version) DO NOTHING`, id, installID, project, req.AttachmentID, req.Version, req.Filename, req.MIMEType, req.Size, req.SHA256, expiry)
 		if err != nil {
 			writeFileProblem(w, err)
 			return
 		}
-		if err = s.store.db.QueryRow(`SELECT id FROM app_file_references WHERE install_id=? AND project_id=? AND attachment_id=? AND version=?`, installID, project, req.AttachmentID, req.Version).Scan(&id); err != nil {
+		if err = s.store.dbQueryRowContext(r.Context(), `SELECT id FROM app_file_references WHERE install_id=? AND project_id=? AND attachment_id=? AND version=?`, installID, project, req.AttachmentID, req.Version).Scan(&id); err != nil {
 			writeFileProblem(w, err)
 			return
 		}
@@ -262,9 +262,9 @@ func (s *Server) handleCallbackFileReferences(w http.ResponseWriter, r *http.Req
 		return
 	case "revoke":
 		if f.serverBlob {
-			_, err = s.store.db.Exec(`UPDATE server_blobs SET revoked=1 WHERE id=?`, f.id)
+			_, err = s.store.dbExecContext(r.Context(), `UPDATE server_blobs SET revoked=1 WHERE id=?`, f.id)
 		} else {
-			_, err = s.store.db.Exec(`UPDATE app_file_references SET revoked=1 WHERE id=?`, f.id)
+			_, err = s.store.dbExecContext(r.Context(), `UPDATE app_file_references SET revoked=1 WHERE id=?`, f.id)
 		}
 	case "grant":
 		if f.revoked {
@@ -280,7 +280,7 @@ func (s *Server) handleCallbackFileReferences(w http.ResponseWriter, r *http.Req
 			return
 		}
 		if f.serverBlob {
-			target, lookupErr := s.store.GetAgentByID(body.AgentID)
+			target, lookupErr := s.store.GetAgentByIDContext(r.Context(), body.AgentID)
 			if lookupErr != nil || target == nil || target.UserID != f.ownerUserID {
 				writeFileProblem(w, fileProblem(403, "file_inaccessible", "blob grant requires an agent of the same owner"))
 				return
@@ -291,7 +291,7 @@ func (s *Server) handleCallbackFileReferences(w http.ResponseWriter, r *http.Req
 		if f.serverBlob {
 			grantTable = "server_blob_grants"
 		}
-		result, err = s.store.db.Exec(`INSERT INTO `+grantTable+`(file_id,agent_id,thread_id)
+		result, err = s.store.dbExecContext(r.Context(), `INSERT INTO `+grantTable+`(file_id,agent_id,thread_id)
    SELECT ?,ats.agent_id,ats.thread_id FROM agent_thread_scopes ats JOIN app_agent_bindings b ON b.agent_id=ats.agent_id AND b.install_id=ats.source_install_id
    WHERE ats.agent_id=? AND ats.thread_id=? AND ats.project_id=? AND ats.source_install_id=? AND b.enabled=1
    ON CONFLICT(file_id,agent_id,thread_id) DO UPDATE SET file_id=excluded.file_id`, f.id, body.AgentID, body.ThreadID, f.ProjectID, installID)
@@ -303,9 +303,9 @@ func (s *Server) handleCallbackFileReferences(w http.ResponseWriter, r *http.Req
 		}
 	case "revoke-grant":
 		if f.serverBlob {
-			_, err = s.store.db.Exec(`DELETE FROM server_blob_grants WHERE file_id=? AND agent_id=? AND thread_id=?`, f.id, body.AgentID, body.ThreadID)
+			_, err = s.store.dbExecContext(r.Context(), `DELETE FROM server_blob_grants WHERE file_id=? AND agent_id=? AND thread_id=?`, f.id, body.AgentID, body.ThreadID)
 		} else {
-			_, err = s.store.db.Exec(`DELETE FROM app_file_grants WHERE file_id=? AND agent_id=? AND thread_id=?`, f.id, body.AgentID, body.ThreadID)
+			_, err = s.store.dbExecContext(r.Context(), `DELETE FROM app_file_grants WHERE file_id=? AND agent_id=? AND thread_id=?`, f.id, body.AgentID, body.ThreadID)
 		}
 	default:
 		err = fileProblem(404, "invalid_request", "unknown file reference action")
@@ -392,7 +392,7 @@ func (s *Server) authorizeFileAppAccess(installID int64, project string, agentID
 		return nil, fileProblem(403, "file_inaccessible", "owning app no longer has project access")
 	}
 	var enabled int
-	if err = s.store.db.QueryRow(`SELECT enabled FROM app_agent_bindings WHERE install_id=? AND agent_id=?`, installID, agentID).Scan(&enabled); err != nil || enabled != 1 {
+	if err = s.store.dbQueryRow(`SELECT enabled FROM app_agent_bindings WHERE install_id=? AND agent_id=?`, installID, agentID).Scan(&enabled); err != nil || enabled != 1 {
 		return nil, fileProblem(403, "file_inaccessible", "owning app is no longer attached to this agent")
 	}
 	return metadata, nil
@@ -420,7 +420,7 @@ func (s *Server) authorizeFileRead(f *storedFileReference, caller fileCaller) er
 	}
 	// Check grants before disclosing lifecycle state to an unauthorized caller.
 	var n int
-	err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_file_grants g
+	err := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_file_grants g
  JOIN agent_thread_scopes ats ON ats.agent_id=g.agent_id AND ats.thread_id=g.thread_id
  JOIN app_agent_bindings b ON b.agent_id=g.agent_id AND b.install_id=ats.source_install_id
  JOIN agents a ON a.id=g.agent_id
@@ -442,7 +442,7 @@ func (s *Server) authorizeFileRead(f *storedFileReference, caller fileCaller) er
 
 	// Reload revocation from durable storage on every resolution, including after IO.
 	var revoked bool
-	err = s.store.db.QueryRow(`SELECT revoked FROM app_file_references WHERE id=?`, f.id).Scan(&revoked)
+	err = s.store.dbQueryRow(`SELECT revoked FROM app_file_references WHERE id=?`, f.id).Scan(&revoked)
 	if err == sql.ErrNoRows {
 		return fileProblem(410, "file_deleted", "reference deleted")
 	}
@@ -705,7 +705,7 @@ func (s *Server) resolveAppFileRequest(r *http.Request, entry *InstalledApp) (fu
 		return func() {}, fileProblem(403, "file_inaccessible", "destination app project does not match thread")
 	}
 	var attached int
-	err = s.store.db.QueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE agent_id=? AND install_id=? AND enabled=1`, caller.agentID, entry.InstallID).Scan(&attached)
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT COUNT(*) FROM app_agent_bindings WHERE agent_id=? AND install_id=? AND enabled=1`, caller.agentID, entry.InstallID).Scan(&attached)
 	if err != nil {
 		return func() {}, err
 	}
@@ -803,7 +803,7 @@ func (s *Server) callbackFileCaller(w http.ResponseWriter, r *http.Request, inst
 		return fileCaller{}, false
 	}
 	var n int
-	err := s.store.db.QueryRow(`SELECT COUNT(*) FROM agent_thread_scopes ats JOIN app_agent_bindings b ON b.agent_id=ats.agent_id AND b.install_id=ats.source_install_id WHERE ats.agent_id=? AND ats.thread_id=? AND ats.project_id=? AND ats.source_install_id=? AND b.enabled=1`, scope.AgentID, scope.ThreadID, project, installID).Scan(&n)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT COUNT(*) FROM agent_thread_scopes ats JOIN app_agent_bindings b ON b.agent_id=ats.agent_id AND b.install_id=ats.source_install_id WHERE ats.agent_id=? AND ats.thread_id=? AND ats.project_id=? AND ats.source_install_id=? AND b.enabled=1`, scope.AgentID, scope.ThreadID, project, installID).Scan(&n)
 	if err != nil || n != 1 {
 		writeFileProblem(w, fileProblem(403, "file_inaccessible", "thread does not belong to this installation and project"))
 		return fileCaller{}, false

@@ -24,7 +24,7 @@ type runtimeResourceRecord struct {
 func (m *appRuntimeManager) resourcePolicy(id int64) (runtimeResourceRecord, error) {
 	var r runtimeResourceRecord
 	var raw string
-	e := m.s.store.db.QueryRow(`SELECT revision,policy_json FROM app_runtime_resource_policies WHERE install_id=?`, id).Scan(&r.Revision, &raw)
+	e := m.s.store.dbQueryRowContext(m.ctx, `SELECT revision,policy_json FROM app_runtime_resource_policies WHERE install_id=?`, id).Scan(&r.Revision, &raw)
 	if errors.Is(e, sql.ErrNoRows) {
 		return r, nil
 	}
@@ -37,7 +37,7 @@ func (m *appRuntimeManager) resourcePolicy(id int64) (runtimeResourceRecord, err
 func (m *appRuntimeManager) resourceManifest(id int64) (sdk.Manifest, error) {
 	var raw string
 	var manifest sdk.Manifest
-	e := m.s.store.db.QueryRow(`SELECT COALESCE(NULLIF(i.manifest_json,''),a.manifest_json) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&raw)
+	e := m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(NULLIF(i.manifest_json,''),a.manifest_json) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, id).Scan(&raw)
 	if e == nil {
 		e = json.Unmarshal([]byte(raw), &manifest)
 	}
@@ -78,7 +78,7 @@ func (s *Server) handleRuntimeResources(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		// Compare-and-swap also covers the initial insert. Saving never restarts apps.
-		result, e := s.store.db.Exec(`INSERT INTO app_runtime_resource_policies(install_id,revision,policy_json) VALUES(?,1,?) ON CONFLICT(install_id) DO UPDATE SET revision=revision+1,policy_json=excluded.policy_json WHERE revision=?`, id, runtimeJSON(next.Policy), next.Revision)
+		result, e := s.store.dbExecContext(r.Context(), `INSERT INTO app_runtime_resource_policies(install_id,revision,policy_json) VALUES(?,1,?) ON CONFLICT(install_id) DO UPDATE SET revision=revision+1,policy_json=excluded.policy_json WHERE revision=?`, id, runtimeJSON(next.Policy), next.Revision)
 		if e != nil {
 			http.Error(w, "policy persistence failed", 500)
 			return

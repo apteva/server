@@ -40,7 +40,7 @@ func (s *Server) trustedAppPrincipal(r *http.Request, projectID string) *sdk.Tru
 		ExpiresAt:        time.Now().Add(time.Minute).Unix(),
 	}
 	if userID > 0 {
-		if user, err := s.store.GetUserByID(userID); err == nil && user != nil {
+		if user, err := s.store.GetUserByIDContext(r.Context(), userID); err == nil && user != nil {
 			principal.Email = user.Email
 			if principal.SubjectEmail == "" && principal.SubjectType == "user" {
 				principal.SubjectEmail = user.Email

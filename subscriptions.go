@@ -65,7 +65,7 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 }
 
 func (s *Store) listAppEventSubscriptions(app, project string) ([]*Subscription, error) {
-	return listAppEventSubscriptions(s.db, app, project)
+	return listAppEventSubscriptions(s.boundedDatabase(nil), app, project)
 }
 
 type subscriptionQueryer interface {
@@ -127,7 +127,7 @@ func listAppEventSubscriptions(db subscriptionQueryer, app, project string) ([]*
 // delete cascade — before tearing down a connection we fetch its subs
 // so we can unregister each upstream webhook and then remove the rows.
 func (s *Store) ListSubscriptionsByConnection(userID, connectionID int64) ([]Subscription, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		"SELECT id, agent_id, name, slug, webhook_path, COALESCE(external_webhook_id,'') FROM subscriptions WHERE user_id = ? AND connection_id = ?",
 		userID, connectionID,
 	)
@@ -192,7 +192,7 @@ func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name,
 			eventsJSON = string(b)
 		}
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		"INSERT INTO subscriptions (id, user_id, agent_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, thread_id, project_id, events, notify_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		id, userID, instanceID, connectionID, name, slug, description, webhookPath, encryptedSecret, threadID, projectID, eventsJSON, boolToInt(notifyAgent),
 	)
@@ -214,7 +214,7 @@ func (s *Store) CreatePollSubscription(userID, instanceID, connectionID int64, n
 		}
 	}
 	nextRun := formatPollTime(nextRunAt)
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO subscriptions
 			(id, user_id, agent_id, connection_id, name, slug, description,
 			 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
@@ -274,7 +274,7 @@ func (s *Store) CreateAppEventSubscriptionWithFilters(userID, instanceID int64, 
 	// literal 0 and there was no slot for connection_id/events) so the INSERT
 	// errored with "12 values for 13 columns" the moment the dashboard
 	// tried to subscribe to an app event.
-	_, err = s.db.Exec(
+	_, err = s.dbExec(
 		`INSERT INTO subscriptions
 				(id, user_id, agent_id, connection_id, name, slug, description,
 				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
@@ -361,7 +361,7 @@ func (s *Store) DeleteEphemeralSubscriptionWaitGroup(waitGroupID string) error {
 	if waitGroupID == "" {
 		return nil
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`DELETE FROM subscriptions WHERE kind = 'ephemeral' AND wait_group_id = ?`,
 		waitGroupID,
 	)
@@ -369,7 +369,7 @@ func (s *Store) DeleteEphemeralSubscriptionWaitGroup(waitGroupID string) error {
 }
 
 func (s *Store) CleanupExpiredEphemeralSubscriptions() error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`DELETE FROM subscriptions
 		 WHERE kind = 'ephemeral'
 		   AND COALESCE(expires_at,'') != ''
@@ -389,10 +389,10 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0),
 		COALESCE(match_json,''), created_at`
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND COALESCE(kind,'user') != 'ephemeral' AND (project_id = ? OR project_id = '') ORDER BY created_at, id", userID, projectID[0])
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND COALESCE(kind,'user') != 'ephemeral' ORDER BY created_at, id", userID)
 	}
 	if err != nil {
@@ -435,7 +435,7 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 		COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
 		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0),
 		COALESCE(match_json,''), created_at`
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND agent_id = ? AND COALESCE(kind,'user') != 'ephemeral' ORDER BY created_at, id",
 		userID, agentID,
 	)
@@ -475,7 +475,7 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 	var sub Subscription
 	var enabled, notifyAgent, deleteOnMatch int
 	var createdAt, eventsJSON, terminalJSON string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 			COALESCE(project_id,''), COALESCE(external_webhook_id,''),
@@ -516,7 +516,7 @@ func (s *Store) GetSubscriptionByPath(webhookPath string) (*Subscription, string
 	var sub Subscription
 	var enabled int
 	var encSecret, createdAt string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		"SELECT id, user_id, agent_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE webhook_path = ?",
 		webhookPath,
 	).Scan(&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &encSecret, &enabled, &sub.ThreadID, &createdAt)
@@ -529,17 +529,17 @@ func (s *Store) GetSubscriptionByPath(webhookPath string) (*Subscription, string
 }
 
 func (s *Store) DeleteSubscription(userID int64, id string) error {
-	_, err := s.db.Exec("DELETE FROM subscriptions WHERE id = ? AND user_id = ?", id, userID)
+	_, err := s.dbExec("DELETE FROM subscriptions WHERE id = ? AND user_id = ?", id, userID)
 	return err
 }
 
 func (s *Store) SetSubscriptionExternalID(id, externalID string) {
-	s.db.Exec("UPDATE subscriptions SET external_webhook_id = ? WHERE id = ?", externalID, id)
+	s.dbExec("UPDATE subscriptions SET external_webhook_id = ? WHERE id = ?", externalID, id)
 }
 
 func (s *Store) GetSubscriptionExternalID(id string) string {
 	var extID string
-	s.db.QueryRow("SELECT COALESCE(external_webhook_id,'') FROM subscriptions WHERE id = ?", id).Scan(&extID)
+	s.dbQueryRow("SELECT COALESCE(external_webhook_id,'') FROM subscriptions WHERE id = ?", id).Scan(&extID)
 	return extID
 }
 
@@ -555,12 +555,12 @@ func (s *Store) GetSubscriptionByExternalID(userID int64, externalID string) (*S
 	)
 	var err error
 	if userID > 0 {
-		err = s.db.QueryRow(
+		err = s.dbQueryRow(
 			"SELECT "+cols+" FROM subscriptions WHERE external_webhook_id = ? AND user_id = ?",
 			externalID, userID,
 		).Scan(&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID, &createdAt)
 	} else {
-		err = s.db.QueryRow(
+		err = s.dbQueryRow(
 			"SELECT "+cols+" FROM subscriptions WHERE external_webhook_id = ?",
 			externalID,
 		).Scan(&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID, &createdAt)
@@ -582,12 +582,12 @@ func (s *Store) SetSubscriptionEnabled(userID int64, id string, enabled bool) er
 	if enabled {
 		v = 1
 	}
-	_, err := s.db.Exec("UPDATE subscriptions SET enabled = ? WHERE id = ? AND user_id = ?", v, id, userID)
+	_, err := s.dbExec("UPDATE subscriptions SET enabled = ? WHERE id = ? AND user_id = ?", v, id, userID)
 	return err
 }
 
 func (s *Store) SetSubscriptionNotifyAgent(userID int64, id string, notifyAgent bool) error {
-	_, err := s.db.Exec("UPDATE subscriptions SET notify_agent = ? WHERE id = ? AND user_id = ?", boolToInt(notifyAgent), id, userID)
+	_, err := s.dbExec("UPDATE subscriptions SET notify_agent = ? WHERE id = ? AND user_id = ?", boolToInt(notifyAgent), id, userID)
 	return err
 }
 
@@ -609,7 +609,7 @@ func (s *Store) listDuePollSubscriptionsExcluding(now time.Time, limit int, excl
 		excluded = " AND id NOT IN (" + strings.Join(slots, ",") + ")"
 	}
 	args = append(args, limit)
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, user_id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 			COALESCE(project_id,''), COALESCE(external_webhook_id,''),
@@ -658,7 +658,7 @@ func (s *Store) listDuePollSubscriptionsExcluding(now time.Time, limit int, excl
 }
 
 func (s *Store) UpdatePollSubscriptionSuccess(id, stateJSON string, lastRunAt, nextRunAt time.Time) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`UPDATE subscriptions
 		 SET poll_state_json = ?, last_run_at = ?, next_run_at = ?, last_error = '', failure_count = 0
 		 WHERE id = ?`,
@@ -671,7 +671,7 @@ func (s *Store) UpdatePollSubscriptionFailure(id, errMsg string, lastRunAt, next
 	if len(errMsg) > 1000 {
 		errMsg = errMsg[:1000]
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`UPDATE subscriptions
 		 SET last_run_at = ?, next_run_at = ?, last_error = ?, failure_count = ?
 		 WHERE id = ?`,
@@ -1147,7 +1147,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 									} else if encrypted, encryptErr := Encrypt(s.secret, providerSecret); encryptErr != nil {
 										autoRegistered = false
 										log.Printf("[SUB-CREATE] encrypt provider webhook secret failed: %v", encryptErr)
-									} else if _, saveErr := s.store.db.Exec("UPDATE subscriptions SET encrypted_hmac_secret = ?, external_webhook_id = ? WHERE id = ?", encrypted, externalID, sub.ID); saveErr != nil {
+									} else if _, saveErr := s.store.dbExecContext(r.Context(), "UPDATE subscriptions SET encrypted_hmac_secret = ?, external_webhook_id = ? WHERE id = ?", encrypted, externalID, sub.ID); saveErr != nil {
 										autoRegistered = false
 										log.Printf("[SUB-CREATE] persist provider webhook credentials failed: %v", saveErr)
 									}

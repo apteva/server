@@ -186,7 +186,7 @@ func (b *remoteRuntimeBackend) Delete(in runtimeBackendRequest) error {
 func (m *appRuntimeManager) registration(ref runtimeBackendRef) (runtimeBackendRegistration, error) {
 	var v runtimeBackendRegistration
 	var raw string
-	err := m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_backends WHERE install_id=? AND backend_id=?`, ref.InstallID, ref.ID).Scan(&raw)
+	err := m.s.store.dbQueryRowContext(m.ctx, `SELECT record_json FROM app_runtime_backends WHERE install_id=? AND backend_id=?`, ref.InstallID, ref.ID).Scan(&raw)
 	if err != nil {
 		return v, err
 	}
@@ -202,7 +202,7 @@ func (m *appRuntimeManager) backend(d runtimeDeployment) (runtimeBackend, error)
 		return nil, fmt.Errorf("execution backend is not registered")
 	}
 	var base, status string
-	err = m.s.store.db.QueryRow(`SELECT sidecar_url_override,status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&base, &status)
+	err = m.s.store.dbQueryRowContext(m.ctx, `SELECT sidecar_url_override,status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&base, &status)
 	if err != nil || status != "running" {
 		return nil, fmt.Errorf("execution backend is unavailable")
 	}
@@ -231,7 +231,7 @@ func (m *appRuntimeManager) registerBackendContext(parent context.Context, reg r
 		return fmt.Errorf("backend endpoint must be /_apteva/runtime/backends/<id>")
 	}
 	var base, status string
-	if err := m.s.store.db.QueryRow(`SELECT sidecar_url_override,status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&base, &status); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT sidecar_url_override,status FROM app_installs WHERE id=?`, reg.InstallID).Scan(&base, &status); err != nil {
 		return err
 	}
 	if status != "running" {
@@ -282,7 +282,7 @@ func (m *appRuntimeManager) registerBackendContext(parent context.Context, reg r
 			return err
 		}
 	}
-	_, err = m.s.store.db.Exec(`INSERT INTO app_runtime_backends(install_id,backend_id,record_json) VALUES(?,?,?) ON CONFLICT(install_id,backend_id) DO UPDATE SET record_json=excluded.record_json`, reg.InstallID, reg.ID, runtimeJSON(reg))
+	_, err = m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_backends(install_id,backend_id,record_json) VALUES(?,?,?) ON CONFLICT(install_id,backend_id) DO UPDATE SET record_json=excluded.record_json`, reg.InstallID, reg.ID, runtimeJSON(reg))
 	return err
 }
 func (s *Server) runtimeControlToken(id int64) (string, error) {
@@ -297,7 +297,7 @@ func (s *Server) runtimeControlToken(id int64) (string, error) {
 }
 func (m *appRuntimeManager) appCapabilities(id int64) (runtimeAppCaps, bool) {
 	var base string
-	if err := m.s.store.db.QueryRow(`SELECT sidecar_url_override FROM app_installs WHERE id=?`, id).Scan(&base); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT sidecar_url_override FROM app_installs WHERE id=?`, id).Scan(&base); err != nil {
 		return runtimeAppCaps{}, false
 	}
 	token, err := m.s.runtimeControlToken(id)

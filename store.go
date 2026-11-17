@@ -116,12 +116,15 @@ type Agent struct {
 }
 
 type Store struct {
-	appMetadata     appMetadataCache
-	automatic       automaticRuntime
-	db              *sql.DB
-	path            string
-	credentialLocks [64]sync.Mutex
-	apiKeyUsage     *apiKeyUsageTracker
+	databaseOnce          sync.Once
+	databaseGuard         *databaseGuard
+	databaseBootstrapping bool
+	appMetadata           appMetadataCache
+	automatic             automaticRuntime
+	db                    *sql.DB
+	path                  string
+	credentialLocks       [64]sync.Mutex
+	apiKeyUsage           *apiKeyUsageTracker
 	// Invalidates live app telemetry eligibility after committed agent changes.
 	agentEligibilityRevision atomic.Uint64
 }
@@ -183,13 +186,8 @@ func openStore(path string, migrate bool) (*Store, error) {
 		return nil, err
 	}
 
-	// Keep the server pool bounded, but do not force it to one
-	// connection. The server has request paths that consume one result
-	// set and then perform follow-up DB reads before the handler
-	// returns; a single pooled connection turns any late rows.Close into
-	// a self-deadlock. WAL + per-connection busy_timeout handles normal
-	// SQLite writer contention, while this cap prevents an unbounded
-	// pile-up of pooled connections under dashboard reload bursts.
+	// Keep the pool bounded. Readers must release cursors before enrichment;
+	// extra connections cannot make nested pool borrowing safe under load.
 	db.SetMaxOpenConns(sqliteMaxOpenConns)
 	// Retain connections opened during bursts to avoid reloading the SQLite schema.
 	db.SetMaxIdleConns(sqliteMaxOpenConns)
@@ -206,7 +204,7 @@ func openStore(path string, migrate bool) (*Store, error) {
 		return nil, err
 	}
 
-	s := &Store{db: db, path: path}
+	s := &Store{db: db, path: path, databaseBootstrapping: true}
 	if migrate {
 		if err := s.migrate(); err != nil {
 			_ = db.Close()
@@ -272,11 +270,17 @@ func openStore(path string, migrate bool) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+		if err := s.migrateAccountDevices(); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	if s.apiKeyUsage, err = newAPIKeyUsageTracker(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("start API key usage tracker: %w", err)
 	}
+	s.databaseBootstrapping = false
+	s.guard()
 	return s, nil
 }
 
@@ -334,7 +338,7 @@ func execWithBusyRetry(db *sql.DB, query string, args ...any) error {
 // since renaming an index isn't supported in the same statement.
 func (s *Store) renameInstanceTablesToAgents() error {
 	exec := func(query string) error {
-		_, err := s.db.Exec(query)
+		_, err := s.dbExec(query)
 		return err
 	}
 	// Rename the main agent table.
@@ -496,7 +500,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	_, err := s.db.Exec(`
+	_, err := s.dbExec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			email TEXT UNIQUE NOT NULL,
@@ -876,52 +880,52 @@ func (s *Store) migrate() error {
 	// rename. SQLite 3.25+ ALTER COLUMN. Idempotent — if icon
 	// already exists the guard short-circuits.
 	if columnExists(s.db, "agent_templates", "emoji") && !columnExists(s.db, "agent_templates", "icon") {
-		s.db.Exec("ALTER TABLE agent_templates RENAME COLUMN emoji TO icon")
+		s.dbExec("ALTER TABLE agent_templates RENAME COLUMN emoji TO icon")
 	}
 	// Catch-up: requirements column for DBs created before the
 	// requirements rollout. Fresh DBs already have it from the
 	// CREATE above. Default '[]' keeps existing rows valid JSON.
 	if !columnExists(s.db, "agent_templates", "requirements") {
-		s.db.Exec("ALTER TABLE agent_templates ADD COLUMN requirements TEXT NOT NULL DEFAULT '[]'")
+		s.dbExec("ALTER TABLE agent_templates ADD COLUMN requirements TEXT NOT NULL DEFAULT '[]'")
 	}
 	if !columnExists(s.db, "agent_templates", "highlights") {
-		s.db.Exec("ALTER TABLE agent_templates ADD COLUMN highlights TEXT NOT NULL DEFAULT '[]'")
+		s.dbExec("ALTER TABLE agent_templates ADD COLUMN highlights TEXT NOT NULL DEFAULT '[]'")
 	}
 	// Catch-up: kind column for DBs created before the meta-agent
 	// rollout. Existing rows default to 'user' so dashboards keep
 	// listing them as before.
 	if !columnExists(s.db, "agents", "kind") {
-		s.db.Exec("ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'")
+		s.dbExec("ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'")
 	}
 	if !columnExists(s.db, "agents", "core_api_key") {
-		s.db.Exec("ALTER TABLE agents ADD COLUMN core_api_key TEXT NOT NULL DEFAULT ''")
+		s.dbExec("ALTER TABLE agents ADD COLUMN core_api_key TEXT NOT NULL DEFAULT ''")
 	}
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN access TEXT NOT NULL DEFAULT 'read_write'")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN kind TEXT NOT NULL DEFAULT 'private'")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN project_id TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT '[]'")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN allowed_origins TEXT NOT NULL DEFAULT '[]'")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 60")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN expires_at DATETIME")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN revoked_at DATETIME")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN last_used_ip TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN issuer_app TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN issuer_install_id INTEGER NOT NULL DEFAULT 0")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN subject_type TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN subject_id TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN subject_email TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN organization_id TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE api_keys ADD COLUMN organization_slug TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN access TEXT NOT NULL DEFAULT 'read_write'")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN kind TEXT NOT NULL DEFAULT 'private'")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN project_id TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT '[]'")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN allowed_origins TEXT NOT NULL DEFAULT '[]'")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 60")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN expires_at DATETIME")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN revoked_at DATETIME")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN last_used_ip TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN issuer_app TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN issuer_install_id INTEGER NOT NULL DEFAULT 0")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN subject_type TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN subject_id TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN subject_email TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN organization_id TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE api_keys ADD COLUMN organization_slug TEXT NOT NULL DEFAULT ''")
 	if !columnExists(s.db, "agents", "core_version") {
-		s.db.Exec("ALTER TABLE agents ADD COLUMN core_version TEXT NOT NULL DEFAULT ''")
+		s.dbExec("ALTER TABLE agents ADD COLUMN core_version TEXT NOT NULL DEFAULT ''")
 	}
 	if !columnExists(s.db, "agents", "core_build_time") {
-		s.db.Exec("ALTER TABLE agents ADD COLUMN core_build_time TEXT NOT NULL DEFAULT ''")
+		s.dbExec("ALTER TABLE agents ADD COLUMN core_build_time TEXT NOT NULL DEFAULT ''")
 	}
 	if !columnExists(s.db, "agents", "core_started_at") {
-		s.db.Exec("ALTER TABLE agents ADD COLUMN core_started_at DATETIME")
+		s.dbExec("ALTER TABLE agents ADD COLUMN core_started_at DATETIME")
 	}
-	s.db.Exec(`UPDATE agents
+	s.dbExec(`UPDATE agents
 	              SET port=0, pid=0, core_api_key=''
 	            WHERE status='stopped'
 	              AND (port != 0 OR pid != 0 OR COALESCE(core_api_key,'') != '')`)
@@ -938,50 +942,50 @@ func (s *Store) migrate() error {
 	// subsequent boot we mustn't overwrite NULLs of users who registered
 	// between boots and haven't completed onboarding yet.
 	if !columnExists(s.db, "users", "onboarded_at") {
-		s.db.Exec("ALTER TABLE users ADD COLUMN onboarded_at DATETIME")
-		s.db.Exec("UPDATE users SET onboarded_at = created_at WHERE onboarded_at IS NULL")
+		s.dbExec("ALTER TABLE users ADD COLUMN onboarded_at DATETIME")
+		s.dbExec("UPDATE users SET onboarded_at = created_at WHERE onboarded_at IS NULL")
 	}
 	// Optional dashboard MFA. These columns intentionally live on users and
 	// sessions so the first TOTP implementation needs no auxiliary table.
 	// Existing sessions remain fully authenticated through the active default.
 	if !columnExists(s.db, "users", "mfa_type") {
-		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_type TEXT NOT NULL DEFAULT ''")
+		s.dbExec("ALTER TABLE users ADD COLUMN mfa_type TEXT NOT NULL DEFAULT ''")
 	}
 	if !columnExists(s.db, "users", "mfa_secret_encrypted") {
-		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT NOT NULL DEFAULT ''")
+		s.dbExec("ALTER TABLE users ADD COLUMN mfa_secret_encrypted TEXT NOT NULL DEFAULT ''")
 	}
 	if !columnExists(s.db, "users", "mfa_recovery_hashes") {
-		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_recovery_hashes TEXT NOT NULL DEFAULT '[]'")
+		s.dbExec("ALTER TABLE users ADD COLUMN mfa_recovery_hashes TEXT NOT NULL DEFAULT '[]'")
 	}
 	if !columnExists(s.db, "users", "mfa_last_counter") {
-		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_last_counter INTEGER NOT NULL DEFAULT -1")
+		s.dbExec("ALTER TABLE users ADD COLUMN mfa_last_counter INTEGER NOT NULL DEFAULT -1")
 	}
 	if !columnExists(s.db, "users", "mfa_enabled_at") {
-		s.db.Exec("ALTER TABLE users ADD COLUMN mfa_enabled_at DATETIME")
+		s.dbExec("ALTER TABLE users ADD COLUMN mfa_enabled_at DATETIME")
 	}
 	if !columnExists(s.db, "sessions", "auth_state") {
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN auth_state TEXT NOT NULL DEFAULT 'active'")
+		s.dbExec("ALTER TABLE sessions ADD COLUMN auth_state TEXT NOT NULL DEFAULT 'active'")
 	}
 	if !columnExists(s.db, "sessions", "mfa_attempts") {
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN mfa_attempts INTEGER NOT NULL DEFAULT 0")
+		s.dbExec("ALTER TABLE sessions ADD COLUMN mfa_attempts INTEGER NOT NULL DEFAULT 0")
 	}
 	if err := s.migrateCredentialSecurity(); err != nil {
 		return fmt.Errorf("credential security migration: %w", err)
 	}
 
 	// Migrations for existing DBs — silently ignored if columns already exist
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN thread_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE connections ADD COLUMN project_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN project_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE agents ADD COLUMN project_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE channels ADD COLUMN project_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN thread_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE connections ADD COLUMN project_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE mcp_servers ADD COLUMN project_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE agents ADD COLUMN project_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE channels ADD COLUMN project_id TEXT DEFAULT ''")
 	// is_default removed — default is per-instance, stored in agents.config
-	s.db.Exec("ALTER TABLE agents ADD COLUMN mode TEXT DEFAULT 'autonomous'")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN events TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN notify_agent INTEGER NOT NULL DEFAULT 0")
+	s.dbExec("ALTER TABLE agents ADD COLUMN mode TEXT DEFAULT 'autonomous'")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN events TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN notify_agent INTEGER NOT NULL DEFAULT 0")
 	// Source discriminator for the subscription. Default 'webhook'
 	// preserves existing rows: token-keyed external delivery via
 	// /webhooks/<token>. New value 'app_event' attaches the row to the
@@ -989,27 +993,27 @@ func (s *Store) migrate() error {
 	// '<app_name>:<topic_pattern>' (e.g. 'tables:row.*'). Bridge
 	// dispatcher fans bus events into the same core /event delivery
 	// path webhooks already use.
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN source TEXT NOT NULL DEFAULT 'webhook'")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN source TEXT NOT NULL DEFAULT 'webhook'")
 	// Highest bus seq we successfully delivered to the agent. On
 	// apteva-server restart the dispatcher subscribes with
 	// since=last_seq_delivered so events emitted while we were down
 	// (within the bus's 256-event ring) replay automatically.
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_seq_delivered INTEGER NOT NULL DEFAULT 0")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN delivery TEXT NOT NULL DEFAULT 'webhook'")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN poll_config_json TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN poll_state_json TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_run_at DATETIME")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN next_run_at DATETIME")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_error TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN match_json TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN wait_group_id TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN expires_at DATETIME")
-	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN delete_on_match INTEGER NOT NULL DEFAULT 0")
-	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_poll_due ON subscriptions(delivery, enabled, next_run_at)")
-	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_ephemeral_wait ON subscriptions(kind, wait_group_id)")
-	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_ephemeral_expiry ON subscriptions(kind, expires_at)")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN last_seq_delivered INTEGER NOT NULL DEFAULT 0")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN delivery TEXT NOT NULL DEFAULT 'webhook'")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN poll_config_json TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN poll_state_json TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN last_run_at DATETIME")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN next_run_at DATETIME")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN last_error TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN match_json TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN wait_group_id TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN expires_at DATETIME")
+	s.dbExec("ALTER TABLE subscriptions ADD COLUMN delete_on_match INTEGER NOT NULL DEFAULT 0")
+	s.dbExec("CREATE INDEX IF NOT EXISTS idx_sub_poll_due ON subscriptions(delivery, enabled, next_run_at)")
+	s.dbExec("CREATE INDEX IF NOT EXISTS idx_sub_ephemeral_wait ON subscriptions(kind, wait_group_id)")
+	s.dbExec("CREATE INDEX IF NOT EXISTS idx_sub_ephemeral_expiry ON subscriptions(kind, expires_at)")
 	// Older app-event / provider-trigger subscriptions used an empty
 	// webhook_path because they do not expose a per-subscription public
 	// webhook. The column is globally UNIQUE, so the first such row
@@ -1022,7 +1026,7 @@ func (s *Store) migrate() error {
 	// the row id, then enforce uniqueness with an index. Do the same for
 	// connections keyed on (user, project, app_slug, name). Both are
 	// idempotent on re-run because the suffixed names no longer collide.
-	s.db.Exec(`
+	s.dbExec(`
 		UPDATE mcp_servers
 		SET name = name || '-' || id
 		WHERE id IN (
@@ -1034,7 +1038,7 @@ func (s *Store) migrate() error {
 			 AND m1.id > m2.id
 		)
 	`)
-	s.db.Exec(`
+	s.dbExec(`
 		UPDATE connections
 		SET name = name || '-' || id
 		WHERE id IN (
@@ -1047,25 +1051,25 @@ func (s *Store) migrate() error {
 			 AND c1.id > c2.id
 		)
 	`)
-	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers(user_id, project_id, name)")
-	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_name ON connections(user_id, project_id, app_slug, name)")
+	s.dbExec("CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers(user_id, project_id, name)")
+	s.dbExec("CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_name ON connections(user_id, project_id, app_slug, name)")
 
 	// Unified connections + mcp_servers: source discriminator + hosted-provider refs
-	s.db.Exec("ALTER TABLE connections ADD COLUMN source TEXT DEFAULT 'local'")
-	s.db.Exec("ALTER TABLE connections ADD COLUMN provider_id INTEGER DEFAULT 0")
-	s.db.Exec("ALTER TABLE connections ADD COLUMN external_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN transport TEXT DEFAULT 'stdio'")
-	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN url TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN provider_id INTEGER DEFAULT 0")
+	s.dbExec("ALTER TABLE connections ADD COLUMN source TEXT DEFAULT 'local'")
+	s.dbExec("ALTER TABLE connections ADD COLUMN provider_id INTEGER DEFAULT 0")
+	s.dbExec("ALTER TABLE connections ADD COLUMN external_id TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE mcp_servers ADD COLUMN transport TEXT DEFAULT 'stdio'")
+	s.dbExec("ALTER TABLE mcp_servers ADD COLUMN url TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE mcp_servers ADD COLUMN provider_id INTEGER DEFAULT 0")
 	// Tool-level scoping. JSON array of allowed tool names. Empty string ('')
 	// means "all tools exposed by the underlying source are enabled" — the
 	// legacy behaviour we keep for existing rows. Populated means the MCP
 	// endpoint only serves those specific tools and rejects any tools/call
 	// targeting anything outside the list.
-	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE mcp_servers ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT ''")
 	// upstream_id stores a durable identifier supplied by a remote MCP or app.
 	// The local mcp_servers.id remains stable when an upstream identity changes.
-	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN upstream_id TEXT NOT NULL DEFAULT ''")
+	s.dbExec("ALTER TABLE mcp_servers ADD COLUMN upstream_id TEXT NOT NULL DEFAULT ''")
 
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS app_oauth_reconnects (
 		id TEXT PRIMARY KEY,
@@ -1081,7 +1085,7 @@ func (s *Store) migrate() error {
 	)`)
 
 	// Pending-OAuth state table for local catalog OAuth2 flows.
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS oauth_states (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS oauth_states (
 		state TEXT PRIMARY KEY,
 		user_id INTEGER NOT NULL,
 		connection_id INTEGER NOT NULL,
@@ -1096,15 +1100,15 @@ func (s *Store) migrate() error {
 	// callback always lands on the dashboard's HTML success page; with
 	// them set, we 302 the browser back into the app's panel so it can
 	// pick up the dangling pending_account row by conn_id.
-	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN app_install_id INTEGER NOT NULL DEFAULT 0`)
-	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN return_url TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN purpose TEXT NOT NULL DEFAULT 'connect'`)
+	s.dbExec(`ALTER TABLE oauth_states ADD COLUMN app_install_id INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE oauth_states ADD COLUMN return_url TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE oauth_states ADD COLUMN purpose TEXT NOT NULL DEFAULT 'connect'`)
 	// Connections gain owner_app_install_id so the platform can scope
 	// list/disconnect operations and so the operator's Integrations admin
 	// can hide app-owned connections (the app exposes them through its
 	// own UI). Pre-existing rows have created_via='integration' and
 	// owner_app_install_id=0 — the legacy meaning.
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN owner_app_install_id INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN owner_app_install_id INTEGER NOT NULL DEFAULT 0`)
 	// auto_mcp: when 1 (default), creating a connection via the
 	// Integrations admin auto-spawns an mcp_servers row that exposes
 	// every tool the integration declares to all agents in the
@@ -1114,7 +1118,7 @@ func (s *Store) migrate() error {
 	// globally. Useful for "I want Facebook for the Social app, not
 	// for every agent in the project." Operator can flip the flag
 	// later via PATCH /connections/:id/expose.
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN auto_mcp INTEGER NOT NULL DEFAULT 1`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN auto_mcp INTEGER NOT NULL DEFAULT 1`)
 
 	// ─── Runtime-backend columns (providers/connections fusion) ───
 	//
@@ -1122,38 +1126,38 @@ func (s *Store) migrate() error {
 	// URL overrides, Ollama's model names. Deliberately NOT in
 	// encrypted_credentials: these are preferences, not secrets, and the
 	// pool resolver reads them on every agent boot.
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN runtime_config TEXT NOT NULL DEFAULT '{}'`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN runtime_config TEXT NOT NULL DEFAULT '{}'`)
 	// is_primary: which connection supplies the credential when several
 	// exist for the same app (e.g. three OpenCode Go keys). The old
 	// providers table deduped implicitly by lowest id; making it explicit
 	// lets the operator choose. Scope precedence is unchanged — a
 	// project-scoped row still beats a global one; is_primary only breaks
 	// ties *within* a scope.
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0`)
 	// legacy_provider_id: the providers.id this row was migrated from, or
 	// 0. Cores built before the fusion construct their token-refresh URL
 	// as /api/providers/<OPENAI_CODEX_PROVIDER_ID>/auth/runtime-token
 	// from an env var we injected at spawn, so that id has to keep
 	// resolving after the providers table is gone. See
 	// resolveRuntimeTokenConnection in provider_auth.go.
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN legacy_provider_id INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN legacy_provider_id INTEGER NOT NULL DEFAULT 0`)
 	// At most one primary per user+project+app. Partial unique indexes are
 	// supported by modernc.org/sqlite, so the invariant is enforced by the
 	// DB rather than by handler code that can be bypassed.
-	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_primary
+	s.dbExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_primary
 		ON connections(user_id, project_id, app_slug) WHERE is_primary = 1`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_connections_legacy_provider
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_connections_legacy_provider
 		ON connections(legacy_provider_id) WHERE legacy_provider_id != 0`)
 	// A legacy provider is represented by exactly one connection. Earlier
 	// revisions stamped this in a separate statement and did not enforce
 	// uniqueness, so repair any duplicate stamps without deleting either
 	// connection, then make future duplicates impossible at the DB boundary.
-	s.db.Exec(`UPDATE connections SET legacy_provider_id = 0
+	s.dbExec(`UPDATE connections SET legacy_provider_id = 0
 		WHERE legacy_provider_id != 0 AND id NOT IN (
 			SELECT MIN(id) FROM connections WHERE legacy_provider_id != 0
 			GROUP BY user_id, legacy_provider_id
 		)`)
-	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_legacy_provider_unique
+	if _, err := s.dbExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_legacy_provider_unique
 		ON connections(user_id, legacy_provider_id) WHERE legacy_provider_id != 0`); err != nil {
 		return fmt.Errorf("create unique legacy-provider connection index: %w", err)
 	}
@@ -1161,7 +1165,7 @@ func (s *Store) migrate() error {
 	// ORDER BY reproduces the old "first wins" behavior as a stated fact
 	// rather than a coincidence. HAVING SUM(is_primary) = 0 makes this
 	// idempotent — once an operator picks a primary, reboots leave it be.
-	s.db.Exec(`UPDATE connections SET is_primary = 1 WHERE id IN (
+	s.dbExec(`UPDATE connections SET is_primary = 1 WHERE id IN (
 		SELECT MIN(id) FROM connections
 		GROUP BY user_id, project_id, app_slug
 		HAVING SUM(is_primary) = 0
@@ -1172,51 +1176,51 @@ func (s *Store) migrate() error {
 	// catches upgrades so new provider types show up in the dashboard's
 	// "add provider" picker after a binary upgrade without requiring a
 	// DB reset.
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+	s.dbExec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14)`)
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+	s.dbExec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(16, 'llm', 'Google', 'Gemini models via the Google Generative Language API', '["GOOGLE_API_KEY"]', 1, 13)`)
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+	s.dbExec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(11, 'browser', 'Local Browser', 'Local Chromium via chromedp (requires Chromium in the runtime image)', '[]', 0, 41)`)
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+	s.dbExec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(12, 'browser', 'Remote CDP', 'Connect to an existing Chrome over CDP (ws:// or http://)', '["CDP_URL"]', 1, 42)`)
 	// Name is the user-visible label shown in the "Add provider" dropdown.
 	// Lookup keys (createProviderByName / FetchModels) normalize the name
 	// via providerKeyFromName below — lowercase + spaces→hyphens — so
 	// pretty display names work without a separate column.
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+	s.dbExec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 			(13, 'llm', 'OpenCode Go', 'Flat-rate gateway ($10/mo) for Kimi K2.6, Qwen, GLM, MiMo, DeepSeek and more (opencode.ai/go)', '["OPENCODE_GO_API_KEY"]', 1, 15)`)
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+	s.dbExec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 				(14, 'llm', 'Venice', 'Privacy-focused inference gateway — Llama, Qwen, GLM, Mistral plus Claude / Grok / Gemini reseller variants (venice.ai)', '["VENICE_API_KEY"]', 1, 16)`)
-	s.db.Exec(`UPDATE provider_types
+	s.dbExec(`UPDATE provider_types
 			SET fields='["OLLAMA_HOST","OLLAMA_MODEL","OLLAMA_EMBED_MODEL","OLLAMA_EMBED_DIM"]'
 			WHERE id=4 AND name='Ollama'`)
 	// Provider auth metadata: older DBs only have fields/requires_credentials.
 	// These columns let the dashboard render API-key, device-code, browser
 	// OAuth, and future auth methods without provider-specific routes.
-	s.db.Exec("ALTER TABLE provider_types ADD COLUMN auth_type TEXT DEFAULT 'api_key'")
-	s.db.Exec("ALTER TABLE provider_types ADD COLUMN auth_provider TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE provider_types ADD COLUMN runtime_status TEXT DEFAULT 'available'")
-	s.db.Exec("ALTER TABLE provider_types ADD COLUMN capabilities TEXT DEFAULT '[]'")
-	s.db.Exec(`UPDATE provider_types
+	s.dbExec("ALTER TABLE provider_types ADD COLUMN auth_type TEXT DEFAULT 'api_key'")
+	s.dbExec("ALTER TABLE provider_types ADD COLUMN auth_provider TEXT DEFAULT ''")
+	s.dbExec("ALTER TABLE provider_types ADD COLUMN runtime_status TEXT DEFAULT 'available'")
+	s.dbExec("ALTER TABLE provider_types ADD COLUMN capabilities TEXT DEFAULT '[]'")
+	s.dbExec(`UPDATE provider_types
 			SET auth_type='api_key',
 			    auth_provider=lower(replace(name, ' ', '-')),
 			    runtime_status='available'
 			WHERE auth_type IS NULL OR auth_type=''`)
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types
+	s.dbExec(`INSERT OR IGNORE INTO provider_types
 			(id, type, name, description, fields, requires_credentials, auth_type, auth_provider, runtime_status, capabilities, sort_order)
 			VALUES
 			(15, 'llm', 'OpenAI Codex', 'ChatGPT subscription-backed Codex auth via the Codex Responses runtime.', '[]', 1, 'oauth_device_code', 'openai-codex', 'available', '["llm","subscription","subscription_usage","codex_responses","streaming","native_tools"]', 17)`)
-	s.db.Exec(`UPDATE provider_types
+	s.dbExec(`UPDATE provider_types
 			SET description='ChatGPT subscription-backed Codex auth via the Codex Responses runtime.',
 			    runtime_status='available',
 			    capabilities='["llm","subscription","subscription_usage","codex_responses","streaming","native_tools"]'
 			WHERE id=15 AND auth_provider='openai-codex'`)
-	s.db.Exec(`INSERT OR IGNORE INTO provider_types
+	s.dbExec(`INSERT OR IGNORE INTO provider_types
 			(id, type, name, description, fields, requires_credentials, auth_type, auth_provider, runtime_status, capabilities, sort_order)
 			VALUES
 			(17, 'llm', 'xAI', 'Grok language models through the xAI OpenAI-compatible API.', '["XAI_API_KEY"]', 1, 'api_key', 'xai', 'available', '["llm","streaming","native_tools","reasoning","vision"]', 18)`)
-	s.db.Exec(`UPDATE provider_types
+	s.dbExec(`UPDATE provider_types
 			SET description='Grok language models through the xAI OpenAI-compatible API.',
 			    fields='["XAI_API_KEY"]',
 			    auth_type='api_key',
@@ -1230,7 +1234,7 @@ func (s *Store) migrate() error {
 	// fields / name describe Browserbase. Flip the type to 'browserbase'
 	// on existing installs. Idempotent — re-running is a no-op once the
 	// row has the correct type.
-	s.db.Exec(`UPDATE provider_types
+	s.dbExec(`UPDATE provider_types
 		SET type='browserbase',
 		    description='Cloud browser automation via Browserbase',
 		    fields='["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]'
@@ -1238,7 +1242,7 @@ func (s *Store) migrate() error {
 	// And rewrite any providers rows already created against the broken
 	// seed so they start working immediately. The encrypted_data still
 	// holds valid Browserbase credentials — only the type column is wrong.
-	s.db.Exec(`UPDATE providers
+	s.dbExec(`UPDATE providers
 		SET type='browserbase'
 		WHERE type='browser' AND provider_type_id=8`)
 
@@ -1246,7 +1250,7 @@ func (s *Store) migrate() error {
 	// generic provider rows. Keep historical provider_types around so existing
 	// saved providers can still be inspected/deactivated, but stop presenting
 	// them as addable runtime providers.
-	s.db.Exec(`UPDATE provider_types
+	s.dbExec(`UPDATE provider_types
 		SET runtime_status='unsupported'
 		WHERE type IN ('browser', 'browserbase', 'steel', 'browser-engine')
 		   OR name IN ('Browserbase', 'Steel', 'Browser Engine', 'Local Browser', 'Remote CDP')`)
@@ -1255,7 +1259,7 @@ func (s *Store) migrate() error {
 	// admin needs to configure from the dashboard, not just from env
 	// vars at boot. Today: public_url. Tomorrow: anything else that
 	// belongs at the server level rather than per-user/per-project.
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS server_settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,
@@ -1266,7 +1270,7 @@ func (s *Store) migrate() error {
 	// eventual and emitted after a model call; this row is the synchronous,
 	// server-owned counter used to reject calls before a hosted allowance is
 	// exceeded. One row per UTC day keeps reset behavior deterministic.
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS managed_llm_usage (
 			usage_date TEXT NOT NULL,
 			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1278,9 +1282,9 @@ func (s *Store) migrate() error {
 			PRIMARY KEY (usage_date, user_id, project_id)
 		)
 	`)
-	s.db.Exec(`ALTER TABLE projects ADD COLUMN expires_at DATETIME`)
-	s.db.Exec(`ALTER TABLE projects ADD COLUMN provisioning_preset_id TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`
+	s.dbExec(`ALTER TABLE projects ADD COLUMN expires_at DATETIME`)
+	s.dbExec(`ALTER TABLE projects ADD COLUMN provisioning_preset_id TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS user_preferences (
 			user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 			language TEXT NOT NULL DEFAULT '',
@@ -1291,12 +1295,12 @@ func (s *Store) migrate() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
-	s.db.Exec(`ALTER TABLE user_preferences ADD COLUMN interface_level TEXT
+	s.dbExec(`ALTER TABLE user_preferences ADD COLUMN interface_level TEXT
 		CHECK(interface_level IS NULL OR interface_level IN ('personal', 'business', 'developer'))`)
-	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout TEXT NOT NULL DEFAULT '{}'")
-	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout_revision INTEGER NOT NULL DEFAULT 0")
-	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN product_tours TEXT NOT NULL DEFAULT '{}'")
-	s.db.Exec(`
+	s.dbExec("ALTER TABLE user_preferences ADD COLUMN ui_layout TEXT NOT NULL DEFAULT '{}'")
+	s.dbExec("ALTER TABLE user_preferences ADD COLUMN ui_layout_revision INTEGER NOT NULL DEFAULT 0")
+	s.dbExec("ALTER TABLE user_preferences ADD COLUMN product_tours TEXT NOT NULL DEFAULT '{}'")
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS mobile_push_subscriptions (
 			id TEXT PRIMARY KEY,
 			installation_id TEXT NOT NULL UNIQUE,
@@ -1329,7 +1333,7 @@ func (s *Store) migrate() error {
 	`)
 	// Upgrade servers that created the original iOS-only subscription table.
 	// SQLite applies the DEFAULT to existing rows, preserving their behavior.
-	s.db.Exec(`ALTER TABLE mobile_push_subscriptions
+	s.dbExec(`ALTER TABLE mobile_push_subscriptions
 		ADD COLUMN platform TEXT NOT NULL DEFAULT 'ios'
 		CHECK(platform IN ('ios', 'android'))`)
 
@@ -1344,7 +1348,7 @@ func (s *Store) migrate() error {
 	// app_slug as the name and keeps the pretty form in description.
 	// Safe to re-run: idempotent because name = app_slug is the new
 	// invariant, subsequent runs are a no-op.
-	s.db.Exec(`
+	s.dbExec(`
 		UPDATE mcp_servers
 		SET
 			name = COALESCE((SELECT app_slug FROM connections WHERE id = mcp_servers.connection_id), name),
@@ -1355,7 +1359,7 @@ func (s *Store) migrate() error {
 	// Apps system — see apps_loader.go. Keeps the index of every
 	// installed app, plus a per-install row for project/global scope
 	// and an instance-binding table the agent runtime reads.
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS apps (
 			id            INTEGER PRIMARY KEY AUTOINCREMENT,
 			name          TEXT NOT NULL UNIQUE,
@@ -1366,7 +1370,7 @@ func (s *Store) migrate() error {
 			registered_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS app_installs (
 			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 			app_id               INTEGER NOT NULL REFERENCES apps(id),
@@ -1391,44 +1395,44 @@ func (s *Store) migrate() error {
 				UNIQUE(app_id, project_id)
 			)
 		`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN app_token_hash TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN app_token_encrypted TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN default_for_new_agents INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN app_token_hash TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN app_token_encrypted TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN default_for_new_agents INTEGER NOT NULL DEFAULT 0`)
 	// Per-install source snapshot. The apps row tracks marketplace/latest
 	// metadata; these fields describe what this project is actually running.
 	// Backfill keeps upgrades from one project changing another project's
 	// manifest, MCP surface, permissions, or restart behavior.
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN manifest_json TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN pending_manifest_json TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN manifest_json TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN pending_manifest_json TEXT NOT NULL DEFAULT ''`)
 	// Advanced only when a healthy runtime is activated, not when its bridge
 	// is re-registered. Persists across server restarts and same-version rebuilds.
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN mcp_activation_revision INTEGER NOT NULL DEFAULT 0`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN source TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN repo TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN ref TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`UPDATE app_installs
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN mcp_activation_revision INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN source TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN repo TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN ref TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`UPDATE app_installs
 		SET manifest_json = COALESCE((SELECT manifest_json FROM apps WHERE apps.id = app_installs.app_id), '')
 		WHERE manifest_json = ''`)
-	s.db.Exec(`UPDATE app_installs
+	s.dbExec(`UPDATE app_installs
 		SET source = COALESCE((SELECT source FROM apps WHERE apps.id = app_installs.app_id), '')
 		WHERE source = ''`)
-	s.db.Exec(`UPDATE app_installs
+	s.dbExec(`UPDATE app_installs
 		SET repo = COALESCE((SELECT repo FROM apps WHERE apps.id = app_installs.app_id), '')
 		WHERE repo = ''`)
-	s.db.Exec(`UPDATE app_installs
+	s.dbExec(`UPDATE app_installs
 		SET ref = COALESCE((SELECT ref FROM apps WHERE apps.id = app_installs.app_id), '')
 		WHERE ref = ''`)
-	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_installs_token_hash ON app_installs(app_token_hash) WHERE app_token_hash != ''`)
+	s.dbExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_installs_token_hash ON app_installs(app_token_hash) WHERE app_token_hash != ''`)
 	// Dependency resolution only considers live installs. Keep this partial
 	// index small even if a legacy database contains many failed rows.
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_installs_running_app_project
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_app_installs_running_app_project
 		ON app_installs(app_id, project_id, id) WHERE status = 'running'`)
 	// Durable app-owned agent executions. This is operational ownership and
 	// idempotency state, deliberately separate from retention-managed telemetry.
 	// The app-facing event id is scoped to the authenticated installation; Core
 	// receives the server-derived core_event_id instead of caller-controlled
 	// routing metadata.
-	if _, err := s.db.Exec(`
+	if _, err := s.dbExec(`
 		CREATE TABLE IF NOT EXISTS agent_event_executions (
 			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
 			agent_id            INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -1452,19 +1456,19 @@ func (s *Store) migrate() error {
 	}
 	// Forward-compatible with development databases created by an earlier
 	// iteration of this migration.
-	s.db.Exec(`ALTER TABLE agent_event_executions ADD COLUMN source_app TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`UPDATE agent_event_executions
+	s.dbExec(`ALTER TABLE agent_event_executions ADD COLUMN source_app TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`UPDATE agent_event_executions
 		SET source_app=COALESCE((SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id
 			WHERE i.id=agent_event_executions.source_install_id), '')
 		WHERE source_app=''`)
-	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_event_core_execution
+	if _, err := s.dbExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_event_core_execution
 		ON agent_event_executions(agent_id, core_execution_id) WHERE core_execution_id != ''`); err != nil {
 		return fmt.Errorf("index agent event executions: %w", err)
 	}
 	// Retry state for direct delivery to the originating sidecar's /events
 	// endpoint. payload_json makes pending delivery independent of telemetry
 	// retention and lets the worker retry after a server restart.
-	if _, err := s.db.Exec(`
+	if _, err := s.dbExec(`
 		CREATE TABLE IF NOT EXISTS agent_event_deliveries (
 			transition_id      TEXT PRIMARY KEY,
 			telemetry_id       TEXT NOT NULL UNIQUE,
@@ -1482,11 +1486,11 @@ func (s *Store) migrate() error {
 	`); err != nil {
 		return fmt.Errorf("create agent_event_deliveries: %w", err)
 	}
-	s.db.Exec(`ALTER TABLE agent_event_deliveries ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0`)
-	s.db.Exec(`UPDATE agent_event_deliveries
+	s.dbExec(`ALTER TABLE agent_event_deliveries ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`UPDATE agent_event_deliveries
 		SET sequence=COALESCE(json_extract(payload_json, '$.data.sequence'), 0)
 		WHERE sequence=0`)
-	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_event_deliveries_due
+	if _, err := s.dbExec(`CREATE INDEX IF NOT EXISTS idx_agent_event_deliveries_due
 		ON agent_event_deliveries(delivered_at, next_attempt_at)`); err != nil {
 		return fmt.Errorf("index agent event deliveries: %w", err)
 	}
@@ -1495,7 +1499,7 @@ func (s *Store) migrate() error {
 	// OAuth client id). Keeping every row tied to an install prevents one app
 	// from granting cross-origin access to another app's routes, while a
 	// replace-by-key callback lets changes take effect without a server restart.
-	if _, err := s.db.Exec(`
+	if _, err := s.dbExec(`
 		CREATE TABLE IF NOT EXISTS app_cors_origins (
 			install_id       INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
 			registration_key TEXT NOT NULL,
@@ -1512,7 +1516,7 @@ func (s *Store) migrate() error {
 		return fmt.Errorf("create app CORS origin registry: %w", err)
 	}
 	// Dashboard CSP destinations are separate from inbound app CORS grants.
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS app_dashboard_connect_origins (
+	if _, err := s.dbExec(`CREATE TABLE IF NOT EXISTS app_dashboard_connect_origins (
 		install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
 		registration_key TEXT NOT NULL,
 		origin TEXT NOT NULL,
@@ -1523,13 +1527,13 @@ func (s *Store) migrate() error {
 	// Forward-add policy metadata for registries created by the origin-only
 	// implementation. Ignoring duplicate-column errors matches the existing
 	// additive SQLite migration style used throughout this store.
-	s.db.Exec(`ALTER TABLE app_cors_origins ADD COLUMN preflight_mode TEXT NOT NULL DEFAULT 'platform'`)
-	s.db.Exec(`ALTER TABLE app_cors_origins ADD COLUMN credentials INTEGER NOT NULL DEFAULT 1`)
+	s.dbExec(`ALTER TABLE app_cors_origins ADD COLUMN preflight_mode TEXT NOT NULL DEFAULT 'platform'`)
+	s.dbExec(`ALTER TABLE app_cors_origins ADD COLUMN credentials INTEGER NOT NULL DEFAULT 1`)
 	// Server-wide live CORS origins managed through the admin API. These are
 	// intentionally separate from app_cors_origins: an administrator may grant
 	// an exact origin access to the whole authenticated API, while an app may
 	// only grant access to its own proxy routes.
-	if _, err := s.db.Exec(`
+	if _, err := s.dbExec(`
 		CREATE TABLE IF NOT EXISTS platform_cors_origins (
 			registration_key TEXT NOT NULL,
 			origin           TEXT NOT NULL,
@@ -1544,32 +1548,32 @@ func (s *Store) migrate() error {
 		return fmt.Errorf("create platform CORS origin registry: %w", err)
 	}
 	// Forward-add the column for installs created before this field existed.
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN sidecar_url_override TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN sidecar_url_override TEXT NOT NULL DEFAULT ''`)
 	// Local-spawn supervisor state: PID of the running child + path to
 	// the cached binary on disk. Empty for orchestrator-managed apps.
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_pid INTEGER NOT NULL DEFAULT 0`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_bin_path TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_port INTEGER NOT NULL DEFAULT 0`)
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN error_message TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN local_pid INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN local_bin_path TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN local_port INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN error_message TEXT NOT NULL DEFAULT ''`)
 	// Live phase string written by the source/local supervisor while
 	// status='pending' so the dashboard can show "Cloning…", "Building…",
 	// "Starting sidecar…" instead of an opaque pending pill.
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN status_message TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN status_message TEXT NOT NULL DEFAULT ''`)
 	// integration_bindings: JSON {role: connection_id|install_id|null}
 	// Populated at install time from the manifest's requires.integrations.
 	// null distinguishes "operator declined optional dep" from "manifest
 	// added the role in a later version, never asked the operator".
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN integration_bindings TEXT NOT NULL DEFAULT '{}'`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN integration_bindings TEXT NOT NULL DEFAULT '{}'`)
 	// has_pending_options flag: set when a previously-unbinded optional
 	// dep now has a compatible target available (e.g. user installed
 	// the storage app after media-studio). Dashboard surfaces a
 	// "configure" banner on the install detail page.
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN has_pending_options INTEGER NOT NULL DEFAULT 0`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN has_pending_options INTEGER NOT NULL DEFAULT 0`)
 	// Provider webhook registrations owned by an app's bound integration.
 	// Provider credentials stay on the connection; signing secrets returned
 	// during registration are encrypted here and are only used by the
 	// authenticated app callback verification path.
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS app_integration_webhooks (
 			id                    INTEGER PRIMARY KEY AUTOINCREMENT,
 			install_id            INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
@@ -1588,21 +1592,21 @@ func (s *Store) migrate() error {
 			UNIQUE(install_id, role)
 		)
 	`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_integration_webhooks_connection ON app_integration_webhooks(connection_id)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_app_integration_webhooks_connection ON app_integration_webhooks(connection_id)`)
 	// created_via on connections: 'integration' (default — top-level
 	// install via the Integrations page, auto-creates an mcp_servers
 	// row) vs 'app_install' (created inside an app's dependency flow,
 	// no auto-MCP).
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN created_via TEXT NOT NULL DEFAULT 'integration'`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN created_via TEXT NOT NULL DEFAULT 'integration'`)
 	// Managed connections are app-provisioned integration credentials that the
 	// platform may execute but must never reveal. Defaults preserve the exact
 	// behavior of every pre-existing connection.
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN credential_management TEXT NOT NULL DEFAULT 'user'`)
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN credential_export_policy TEXT NOT NULL DEFAULT 'bound_app'`)
-	s.db.Exec(`ALTER TABLE connections ADD COLUMN managed_key TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_managed_key
+	s.dbExec(`ALTER TABLE connections ADD COLUMN credential_management TEXT NOT NULL DEFAULT 'user'`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN credential_export_policy TEXT NOT NULL DEFAULT 'bound_app'`)
+	s.dbExec(`ALTER TABLE connections ADD COLUMN managed_key TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_managed_key
 		ON connections(owner_app_install_id, managed_key) WHERE owner_app_install_id != 0 AND managed_key != ''`)
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_connection_events (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS managed_connection_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		connection_id INTEGER NOT NULL,
 		owner_app_install_id INTEGER NOT NULL,
@@ -1612,13 +1616,13 @@ func (s *Store) migrate() error {
 		managed_key TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_connection_events_owner
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_managed_connection_events_owner
 		ON managed_connection_events(owner_app_install_id, created_at DESC)`)
 	// Managed control-plane state is inert unless a trusted app explicitly
 	// creates a tenant enrollment. Tokens are hashed for authentication; grant
 	// tokens are additionally encrypted because they must be delivered during
 	// tenant reconciliation after their initial creation.
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenants (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS managed_tenants (
 		tenant_id TEXT PRIMARY KEY,
 		account_id TEXT NOT NULL DEFAULT '',
 		owner_app_install_id INTEGER NOT NULL,
@@ -1628,16 +1632,16 @@ func (s *Store) migrate() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_tenants_owner
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_managed_tenants_owner
 		ON managed_tenants(owner_app_install_id, updated_at DESC)`)
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenant_enrollments (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS managed_tenant_enrollments (
 		tenant_id TEXT PRIMARY KEY REFERENCES managed_tenants(tenant_id) ON DELETE CASCADE,
 		ticket_hash TEXT NOT NULL,
 		expires_at DATETIME NOT NULL,
 		used_at DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_connection_grants (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS managed_connection_grants (
 		grant_id TEXT NOT NULL,
 		tenant_id TEXT NOT NULL REFERENCES managed_tenants(tenant_id) ON DELETE CASCADE,
 		owner_app_install_id INTEGER NOT NULL,
@@ -1654,10 +1658,10 @@ func (s *Store) migrate() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (tenant_id, grant_id)
 	)`)
-	s.db.Exec(`ALTER TABLE managed_connection_grants ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_connection_grants_owner
+	s.dbExec(`ALTER TABLE managed_connection_grants ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_managed_connection_grants_owner
 		ON managed_connection_grants(owner_app_install_id, updated_at DESC)`)
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenant_bundles (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS managed_tenant_bundles (
 		tenant_id TEXT NOT NULL REFERENCES managed_tenants(tenant_id) ON DELETE CASCADE,
 		bundle_id TEXT NOT NULL,
 		revision INTEGER NOT NULL DEFAULT 1,
@@ -1669,7 +1673,7 @@ func (s *Store) migrate() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (tenant_id, bundle_id)
 	)`)
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_tenant_audit (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS managed_tenant_audit (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		tenant_id TEXT NOT NULL,
 		actor TEXT NOT NULL,
@@ -1679,12 +1683,12 @@ func (s *Store) migrate() error {
 		detail TEXT NOT NULL DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_tenant_audit_tenant
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_managed_tenant_audit_tenant
 		ON managed_tenant_audit(tenant_id, created_at DESC)`)
 	// Push provisioning requests are recorded independently from controller
 	// polling state. The request hash and bundle revision make retries safe and
 	// reject stale or conflicting desired state without storing any raw API key.
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS managed_provisioning_requests (
+	s.dbExec(`CREATE TABLE IF NOT EXISTS managed_provisioning_requests (
 		request_id TEXT PRIMARY KEY,
 		tenant_id TEXT NOT NULL,
 		bundle_id TEXT NOT NULL DEFAULT '',
@@ -1696,10 +1700,10 @@ func (s *Store) migrate() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
-	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_provisioning_bundle_revision
+	s.dbExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_provisioning_bundle_revision
 		ON managed_provisioning_requests(tenant_id, bundle_id, revision)
 		WHERE bundle_id != '' AND revision > 0`)
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS app_agent_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),
 			agent_id  INTEGER NOT NULL REFERENCES agents(id),
@@ -1707,7 +1711,7 @@ func (s *Store) migrate() error {
 			PRIMARY KEY (install_id, agent_id)
 		)
 	`)
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS agent_thread_scopes (
 			agent_id          INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
 			thread_id         TEXT NOT NULL,
@@ -1750,9 +1754,9 @@ func (s *Store) migrate() error {
 			created_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_delegated_provider_usage_grant_time ON delegated_provider_usage(grant_id, created_at)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_delegated_provider_usage_conn_time ON delegated_provider_usage(connection_id, created_at)`)
-	s.db.Exec(`
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_delegated_provider_usage_grant_time ON delegated_provider_usage(grant_id, created_at)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_delegated_provider_usage_conn_time ON delegated_provider_usage(connection_id, created_at)`)
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS integration_usage_events (
 			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 			created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1776,10 +1780,10 @@ func (s *Store) migrate() error {
 			metadata_json         TEXT NOT NULL DEFAULT '{}'
 		)
 	`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_time ON integration_usage_events(created_at)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_connection_time ON integration_usage_events(connection_id, created_at)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_grant_time ON integration_usage_events(grant_id, created_at)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_app_tool_time ON integration_usage_events(app_slug, tool, created_at)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_time ON integration_usage_events(created_at)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_connection_time ON integration_usage_events(connection_id, created_at)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_grant_time ON integration_usage_events(grant_id, created_at)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_app_tool_time ON integration_usage_events(app_slug, tool, created_at)`)
 
 	// Skills — markdown-bodied playbooks the agent will load on
 	// demand. v1 stores + serves them; agent integration is a
@@ -1791,7 +1795,7 @@ func (s *Store) migrate() error {
 	// delete; user/builtin rows leave it NULL. UNIQUE(project_id, slug)
 	// enforces one logical row per project; UNIQUE(project_id, command)
 	// where command != '' keeps slash commands collision-free.
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS skills (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
 			slug            TEXT NOT NULL,
@@ -1810,11 +1814,11 @@ func (s *Store) migrate() error {
 			UNIQUE (project_id, slug)
 		)
 	`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_skills_project ON skills(project_id)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_skills_install ON skills(install_id) WHERE install_id IS NOT NULL`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_skills_project ON skills(project_id)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_skills_install ON skills(install_id) WHERE install_id IS NOT NULL`)
 	// Partial unique index — only enforces uniqueness when command is
 	// set, so the empty-string default doesn't conflict across rows.
-	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_command ON skills(project_id, command) WHERE command != ''`)
+	s.dbExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_command ON skills(project_id, command) WHERE command != ''`)
 
 	// Per-(install, instance) authorization grants. Apps that opt in
 	// via provides.permissions get scoped per-agent access; apps that
@@ -1825,7 +1829,7 @@ func (s *Store) migrate() error {
 	// effect: 'allow' | 'deny'
 	// resource: matcher-specific pattern (glob, id_set, ...) — '*' is
 	//           always-match regardless of matcher.
-	s.db.Exec(`
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS app_grants (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
@@ -1838,8 +1842,8 @@ func (s *Store) migrate() error {
 			UNIQUE(install_id, agent_id, effect, permission, resource)
 		)
 	`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_grants_lookup ON app_grants(install_id, agent_id)`)
-	s.db.Exec(`
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_app_grants_lookup ON app_grants(install_id, agent_id)`)
+	s.dbExec(`
 		CREATE TABLE IF NOT EXISTS app_grant_defaults (
 			install_id      INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
 			agent_id        INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -1851,7 +1855,7 @@ func (s *Store) migrate() error {
 	// default_effect — 'allow' (default, full back-compat) or 'deny'
 	// for fail-closed installs. Per-install knob; the dashboard's
 	// "Access" tab flips it.
-	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN default_effect TEXT NOT NULL DEFAULT 'allow'`)
+	s.dbExec(`ALTER TABLE app_installs ADD COLUMN default_effect TEXT NOT NULL DEFAULT 'allow'`)
 
 	// ─── Multi-user + roles ───────────────────────────────────────────
 	//
@@ -1873,8 +1877,8 @@ func (s *Store) migrate() error {
 	//      role='owner' for its projects.user_id, so the new authz
 	//      helper finds an explicit ownership row matching the implicit
 	//      single-user environment.
-	s.db.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`)
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS project_members (
+	s.dbExec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`)
+	s.dbExec(`CREATE TABLE IF NOT EXISTS project_members (
 		project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 		user_id    INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
 		role       TEXT    NOT NULL CHECK (role IN ('viewer','editor','owner')),
@@ -1882,8 +1886,8 @@ func (s *Store) migrate() error {
 		added_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (project_id, user_id)
 	)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`)
-	s.db.Exec(`CREATE TABLE IF NOT EXISTS project_invites (
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`)
+	s.dbExec(`CREATE TABLE IF NOT EXISTS project_invites (
 		id          TEXT PRIMARY KEY,
 		project_id  TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 		email       TEXT    NOT NULL,
@@ -1893,17 +1897,17 @@ func (s *Store) migrate() error {
 		accepted_at DATETIME,
 		created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_project_invites_project ON project_invites(project_id)`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_project_invites_email   ON project_invites(email)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_project_invites_project ON project_invites(project_id)`)
+	s.dbExec(`CREATE INDEX IF NOT EXISTS idx_project_invites_email   ON project_invites(email)`)
 	// Backfill: lowest-id user becomes admin (the setup operator). If
 	// there are no users yet (fresh DB), the UPDATE matches 0 rows —
 	// the first handleRegister will set role='admin' explicitly.
-	s.db.Exec(`UPDATE users SET role = 'admin'
+	s.dbExec(`UPDATE users SET role = 'admin'
 	            WHERE id = (SELECT MIN(id) FROM users)
 	              AND role = 'user'`)
 	// Backfill project_members from existing projects.user_id. The
 	// INSERT OR IGNORE makes this idempotent across boots.
-	s.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by)
+	s.dbExec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by)
 	           SELECT id, user_id, 'owner', user_id FROM projects`)
 
 	if err := s.repairLegacyAgentForeignKeys(); err != nil {
@@ -1922,7 +1926,7 @@ func (s *Store) migrate() error {
 // integration path. The ordinary catalog integration remains available and
 // uses source=local like every other data-driven integration.
 func (s *Store) removeLegacyHostedIntegrationProvider() error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -1985,6 +1989,7 @@ func migrateEmptySubscriptionWebhookPaths(db *sql.DB) {
 }
 
 func (s *Store) Close() error {
+	s.guard().cancel()
 	s.automatic.get().Close()
 	if s.apiKeyUsage != nil {
 		s.apiKeyUsage.Close()
@@ -1995,7 +2000,7 @@ func (s *Store) Close() error {
 // --- Users ---
 
 func (s *Store) CreateUser(email, passwordHash string) (*User, error) {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, fmt.Errorf("begin user creation: %w", err)
 	}
@@ -2024,7 +2029,7 @@ func (s *Store) CreateUser(email, passwordHash string) (*User, error) {
 
 func (s *Store) HasUsers() bool {
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	s.dbQueryRow("SELECT COUNT(*) FROM users").Scan(&count)
 	return count > 0
 }
 
@@ -2033,7 +2038,7 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var createdAt string
 	var onboardedAt sql.NullString
 	var mfaEnabledAt sql.NullString
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at,
 		        COALESCE(mfa_type,''), COALESCE(mfa_secret_encrypted,''),
 		        COALESCE(mfa_recovery_hashes,'[]'), COALESCE(mfa_last_counter,-1), mfa_enabled_at
@@ -2063,11 +2068,15 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 // any handler that needs to reply with the caller's email when only
 // the session's user_id is known.
 func (s *Store) GetUserByID(id int64) (*User, error) {
+	return s.GetUserByIDContext(context.Background(), id)
+}
+
+func (s *Store) GetUserByIDContext(ctx context.Context, id int64) (*User, error) {
 	var u User
 	var createdAt string
 	var onboardedAt sql.NullString
 	var mfaEnabledAt sql.NullString
-	err := s.db.QueryRow(
+	err := s.dbQueryRowContext(ctx,
 		`SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at,
 		        COALESCE(mfa_type,''), COALESCE(mfa_secret_encrypted,''),
 		        COALESCE(mfa_recovery_hashes,'[]'), COALESCE(mfa_last_counter,-1), mfa_enabled_at
@@ -2097,7 +2106,7 @@ func (s *Store) GetUserByID(id int64) (*User, error) {
 // finished the welcome flow yet. Idempotent: the IS NULL guard means a
 // re-call won't overwrite the original timestamp.
 func (s *Store) MarkUserOnboarded(userID int64) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		"UPDATE users SET onboarded_at = CURRENT_TIMESTAMP WHERE id = ? AND onboarded_at IS NULL",
 		userID,
 	)
@@ -2106,7 +2115,7 @@ func (s *Store) MarkUserOnboarded(userID int64) error {
 
 func (s *Store) GetUserLanguage(userID int64) string {
 	var language string
-	err := s.db.QueryRow("SELECT language FROM user_preferences WHERE user_id = ?", userID).Scan(&language)
+	err := s.dbQueryRow("SELECT language FROM user_preferences WHERE user_id = ?", userID).Scan(&language)
 	if err != nil {
 		return ""
 	}
@@ -2114,7 +2123,7 @@ func (s *Store) GetUserLanguage(userID int64) string {
 }
 
 func (s *Store) SetUserLanguage(userID int64, language string) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO user_preferences (user_id, language, updated_at)
 		 VALUES (?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET language = excluded.language, updated_at = CURRENT_TIMESTAMP`,
@@ -2137,7 +2146,7 @@ func validInterfaceLevel(level string) bool {
 // device-local preference once before the server becomes authoritative.
 func (s *Store) GetUserInterfaceLevel(userID int64) string {
 	var level sql.NullString
-	if err := s.db.QueryRow(
+	if err := s.dbQueryRow(
 		"SELECT interface_level FROM user_preferences WHERE user_id = ?",
 		userID,
 	).Scan(&level); err != nil || !level.Valid || !validInterfaceLevel(level.String) {
@@ -2150,7 +2159,7 @@ func (s *Store) SetUserInterfaceLevel(userID int64, level string) error {
 	if !validInterfaceLevel(level) {
 		return errors.New("interface_level must be personal, business, or developer")
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO user_preferences (user_id, interface_level, updated_at)
 		 VALUES (?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET
@@ -2169,7 +2178,7 @@ func (s *Store) GetUserUILayout(userID int64) json.RawMessage {
 func (s *Store) GetUserUILayoutWithRevision(userID int64) (json.RawMessage, int64) {
 	var raw string
 	var revision int64
-	if err := s.db.QueryRow("SELECT ui_layout, COALESCE(ui_layout_revision, 0) FROM user_preferences WHERE user_id = ?", userID).Scan(&raw, &revision); err != nil {
+	if err := s.dbQueryRow("SELECT ui_layout, COALESCE(ui_layout_revision, 0) FROM user_preferences WHERE user_id = ?", userID).Scan(&raw, &revision); err != nil {
 		return json.RawMessage(`{}`), 0
 	}
 	raw = strings.TrimSpace(raw)
@@ -2191,7 +2200,7 @@ func (s *Store) SetUserUILayout(userID int64, layout json.RawMessage) error {
 	if err := json.Unmarshal([]byte(raw), &object); err != nil || object == nil {
 		return errors.New("ui_layout must be a JSON object")
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
 		 VALUES (?, ?, 1, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET
@@ -2213,7 +2222,7 @@ func (s *Store) PatchUserUILayoutSurface(userID int64, projectID, surface string
 	if len(value) > 64<<10 || !json.Valid(value) {
 		return nil, 0, errors.New("surface layout must be valid JSON no larger than 64 KiB")
 	}
-	if _, err := s.db.Exec(
+	if _, err := s.dbExec(
 		`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
 		 VALUES (?, '{}', 0, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO NOTHING`, userID,
@@ -2257,7 +2266,7 @@ func (s *Store) PatchUserUILayoutSurface(userID int64, projectID, surface string
 		if len(next) > 128<<10 {
 			return nil, revision, errors.New("ui_layout must be no larger than 128 KiB")
 		}
-		result, err := s.db.Exec(
+		result, err := s.dbExec(
 			`UPDATE user_preferences
 			 SET ui_layout=?, ui_layout_revision=ui_layout_revision+1, updated_at=CURRENT_TIMESTAMP
 			 WHERE user_id=? AND ui_layout_revision=?`, string(next), userID, revision,
@@ -2282,7 +2291,7 @@ func (s *Store) PatchUserUILayoutSurface(userID int64, projectID, surface string
 // have already verified the old password — this only enforces that
 // the target row exists.
 func (s *Store) UpdateUserPassword(userID int64, newHash string) error {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		"UPDATE users SET password_hash = ? WHERE id = ?",
 		newHash, userID,
 	)
@@ -2297,7 +2306,7 @@ func (s *Store) UpdateUserPassword(userID int64, newHash string) error {
 }
 
 func (s *Store) BeginTOTPEnrollment(userID int64, encryptedSecret string) error {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE users
 		    SET mfa_type='totp_pending', mfa_secret_encrypted=?,
 		        mfa_recovery_hashes='[]', mfa_last_counter=-1, mfa_enabled_at=NULL
@@ -2318,7 +2327,7 @@ func (s *Store) ConfirmTOTPEnrollment(userID, counter int64, recoveryHashes []st
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE users
 		    SET mfa_type='totp', mfa_recovery_hashes=?, mfa_last_counter=?,
 		        mfa_enabled_at=CURRENT_TIMESTAMP
@@ -2337,7 +2346,7 @@ func (s *Store) ConfirmTOTPEnrollment(userID, counter int64, recoveryHashes []st
 // AdvanceMFACounter atomically prevents reuse of a TOTP time step, including
 // concurrent attempts arriving at different server handlers.
 func (s *Store) AdvanceMFACounter(userID, counter int64) error {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE users SET mfa_last_counter=?
 		  WHERE id=? AND mfa_type='totp' AND mfa_last_counter < ?`,
 		counter, userID, counter,
@@ -2352,7 +2361,7 @@ func (s *Store) AdvanceMFACounter(userID, counter int64) error {
 }
 
 func (s *Store) ConsumeMFARecoveryHash(userID int64, wanted string) (int, error) {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return 0, err
 	}
@@ -2398,7 +2407,7 @@ func (s *Store) ReplaceMFARecoveryHashes(userID int64, hashes []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		"UPDATE users SET mfa_recovery_hashes=? WHERE id=? AND mfa_type='totp'",
 		string(raw), userID,
 	)
@@ -2412,7 +2421,7 @@ func (s *Store) ReplaceMFARecoveryHashes(userID int64, hashes []string) error {
 }
 
 func (s *Store) DisableMFA(userID int64) error {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE users
 		    SET mfa_type='', mfa_secret_encrypted='', mfa_recovery_hashes='[]',
 		        mfa_last_counter=-1, mfa_enabled_at=NULL
@@ -2438,7 +2447,7 @@ func recoveryHashCount(raw string) int {
 // ListUsers returns every user row, ordered by id so user_id=1 (the
 // admin) always comes first. Used by the /users endpoint.
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, email, COALESCE(role,'user'), created_at, COALESCE(disabled_at,'') FROM users ORDER BY id")
+	rows, err := s.dbQuery("SELECT id, email, COALESCE(role,'user'), created_at, COALESCE(disabled_at,'') FROM users ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -2471,14 +2480,14 @@ type UserResourceCounts struct {
 
 func (s *Store) CountUserResources(userID int64) UserResourceCounts {
 	var c UserResourceCounts
-	s.db.QueryRow("SELECT COUNT(*) FROM agents WHERE user_id=?", userID).Scan(&c.Agents)
-	s.db.QueryRow("SELECT COUNT(*) FROM api_keys WHERE user_id=?", userID).Scan(&c.APIKeys)
-	s.db.QueryRow("SELECT COUNT(*) FROM projects WHERE user_id=?", userID).Scan(&c.Projects)
-	s.db.QueryRow("SELECT COUNT(*) FROM providers WHERE user_id=?", userID).Scan(&c.Providers)
-	s.db.QueryRow("SELECT COUNT(*) FROM connections WHERE user_id=?", userID).Scan(&c.Connections)
-	s.db.QueryRow("SELECT COUNT(*) FROM mcp_servers WHERE user_id=?", userID).Scan(&c.MCPServers)
-	s.db.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE user_id=?", userID).Scan(&c.Subscriptions)
-	s.db.QueryRow("SELECT COUNT(*) FROM channels WHERE user_id=?", userID).Scan(&c.Channels)
+	s.dbQueryRow("SELECT COUNT(*) FROM agents WHERE user_id=?", userID).Scan(&c.Agents)
+	s.dbQueryRow("SELECT COUNT(*) FROM api_keys WHERE user_id=?", userID).Scan(&c.APIKeys)
+	s.dbQueryRow("SELECT COUNT(*) FROM projects WHERE user_id=?", userID).Scan(&c.Projects)
+	s.dbQueryRow("SELECT COUNT(*) FROM providers WHERE user_id=?", userID).Scan(&c.Providers)
+	s.dbQueryRow("SELECT COUNT(*) FROM connections WHERE user_id=?", userID).Scan(&c.Connections)
+	s.dbQueryRow("SELECT COUNT(*) FROM mcp_servers WHERE user_id=?", userID).Scan(&c.MCPServers)
+	s.dbQueryRow("SELECT COUNT(*) FROM subscriptions WHERE user_id=?", userID).Scan(&c.Subscriptions)
+	s.dbQueryRow("SELECT COUNT(*) FROM channels WHERE user_id=?", userID).Scan(&c.Channels)
 	return c
 }
 
@@ -2552,7 +2561,7 @@ func (s *Store) ValidateUserDeletion(userID int64) error {
 // in a single transaction so a partial failure can't leave orphaned
 // rows pointing at a vanished user_id.
 func (s *Store) DeleteUser(userID int64) error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -2657,8 +2666,7 @@ func (s *Store) DeleteUser(userID int64) error {
 // else's password and we want every one of that user's active sessions
 // to stop working immediately.
 func (s *Store) DeleteSessionsForUser(userID int64) error {
-	_, err := s.RevokeUserSessions(userID, "", 0, "sessions reset")
-	return err
+	return s.revokeSessionsAndDevices(userID, "", 0, "sessions reset")
 }
 
 // DeleteSessionsForUserExcept nukes every session row for the user
@@ -2666,8 +2674,7 @@ func (s *Store) DeleteSessionsForUser(userID int64) error {
 // session the password change was made from). Prevents a leaked
 // cookie from surviving a password rotation.
 func (s *Store) DeleteSessionsForUserExcept(userID int64, keepToken string) error {
-	_, err := s.RevokeUserSessions(userID, keepToken, userID, "credential change")
-	return err
+	return s.revokeSessionsAndDevices(userID, keepToken, userID, "credential change")
 }
 
 // --- API Keys ---
@@ -2725,7 +2732,7 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, opti
 	if opt.RateLimitPerMinute <= 0 {
 		opt.RateLimitPerMinute = 60
 	}
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		`INSERT INTO api_keys
 			(user_id, name, key_hash, key_prefix, kind, project_id, scopes, allowed_origins, rate_limit_per_minute, expires_at,
 			 issuer_app, issuer_install_id, subject_type, subject_id, subject_email, organization_id, organization_slug, access)
@@ -2761,17 +2768,26 @@ func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
 }
 
 func (s *Store) getPrivateAPIKeyPrincipal(keyHash string) (*User, string, error) {
-	u, access, _, err := s.getPrivateAPIKeyPrincipalWithID(keyHash)
+	u, access, _, err := s.getPrivateAPIKeyPrincipalWithIDContext(context.Background(), keyHash)
+	return u, access, err
+}
+
+func (s *Store) getPrivateAPIKeyPrincipalContext(ctx context.Context, keyHash string) (*User, string, error) {
+	u, access, _, err := s.getPrivateAPIKeyPrincipalWithIDContext(ctx, keyHash)
 	return u, access, err
 }
 
 // getPrivateAPIKeyPrincipalWithID also returns the key row id so callers can
 // attribute the request and record its source address.
 func (s *Store) getPrivateAPIKeyPrincipalWithID(keyHash string) (*User, string, int64, error) {
+	return s.getPrivateAPIKeyPrincipalWithIDContext(context.Background(), keyHash)
+}
+
+func (s *Store) getPrivateAPIKeyPrincipalWithIDContext(ctx context.Context, keyHash string) (*User, string, int64, error) {
 	var keyID int64
 	var access string
 	var u User
-	err := s.db.QueryRow(`
+	err := s.dbQueryRowContext(ctx, `
 		SELECT k.id, u.id, u.email, u.password_hash, COALESCE(u.role,'user'), COALESCE(k.access,'read_write')
 		FROM users u JOIN api_keys k ON u.id = k.user_id
 		WHERE k.key_hash = ?
@@ -2789,9 +2805,13 @@ func (s *Store) getPrivateAPIKeyPrincipalWithID(keyHash string) (*User, string, 
 }
 
 func (s *Store) GetPublicClientAPIKey(keyHash string) (*APIKey, error) {
+	return s.GetPublicClientAPIKeyContext(context.Background(), keyHash)
+}
+
+func (s *Store) GetPublicClientAPIKeyContext(ctx context.Context, keyHash string) (*APIKey, error) {
 	var k APIKey
 	var createdAt string
-	err := s.db.QueryRow(`
+	err := s.dbQueryRowContext(ctx, `
 		SELECT id, user_id, name, key_prefix, key_hash, COALESCE(kind,'private'), COALESCE(project_id,''),
 		       COALESCE(scopes,'[]'), COALESCE(allowed_origins,'[]'), COALESCE(rate_limit_per_minute, 60),
 		       COALESCE(expires_at,''), COALESCE(revoked_at,''), COALESCE(last_used,''), COALESCE(last_used_ip,''),
@@ -2815,9 +2835,13 @@ func (s *Store) GetPublicClientAPIKey(keyHash string) (*APIKey, error) {
 }
 
 func (s *Store) GetDelegatedUserAPIKey(keyHash string) (*APIKey, error) {
+	return s.GetDelegatedUserAPIKeyContext(context.Background(), keyHash)
+}
+
+func (s *Store) GetDelegatedUserAPIKeyContext(ctx context.Context, keyHash string) (*APIKey, error) {
 	var k APIKey
 	var createdAt string
-	err := s.db.QueryRow(`
+	err := s.dbQueryRowContext(ctx, `
 		SELECT id, user_id, name, key_prefix, key_hash, COALESCE(kind,'private'), COALESCE(project_id,''),
 		       COALESCE(scopes,'[]'), COALESCE(allowed_origins,'[]'), COALESCE(rate_limit_per_minute, 60),
 		       COALESCE(expires_at,''), COALESCE(revoked_at,''), COALESCE(last_used,''), COALESCE(last_used_ip,''),
@@ -2848,7 +2872,7 @@ func (s *Store) MarkAPIKeyUsed(keyID int64, ip string) {
 }
 
 func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, name, key_prefix, COALESCE(kind,'private'), COALESCE(project_id,''),
 		        COALESCE(scopes,'[]'), COALESCE(allowed_origins,'[]'), COALESCE(rate_limit_per_minute, 60),
 		        COALESCE(expires_at,''), COALESCE(revoked_at,''), COALESCE(last_used,''), COALESCE(last_used_ip,''),
@@ -2908,7 +2932,7 @@ func (s *Store) CreateAgent(userID int64, name, directive, mode, config, project
 	}
 	directive = withoutAgentControls(directive)
 	config = withoutCoreMode(config)
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		"INSERT INTO agents (user_id, name, directive, mode, proactivity, config, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		userID, name, directive, mode, level, config, projectID,
 	)
@@ -2946,7 +2970,7 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 		scopeUserID = 0
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, false, err
 	}
@@ -2996,15 +3020,19 @@ func (s *Store) CreateAgentIdempotent(userID int64, name, directive, mode, confi
 // Used by the console logger to resolve instance names from telemetry events.
 func (s *Store) GetAgentName(instanceID int64) (string, error) {
 	var name string
-	err := s.db.QueryRow("SELECT name FROM agents WHERE id = ?", instanceID).Scan(&name)
+	err := s.dbQueryRow("SELECT name FROM agents WHERE id = ?", instanceID).Scan(&name)
 	return name, err
 }
 
 // GetAgentByID returns an instance by ID without user check (for server-internal use).
-func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
+func (s *Store) GetAgentByID(id int64) (*Agent, error) {
+	return s.GetAgentByIDContext(context.Background(), id)
+}
+
+func (s *Store) GetAgentByIDContext(ctx context.Context, instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
-	err := s.db.QueryRow(
+	err := s.dbQueryRowContext(ctx,
 		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity, config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ?",
 		instanceID,
 	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Proactivity, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
@@ -3021,11 +3049,15 @@ func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
 // only permitted use is the loopback Codex runtime-token callback in
 // authMiddleware.
 func (s *Store) GetRunningAgentUserByCoreAPIKey(coreAPIKey string) (int64, error) {
+	return s.GetRunningAgentUserByCoreAPIKeyContext(context.Background(), coreAPIKey)
+}
+
+func (s *Store) GetRunningAgentUserByCoreAPIKeyContext(ctx context.Context, coreAPIKey string) (int64, error) {
 	if !strings.HasPrefix(coreAPIKey, "core_") {
 		return 0, sql.ErrNoRows
 	}
 	var userID int64
-	err := s.db.QueryRow(`
+	err := s.dbQueryRowContext(ctx, `
 		SELECT user_id
 		  FROM agents
 		 WHERE core_api_key = ?
@@ -3038,7 +3070,7 @@ func (s *Store) GetRunningAgentUserByCoreAPIKey(coreAPIKey string) (int64, error
 func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity, config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ? AND user_id = ?",
 		instanceID, userID,
 	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Proactivity, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
@@ -3054,7 +3086,7 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 // creating it. A missing row means Helper has not been provisioned.
 func (s *Store) GetPlatformHelper(userID int64) (*Agent, error) {
 	var ag Agent
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity,
 		        config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''),
 		        COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
@@ -3085,13 +3117,13 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	ag, err := s.GetPlatformHelper(userID)
 	if err == nil {
 		if ag.Name == "__platform_helper__" || strings.TrimSpace(ag.Name) == "" {
-			s.db.Exec(`UPDATE agents SET name = ? WHERE id = ?`, "Apteva Helper", ag.ID)
+			s.dbExec(`UPDATE agents SET name = ? WHERE id = ?`, "Apteva Helper", ag.ID)
 			ag.Name = "Apteva Helper"
 		}
 		// Refresh the directive if the platform's version has drifted
 		// (we roll new judge prompts under the same row).
 		if ag.Directive != directive {
-			s.db.Exec(`UPDATE agents SET directive = ? WHERE id = ?`, directive, ag.ID)
+			s.dbExec(`UPDATE agents SET directive = ? WHERE id = ?`, directive, ag.ID)
 			ag.Directive = directive
 		}
 		return ag, nil
@@ -3102,7 +3134,7 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	// Fresh insert. The helper is autonomous (no learn/cautious
 	// pauses), no project scope, no extra config — a stateless
 	// LLM-judge sidecar.
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO agents (user_id, name, directive, mode, config, status, project_id, kind)
 		 VALUES (?, ?, ?, 'autonomous', '{}', 'stopped', '', 'platform_helper')`,
 		userID, "Apteva Helper", directive,
@@ -3122,7 +3154,7 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 // ListAgents filters by user_id which is wrong post-multi-user — kept
 // for back-compat in code paths that still want the personal view).
 func (s *Store) ListAgentsInProject(projectID string) ([]Agent, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity,
 		        port, pid, status, COALESCE(project_id,''),
 		        COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
@@ -3155,10 +3187,10 @@ func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 	// and friends) so they don't clutter the operator's dashboard.
 	// Callers needing the platform helpers go through GetPlatformHelper.
 	if projectID != "" {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			"SELECT id, name, directive, COALESCE(mode,'autonomous'), proactivity, port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND project_id = ? AND COALESCE(kind,'user') = 'user'", userID, projectID)
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			"SELECT id, name, directive, COALESCE(mode,'autonomous'), proactivity, port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND COALESCE(kind,'user') = 'user'", userID)
 	}
 	if err != nil {
@@ -3188,7 +3220,7 @@ func (s *Store) ListTelemetryAgentIDs(userID int64, projectID string) (map[int64
 	var rows *sql.Rows
 	var err error
 	if projectID != "" {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT id
 			   FROM agents
 			  WHERE user_id = ?
@@ -3199,7 +3231,7 @@ func (s *Store) ListTelemetryAgentIDs(userID int64, projectID string) (map[int64
 			userID, projectID,
 		)
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT id
 			   FROM agents
 			  WHERE user_id = ?
@@ -3267,7 +3299,7 @@ func (s *Store) UpdateAgent(inst *Agent) error {
 		set = append(set, "core_started_at=NULL")
 	}
 	args = append(args, inst.ID)
-	_, err := s.db.Exec("UPDATE agents SET "+strings.Join(set, ",")+" WHERE id=?", args...)
+	_, err := s.dbExec("UPDATE agents SET "+strings.Join(set, ",")+" WHERE id=?", args...)
 	if err == nil {
 		if inst.original == nil || inst.ProjectID != inst.original.ProjectID {
 			s.agentEligibilityRevision.Add(1)
@@ -3282,7 +3314,7 @@ func (s *Store) UpdateAgentCoreRuntime(agentID int64, version, buildTime string,
 	if !startedAt.IsZero() {
 		started = startedAt.UTC().Format(time.RFC3339Nano)
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`UPDATE agents
 		    SET core_version=?, core_build_time=?, core_started_at=?
 		  WHERE id=?`,
@@ -3305,7 +3337,7 @@ func (s *Store) SetAgentRuntimeRunning(inst *Agent, startedAt time.Time) error {
 		return fmt.Errorf("agent %d has incomplete core runtime metadata", inst.ID)
 	}
 	started := startedAt.UTC().Format(time.RFC3339Nano)
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE agents
 		    SET status='running', pid=?, port=?, core_api_key=?,
 		        core_version=?, core_build_time=?, core_started_at=?
@@ -3335,7 +3367,7 @@ func (s *Store) SetAgentRuntimeStopped(inst *Agent) error {
 	if inst == nil {
 		return fmt.Errorf("agent is nil")
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE agents
 		    SET status='stopped', pid=0, port=0, core_api_key='', core_started_at=NULL
 		  WHERE id=?`,
@@ -3366,7 +3398,7 @@ func (s *Store) SetAgentRuntimeStopped(inst *Agent) error {
 // left active. Platform helpers are lazy-started by helper paths when
 // actually needed, so leaving them as running would only create stale UI state.
 func (s *Store) MarkPlatformAgentsStoppedForShutdown() (int64, error) {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE agents
 		    SET status='stopped', port=0, pid=0, core_api_key='', core_started_at=NULL
 		  WHERE status='running'
@@ -3384,7 +3416,7 @@ func (s *Store) MarkPlatformAgentsStoppedForShutdown() (int64, error) {
 // that was `running` before the last shutdown and re-spawn those cores.
 // The result is unsorted; callers that need ordering should sort themselves.
 func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), proactivity, config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
 		 FROM agents WHERE status = ?`,
 		status,
@@ -3407,7 +3439,7 @@ func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 }
 
 func (s *Store) CreateEnvironmentRecord(rec EnvironmentRecord) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO environments (id, project_id, name, mode, status, spec_json, created_by, error_message)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		rec.ID, rec.ProjectID, rec.Name, rec.Mode, rec.Status, rec.SpecJSON, rec.CreatedBy, rec.ErrorMessage,
@@ -3416,7 +3448,7 @@ func (s *Store) CreateEnvironmentRecord(rec EnvironmentRecord) error {
 }
 
 func (s *Store) GetEnvironmentRecord(id string) (*EnvironmentRecord, error) {
-	row := s.db.QueryRow(
+	row := s.dbQueryRow(
 		`SELECT id, project_id, name, mode, status, spec_json, created_by, created_at, updated_at,
 		        last_started_at, last_stopped_at, error_message
 		   FROM environments WHERE id = ?`,
@@ -3430,7 +3462,7 @@ func (s *Store) GetEnvironmentRecord(id string) (*EnvironmentRecord, error) {
 }
 
 func (s *Store) ListEnvironmentRecords(userID int64) ([]EnvironmentRecord, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, project_id, name, mode, status, spec_json, created_by, created_at, updated_at,
 		        last_started_at, last_stopped_at, error_message
 		   FROM environments
@@ -3456,7 +3488,7 @@ func (s *Store) ListEnvironmentRecords(userID int64) ([]EnvironmentRecord, error
 func (s *Store) UpdateEnvironmentRecordStatus(id, status, errorMessage string) error {
 	switch status {
 	case "running":
-		_, err := s.db.Exec(
+		_, err := s.dbExec(
 			`UPDATE environments
 			    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP, last_started_at = CURRENT_TIMESTAMP
 			  WHERE id = ?`,
@@ -3464,7 +3496,7 @@ func (s *Store) UpdateEnvironmentRecordStatus(id, status, errorMessage string) e
 		)
 		return err
 	case "stopped":
-		_, err := s.db.Exec(
+		_, err := s.dbExec(
 			`UPDATE environments
 			    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP, last_stopped_at = CURRENT_TIMESTAMP
 			  WHERE id = ?`,
@@ -3472,7 +3504,7 @@ func (s *Store) UpdateEnvironmentRecordStatus(id, status, errorMessage string) e
 		)
 		return err
 	default:
-		_, err := s.db.Exec(
+		_, err := s.dbExec(
 			`UPDATE environments
 			    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
 			  WHERE id = ?`,
@@ -3483,7 +3515,7 @@ func (s *Store) UpdateEnvironmentRecordStatus(id, status, errorMessage string) e
 }
 
 func (s *Store) UpdateEnvironmentRecordSpec(id, specJSON string) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`UPDATE environments SET spec_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		specJSON, id,
 	)
@@ -3491,7 +3523,7 @@ func (s *Store) UpdateEnvironmentRecordSpec(id, specJSON string) error {
 }
 
 func (s *Store) DeleteEnvironmentRecord(id string) error {
-	_, err := s.db.Exec(`DELETE FROM environments WHERE id = ?`, id)
+	_, err := s.dbExec(`DELETE FROM environments WHERE id = ?`, id)
 	return err
 }
 
@@ -3542,7 +3574,7 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 	// the HTTP authorization layer.
 	var owner int64
 	var projectID, kind string
-	if err := s.db.QueryRow(
+	if err := s.dbQueryRow(
 		"SELECT user_id, COALESCE(project_id,''), COALESCE(kind,'user') FROM agents WHERE id = ?", instanceID,
 	).Scan(&owner, &projectID, &kind); err != nil {
 		if err == sql.ErrNoRows {
@@ -3561,7 +3593,7 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		}
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -3600,7 +3632,7 @@ func (s *Store) CreateProject(userID int64, name, description, color string) (*P
 	if color == "" {
 		color = "#6366f1"
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, err
 	}
@@ -3624,7 +3656,7 @@ func (s *Store) CreateProject(userID int64, name, description, color string) (*P
 }
 
 func (s *Store) ListProjects(userID int64) ([]Project, error) {
-	rows, err := s.db.Query("SELECT id, name, description, color, created_at FROM projects WHERE user_id = ?", userID)
+	rows, err := s.dbQuery("SELECT id, name, description, color, created_at FROM projects WHERE user_id = ?", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -3644,7 +3676,7 @@ func (s *Store) ListProjects(userID int64) ([]Project, error) {
 func (s *Store) GetProject(userID int64, id string) (*Project, error) {
 	var p Project
 	var createdAt string
-	err := s.db.QueryRow("SELECT id, name, description, color, created_at FROM projects WHERE id = ? AND user_id = ?", id, userID).
+	err := s.dbQueryRow("SELECT id, name, description, color, created_at FROM projects WHERE id = ? AND user_id = ?", id, userID).
 		Scan(&p.ID, &p.Name, &p.Description, &p.Color, &createdAt)
 	if err != nil {
 		return nil, err
@@ -3655,13 +3687,13 @@ func (s *Store) GetProject(userID int64, id string) (*Project, error) {
 }
 
 func (s *Store) UpdateProject(userID int64, id, name, description, color string) error {
-	_, err := s.db.Exec("UPDATE projects SET name=?, description=?, color=? WHERE id=? AND user_id=?",
+	_, err := s.dbExec("UPDATE projects SET name=?, description=?, color=? WHERE id=? AND user_id=?",
 		name, description, color, id, userID)
 	return err
 }
 
 func (s *Store) DeleteProject(userID int64, id string) error {
-	_, err := s.db.Exec("DELETE FROM projects WHERE id = ? AND user_id = ?", id, userID)
+	_, err := s.dbExec("DELETE FROM projects WHERE id = ? AND user_id = ?", id, userID)
 	return err
 }
 
@@ -3676,7 +3708,7 @@ func (s *Store) GetProjectAny(id string) (*Project, error) {
 	var p Project
 	var createdAt string
 	var expiresAt sql.NullString
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id,user_id,name,description,color,created_at,expires_at,COALESCE(provisioning_preset_id,'')
 		 FROM projects WHERE id=?`, id,
 	).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.Color, &createdAt, &expiresAt, &p.ProvisioningPresetID)
@@ -3693,7 +3725,7 @@ func (s *Store) GetProjectAny(id string) (*Project, error) {
 }
 
 func (s *Store) UpdateProjectAny(id, name, description, color string) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		"UPDATE projects SET name=?, description=?, color=? WHERE id=?",
 		name, description, color, id,
 	)
@@ -3701,7 +3733,7 @@ func (s *Store) UpdateProjectAny(id, name, description, color string) error {
 }
 
 func (s *Store) DeleteProjectAny(id string) error {
-	_, err := s.db.Exec("DELETE FROM projects WHERE id = ?", id)
+	_, err := s.dbExec("DELETE FROM projects WHERE id = ?", id)
 	return err
 }
 
@@ -3710,7 +3742,7 @@ func (s *Store) DeleteProjectAny(id string) error {
 // GetFirstUserID returns the ID of the first user in the database (for local auto-login).
 func (s *Store) GetFirstUserID() (int64, error) {
 	var userID int64
-	err := s.db.QueryRow("SELECT id FROM users ORDER BY id ASC LIMIT 1").Scan(&userID)
+	err := s.dbQueryRow("SELECT id FROM users ORDER BY id ASC LIMIT 1").Scan(&userID)
 	return userID, err
 }
 
@@ -3719,7 +3751,7 @@ func (s *Store) CreateSession(token string, userID int64, expiresAt time.Time) e
 }
 
 func (s *Store) CreatePendingMFASession(token string, userID int64, expiresAt time.Time) error {
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO sessions (token, user_id, expires_at, auth_state, mfa_attempts)
 		 VALUES (?, ?, ?, 'pending_mfa', 0)`,
 		sessionKey(token), userID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
@@ -3732,11 +3764,15 @@ func (s *Store) DeleteSession(token string) error {
 }
 
 func (s *Store) GetSession(token string) (int64, error) {
+	return s.GetSessionContext(context.Background(), token)
+}
+
+func (s *Store) GetSessionContext(ctx context.Context, token string) (int64, error) {
 	var userID int64
 	var expiresAt string
 	var authState string
 	var revoked, disabled sql.NullString
-	err := s.db.QueryRow(
+	err := s.dbQueryRowContext(ctx,
 		`SELECT s.user_id, s.expires_at, COALESCE(s.auth_state,'active'), s.revoked_at, u.disabled_at
 		   FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`, sessionKey(token),
 	).Scan(&userID, &expiresAt, &authState, &revoked, &disabled)
@@ -3765,7 +3801,7 @@ func (s *Store) GetSession(token string) (int64, error) {
 func (s *Store) GetPendingMFASession(token string) (userID int64, attempts int, err error) {
 	var expiresAt, authState string
 	var revoked, disabled sql.NullString
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT s.user_id, s.expires_at, COALESCE(s.auth_state,'active'), COALESCE(s.mfa_attempts,0), s.revoked_at, u.disabled_at
 		   FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`,
 		sessionKey(token),
@@ -3788,7 +3824,7 @@ func (s *Store) GetPendingMFASession(token string) (userID int64, attempts int, 
 }
 
 func (s *Store) RecordPendingMFAFailure(token string, maxAttempts int) error {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE sessions SET mfa_attempts=mfa_attempts+1
 		 WHERE token=? AND auth_state='pending_mfa' AND revoked_at IS NULL`, sessionKey(token),
 	)
@@ -3799,7 +3835,7 @@ func (s *Store) RecordPendingMFAFailure(token string, maxAttempts int) error {
 		return fmt.Errorf("MFA challenge not found")
 	}
 	var attempts int
-	if err := s.db.QueryRow("SELECT mfa_attempts FROM sessions WHERE token=?", sessionKey(token)).Scan(&attempts); err != nil {
+	if err := s.dbQueryRow("SELECT mfa_attempts FROM sessions WHERE token=?", sessionKey(token)).Scan(&attempts); err != nil {
 		return err
 	}
 	if attempts >= maxAttempts {
@@ -3809,7 +3845,7 @@ func (s *Store) RecordPendingMFAFailure(token string, maxAttempts int) error {
 }
 
 func (s *Store) ActivateMFASession(token string, expiresAt time.Time) error {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE sessions
 		    SET auth_state='active', mfa_attempts=0, expires_at=?
 		  WHERE token=? AND auth_state='pending_mfa' AND revoked_at IS NULL`,
@@ -3847,7 +3883,7 @@ func parseTime(s string) (time.Time, error) {
 // unusable for sessionRecordRetention; until then they remain evidence.
 func (s *Store) DeleteExpiredSessions() {
 	cutoff := time.Now().UTC().Add(-sessionRecordRetention).Format("2006-01-02 15:04:05")
-	s.db.Exec("DELETE FROM sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)", cutoff, cutoff)
+	s.dbExec("DELETE FROM sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)", cutoff, cutoff)
 }
 
 // columnExists checks whether `col` is present on `table`. Used by
@@ -3882,7 +3918,7 @@ func (s *Store) migrateProjectTemplateStorage() error {
 	if columnExists(s.db, "presets", "project_id") {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -3935,7 +3971,7 @@ func (s *Store) CreateChannel(userID, instanceID int64, chType, name, encryptedC
 	if len(projectID) > 0 {
 		pid = projectID[0]
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		"INSERT INTO channels (user_id, agent_id, type, name, encrypted_config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
 		userID, instanceID, chType, name, encryptedConfig, pid,
 	)
@@ -3947,7 +3983,7 @@ func (s *Store) CreateChannel(userID, instanceID int64, chType, name, encryptedC
 }
 
 func (s *Store) ListChannels(instanceID int64) ([]ChannelRecord, error) {
-	rows, err := s.db.Query("SELECT id, user_id, agent_id, COALESCE(project_id,''), type, name, status, created_at FROM channels WHERE agent_id = ? AND status = 'active'", instanceID)
+	rows, err := s.dbQuery("SELECT id, user_id, agent_id, COALESCE(project_id,''), type, name, status, created_at FROM channels WHERE agent_id = ? AND status = 'active'", instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -3963,7 +3999,7 @@ func (s *Store) ListChannels(instanceID int64) ([]ChannelRecord, error) {
 
 // ListChannelsByProject returns all channels for a project (including project-level ones with agent_id=0).
 func (s *Store) ListChannelsByProject(projectID string, chType string) ([]ChannelRecord, error) {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		"SELECT id, user_id, agent_id, COALESCE(project_id,''), type, name, encrypted_config, status, created_at FROM channels WHERE project_id = ? AND type = ? AND status = 'active'",
 		projectID, chType,
 	)
@@ -3983,12 +4019,12 @@ func (s *Store) ListChannelsByProject(projectID string, chType string) ([]Channe
 
 func (s *Store) GetChannelConfig(id int64) (string, error) {
 	var enc string
-	err := s.db.QueryRow("SELECT encrypted_config FROM channels WHERE id = ?", id).Scan(&enc)
+	err := s.dbQueryRow("SELECT encrypted_config FROM channels WHERE id = ?", id).Scan(&enc)
 	return enc, err
 }
 
 func (s *Store) DeleteChannel(id int64) error {
-	_, err := s.db.Exec("DELETE FROM channels WHERE id = ?", id)
+	_, err := s.dbExec("DELETE FROM channels WHERE id = ?", id)
 	return err
 }
 
@@ -4000,7 +4036,7 @@ func (s *Store) DeleteChannel(id int64) error {
 // shouldn't break boot if the table is somehow unreachable.
 func (s *Store) GetSetting(key string) string {
 	var v string
-	err := s.db.QueryRow("SELECT value FROM server_settings WHERE key = ?", key).Scan(&v)
+	err := s.dbQueryRow("SELECT value FROM server_settings WHERE key = ?", key).Scan(&v)
 	if err != nil {
 		return ""
 	}
@@ -4011,10 +4047,10 @@ func (s *Store) GetSetting(key string) string {
 // fallback chain (env var, default) re-engages cleanly.
 func (s *Store) SetSetting(key, value string) error {
 	if value == "" {
-		_, err := s.db.Exec("DELETE FROM server_settings WHERE key = ?", key)
+		_, err := s.dbExec("DELETE FROM server_settings WHERE key = ?", key)
 		return err
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO server_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
 		key, value,
@@ -4023,14 +4059,14 @@ func (s *Store) SetSetting(key, value string) error {
 }
 
 func (s *Store) RenameAgent(id int64, name string) error {
-	_, err := s.db.Exec("UPDATE agents SET name=? WHERE id=?", name, id)
+	_, err := s.dbExec("UPDATE agents SET name=? WHERE id=?", name, id)
 	return err
 }
 
 // One query preserves project membership/admin visibility and creator-owned
 // legacy agents without N project queries or duplicate rows.
 func (s *Store) ListVisibleAgents(userID int64) ([]Agent, error) {
-	rows, err := s.db.Query(`SELECT id,user_id,name,directive,COALESCE(mode,'autonomous'), proactivity,port,pid,status,COALESCE(project_id,''),COALESCE(core_version,''),COALESCE(core_build_time,''),COALESCE(core_started_at,''),created_at FROM agents
+	rows, err := s.dbQuery(`SELECT id,user_id,name,directive,COALESCE(mode,'autonomous'), proactivity,port,pid,status,COALESCE(project_id,''),COALESCE(core_version,''),COALESCE(core_build_time,''),COALESCE(core_started_at,''),created_at FROM agents
  WHERE COALESCE(kind,'user')='user' AND (
  (COALESCE(project_id,'')='' AND user_id=?) OR
  (COALESCE(project_id,'')!='' AND (EXISTS(SELECT 1 FROM project_members m WHERE m.project_id=agents.project_id AND m.user_id=?) OR ?)))`, userID, userID, s.GetPlatformRole(userID) == PlatformAdmin)
@@ -4059,7 +4095,7 @@ func (s *Store) CompleteOnboardingWithInterface(userID int64, level string) erro
 	if level != "" && !validInterfaceLevel(level) {
 		return errors.New("invalid interface level")
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}

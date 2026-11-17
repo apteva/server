@@ -29,7 +29,7 @@ import (
 // would fall back to lowest-id and could pick up the wrong credential.
 func (s *Store) SetConnectionPrimary(userID, connID int64) error {
 	var projectID, appSlug string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT COALESCE(project_id,''), app_slug FROM connections WHERE id = ? AND user_id = ?`,
 		connID, userID,
 	).Scan(&projectID, &appSlug)
@@ -37,7 +37,7 @@ func (s *Store) SetConnectionPrimary(userID, connID int64) error {
 		return err
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -441,7 +441,7 @@ func providerUsageCredentialState(credentials map[string]string) map[string]any 
 // empty map when unset or unparseable.
 func (s *Store) GetConnectionRuntimeConfig(userID, connID int64) (map[string]any, error) {
 	var raw string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT COALESCE(runtime_config,'{}') FROM connections WHERE id = ? AND user_id = ?`,
 		connID, userID,
 	).Scan(&raw)

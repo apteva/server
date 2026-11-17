@@ -356,13 +356,13 @@ func (s *Server) handleManagedLLMChat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Store) GetConnectionRuntimeConfigAny(connID int64) string {
 	var raw string
-	_ = s.db.QueryRow(`SELECT COALESCE(runtime_config,'{}') FROM connections WHERE id=?`, connID).Scan(&raw)
+	_ = s.dbQueryRow(`SELECT COALESCE(runtime_config,'{}') FROM connections WHERE id=?`, connID).Scan(&raw)
 	return raw
 }
 
 func (s *Store) GetAgentByCoreAPIKey(key string) (*Agent, error) {
 	var agent Agent
-	err := s.db.QueryRow(`SELECT id,user_id,COALESCE(project_id,''),COALESCE(status,'stopped')
+	err := s.dbQueryRow(`SELECT id,user_id,COALESCE(project_id,''),COALESCE(status,'stopped')
 		FROM agents WHERE core_api_key=?`, key).Scan(&agent.ID, &agent.UserID, &agent.ProjectID, &agent.Status)
 	return &agent, err
 }

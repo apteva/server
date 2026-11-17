@@ -81,6 +81,12 @@ func (s *Server) authorizeAgentMCPConfig(inst *Agent, config map[string]any) err
 			}
 			continue
 		}
+		if err == nil && strings.HasPrefix(u.Path, "/mcp/devices/") {
+			if err := s.authorizeDeviceMCPConfig(inst, m, u); err != nil {
+				return err
+			}
+			continue
+		}
 		if err == nil && (u.Path == "/mcp/runtime" || strings.HasPrefix(u.Path, "/mcp/runtime/")) {
 			if err := s.authorizeRuntimeManagedMCPReference(inst, u); err != nil {
 				return err
@@ -103,6 +109,9 @@ func (s *Server) authorizeAgentMCPConfig(inst *Agent, config map[string]any) err
 		}
 		if err != nil || row == nil {
 			return fmt.Errorf("internal MCP reference %d not found", id)
+		}
+		if row.Source == deviceMCPSource {
+			return fmt.Errorf("use the device MCP capability route")
 		}
 		if _, err = s.resolveAgentMCPConfigs(inst.UserID, inst, []int64{row.ID}); err != nil {
 			return err

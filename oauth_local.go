@@ -536,7 +536,7 @@ func (s *Store) mintOAuthState(userID, connID int64, appSlug, pkceVerifier strin
 		return "", err
 	}
 	state := "st_" + hex.EncodeToString(buf)
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO oauth_states (state, user_id, connection_id, app_slug, pkce_verifier, expires_at, app_install_id, return_url, purpose)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		state, userID, connID, appSlug, pkceVerifier, time.Now().Add(ttl).UTC(), appInstallID, returnURL, purpose,
@@ -561,7 +561,7 @@ type oauthStateRow struct {
 func (s *Store) consumeOAuthState(state string) (*oauthStateRow, error) {
 	var row oauthStateRow
 	var expiresAt string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT user_id, connection_id, app_slug, COALESCE(pkce_verifier,''), expires_at,
 		        COALESCE(app_install_id,0), COALESCE(return_url,''), COALESCE(purpose,'connect')
 		 FROM oauth_states WHERE state = ?`,
@@ -570,7 +570,7 @@ func (s *Store) consumeOAuthState(state string) (*oauthStateRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.db.Exec("DELETE FROM oauth_states WHERE state = ?", state)
+	s.dbExec("DELETE FROM oauth_states WHERE state = ?", state)
 	if t, err := parseTime(expiresAt); err == nil && time.Now().After(t) {
 		row.Expired = true
 	}

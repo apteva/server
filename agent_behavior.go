@@ -84,7 +84,7 @@ type agentBehaviorState struct {
 
 func (s *Store) agentBehaviorState(id int64) (agentBehaviorState, error) {
 	var state agentBehaviorState
-	err := s.db.QueryRow(`SELECT revision,main_revision,applied_revision,version,last_error FROM agent_behavior_state WHERE agent_id=?`, id).Scan(&state.Revision, &state.MainRevision, &state.AppliedRevision, &state.Version, &state.Error)
+	err := s.dbQueryRow(`SELECT revision,main_revision,applied_revision,version,last_error FROM agent_behavior_state WHERE agent_id=?`, id).Scan(&state.Revision, &state.MainRevision, &state.AppliedRevision, &state.Version, &state.Error)
 	state.Pending = state.Version != behaviorVersion || state.AppliedRevision < state.Revision
 	return state, err
 }
@@ -155,7 +155,7 @@ func applyBehaviorToSavedWorkers(cfg map[string]any, mode string, proactivity ..
 func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port int) (err error) {
 	defer func() {
 		if err != nil {
-			_, _ = s.store.db.Exec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, err.Error(), inst.ID)
+			_, _ = s.store.dbExec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, err.Error(), inst.ID)
 		}
 	}()
 	state, err := s.store.agentBehaviorState(inst.ID)
@@ -178,7 +178,7 @@ func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port i
 		return err
 	}
 	// Even an already composed legacy row needs a first reconciliation.
-	if _, err = s.store.db.Exec(`UPDATE agent_behavior_state SET revision=revision+1,version=? WHERE agent_id=? AND version<>?`, behaviorVersion, inst.ID, behaviorVersion); err != nil {
+	if _, err = s.store.dbExec(`UPDATE agent_behavior_state SET revision=revision+1,version=? WHERE agent_id=? AND version<>?`, behaviorVersion, inst.ID, behaviorVersion); err != nil {
 		return err
 	}
 	state, err = s.store.agentBehaviorState(inst.ID)
@@ -207,14 +207,14 @@ func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port i
 				return err
 			}
 		}
-		if _, err = s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision); err != nil {
+		if _, err = s.store.dbExec(`UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision); err != nil {
 			return err
 		}
 		if err = s.applyBehaviorToLiveWorkers(ctx, inst); err != nil {
 			return err
 		}
 	}
-	_, err = s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=?,applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, state.Revision, inst.ID, state.Revision)
+	_, err = s.store.dbExec(`UPDATE agent_behavior_state SET main_revision=?,applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, state.Revision, inst.ID, state.Revision)
 	return err
 }
 
@@ -290,7 +290,7 @@ func (s *Server) writeBehaviorResponse(w http.ResponseWriter, resp *http.Respons
 // real-time event path. Startup/reattach use the same reconciliation directly.
 func (s *Server) runAgentBehaviorReconciler(ctx context.Context) {
 	run := func() {
-		rows, err := s.store.db.Query(`SELECT agent_id FROM agent_behavior_state WHERE version<>? OR applied_revision<revision ORDER BY agent_id`, behaviorVersion)
+		rows, err := s.store.dbQuery(`SELECT agent_id FROM agent_behavior_state WHERE version<>? OR applied_revision<revision ORDER BY agent_id`, behaviorVersion)
 		if err != nil {
 			log.Printf("[BEHAVIOR] scan: %v", err)
 			return
